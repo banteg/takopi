@@ -23,12 +23,7 @@ def one_line(text: str) -> str:
 
 
 def truncate(text: str, max_len: int) -> str:
-    text = one_line(text)
-    if len(text) <= max_len:
-        return text
-    if max_len <= len(ELLIPSIS):
-        return text[:max_len]
-    return text[: max_len - len(ELLIPSIS)] + ELLIPSIS
+    return one_line(text)[:max_len]
 
 
 def inline_code(text: str) -> str:
