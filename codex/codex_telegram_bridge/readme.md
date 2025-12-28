@@ -24,6 +24,8 @@ export BRIDGE_DB="./bridge_routes.sqlite3"
 export CODEX_CMD="codex"
 export CODEX_WORKSPACE="/path/to/repo"
 export CODEX_EXEC_ARGS="--full-auto"
+export STARTUP_CHAT_IDS="123456789"  # optional; defaults to ALLOWED_CHAT_IDS if set
+export STARTUP_MESSAGE="✅ exec_bridge started (codex exec)."  # optional; PWD is appended
 uv run exec_bridge.py
 ```
 
