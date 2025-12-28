@@ -23,7 +23,7 @@ chat_id = 123456789
 
 Optional keys:
 
-- exec/resume: `codex_cmd`, `codex_workspace`, `codex_exec_args`, `max_workers`
+- exec/resume: `codex_workspace`, `codex_exec_args`, `max_workers`
 
 ## Option 1: exec/resume
 

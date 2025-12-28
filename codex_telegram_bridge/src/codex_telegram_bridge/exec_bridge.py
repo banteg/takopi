@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -368,7 +369,9 @@ def run(
     startup_pwd = os.getcwd()
     startup_msg = f"codex exec bridge has started\npwd: {startup_pwd}"
 
-    codex_cmd = config.get("codex_cmd", "codex")
+    codex_cmd = shutil.which("codex")
+    if not codex_cmd:
+        raise RuntimeError("codex not found on PATH")
     workspace = workdir if workdir is not None else config.get("codex_workspace")
     raw_exec_args = config.get("codex_exec_args", "")
     if isinstance(raw_exec_args, list):
