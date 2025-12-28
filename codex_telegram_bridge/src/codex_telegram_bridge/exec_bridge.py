@@ -60,29 +60,34 @@ class ProgressEditor:
         self.edit_every_s = edit_every_s
 
         self._lock = threading.Lock()
-        self._pending: Optional[str] = None
-        self._last_sent: Optional[str] = None
+        self._pending: Optional[tuple[str, Optional[list[dict[str, Any]]]]] = None
+        self._last_sent: Optional[tuple[str, Optional[list[dict[str, Any]]]]] = None
         self._last_edit_at = 0.0
 
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def set(self, text: str) -> None:
+    def set(self, text: str, entities: Optional[list[dict[str, Any]]] = None) -> None:
         text = _clamp_tg_text(text)
         with self._lock:
-            self._pending = text
+            self._pending = (text, entities)
+
+    def set_markdown(self, text: str) -> None:
+        rendered_text, entities = render_markdown(text)
+        self.set(rendered_text, entities or None)
 
     def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=1.0)
 
-    def _edit(self, text: str) -> None:
+    def _edit(self, text: str, entities: Optional[list[dict[str, Any]]]) -> None:
         try:
             self.bot.edit_message_text(
                 chat_id=self.chat_id,
                 message_id=self.message_id,
                 text=text,
+                entities=entities,
             )
         except Exception as e:
             log(
@@ -92,7 +97,7 @@ class ProgressEditor:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            to_send: Optional[str] = None
+            to_send: Optional[tuple[str, Optional[list[dict[str, Any]]]]] = None
             now = time.monotonic()
             with self._lock:
                 if self._pending is not None and (now - self._last_edit_at) >= self.edit_every_s:
@@ -103,7 +108,7 @@ class ProgressEditor:
                     self._pending = None
 
             if to_send is not None:
-                self._edit(to_send)
+                self._edit(to_send[0], to_send[1])
 
             self._stop.wait(0.2)
 
@@ -358,12 +363,19 @@ def run(
         )
         typing_thread.start()
 
+        started_at = time.monotonic()
+        session_box: dict[str, Optional[str]] = {"id": resume_session}
+        progress_renderer = ExecProgressRenderer(max_actions=5)
+
         progress_id: Optional[int] = None
         progress: Optional[ProgressEditor] = None
         try:
+            initial_text = progress_renderer.render_progress(0.0)
+            initial_rendered, initial_entities = render_markdown(initial_text)
             progress_msg = bot.send_message(
                 chat_id=chat_id,
-                text="Working...",
+                text=initial_rendered,
+                entities=initial_entities or None,
                 reply_to_message_id=user_msg_id,
                 disable_notification=silent_progress,
             )
@@ -373,10 +385,6 @@ def run(
 
         if progress_id is not None:
             progress = ProgressEditor(bot, chat_id, progress_id, edit_every_s)
-
-        started_at = time.monotonic()
-        session_box: dict[str, Optional[str]] = {"id": resume_session}
-        progress_renderer = ExecProgressRenderer(max_lines=4)
 
         def on_event(evt: Dict[str, Any]) -> None:
             event_type = evt.get("type")
@@ -392,15 +400,10 @@ def run(
                             thread_id,
                             meta={"workspace": workspace},
                         )
-            line = progress_renderer.note_event(evt)
-            if line and progress is not None:
-                elapsed = int(time.monotonic() - started_at)
-                session_id = session_box["id"]
-                header = f"Working... ({elapsed}s)"
-                if session_id:
-                    header += f"\nSession: {session_id}"
-                msg = progress_renderer.render(header)
-                progress.set(msg)
+            if progress_renderer.note_event(evt) and progress is not None:
+                elapsed = time.monotonic() - started_at
+                msg = progress_renderer.render_progress(elapsed)
+                progress.set_markdown(msg)
 
         def _stop_background() -> None:
             typing_stop.set()
@@ -443,13 +446,15 @@ def run(
         _stop_background()
 
         answer = answer or "(No agent_message captured from JSON stream.)"
-        final_text, final_entities = render_markdown(answer)
+        elapsed = time.monotonic() - started_at
+        final_md = progress_renderer.render_final(elapsed, answer)
+        final_text, final_entities = render_markdown(final_md)
         can_edit_final = progress_id is not None and len(final_text) <= TELEGRAM_TEXT_LIMIT
 
         if loud_final or not can_edit_final:
             sent_msgs = bot.send_message_markdown_chunked(
                 chat_id=chat_id,
-                text=answer,
+                text=final_md,
                 reply_to_message_id=user_msg_id,
             )
             for m in sent_msgs:
