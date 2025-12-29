@@ -13,7 +13,6 @@ import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from html import unescape
 from logging.handlers import RotatingFileHandler
 from typing import Any
 
@@ -22,7 +21,7 @@ import typer
 from .config import load_telegram_config
 from .constants import TELEGRAM_HARD_LIMIT
 from .exec_render import ExecProgressRenderer, render_event_cli
-from .rendering import render_to_html, strip_tags
+from .rendering import render_markdown
 from .telegram_client import TelegramClient
 
 logger = logging.getLogger("exec_bridge")
@@ -89,6 +88,45 @@ def _clamp_tg_text(text: str, limit: int = TELEGRAM_TEXT_LIMIT) -> str:
     return text[: limit - 20] + "\n...(truncated)"
 
 
+def truncate_for_telegram(text: str, limit: int) -> str:
+    """
+    Truncate text to fit Telegram limits while preserving the trailing `resume: ...`
+    line (if present), otherwise preserving the last non-empty line.
+    """
+    if len(text) <= limit:
+        return text
+
+    lines = text.splitlines()
+
+    tail_lines: list[str] | None = None
+    is_resume_tail = False
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i]
+        if "resume" in line and UUID_PATTERN.search(line):
+            tail_lines = lines[i:]
+            is_resume_tail = True
+            break
+
+    if tail_lines is None:
+        for i in range(len(lines) - 1, -1, -1):
+            if lines[i].strip():
+                tail_lines = [lines[i]]
+                break
+
+    tail = "\n".join(tail_lines or []).strip("\n")
+    sep = "\n…\n"
+
+    max_tail = limit if is_resume_tail else (limit // 4)
+    tail = tail[-max_tail:] if max_tail > 0 else ""
+
+    head_budget = limit - len(sep) - len(tail)
+    if head_budget <= 0:
+        return tail[-limit:] if tail else text[:limit]
+
+    head = text[:head_budget].rstrip()
+    return (head + sep + tail)[:limit]
+
+
 async def _send_markdown(
     bot: TelegramClient,
     *,
@@ -97,24 +135,15 @@ async def _send_markdown(
     reply_to_message_id: int | None = None,
     disable_notification: bool = False,
 ) -> dict[str, Any]:
-    md = text
-    if len(md) > TELEGRAM_MARKDOWN_LIMIT:
-        md = md[: TELEGRAM_MARKDOWN_LIMIT - 20] + "\n…(truncated)"
-
-    rendered = render_to_html(md)
-    if len(rendered) > TELEGRAM_TEXT_LIMIT:
-        plain = _clamp_tg_text(unescape(strip_tags(rendered)))
-        return await bot.send_message(
-            chat_id=chat_id,
-            text=plain,
-            reply_to_message_id=reply_to_message_id,
-            disable_notification=disable_notification,
-        )
+    rendered, entities = render_markdown(text)
+    if len(rendered) > TELEGRAM_MARKDOWN_LIMIT:
+        rendered = truncate_for_telegram(rendered, TELEGRAM_MARKDOWN_LIMIT)
+        entities = []
 
     return await bot.send_message(
         chat_id=chat_id,
         text=rendered,
-        parse_mode="HTML",
+        entities=entities or None,
         reply_to_message_id=reply_to_message_id,
         disable_notification=disable_notification,
     )
@@ -382,17 +411,16 @@ async def _handle_message(
     async def _edit_progress(md: str) -> None:
         if progress_id is None:
             return
-        parse_mode: str | None = "HTML"
-        rendered = render_to_html(md)
+        rendered, entities = render_markdown(md)
         if len(rendered) > TELEGRAM_TEXT_LIMIT:
-            rendered = _clamp_tg_text(unescape(strip_tags(rendered)))
-            parse_mode = None
+            rendered = truncate_for_telegram(rendered, TELEGRAM_TEXT_LIMIT)
+            entities = []
         try:
             await cfg.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=progress_id,
                 text=rendered,
-                parse_mode=parse_mode,
+                entities=entities or None,
             )
         except Exception as e:
             logger.info(
@@ -404,11 +432,14 @@ async def _handle_message(
 
     try:
         initial_md = progress_renderer.render_progress(0.0)
-        initial_rendered = render_to_html(initial_md)
+        initial_rendered, initial_entities = render_markdown(initial_md)
+        if len(initial_rendered) > TELEGRAM_TEXT_LIMIT:
+            initial_rendered = truncate_for_telegram(initial_rendered, TELEGRAM_TEXT_LIMIT)
+            initial_entities = []
         progress_msg = await cfg.bot.send_message(
             chat_id=chat_id,
             text=initial_rendered,
-            parse_mode="HTML",
+            entities=initial_entities or None,
             reply_to_message_id=user_msg_id,
             disable_notification=cfg.progress_silent,
         )
@@ -474,7 +505,7 @@ async def _handle_message(
         progress_renderer.render_final(elapsed, answer, status=status)
         + f"\n\nresume: `{session_id}`"
     )
-    final_rendered = render_to_html(final_md)
+    final_rendered, final_entities = render_markdown(final_md)
     can_edit_final = progress_id is not None and len(final_rendered) <= TELEGRAM_TEXT_LIMIT
 
     if cfg.final_notify or not can_edit_final:
@@ -483,7 +514,7 @@ async def _handle_message(
             chat_id=chat_id,
             text=final_md,
             reply_to_message_id=user_msg_id,
-            disable_notification=cfg.progress_silent,
+            disable_notification=False,
         )
         if progress_id is not None:
             try:
@@ -495,7 +526,7 @@ async def _handle_message(
             chat_id=chat_id,
             message_id=progress_id,
             text=final_rendered,
-            parse_mode="HTML",
+            entities=final_entities or None,
         )
 
 
