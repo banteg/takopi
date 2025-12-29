@@ -13,6 +13,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
+from weakref import WeakValueDictionary
 
 import typer
 
@@ -154,16 +155,16 @@ class CodexExecRunner:
         self.extra_args = extra_args
 
         # Per-session locks to prevent concurrent resumes to the same session_id.
-        self._session_locks: dict[str, asyncio.Lock] = {}
-        self._locks_guard = asyncio.Lock()
+        self._session_locks: WeakValueDictionary[str, asyncio.Lock] = (
+            WeakValueDictionary()
+        )
 
     async def _lock_for(self, session_id: str) -> asyncio.Lock:
-        async with self._locks_guard:
-            lock = self._session_locks.get(session_id)
-            if lock is None:
-                lock = asyncio.Lock()
-                self._session_locks[session_id] = lock
-            return lock
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_id] = lock
+        return lock
 
     async def run(
         self,
