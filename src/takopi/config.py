@@ -10,6 +10,12 @@ class ConfigError(RuntimeError):
     pass
 
 
+_EXAMPLE_CONFIG = (
+    'bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"\n'
+    "chat_id = 123456789\n"
+)
+
+
 def _display_path(path: Path) -> str:
     try:
         cwd = Path.cwd()
@@ -24,9 +30,20 @@ def _display_path(path: Path) -> str:
 
 
 def _missing_config_message(primary: Path, alternate: Path | None = None) -> str:
+    example = "Example config:\n```\n" + _EXAMPLE_CONFIG + "```\n"
     if alternate is None:
-        return f"Missing config file `{_display_path(primary)}`."
-    return "Missing takopi config. See readme.md for setup."
+        return (
+            f"Missing config file `{_display_path(primary)}`.\n"
+            f"{example}"
+        )
+    return (
+        "Missing takopi config.\n"
+        "Create one of these files:\n"
+        f"  {_display_path(alternate)}\n"
+        f"  {_display_path(primary)}\n"
+        "\n"
+        f"{example}"
+    )
 
 
 def _config_candidates(base_dir: Path | None) -> list[Path]:

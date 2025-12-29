@@ -32,7 +32,7 @@ uv run takopi --help
 
 ### Configuration
 
-Create `~/.codex/takopi.toml` (or `./codex/takopi.toml` for a repo-local config):
+Create `~/.codex/takopi.toml` (or `./.codex/takopi.toml` for a repo-local config):
 
 ```toml
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
@@ -46,7 +46,7 @@ chat_id = 123456789
 
 The bridge only accepts messages where the chat ID equals the sender ID and both match `chat_id` (i.e., private chat with that user).
 
-When you pass `--cd`, Takopi looks for `codex/takopi.toml` under that directory first.
+When you pass `--cd`, Takopi looks for `.codex/takopi.toml` under that directory first.
 
 ### Codex Profile (Optional)
 
