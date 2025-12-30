@@ -424,12 +424,38 @@ class CodexExecRunner:
         session_id: str | None,
         on_event: EventCallback | None = None,
     ) -> tuple[str, str, bool]:
-        if not session_id:
-            async with self._new_session_lock:
-                return await self.run(prompt, session_id=None, on_event=on_event)
-        lock = await self._lock_for(session_id)
-        async with lock:
-            return await self.run(prompt, session_id=session_id, on_event=on_event)
+        if session_id:
+            lock = await self._lock_for(session_id)
+            async with lock:
+                return await self.run(prompt, session_id=session_id, on_event=on_event)
+
+        await self._new_session_lock.acquire()
+        new_session_lock_held = True
+        session_lock: anyio.Lock | None = None
+
+        async def on_event_with_lock(evt: dict[str, Any]) -> None:
+            nonlocal new_session_lock_held, session_lock
+            if session_lock is None and evt.get("type") == "thread.started":
+                thread_id = evt.get("thread_id")
+                if isinstance(thread_id, str) and thread_id:
+                    session_lock = await self._lock_for(thread_id)
+                    await session_lock.acquire()
+                    if new_session_lock_held:
+                        self._new_session_lock.release()
+                        new_session_lock_held = False
+            if on_event is None:
+                return
+            res = on_event(evt)
+            if inspect.isawaitable(res):
+                await res
+
+        try:
+            return await self.run(prompt, session_id=None, on_event=on_event_with_lock)
+        finally:
+            if session_lock is not None:
+                session_lock.release()
+            if new_session_lock_held:
+                self._new_session_lock.release()
 
 
 @dataclass(frozen=True)
@@ -440,6 +466,13 @@ class BridgeConfig:
     final_notify: bool
     startup_msg: str
     max_concurrency: int
+
+
+@dataclass
+class RunningTask:
+    scope: anyio.CancelScope
+    session_ready: anyio.Event
+    session_id: str | None = None
 
 
 def _parse_bridge_config(
@@ -527,7 +560,7 @@ async def handle_message(
     user_msg_id: int,
     text: str,
     resume_session: str | None,
-    running_tasks: dict[int, anyio.CancelScope] | None = None,
+    running_tasks: dict[int, RunningTask] | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
@@ -591,10 +624,24 @@ async def handle_message(
     session_id: str | None = None
     answer: str | None = None
     saw_agent_message: bool | None = None
+    running_task: RunningTask | None = None
     if running_tasks is not None and progress_id is not None:
-        running_tasks[progress_id] = exec_scope
+        running_task = RunningTask(scope=exec_scope, session_ready=anyio.Event())
+        running_tasks[progress_id] = running_task
+        if resume_session is not None:
+            running_task.session_id = resume_session
+            running_task.session_ready.set()
 
     async def on_event(evt: dict[str, Any]) -> None:
+        if (
+            running_task is not None
+            and running_task.session_id is None
+            and evt.get("type") == "thread.started"
+        ):
+            thread_id = evt.get("thread_id")
+            if isinstance(thread_id, str) and thread_id:
+                running_task.session_id = thread_id
+                running_task.session_ready.set()
         await edits.on_event(evt)
 
     async with anyio.create_task_group() as tg:
@@ -612,8 +659,11 @@ async def handle_message(
         except Exception as e:
             error = e
         finally:
-            if running_tasks is not None and progress_id is not None:
-                running_tasks.pop(progress_id, None)
+            if running_task is not None:
+                if not running_task.session_ready.is_set():
+                    running_task.session_ready.set()
+                if running_tasks is not None and progress_id is not None:
+                    running_tasks.pop(progress_id, None)
             if (
                 exec_scope.cancel_called
                 and not cancelled
@@ -732,7 +782,7 @@ async def poll_updates(cfg: BridgeConfig):
 async def _handle_cancel(
     cfg: BridgeConfig,
     msg: dict[str, Any],
-    running_tasks: dict[int, anyio.CancelScope],
+    running_tasks: dict[int, RunningTask],
 ) -> None:
     chat_id = msg["chat"]["id"]
     user_msg_id = msg["message_id"]
@@ -755,8 +805,8 @@ async def _handle_cancel(
         )
         return
 
-    task = running_tasks.get(int(progress_id))
-    if task is None:
+    running_task = running_tasks.get(int(progress_id))
+    if running_task is None:
         await cfg.bot.send_message(
             chat_id=chat_id,
             text="nothing is currently running for that message.",
@@ -765,7 +815,22 @@ async def _handle_cancel(
         return
 
     logger.info("[cancel] cancelling progress_message_id=%s", progress_id)
-    task.cancel()
+    running_task.scope.cancel()
+
+
+async def _await_resume_session(
+    *,
+    resume_session: str | None,
+    reply_to_message_id: int | None,
+    running_tasks: dict[int, RunningTask],
+) -> str | None:
+    if resume_session is not None or reply_to_message_id is None:
+        return resume_session
+    running_task = running_tasks.get(int(reply_to_message_id))
+    if running_task is None:
+        return None
+    await running_task.session_ready.wait()
+    return running_task.session_id or resume_session
 
 
 async def _run_main_loop(cfg: BridgeConfig) -> None:
@@ -773,12 +838,23 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
     send_stream, receive_stream = anyio.create_memory_object_stream(
         max_buffer_size=worker_count * 2
     )
-    running_tasks: dict[int, anyio.CancelScope] = {}
+    running_tasks: dict[int, RunningTask] = {}
 
     async def worker() -> None:
         while True:
-            chat_id, user_msg_id, text, resume_session = await receive_stream.receive()
+            (
+                chat_id,
+                user_msg_id,
+                text,
+                resume_session,
+                reply_to_message_id,
+            ) = await receive_stream.receive()
             try:
+                resume_session = await _await_resume_session(
+                    resume_session=resume_session,
+                    reply_to_message_id=reply_to_message_id,
+                    running_tasks=running_tasks,
+                )
                 await handle_message(
                     cfg,
                     chat_id=chat_id,
@@ -803,10 +879,17 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
                     continue
 
                 r = msg.get("reply_to_message") or {}
+                reply_to_message_id = r.get("message_id")
                 resume_session = resolve_resume_session(text, r.get("text"))
 
                 await send_stream.send(
-                    (msg["chat"]["id"], user_msg_id, text, resume_session)
+                    (
+                        msg["chat"]["id"],
+                        user_msg_id,
+                        text,
+                        resume_session,
+                        reply_to_message_id,
+                    )
                 )
     finally:
         await send_stream.aclose()
