@@ -581,6 +581,7 @@ async def _handle_message(
             await asyncio.gather(edit_task, return_exceptions=True)
 
         elapsed = clock() - started_at
+        logger.info("[handle] cancelled session_id=%s elapsed=%.1fs", session_id, elapsed)
         progress_renderer.resume_session = session_id
         final_md = progress_renderer.render_final(
             elapsed, "cancelled by user.", status="cancelled"
@@ -703,6 +704,7 @@ async def _handle_cancel(
         )
         return
 
+    logger.info("[cancel] cancelling session_id=%s", session_id)
     task.cancel()
 
 
