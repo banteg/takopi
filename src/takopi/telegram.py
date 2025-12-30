@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -13,67 +11,73 @@ logger = logging.getLogger(__name__)
 logger.addFilter(RedactTokenFilter())
 
 
-class TelegramAPIError(RuntimeError):
-    def __init__(
-        self, method: str, payload: dict[str, Any], status_code: int | None
-    ) -> None:
-        desc = payload.get("description") or str(payload)
-        super().__init__(f"{method} failed: {desc}")
-        self.payload = payload
-        self.status_code = status_code
-
-
 class TelegramClient:
     def __init__(
         self,
         token: str,
         timeout_s: float = 120,
         client: httpx.AsyncClient | None = None,
-        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         if not token:
             raise ValueError("Telegram token is empty")
         self._base = f"https://api.telegram.org/bot{token}"
         self._client = client or httpx.AsyncClient(timeout=timeout_s)
         self._owns_client = client is None
-        self._sleep = sleep
 
     async def close(self) -> None:
         if self._owns_client:
             await self._client.aclose()
 
-    async def _post(self, method: str, json_data: dict[str, Any]) -> Any:
+    async def _post(self, method: str, json_data: dict[str, Any]) -> Any | None:
+        logger.debug("[telegram] request %s: %s", method, json_data)
         try:
-            logger.debug("[telegram] request %s: %s", method, json_data)
             resp = await self._client.post(f"{self._base}/{method}", json=json_data)
-            payload: dict[str, Any] | None = None
-            try:
-                payload = resp.json()
-            except Exception:
-                resp.raise_for_status()
-                raise
-            if not payload.get("ok"):
-                params = payload.get("parameters") or {}
-                retry_after = params.get("retry_after")
-                if resp.status_code == 429 and isinstance(retry_after, int):
-                    logger.warning(
-                        "[telegram] 429 retry_after=%s method=%s", retry_after, method
-                    )
-                    await self._sleep(retry_after)
-                    return await self._post(method, json_data)
-                raise TelegramAPIError(method, payload, resp.status_code)
-            logger.debug("[telegram] response %s: %s", method, payload)
-            return payload["result"]
         except httpx.HTTPError as e:
-            logger.error("Telegram network error: %s", e)
-            raise
+            url = getattr(e.request, "url", None)
+            logger.error(
+                "[telegram] network error method=%s url=%s: %s", method, url, e
+            )
+            return None
+
+        try:
+            payload = resp.json()
+        except Exception as e:
+            logger.error(
+                "[telegram] bad response method=%s status=%s url=%s: %s",
+                method,
+                resp.status_code,
+                resp.request.url,
+                e,
+            )
+            return None
+
+        if not isinstance(payload, dict):
+            logger.error(
+                "[telegram] invalid response method=%s url=%s: %r",
+                method,
+                resp.request.url,
+                payload,
+            )
+            return None
+
+        if not payload.get("ok"):
+            logger.error(
+                "[telegram] api error method=%s url=%s: %s",
+                method,
+                resp.request.url,
+                payload,
+            )
+            return None
+
+        logger.debug("[telegram] response %s: %s", method, payload)
+        return payload.get("result")
 
     async def get_updates(
         self,
         offset: int | None,
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
-    ) -> list[dict]:
+    ) -> list[dict] | None:
         params: dict[str, Any] = {"timeout": timeout_s}
         if offset is not None:
             params["offset"] = offset
@@ -89,7 +93,7 @@ class TelegramClient:
         disable_notification: bool | None = False,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
-    ) -> dict:
+    ) -> dict | None:
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "text": text,
@@ -111,7 +115,7 @@ class TelegramClient:
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
-    ) -> dict:
+    ) -> dict | None:
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,

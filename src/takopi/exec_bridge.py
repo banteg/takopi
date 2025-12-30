@@ -155,26 +155,17 @@ async def _send_or_edit_markdown(
     reply_to_message_id: int | None = None,
     disable_notification: bool = False,
     limit: int = TELEGRAM_MARKDOWN_LIMIT,
-) -> tuple[dict[str, Any], bool]:
+) -> tuple[dict[str, Any] | None, bool]:
     if edit_message_id is not None:
         rendered, entities = prepare_telegram(text, limit=limit)
-        try:
-            return (
-                await bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=edit_message_id,
-                    text=rendered,
-                    entities=entities,
-                ),
-                True,
-            )
-        except Exception as e:
-            logger.info(
-                "[tg] edit failed chat_id=%s message_id=%s: %s",
-                chat_id,
-                edit_message_id,
-                e,
-            )
+        edited = await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=edit_message_id,
+            text=rendered,
+            entities=entities,
+        )
+        if edited is not None:
+            return (edited, True)
 
     rendered, entities = prepare_telegram(text, limit=limit)
     return (
@@ -249,21 +240,14 @@ class ProgressEdits:
                         "[progress] edit message_id=%s md=%s", self.progress_id, md
                     )
                     self.last_edit_at = now
-                    try:
-                        await self.bot.edit_message_text(
-                            chat_id=self.chat_id,
-                            message_id=self.progress_id,
-                            text=rendered,
-                            entities=entities,
-                        )
+                    edited = await self.bot.edit_message_text(
+                        chat_id=self.chat_id,
+                        message_id=self.progress_id,
+                        text=rendered,
+                        entities=entities,
+                    )
+                    if edited is not None:
                         self.last_rendered = rendered
-                    except Exception as e:
-                        logger.info(
-                            "[progress] edit failed chat_id=%s message_id=%s: %s",
-                            self.chat_id,
-                            self.progress_id,
-                            e,
-                        )
 
                 self._published_seq = seq_at_render
             self.wakeup.clear()
@@ -493,25 +477,20 @@ def _parse_bridge_config(
 
 
 async def _send_startup(cfg: BridgeConfig) -> None:
-    try:
-        logger.debug("[startup] message: %s", cfg.startup_msg)
-        await cfg.bot.send_message(chat_id=cfg.chat_id, text=cfg.startup_msg)
+    logger.debug("[startup] message: %s", cfg.startup_msg)
+    sent = await cfg.bot.send_message(chat_id=cfg.chat_id, text=cfg.startup_msg)
+    if sent is not None:
         logger.info("[startup] sent startup message to chat_id=%s", cfg.chat_id)
-    except Exception as e:
-        logger.info(
-            "[startup] failed to send startup message to chat_id=%s: %s", cfg.chat_id, e
-        )
 
 
 async def _drain_backlog(cfg: BridgeConfig, offset: int | None) -> int | None:
     drained = 0
     while True:
-        try:
-            updates = await cfg.bot.get_updates(
-                offset=offset, timeout_s=0, allowed_updates=["message"]
-            )
-        except Exception as e:
-            logger.info("[startup] backlog drain failed: %s", e)
+        updates = await cfg.bot.get_updates(
+            offset=offset, timeout_s=0, allowed_updates=["message"]
+        )
+        if updates is None:
+            logger.info("[startup] backlog drain failed")
             return offset
         logger.debug("[startup] backlog updates: %s", updates)
         if not updates:
@@ -548,33 +527,29 @@ async def handle_message(
     last_edit_at = 0.0
     last_rendered: str | None = None
 
-    try:
-        initial_md = progress_renderer.render_progress(0.0)
-        initial_rendered, initial_entities = prepare_telegram(
-            initial_md, limit=TELEGRAM_MARKDOWN_LIMIT
-        )
-        logger.debug(
-            "[progress] send reply_to=%s md=%s rendered=%s entities=%s",
-            user_msg_id,
-            initial_md,
-            initial_rendered,
-            initial_entities,
-        )
-        progress_msg = await cfg.bot.send_message(
-            chat_id=chat_id,
-            text=initial_rendered,
-            entities=initial_entities,
-            reply_to_message_id=user_msg_id,
-            disable_notification=True,
-        )
+    initial_md = progress_renderer.render_progress(0.0)
+    initial_rendered, initial_entities = prepare_telegram(
+        initial_md, limit=TELEGRAM_MARKDOWN_LIMIT
+    )
+    logger.debug(
+        "[progress] send reply_to=%s md=%s rendered=%s entities=%s",
+        user_msg_id,
+        initial_md,
+        initial_rendered,
+        initial_entities,
+    )
+    progress_msg = await cfg.bot.send_message(
+        chat_id=chat_id,
+        text=initial_rendered,
+        entities=initial_entities,
+        reply_to_message_id=user_msg_id,
+        disable_notification=True,
+    )
+    if progress_msg is not None:
         progress_id = int(progress_msg["message_id"])
         last_edit_at = clock()
         last_rendered = initial_rendered
         logger.debug("[progress] sent chat_id=%s message_id=%s", chat_id, progress_id)
-    except Exception as e:
-        logger.info(
-            "[handle] failed to send progress message chat_id=%s: %s", chat_id, e
-        )
 
     edits = ProgressEdits(
         bot=cfg.bot,
@@ -677,7 +652,7 @@ async def handle_message(
             final_entities,
         )
 
-    _, edited = await _send_or_edit_markdown(
+    final_msg, edited = await _send_or_edit_markdown(
         cfg.bot,
         chat_id=chat_id,
         text=final_md,
@@ -686,12 +661,11 @@ async def handle_message(
         disable_notification=False,
         limit=TELEGRAM_MARKDOWN_LIMIT,
     )
+    if final_msg is None:
+        return
     if progress_id is not None and (edit_message_id is None or not edited):
-        try:
-            logger.debug("[final] delete progress message_id=%s", progress_id)
-            await cfg.bot.delete_message(chat_id=chat_id, message_id=progress_id)
-        except Exception:
-            pass
+        logger.debug("[final] delete progress message_id=%s", progress_id)
+        await cfg.bot.delete_message(chat_id=chat_id, message_id=progress_id)
 
 
 async def poll_updates(cfg: BridgeConfig):
@@ -700,12 +674,11 @@ async def poll_updates(cfg: BridgeConfig):
     await _send_startup(cfg)
 
     while True:
-        try:
-            updates = await cfg.bot.get_updates(
-                offset=offset, timeout_s=50, allowed_updates=["message"]
-            )
-        except Exception as e:
-            logger.info("[loop] getUpdates failed: %s", e)
+        updates = await cfg.bot.get_updates(
+            offset=offset, timeout_s=50, allowed_updates=["message"]
+        )
+        if updates is None:
+            logger.info("[loop] getUpdates failed")
             await asyncio.sleep(2)
             continue
         logger.debug("[loop] updates: %s", updates)

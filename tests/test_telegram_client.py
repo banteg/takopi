@@ -8,46 +8,35 @@ from takopi.logging import RedactTokenFilter
 from takopi.telegram import TelegramClient
 
 
-def test_telegram_429_retry_after_calls_sleep() -> None:
+def test_telegram_429_no_retry() -> None:
     calls: list[int] = []
-    sleeps: list[float] = []
-
-    async def fake_sleep(seconds: float) -> None:
-        sleeps.append(seconds)
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(1)
-        if len(calls) == 1:
-            return httpx.Response(
-                429,
-                json={
-                    "ok": False,
-                    "description": "retry",
-                    "parameters": {"retry_after": 3},
-                },
-                request=request,
-            )
         return httpx.Response(
-            200,
-            json={"ok": True, "result": {"message_id": 1}},
+            429,
+            json={
+                "ok": False,
+                "description": "retry",
+                "parameters": {"retry_after": 3},
+            },
             request=request,
         )
 
     transport = httpx.MockTransport(handler)
 
-    async def run() -> dict:
+    async def run() -> dict | None:
         client = httpx.AsyncClient(transport=transport)
         try:
-            tg = TelegramClient("123:abcDEF_ghij", client=client, sleep=fake_sleep)
+            tg = TelegramClient("123:abcDEF_ghij", client=client)
             return await tg._post("sendMessage", {"chat_id": 1, "text": "hi"})
         finally:
             await client.aclose()
 
     result = asyncio.run(run())
 
-    assert result == {"message_id": 1}
-    assert sleeps == [3]
-    assert len(calls) == 2
+    assert result is None
+    assert len(calls) == 1
 
 
 def test_no_token_in_logs_on_http_error(caplog: pytest.LogCaptureFixture) -> None:
@@ -70,8 +59,7 @@ def test_no_token_in_logs_on_http_error(caplog: pytest.LogCaptureFixture) -> Non
             await client.aclose()
 
     caplog.set_level(logging.ERROR)
-    with pytest.raises(httpx.HTTPStatusError):
-        asyncio.run(run())
+    asyncio.run(run())
 
     root_logger.removeFilter(redactor)
 
