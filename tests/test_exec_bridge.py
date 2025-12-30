@@ -623,6 +623,36 @@ async def test_handle_cancel_cancels_running_task() -> None:
     assert len(bot.send_calls) == 0  # No error message sent
 
 
+@pytest.mark.anyio
+async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
+    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+
+    bot = _FakeBot()
+    runner = _FakeRunner(answer="ok")
+    cfg = BridgeConfig(
+        bot=bot,  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+    scope_first = anyio.CancelScope()
+    scope_second = anyio.CancelScope()
+    msg = {
+        "chat": {"id": 123},
+        "message_id": 10,
+        "reply_to_message": {"message_id": 1},
+    }
+    running_tasks = {1: scope_first, 2: scope_second}
+
+    await _handle_cancel(cfg, msg, running_tasks)
+
+    assert scope_first.cancel_called is True
+    assert scope_second.cancel_called is False
+    assert len(bot.send_calls) == 0
+
+
 class _FakeRunnerCancellable:
     def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
         self._session_id = session_id
