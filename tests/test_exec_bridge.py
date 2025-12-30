@@ -481,8 +481,7 @@ def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
 
 
 def test_handle_cancel_cancels_running_task() -> None:
-    from takopi.exec_bridge import BridgeConfig, RunningTask, _handle_cancel
-    from takopi.exec_render import ExecProgressRenderer
+    from takopi.exec_bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
     runner = _FakeRunner(answer="ok")
@@ -503,8 +502,7 @@ def test_handle_cancel_cancels_running_task() -> None:
 
     async def run_test():
         task = asyncio.create_task(asyncio.sleep(10))
-        renderer = ExecProgressRenderer()
-        running_tasks = {session_id: RunningTask(task, None, renderer)}
+        running_tasks = {session_id: task}
         await _handle_cancel(cfg, msg, running_tasks)
         try:
             await task
@@ -559,7 +557,7 @@ def test_handle_message_cancelled_renders_cancelled_state() -> None:
         )
         await asyncio.sleep(0.01)  # Let task start and register
         assert session_id in running_tasks
-        running_tasks[session_id].task.cancel()
+        running_tasks[session_id].cancel()
         await task
 
     asyncio.run(run_test())
