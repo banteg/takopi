@@ -295,7 +295,9 @@ class CodexExecRunner:
         self.extra_args = extra_args
 
         # Per-session locks to prevent concurrent resumes to the same session_id.
-        self._session_locks: WeakValueDictionary[str, anyio.Lock] = WeakValueDictionary()
+        self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
+            WeakValueDictionary()
+        )
 
     async def _lock_for(self, session_id: str) -> anyio.Lock:
         lock = self._session_locks.get(session_id)
@@ -616,7 +618,12 @@ async def handle_message(
                 for sid, scope in list(running_tasks.items()):
                     if scope is exec_scope:
                         running_tasks.pop(sid, None)
-            if exec_scope.cancel_called and not cancelled and error is None and answer is None:
+            if (
+                exec_scope.cancel_called
+                and not cancelled
+                and error is None
+                and answer is None
+            ):
                 cancelled = True
                 session_id = progress_renderer.resume_session or resume_session
             if not cancelled and error is None:

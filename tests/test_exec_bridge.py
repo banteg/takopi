@@ -414,9 +414,7 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
         )
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(
-            run_handle_message
-        )
+        tg.start_soon(run_handle_message)
 
         for _ in range(100):
             if clock._sleep_until is not None:
