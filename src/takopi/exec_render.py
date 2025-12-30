@@ -240,8 +240,8 @@ class ExecProgressRenderer:
         self.recent_actions.append(progress_line)
         return True
 
-    def render_progress(self, elapsed_s: float) -> str:
-        header = format_header(elapsed_s, self.last_item, label="working")
+    def render_progress(self, elapsed_s: float, label: str = "working") -> str:
+        header = format_header(elapsed_s, self.last_item, label=label)
         message = self._assemble(header, list(self.recent_actions))
         return self._append_resume(message)
 

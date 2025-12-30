@@ -21,7 +21,6 @@ from . import __version__
 from .config import ConfigError, load_telegram_config
 from .exec_render import (
     ExecProgressRenderer,
-    format_header,
     render_event_cli,
     render_markdown,
 )
@@ -595,11 +594,7 @@ async def _handle_message(
         elapsed = clock() - started_at
         logger.info("[handle] cancelled session_id=%s elapsed=%.1fs", session_id, elapsed)
         progress_renderer.resume_session = session_id
-        header = format_header(elapsed, progress_renderer.last_item, label="`cancelled`")
-        final_md = ExecProgressRenderer._assemble(
-            header, list(progress_renderer.recent_actions)
-        )
-        final_md = progress_renderer._append_resume(final_md)
+        final_md = progress_renderer.render_progress(elapsed, label="`cancelled`")
         await _send_or_edit_markdown(
             cfg.bot,
             chat_id=chat_id,
@@ -722,8 +717,7 @@ async def _handle_cancel(
     logger.info("[cancel] cancelling session_id=%s", session_id)
 
     if entry.progress_msg_id is not None:
-        cancelling_md = entry.renderer.render_progress(clock())
-        cancelling_md = cancelling_md.replace("working", "cancelling", 1)
+        cancelling_md = entry.renderer.render_progress(clock(), label="cancelling")
         try:
             await cfg.bot.edit_message_text(
                 chat_id=chat_id,
