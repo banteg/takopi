@@ -533,7 +533,6 @@ async def _handle_message(
         if not progress_renderer.note_event(evt):
             return
 
-        # Register task for cancellation when session_id becomes known
         if (
             evt.get("type") == "thread.started"
             and running_tasks is not None
@@ -596,7 +595,6 @@ async def _handle_message(
         elapsed = clock() - started_at
         logger.info("[handle] cancelled session_id=%s elapsed=%.1fs", session_id, elapsed)
         progress_renderer.resume_session = session_id
-        # Render like progress but with cancelled status (keeps action history)
         header = format_header(elapsed, progress_renderer.last_item, label="`cancelled`")
         final_md = ExecProgressRenderer._assemble(
             header, list(progress_renderer.recent_actions)
