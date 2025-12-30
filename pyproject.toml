@@ -7,6 +7,7 @@ readme = "readme.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12"
 dependencies = [
+  "anyio>=4.12.0",
   "httpx>=0.28.1",
   "markdown-it-py",
   "rich>=14.2.0",
@@ -38,6 +39,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "pytest-anyio>=0.0.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.10",
     "ty>=0.0.8",

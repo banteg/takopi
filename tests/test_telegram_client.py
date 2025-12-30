@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 import httpx
@@ -8,7 +7,8 @@ from takopi.logging import RedactTokenFilter
 from takopi.telegram import TelegramClient
 
 
-def test_telegram_429_no_retry() -> None:
+@pytest.mark.anyio
+async def test_telegram_429_no_retry() -> None:
     calls: list[int] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -25,21 +25,21 @@ def test_telegram_429_no_retry() -> None:
 
     transport = httpx.MockTransport(handler)
 
-    async def run() -> dict | None:
-        client = httpx.AsyncClient(transport=transport)
-        try:
-            tg = TelegramClient("123:abcDEF_ghij", client=client)
-            return await tg._post("sendMessage", {"chat_id": 1, "text": "hi"})
-        finally:
-            await client.aclose()
-
-    result = asyncio.run(run())
+    client = httpx.AsyncClient(transport=transport)
+    try:
+        tg = TelegramClient("123:abcDEF_ghij", client=client)
+        result = await tg._post("sendMessage", {"chat_id": 1, "text": "hi"})
+    finally:
+        await client.aclose()
 
     assert result is None
     assert len(calls) == 1
 
 
-def test_no_token_in_logs_on_http_error(caplog: pytest.LogCaptureFixture) -> None:
+@pytest.mark.anyio
+async def test_no_token_in_logs_on_http_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     token = "123:abcDEF_ghij"
     redactor = RedactTokenFilter()
     root_logger = logging.getLogger()
@@ -50,16 +50,13 @@ def test_no_token_in_logs_on_http_error(caplog: pytest.LogCaptureFixture) -> Non
 
     transport = httpx.MockTransport(handler)
 
-    async def run() -> None:
-        client = httpx.AsyncClient(transport=transport)
-        try:
-            tg = TelegramClient(token, client=client)
-            await tg._post("getUpdates", {"timeout": 1})
-        finally:
-            await client.aclose()
-
     caplog.set_level(logging.ERROR)
-    asyncio.run(run())
+    client = httpx.AsyncClient(transport=transport)
+    try:
+        tg = TelegramClient(token, client=client)
+        await tg._post("getUpdates", {"timeout": 1})
+    finally:
+        await client.aclose()
 
     root_logger.removeFilter(redactor)
 

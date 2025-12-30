@@ -1,11 +1,13 @@
-import asyncio
+import anyio
+import pytest
 
 from takopi.exec_bridge import CodexExecRunner
 
 
-def test_run_serialized_serializes_same_session() -> None:
+@pytest.mark.anyio
+async def test_run_serialized_serializes_same_session() -> None:
     runner = CodexExecRunner(codex_cmd="codex", extra_args=[])
-    gate = asyncio.Event()
+    gate = anyio.Event()
     in_flight = 0
     max_in_flight = 0
 
@@ -19,13 +21,10 @@ def test_run_serialized_serializes_same_session() -> None:
 
     runner.run = run_stub  # type: ignore[assignment]
 
-    async def run_test() -> None:
-        t1 = asyncio.create_task(runner.run_serialized("a", "sid"))
-        t2 = asyncio.create_task(runner.run_serialized("b", "sid"))
-        await asyncio.sleep(0)
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(runner.run_serialized, "a", "sid")
+        tg.start_soon(runner.run_serialized, "b", "sid")
+        await anyio.sleep(0)
         gate.set()
-        await asyncio.gather(t1, t2)
-
-    asyncio.run(run_test())
 
     assert max_in_flight == 1

@@ -44,8 +44,8 @@ The orchestrator module containing:
 
 **Key patterns:**
 - Per-session locks prevent concurrent resumes to the same `session_id`
-- Worker pool with `asyncio.Queue` limits concurrency (default: 16 workers)
-- `asyncio.TaskGroup` manages worker tasks
+- Worker pool with an AnyIO memory stream limits concurrency (default: 16 workers)
+- AnyIO task groups manage worker tasks
 - Progress edits are throttled to ~2s intervals
 - Subprocess stderr is drained to a bounded deque for error reporting
 - `poll_updates()` uses Telegram `getUpdates` long-polling with a single server-side updates
