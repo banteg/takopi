@@ -20,7 +20,7 @@ The runner is the only protocol and is responsible for:
 * subprocess / SDK invocation
 * streaming parsing and event emission
 * final answer extraction
-* cancellation/timeout enforcement
+* cancellation handling
 
 Setup checks (e.g., “is `codex` on PATH?”, “is the config valid?”) live outside the runner in onboarding/bridge code.
 
@@ -182,12 +182,7 @@ Parsing rules:
 
 **Where should parsing live?**
 
-* Put a helper in `runners/base.py` so it’s shared, not per-engine:
-
-  * `format_resume_line(token: ResumeToken) -> str`
-  * `parse_resume_from_text(text: str) -> ResumeToken | None`
-
-Then the bridge doesn’t need to know per-engine parsing rules.
+Parsing/formatting is handled inside each runner. Since runners are engine-specific, they can interpret legacy or engine-qualified resume strings directly. The base module does not define shared parse/format helpers.
 
 ---
 
@@ -245,10 +240,12 @@ Runner protocol method:
 async def run(
     self,
     prompt: str,
-    resume: ResumeToken | None,
+    resume: str | None,
     on_event: EventSink | None = None,
 ) -> tuple[ResumeToken, str, bool]
 ```
+
+`resume` is the raw resume string from the user (legacy UUID or engine-qualified). The runner interprets it and returns a `ResumeToken`.
 
 Returns `(resume_token, answer, saw_agent_message)`. Errors raise `RuntimeError`. Cancellation raises `CancelledError`.
 
@@ -333,12 +330,11 @@ Single protocol:
 * `Runner`:
 
   * `engine: EngineId`
-  * `run(prompt: str, resume: ResumeToken | None, on_event: EventSink | None) -> tuple[ResumeToken, str, bool]`
+  * `run(prompt: str, resume: str | None, on_event: EventSink | None) -> tuple[ResumeToken, str, bool]`
 
 ### Shared helpers
 
-* `parse_resume_from_text(text) -> ResumeToken | None`
-* `format_resume_line(token) -> str`
+None required in v0.2.0.
 
 ---
 
@@ -412,7 +408,7 @@ The following decisions were made through detailed discussion to clarify impleme
 * No history replay on resume. Renderer starts fresh, only new actions are tracked.
 * Resume token is emitted early via `session.started` event (not just at completion).
 * `session.started` always contains a resume token; if none is produced, the run fails.
-* Resume parsing uses the last matching resume line and requires strict formatting.
+* Resume parsing uses the last matching resume line and requires strict formatting; the runner is responsible for interpreting legacy vs engine-qualified strings.
 
 ### Error Handling & Cancellation
 
@@ -484,7 +480,7 @@ extra_args = ["-c", "notify=[]"]
 * If `on_event` fails, log and continue.
 
 **run() method:**
-* `async def run(self, prompt: str, resume: ResumeToken | None, on_event: EventSink | None = None) -> tuple[ResumeToken, str, bool]`
+* `async def run(self, prompt: str, resume: str | None, on_event: EventSink | None = None) -> tuple[ResumeToken, str, bool]`
 * Sufficient for all use cases. No separate start/poll pattern.
 
 ### Mock Engine
@@ -547,22 +543,14 @@ class Runner(Protocol):
     async def run(
         self,
         prompt: str,
-        resume: ResumeToken | None,
+        resume: str | None,
         on_event: EventSink | None = None
     ) -> tuple[ResumeToken, str, bool]: ...
 ```
 
 ### Shared Helpers
 
-```py
-def parse_resume_from_text(text: str) -> ResumeToken | None:
-    """Parse strict 'resume: `engine:value`' (or legacy 'resume: `uuid`'), using the last match."""
-    ...
-
-def format_resume_line(token: ResumeToken) -> str:
-    """Format as 'resume: `engine:value`'."""
-    ...
-```
+None required in v0.2.0.
 
 ---
 
