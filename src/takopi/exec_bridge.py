@@ -19,7 +19,12 @@ import typer
 
 from . import __version__
 from .config import ConfigError, load_telegram_config
-from .exec_render import ExecProgressRenderer, render_event_cli, render_markdown
+from .exec_render import (
+    ExecProgressRenderer,
+    format_header,
+    render_event_cli,
+    render_markdown,
+)
 from .logging import setup_logging
 from .onboarding import check_setup, render_setup_guide
 from .telegram import TelegramClient
@@ -583,9 +588,12 @@ async def _handle_message(
         elapsed = clock() - started_at
         logger.info("[handle] cancelled session_id=%s elapsed=%.1fs", session_id, elapsed)
         progress_renderer.resume_session = session_id
-        final_md = progress_renderer.render_final(
-            elapsed, "cancelled by user.", status="`cancelled`"
+        # Render like progress but with cancelled status (keeps action history)
+        header = format_header(elapsed, progress_renderer.last_item, label="`cancelled`")
+        final_md = ExecProgressRenderer._assemble(
+            header, list(progress_renderer.recent_actions)
         )
+        final_md = progress_renderer._append_resume(final_md)
         await _send_or_edit_markdown(
             cfg.bot,
             chat_id=chat_id,
