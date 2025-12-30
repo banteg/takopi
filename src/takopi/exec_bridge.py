@@ -585,11 +585,11 @@ async def _handle_message(
             if running_tasks.get(tracked_session_id) is exec_task:
                 running_tasks.pop(tracked_session_id, None)
 
-    if cancelled:
-        if edit_task is not None:
-            await asyncio.gather(edit_task, return_exceptions=True)
+    if edit_task is not None:
+        await asyncio.gather(edit_task, return_exceptions=True)
 
-        elapsed = clock() - started_at
+    elapsed = clock() - started_at
+    if cancelled:
         logger.info(
             "[handle] cancelled session_id=%s elapsed=%.1fs", session_id, elapsed
         )
@@ -606,10 +606,6 @@ async def _handle_message(
         )
         return
 
-    if edit_task is not None:
-        await asyncio.gather(edit_task, return_exceptions=True)
-
-    elapsed = clock() - started_at
     status = "done" if saw_agent_message else "error"
     progress_renderer.resume_session = session_id
     final_md = progress_renderer.render_final(elapsed, answer, status=status)
