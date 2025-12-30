@@ -562,7 +562,6 @@ def test_handle_message_cancelled_renders_cancelled_state() -> None:
 
     asyncio.run(run_test())
 
-    # Should have progress message and cancelled edit
     assert len(bot.send_calls) == 1  # Progress message
     assert len(bot.edit_calls) >= 1
     last_edit = bot.edit_calls[-1]["text"]
