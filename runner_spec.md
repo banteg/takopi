@@ -6,25 +6,15 @@ Totally agree: if we want “Claude alongside Codex” without one being the “
 
 So `takopi/claude_translate.py` goes away; instead both `runners/codex.py` and `runners/claude.py` implement the same protocol and emit the same event types.
 
-Below is a detailed spec for what `takopi/runners/base.py` should define, plus what else it should cover beyond discovery/invocation/resume/config.
+Below is a detailed spec for what `takopi/runners/base.py` should define, plus what else it should cover for v0.2.0.
 
 ---
 
-## 1) Split the responsibilities: “Engine backend” vs “Runner instance”
+## 1) Single Runner protocol (v0.2.0)
 
-It helps to separate:
+For v0.2.0 we keep it simple: **one runner per engine** and **no backend abstraction**.
 
-### A) Backend (static-ish)
-
-Things you want even before you can run:
-
-* discovery/install checks
-* config parsing/validation + defaults
-* “how to resume” metadata
-
-### B) Runner (stateful instance)
-
-Things that run-time needs:
+The runner is the only protocol and is responsible for:
 
 * per-session serialization locks
 * subprocess / SDK invocation
@@ -32,9 +22,9 @@ Things that run-time needs:
 * final answer extraction
 * cancellation/timeout enforcement
 
-You *can* collapse them into one class/protocol, but keeping two makes discovery/config cleaner.
+Setup checks (e.g., “is `codex` on PATH?”, “is the config valid?”) live outside the runner in onboarding/bridge code.
 
-**In v0.2.0**, I’d put both protocols + shared dataclasses in `runners/base.py`, and each engine module exports a backend singleton (or class) that creates runner instances.
+**In v0.2.0**, `runners/base.py` defines the Runner protocol + shared helpers, and each engine module exports a runner implementation (`codex` and `mock`).
 
 ---
 
@@ -201,38 +191,21 @@ Then the bridge doesn’t need to know per-engine parsing rules.
 
 ---
 
-## 4) Discovery spec: more than “binary exists”
+## 4) Setup & discovery (outside the runner)
 
-Discovery should answer:
+For v0.2.0, discovery and config validation live in onboarding/bridge code:
 
-* Is it installed?
-* Can we run it with required features (e.g. streaming mode)?
-* (Optionally) is it authenticated / configured?
-* What’s the version?
-* What’s the install hint?
+* check `codex` is on PATH
+* read `takopi.toml`
+* validate `bot_token` / `chat_id`
 
-```py
-@dataclass(frozen=True, slots=True)
-class EngineDiscovery:
-    engine: EngineId
-    installed: bool
-    path: str | None = None
-    version: str | None = None
-    ok: bool = False                 # installed + compatible + (optional) auth ok
-    problems: tuple[str, ...] = ()
-    install_instructions: tuple[str, ...] = ()
-```
-
-**Why `ok` separate from `installed`?**
-Because “installed but wrong version” and “installed but not logged in” are common.
-
-Discovery belongs on the backend/protocol so onboarding can show engine-specific guidance.
+The runner protocol does **not** include discovery APIs or data models.
 
 ---
 
 ## 5) Configuration spec: engine-specific section, but common shape
 
-Yes: `takopi.toml` should have per-engine top-level sections that are fed into the backend. Engine selection is via CLI subcommand, not config.
+Yes: `takopi.toml` should have per-engine top-level sections that are fed into runner construction. Engine selection is via CLI subcommand, not config. There is no shared `RunnerConfig` dataclass; each runner accepts a plain mapping of its own options.
 
 Suggested config layout (v0.2.0):
 
@@ -248,22 +221,7 @@ extra_args = ["-c", "notify=[]"]
 # mock-specific options
 ```
 
-In `base.py`, define:
-
-```py
-@dataclass(frozen=True, slots=True)
-class RunnerConfig:
-    # opaque per engine; keep it typed as Mapping[str, Any] or a per-engine dataclass
-    raw: Mapping[str, Any]
-```
-
-Better: each engine defines its own `CodexConfig` / `ClaudeConfig` dataclass, but the backend protocol exposes them as `Any` or `Protocol` if you want typing without circular imports.
-
-Backend should provide:
-
-* `parse_config(raw: Mapping[str, Any]) -> EngineConfig`
-* `default_config() -> EngineConfig` (optional)
-* `config_help() -> str` (optional)
+The bridge reads config and passes engine-specific options directly into runner construction.
 
 ---
 
@@ -275,38 +233,24 @@ The bridge needs:
 * final answer text
 * resume token
 
-Define a single call:
-
-```py
-@dataclass(frozen=True, slots=True)
-class RunRequest:
-    prompt: str
-    resume: ResumeToken | None
-    cwd: str
-    timeout_s: float | None = None
-```
-
-```py
-@dataclass(frozen=True, slots=True)
-class RunResult:
-    answer: str
-    resume: ResumeToken | None
-    cancelled: bool = False
-    error: str | None = None
-    wall_time_s: float | None = None
-```
-
 Callback signature:
 
 ```py
-EventSink = Callable[[TakopiEvent], Awaitable[None]]
+EventSink = Callable[[TakopiEvent], Awaitable[None] | None]
 ```
 
 Runner protocol method:
 
 ```py
-async def run(self, req: RunRequest, on_event: EventSink | None = None) -> RunResult
+async def run(
+    self,
+    prompt: str,
+    resume: ResumeToken | None,
+    on_event: EventSink | None = None,
+) -> tuple[ResumeToken, str, bool]
 ```
+
+Returns `(resume_token, answer, saw_agent_message)`. Errors raise `RuntimeError`. Cancellation raises `CancelledError`.
 
 ### NDJSON handling is an implementation detail
 
@@ -328,16 +272,7 @@ Rules:
 * Calls with the same token are queued and run sequentially.
 * Concurrency across different tokens is allowed.
 
-This can be implemented as a shared helper class in `base.py`:
-
-```py
-class SessionLockRegistry:
-    async def lock_for(self, key: str) -> asyncio.Lock: ...
-```
-
-So each runner can do:
-
-* lock key = `f"{resume.engine}:{resume.value}"`
+Implementation is per-runner (e.g., a simple `dict` of `asyncio.Lock` keyed by session id).
 
 ---
 
@@ -345,50 +280,26 @@ So each runner can do:
 
 Beyond the four you listed, the things that consistently matter in production:
 
-### A) Error taxonomy (user-facing vs debug)
+### A) Errors
 
-Right now everything becomes `RuntimeError(...)`.
-Define standard exceptions so the bridge can render better:
-
-* `EngineNotInstalledError`
-* `EngineMisconfiguredError`
-* `EngineInvocationError` (process rc != 0, timeout, etc.)
-* `EngineAuthError` (optional detection)
-
-Each should have:
-
-* `user_message` (safe for Telegram)
-* `debug_details` (for logs)
+Use plain exceptions (e.g., `RuntimeError`) for invocation failures. Discovery/config errors are handled by onboarding/bridge code.
 
 ### B) Cancellation contract
 
 Bridge workers may be cancelled on shutdown, or you may add `/cancel`.
 Runners should:
 
-* terminate subprocess / cancel SDK stream
-* return `RunResult(cancelled=True)` (standardize on this)
-* be idempotent: calling `cancel()` with nothing in-flight is a no-op
+* terminate subprocess / cancel SDK stream (simple `SIGTERM` is enough for Codex)
+* treat cancellation as `CancelledError`
 * only cancel the in-flight run for that session; queued runs should proceed afterward
 
-### C) Timeouts and “stuck stream” handling
-
-Engines can hang waiting for permissions or network.
-Standard behavior:
-
-* `timeout_s` is enforced at runner level (no idle timeout)
-* emit `error` event with `fatal=True` before returning failure
-
-### D) Output extraction contract
+### C) Output extraction contract
 
 “Final answer” varies by engine. In v0.2.0 (Codex only), use the last `agent_message` item; there is only one final assistant message per run.
 
-Runner must return:
+Runner must return `answer` (what we send to Telegram, not the whole transcript).
 
-* `answer` = what we send to Telegram (not the whole transcript)
-
-This prevents the bridge from having to understand engine semantics.
-
-### E) Normalization rules (invariants)
+### D) Normalization rules (invariants)
 
 Put in base as docs/tests, e.g.:
 
@@ -412,35 +323,20 @@ Here’s a crisp export list that sets us up well for v0.2.0:
 ### Data models
 
 * `ResumeToken`
-* `EngineDiscovery`
-* `RunRequest`
-* `RunResult`
 * `TakopiEvent` (TypedDict or dataclass union)
 * `Action` (TypedDict/dataclass)
 
 ### Protocols
 
-Option 1 (recommended): two protocols
-
-* `EngineBackend`:
-
-  * `engine: EngineId`
-  * `discover() -> EngineDiscovery`
-  * `parse_config(raw: Mapping[str, Any]) -> Any`
-  * `create_runner(cfg: Any) -> Runner`
+Single protocol:
 
 * `Runner`:
 
   * `engine: EngineId`
-  * `run(req: RunRequest, on_event: EventSink | None) -> RunResult`
-
-Option 2: one protocol (simpler, less clean)
-
-* `Runner` with `@classmethod discover`, `@classmethod from_config`
+  * `run(prompt: str, resume: ResumeToken | None, on_event: EventSink | None) -> tuple[ResumeToken, str, bool]`
 
 ### Shared helpers
 
-* `SessionLockRegistry`
 * `parse_resume_from_text(text) -> ResumeToken | None`
 * `format_resume_line(token) -> str`
 
@@ -468,7 +364,7 @@ The following decisions were made through detailed discussion to clarify impleme
 * **Permissions:** Controlled by Codex profile configuration, out of scope for takopi.
 * **Multi-turn:** Not supported in v0.2.0. Engines run uninterrupted without mid-run user interaction.
 * **Answer streaming:** Not supported. Final answer delivered only when run completes.
-* **Working directories:** Single `cwd` in `RunRequest` is sufficient.
+* **Working directories:** Single process cwd is sufficient.
 
 ### Event Model Refinements
 
@@ -514,28 +410,20 @@ The following decisions were made through detailed discussion to clarify impleme
 **Resume behavior:**
 * If a prompt is a reply to a message with a resume token, use that token; otherwise start a new session.
 * No history replay on resume. Renderer starts fresh, only new actions are tracked.
-* Resume token is emitted early via `session.started` event (not just in `RunResult`).
+* Resume token is emitted early via `session.started` event (not just at completion).
 * `session.started` always contains a resume token; if none is produced, the run fails.
 * Resume parsing uses the last matching resume line and requires strict formatting.
 
 ### Error Handling & Cancellation
 
 **Cancellation:**
-* Explicit `cancel()` method on Runner (not just asyncio task cancellation).
-* Graceful shutdown: SIGTERM first, wait 5 seconds, then SIGKILL.
-* Return `RunResult(cancelled=True)`.
-* `cancel()` is idempotent; if nothing is running, it is a no-op.
+* Cancellation is handled via task cancellation; the runner should terminate its subprocess (SIGTERM is enough for Codex).
 * Cancel only the in-flight run for that session; queued runs should proceed afterward.
 
 **Error capture:**
 * Capture full stderr on engine invocation errors (not truncated).
-* Custom exception classes defined in `base.py`:
-  * `TakopiError` (base class)
-  * `EngineNotInstalledError`
-  * `EngineMisconfiguredError`
-  * `EngineInvocationError`
-  * Each has `user_message` and `debug_details` attributes.
-* If a final answer was produced, the run succeeds even if the process exits non-zero; emit a `log` event with `level="error"` for diagnostics and keep `RunResult.error = None`.
+* Use plain exceptions (`RuntimeError`) rather than a custom taxonomy.
+* If a final answer was produced, the run succeeds even if the process exits non-zero; emit a `log` event with `level="error"` for diagnostics.
 
 **Transient errors:**
 * No auto-retry. Surface errors immediately; caller implements retry logic if needed.
@@ -560,10 +448,9 @@ extra_args = ["-c", "notify=[]"]
 
 ### Data Model Simplifications
 
-**RunResult:**
-* Remove `ok: bool` field.
-* Use `error: str | None` where `None` means success.
-* `answer` is empty string if engine produces no textual response.
+**Run result shape:**
+* No shared dataclass. Runners return a simple tuple `(resume_token, answer, saw_agent_message)`.
+* `answer` is an empty string if the engine produces no textual response.
 
 **Action detail:**
 * Generic `Mapping[str, Any]`, not typed per `ActionKind`.
@@ -581,27 +468,23 @@ extra_args = ["-c", "notify=[]"]
 * Singleton per engine. One runner instance reused for all requests.
 * Per-runner session locks (each singleton manages its own locks).
 
-**Discovery:**
-* Async `discover()` method.
-* Called on first use, not at startup.
-
 **UI/UX:**
 * Show engine name only at run start.
 * Use the engine id string in lowercase (e.g., "codex"); no emoji.
 
 **Context:**
 * Runner is Telegram-agnostic.
-* No Telegram-specific metadata in `RunRequest`.
+* No Telegram-specific metadata in the runner interface.
 
 ### Async Contract
 
 **Event sink:**
-* Async only: `EventSink = Callable[[TakopiEvent], Awaitable[None]]`
-* Runner should not apply backpressure to event emission (fire-and-forget). If `on_event` fails, the run fails.
-* If fire-and-forget proves impractical during implementation, revisit this decision.
+* Sync or async: `EventSink = Callable[[TakopiEvent], Awaitable[None] | None]`
+* Runner should not apply backpressure to event emission (fire-and-forget).
+* If `on_event` fails, log and continue.
 
 **run() method:**
-* `async def run(self, req: RunRequest, on_event: EventSink | None = None) -> RunResult`
+* `async def run(self, prompt: str, resume: ResumeToken | None, on_event: EventSink | None = None) -> tuple[ResumeToken, str, bool]`
 * Sufficient for all use cases. No separate start/poll pattern.
 
 ### Mock Engine
@@ -642,18 +525,6 @@ TakopiEventType = Literal[
 ]
 ```
 
-### Exceptions
-
-```py
-class TakopiError(Exception):
-    user_message: str
-    debug_details: str | None
-
-class EngineNotInstalledError(TakopiError): ...
-class EngineMisconfiguredError(TakopiError): ...
-class EngineInvocationError(TakopiError): ...
-```
-
 ### Data Models
 
 ```py
@@ -662,65 +533,28 @@ class ResumeToken:
     engine: EngineId
     value: str
 
-@dataclass(frozen=True, slots=True)
-class EngineDiscovery:
-    engine: EngineId
-    installed: bool
-    path: str | None = None
-    version: str | None = None
-    ok: bool = False
-    problems: tuple[str, ...] = ()
-    install_instructions: tuple[str, ...] = ()
-
-@dataclass(frozen=True, slots=True)
-class RunRequest:
-    prompt: str
-    resume: ResumeToken | None
-    cwd: str
-    timeout_s: float | None = None
-
-@dataclass(frozen=True, slots=True)
-class RunResult:
-    answer: str                          # empty string if no textual response
-    resume: ResumeToken | None
-    cancelled: bool = False
-    error: str | None = None             # None means success
-    wall_time_s: float | None = None
-
 # Events are TypedDicts or dataclasses - implementation can choose
 ```
 
 ### Protocols
 
 ```py
-EventSink = Callable[[TakopiEvent], Awaitable[None]]
-
-class EngineBackend(Protocol):
-    engine: EngineId
-
-    async def discover(self) -> EngineDiscovery: ...
-    def parse_config(self, raw: Mapping[str, Any]) -> Any: ...
-    def create_runner(self, cfg: Any) -> Runner: ...
+EventSink = Callable[[TakopiEvent], Awaitable[None] | None]
 
 class Runner(Protocol):
     engine: EngineId
 
     async def run(
         self,
-        req: RunRequest,
+        prompt: str,
+        resume: ResumeToken | None,
         on_event: EventSink | None = None
-    ) -> RunResult: ...
-
-    def cancel(self) -> None: ...
+    ) -> tuple[ResumeToken, str, bool]: ...
 ```
 
 ### Shared Helpers
 
 ```py
-class SessionLockRegistry:
-    """Per-runner lock management for session serialization."""
-    async def lock_for(self, session_key: str) -> asyncio.Lock: ...
-
 def parse_resume_from_text(text: str) -> ResumeToken | None:
     """Parse strict 'resume: `engine:value`' (or legacy 'resume: `uuid`'), using the last match."""
     ...
@@ -736,14 +570,17 @@ def format_resume_line(token: ResumeToken) -> str:
 
 The following are explicitly deferred:
 
+* Backend/EngineBackend protocol split
 * Claude runner implementation
 * Capabilities / feature flags
+* Structured error taxonomy
 * Multi-turn conversations with user prompts mid-run
 * Multiple working directories / workspace abstraction
 * Answer streaming (incremental answer delivery)
 * Permission request events
 * Per-request profile selection
 * Auto-retry for transient errors
+* Runner timeouts / idle timeouts
 * Trace capture (raw streams / stderr)
 * Runner-side redaction or truncation of action titles/details
 * OpenTelemetry / structured metrics
