@@ -107,10 +107,16 @@ async def manage_subprocess(*args, terminate_timeout: float = 2.0, **kwargs):
     finally:
         if proc.returncode is None:
             with anyio.CancelScope(shield=True):
-                proc.terminate()
+                try:
+                    proc.terminate()
+                except ProcessLookupError:
+                    pass
                 timed_out = await _wait_for_process(proc, terminate_timeout)
                 if timed_out and proc.returncode is None:
-                    proc.kill()
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
                     await proc.wait()
 
 
@@ -618,7 +624,6 @@ async def handle_message(
     )
 
     exec_scope = anyio.CancelScope()
-    cancelled_exc_type = anyio.get_cancelled_exc_class()
     cancelled = False
     error: Exception | None = None
     session_id: str | None = None
@@ -653,9 +658,6 @@ async def handle_message(
                 session_id, answer, saw_agent_message = await cfg.runner.run_serialized(
                     text, resume_session, on_event=on_event
                 )
-        except cancelled_exc_type:
-            cancelled = True
-            session_id = progress_renderer.resume_session or resume_session
         except Exception as e:
             error = e
         finally:
@@ -664,12 +666,7 @@ async def handle_message(
                     running_task.session_ready.set()
                 if running_tasks is not None and progress_id is not None:
                     running_tasks.pop(progress_id, None)
-            if (
-                exec_scope.cancel_called
-                and not cancelled
-                and error is None
-                and answer is None
-            ):
+            if exec_scope.cancelled_caught and not cancelled and error is None:
                 cancelled = True
                 session_id = progress_renderer.resume_session or resume_session
             if not cancelled and error is None:
