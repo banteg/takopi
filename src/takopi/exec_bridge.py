@@ -584,7 +584,7 @@ async def _handle_message(
         logger.info("[handle] cancelled session_id=%s elapsed=%.1fs", session_id, elapsed)
         progress_renderer.resume_session = session_id
         final_md = progress_renderer.render_final(
-            elapsed, "cancelled by user.", status="cancelled"
+            elapsed, "cancelled by user.", status="`cancelled`"
         )
         await _send_or_edit_markdown(
             cfg.bot,
@@ -708,11 +708,17 @@ async def _handle_cancel(
     logger.info("[cancel] cancelling session_id=%s", session_id)
 
     if progress_msg_id is not None:
+        # Replace "working" header with "cancelling", keep rest intact
+        progress_text = reply.get("text") or ""
+        if progress_text.startswith("working"):
+            cancelling_text = "cancelling" + progress_text[7:]
+        else:
+            cancelling_text = "cancelling…"
         try:
             await cfg.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=progress_msg_id,
-                text="cancelling…",
+                text=cancelling_text,
             )
         except Exception as e:
             logger.debug("[cancel] edit failed: %s", e)
