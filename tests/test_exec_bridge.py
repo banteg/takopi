@@ -528,29 +528,6 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
 
 
 @pytest.mark.anyio
-async def test_await_resume_session_waits_for_running_task() -> None:
-    from takopi.exec_bridge import RunningTask, _await_resume_session
-
-    running_task = RunningTask(scope=anyio.CancelScope(), session_ready=anyio.Event())
-    running_tasks = {42: running_task}
-
-    async def set_session() -> None:
-        await anyio.sleep(0)
-        running_task.session_id = "sid"
-        running_task.session_ready.set()
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(set_session)
-        session = await _await_resume_session(
-            resume_session=None,
-            reply_to_message_id=42,
-            running_tasks=running_tasks,
-        )
-
-    assert session == "sid"
-
-
-@pytest.mark.anyio
 async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> None:
     from takopi.exec_bridge import BridgeConfig, _handle_cancel
 
@@ -630,7 +607,7 @@ async def test_handle_cancel_cancels_running_task() -> None:
 
     cancelled_event = anyio.Event()
     cancel_scope = anyio.CancelScope()
-    running_task = RunningTask(scope=cancel_scope, session_ready=anyio.Event())
+    running_task = RunningTask(scope=cancel_scope)
 
     async def sleeper() -> None:
         with cancel_scope:
@@ -667,8 +644,8 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
 
     scope_first = anyio.CancelScope()
     scope_second = anyio.CancelScope()
-    task_first = RunningTask(scope=scope_first, session_ready=anyio.Event())
-    task_second = RunningTask(scope=scope_second, session_ready=anyio.Event())
+    task_first = RunningTask(scope=scope_first)
+    task_second = RunningTask(scope=scope_second)
     msg = {
         "chat": {"id": 123},
         "message_id": 10,

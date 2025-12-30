@@ -31,7 +31,7 @@ async def test_run_serialized_serializes_same_session() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_serialized_serializes_new_sessions() -> None:
+async def test_run_serialized_allows_parallel_new_sessions() -> None:
     runner = CodexExecRunner(codex_cmd="codex", extra_args=[])
     gate = anyio.Event()
     in_flight = 0
@@ -50,10 +50,12 @@ async def test_run_serialized_serializes_new_sessions() -> None:
     async with anyio.create_task_group() as tg:
         tg.start_soon(runner.run_serialized, "a", None)
         tg.start_soon(runner.run_serialized, "b", None)
-        await anyio.sleep(0)
+        with anyio.move_on_after(1):
+            while max_in_flight < 2:
+                await anyio.sleep(0)
         gate.set()
 
-    assert max_in_flight == 1
+    assert max_in_flight == 2
 
 
 @pytest.mark.anyio

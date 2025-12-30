@@ -298,7 +298,6 @@ class CodexExecRunner:
     ) -> None:
         self.codex_cmd = codex_cmd
         self.extra_args = extra_args
-        self._new_session_lock = anyio.Lock()
 
         # Per-session locks to prevent concurrent resumes to the same session_id.
         self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
@@ -434,20 +433,15 @@ class CodexExecRunner:
             async with lock:
                 return await self.run(prompt, session_id=session_id, on_event=on_event)
 
-        await self._new_session_lock.acquire()
-        new_session_lock_held = True
         session_lock: anyio.Lock | None = None
 
         async def on_event_with_lock(evt: dict[str, Any]) -> None:
-            nonlocal new_session_lock_held, session_lock
+            nonlocal session_lock
             if session_lock is None and evt.get("type") == "thread.started":
                 thread_id = evt.get("thread_id")
                 if isinstance(thread_id, str) and thread_id:
                     session_lock = await self._lock_for(thread_id)
                     await session_lock.acquire()
-                    if new_session_lock_held:
-                        self._new_session_lock.release()
-                        new_session_lock_held = False
             if on_event is None:
                 return
             res = on_event(evt)
@@ -459,8 +453,6 @@ class CodexExecRunner:
         finally:
             if session_lock is not None:
                 session_lock.release()
-            if new_session_lock_held:
-                self._new_session_lock.release()
 
 
 @dataclass(frozen=True)
@@ -476,7 +468,6 @@ class BridgeConfig:
 @dataclass
 class RunningTask:
     scope: anyio.CancelScope
-    session_ready: anyio.Event
     session_id: str | None = None
 
 
@@ -630,11 +621,10 @@ async def handle_message(
     saw_agent_message: bool | None = None
     running_task: RunningTask | None = None
     if running_tasks is not None and progress_id is not None:
-        running_task = RunningTask(scope=exec_scope, session_ready=anyio.Event())
+        running_task = RunningTask(scope=exec_scope)
         running_tasks[progress_id] = running_task
         if resume_session is not None:
             running_task.session_id = resume_session
-            running_task.session_ready.set()
 
     async def on_event(evt: dict[str, Any]) -> None:
         if (
@@ -645,7 +635,6 @@ async def handle_message(
             thread_id = evt.get("thread_id")
             if isinstance(thread_id, str) and thread_id:
                 running_task.session_id = thread_id
-                running_task.session_ready.set()
         await edits.on_event(evt)
 
     async with anyio.create_task_group() as tg:
@@ -661,8 +650,6 @@ async def handle_message(
             error = e
         finally:
             if running_task is not None:
-                if not running_task.session_ready.is_set():
-                    running_task.session_ready.set()
                 if running_tasks is not None and progress_id is not None:
                     running_tasks.pop(progress_id, None)
             if exec_scope.cancelled_caught and not cancelled and error is None:
@@ -814,21 +801,6 @@ async def _handle_cancel(
     running_task.scope.cancel()
 
 
-async def _await_resume_session(
-    *,
-    resume_session: str | None,
-    reply_to_message_id: int | None,
-    running_tasks: dict[int, RunningTask],
-) -> str | None:
-    if resume_session is not None or reply_to_message_id is None:
-        return resume_session
-    running_task = running_tasks.get(int(reply_to_message_id))
-    if running_task is None:
-        return None
-    await running_task.session_ready.wait()
-    return running_task.session_id or resume_session
-
-
 async def _run_main_loop(cfg: BridgeConfig) -> None:
     worker_count = max(1, min(cfg.max_concurrency, 16))
     send_stream, receive_stream = anyio.create_memory_object_stream(
@@ -838,19 +810,8 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
 
     async def worker() -> None:
         while True:
-            (
-                chat_id,
-                user_msg_id,
-                text,
-                resume_session,
-                reply_to_message_id,
-            ) = await receive_stream.receive()
+            chat_id, user_msg_id, text, resume_session = await receive_stream.receive()
             try:
-                resume_session = await _await_resume_session(
-                    resume_session=resume_session,
-                    reply_to_message_id=reply_to_message_id,
-                    running_tasks=running_tasks,
-                )
                 await handle_message(
                     cfg,
                     chat_id=chat_id,
@@ -875,17 +836,10 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
                     continue
 
                 r = msg.get("reply_to_message") or {}
-                reply_to_message_id = r.get("message_id")
                 resume_session = resolve_resume_session(text, r.get("text"))
 
                 await send_stream.send(
-                    (
-                        msg["chat"]["id"],
-                        user_msg_id,
-                        text,
-                        resume_session,
-                        reply_to_message_id,
-                    )
+                    (msg["chat"]["id"], user_msg_id, text, resume_session)
                 )
     finally:
         await send_stream.aclose()
