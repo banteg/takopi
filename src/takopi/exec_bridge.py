@@ -431,7 +431,7 @@ async def _handle_message(
     user_msg_id: int,
     text: str,
     resume_session: str | None,
-    running_tasks: dict[str, asyncio.Task[Any]] | None = None,
+    running_tasks: dict[str, tuple[asyncio.Task[Any], int | None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
 ) -> None:
@@ -530,7 +530,7 @@ async def _handle_message(
         ):
             tracked_session_id = progress_renderer.resume_session
             if tracked_session_id:
-                running_tasks[tracked_session_id] = exec_task
+                running_tasks[tracked_session_id] = (exec_task, progress_id)
 
         now = clock()
         if (now - last_edit_at) < progress_edit_every:
@@ -672,7 +672,7 @@ async def poll_updates(cfg: BridgeConfig):
 async def _handle_cancel(
     cfg: BridgeConfig,
     msg: dict[str, Any],
-    running_tasks: dict[str, asyncio.Task[Any]],
+    running_tasks: dict[str, tuple[asyncio.Task[Any], int | None]],
 ) -> None:
     chat_id = msg["chat"]["id"]
     user_msg_id = msg["message_id"]
@@ -695,8 +695,8 @@ async def _handle_cancel(
         )
         return
 
-    task = running_tasks.get(session_id)
-    if not task or task.done():
+    entry = running_tasks.get(session_id)
+    if not entry or entry[0].done():
         await cfg.bot.send_message(
             chat_id=chat_id,
             text="nothing is currently running for that message.",
@@ -704,7 +704,19 @@ async def _handle_cancel(
         )
         return
 
+    task, progress_msg_id = entry
     logger.info("[cancel] cancelling session_id=%s", session_id)
+
+    if progress_msg_id is not None:
+        try:
+            await cfg.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=progress_msg_id,
+                text="cancelling…",
+            )
+        except Exception as e:
+            logger.debug("[cancel] edit failed: %s", e)
+
     task.cancel()
 
 
@@ -713,7 +725,7 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
     queue: asyncio.Queue[tuple[int, int, str, str | None]] = asyncio.Queue(
         maxsize=worker_count * 2
     )
-    running_tasks: dict[str, asyncio.Task[Any]] = {}
+    running_tasks: dict[str, tuple[asyncio.Task[Any], int | None]] = {}
 
     async def worker() -> None:
         while True:

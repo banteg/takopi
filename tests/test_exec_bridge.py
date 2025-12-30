@@ -502,7 +502,7 @@ def test_handle_cancel_cancels_running_task() -> None:
 
     async def run_test():
         task = asyncio.create_task(asyncio.sleep(10))
-        running_tasks = {session_id: task}
+        running_tasks = {session_id: (task, None)}
         await _handle_cancel(cfg, msg, running_tasks)
         try:
             await task
@@ -557,7 +557,7 @@ def test_handle_message_cancelled_renders_cancelled_state() -> None:
         )
         await asyncio.sleep(0.01)  # Let task start and register
         assert session_id in running_tasks
-        running_tasks[session_id].cancel()
+        running_tasks[session_id][0].cancel()
         await task
 
     asyncio.run(run_test())
