@@ -528,7 +528,7 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
 
 
 @pytest.mark.anyio
-async def test_handle_cancel_with_no_session_id_says_nothing_running() -> None:
+async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> None:
     from takopi.exec_bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
@@ -544,7 +544,7 @@ async def test_handle_cancel_with_no_session_id_says_nothing_running() -> None:
     msg = {
         "chat": {"id": 123},
         "message_id": 10,
-        "reply_to_message": {"text": "no uuid here"},
+        "reply_to_message": {"text": "no message id"},
     }
     running_tasks: dict = {}
 
@@ -568,13 +568,13 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
         startup_msg="",
         max_concurrency=1,
     )
-    session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+    progress_id = 99
     msg = {
         "chat": {"id": 123},
         "message_id": 10,
-        "reply_to_message": {"text": f"resume: `{session_id}`"},
+        "reply_to_message": {"message_id": progress_id},
     }
-    running_tasks: dict = {}  # Session not in running_tasks
+    running_tasks: dict = {}  # Progress message not in running_tasks
 
     await _handle_cancel(cfg, msg, running_tasks)
 
@@ -596,11 +596,11 @@ async def test_handle_cancel_cancels_running_task() -> None:
         startup_msg="",
         max_concurrency=1,
     )
-    session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+    progress_id = 42
     msg = {
         "chat": {"id": 123},
         "message_id": 10,
-        "reply_to_message": {"text": f"resume: `{session_id}`"},
+        "reply_to_message": {"message_id": progress_id},
     }
 
     cancelled_event = anyio.Event()
@@ -616,7 +616,7 @@ async def test_handle_cancel_cancels_running_task() -> None:
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(sleeper)
-        running_tasks = {session_id: cancel_scope}
+        running_tasks = {progress_id: cancel_scope}
         await _handle_cancel(cfg, msg, running_tasks)
         await cancelled_event.wait()
 
@@ -665,11 +665,11 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_handle_message)
         for _ in range(100):
-            if session_id in running_tasks:
+            if running_tasks:
                 break
             await anyio.sleep(0)
-        assert session_id in running_tasks
-        running_tasks[session_id].cancel()
+        assert running_tasks
+        running_tasks[next(iter(running_tasks))].cancel()
 
     assert len(bot.send_calls) == 1  # Progress message
     assert len(bot.edit_calls) >= 1

@@ -525,7 +525,7 @@ async def handle_message(
     user_msg_id: int,
     text: str,
     resume_session: str | None,
-    running_tasks: dict[str, anyio.CancelScope] | None = None,
+    running_tasks: dict[int, anyio.CancelScope] | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
@@ -589,14 +589,10 @@ async def handle_message(
     session_id: str | None = None
     answer: str | None = None
     saw_agent_message: bool | None = None
+    if running_tasks is not None and progress_id is not None:
+        running_tasks[progress_id] = exec_scope
 
     async def on_event(evt: dict[str, Any]) -> None:
-        if (
-            evt["type"] == "thread.started"
-            and running_tasks is not None
-            and exec_scope is not None
-        ):
-            running_tasks[evt["thread_id"]] = exec_scope
         await edits.on_event(evt)
 
     async with anyio.create_task_group() as tg:
@@ -614,10 +610,8 @@ async def handle_message(
         except Exception as e:
             error = e
         finally:
-            if running_tasks is not None:
-                for sid, scope in list(running_tasks.items()):
-                    if scope is exec_scope:
-                        running_tasks.pop(sid, None)
+            if running_tasks is not None and progress_id is not None:
+                running_tasks.pop(progress_id, None)
             if (
                 exec_scope.cancel_called
                 and not cancelled
@@ -736,7 +730,7 @@ async def poll_updates(cfg: BridgeConfig):
 async def _handle_cancel(
     cfg: BridgeConfig,
     msg: dict[str, Any],
-    running_tasks: dict[str, anyio.CancelScope],
+    running_tasks: dict[int, anyio.CancelScope],
 ) -> None:
     chat_id = msg["chat"]["id"]
     user_msg_id = msg["message_id"]
@@ -750,8 +744,8 @@ async def _handle_cancel(
         )
         return
 
-    session_id = extract_session_id(reply.get("text"))
-    if not session_id:
+    progress_id = reply.get("message_id")
+    if progress_id is None:
         await cfg.bot.send_message(
             chat_id=chat_id,
             text="nothing is currently running for that message.",
@@ -759,7 +753,7 @@ async def _handle_cancel(
         )
         return
 
-    task = running_tasks.get(session_id)
+    task = running_tasks.get(int(progress_id))
     if task is None:
         await cfg.bot.send_message(
             chat_id=chat_id,
@@ -768,7 +762,7 @@ async def _handle_cancel(
         )
         return
 
-    logger.info("[cancel] cancelling session_id=%s", session_id)
+    logger.info("[cancel] cancelling progress_message_id=%s", progress_id)
     task.cancel()
 
 
@@ -777,7 +771,7 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
     send_stream, receive_stream = anyio.create_memory_object_stream(
         max_buffer_size=worker_count * 2
     )
-    running_tasks: dict[str, anyio.CancelScope] = {}
+    running_tasks: dict[int, anyio.CancelScope] = {}
 
     async def worker() -> None:
         while True:
