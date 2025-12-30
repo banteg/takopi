@@ -154,5 +154,5 @@ Same as above, but:
 |----------|----------|
 | `codex exec` fails (rc≠0) | Shows stderr tail in error message |
 | Telegram API error | Logged, edit skipped (progress continues) |
-| Cancellation | Subprocess terminated, CancelledError re-raised |
+| Cancellation | Cancel scope triggers terminate; cancellation is detected via `cancelled_caught` |
 | No agent_message | Final shows "error" status |

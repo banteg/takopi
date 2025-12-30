@@ -112,12 +112,11 @@ async def manage_subprocess(*args, terminate_timeout: float = 2.0, **kwargs):
                 except ProcessLookupError:
                     pass
                 timed_out = await _wait_for_process(proc, terminate_timeout)
-                if timed_out and proc.returncode is None:
-                    try:
-                        proc.kill()
-                    except ProcessLookupError:
-                        pass
-                    await proc.wait()
+                if timed_out:
+                    logger.debug(
+                        "[codex] terminate timed out pid=%s; leaving process to exit",
+                        proc.pid,
+                    )
 
 
 TELEGRAM_MARKDOWN_LIMIT = 3500
