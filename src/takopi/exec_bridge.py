@@ -301,6 +301,8 @@ class CodexExecRunner:
                 cancelled = True
             finally:
                 if cancelled:
+                    if not stderr_task.done():
+                        stderr_task.cancel()
                     task = cast(asyncio.Task, asyncio.current_task())
                     while task.cancelling():
                         task.uncancel()
