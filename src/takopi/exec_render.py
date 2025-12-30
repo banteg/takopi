@@ -211,9 +211,11 @@ class ExecProgressRenderer:
         self.command_width = command_width
         self.recent_actions: deque[str] = deque(maxlen=max_actions)
         self.last_item: int | None = None
+        self.resume_session: str | None = None
 
     def note_event(self, event: dict[str, Any]) -> bool:
         if event["type"] == "thread.started":
+            self.resume_session = event["thread_id"]
             return True
 
         self.last_item, _, progress_line, progress_prefix = format_event(
@@ -240,12 +242,19 @@ class ExecProgressRenderer:
 
     def render_progress(self, elapsed_s: float) -> str:
         header = format_header(elapsed_s, self.last_item, label="working")
-        return self._assemble(header, list(self.recent_actions))
+        message = self._assemble(header, list(self.recent_actions))
+        return self._append_resume(message)
 
     def render_final(self, elapsed_s: float, answer: str, status: str = "done") -> str:
         header = format_header(elapsed_s, self.last_item, label=status)
         answer = (answer or "").strip()
-        return header + ("\n\n" + answer if answer else "")
+        message = header + ("\n\n" + answer if answer else "")
+        return self._append_resume(message)
+
+    def _append_resume(self, message: str) -> str:
+        if not self.resume_session:
+            return message
+        return message + f"\n\nresume: `{self.resume_session}`"
 
     @staticmethod
     def _assemble(header: str, lines: list[str]) -> str:

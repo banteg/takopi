@@ -118,12 +118,14 @@ def test_progress_renderer_renders_progress_and_final() -> None:
     progress = r.render_progress(3.0)
     assert progress.startswith("working · 3s · step 3")
     assert "1\\. ✓ `bash -lc ls`" in progress
+    assert "resume: `0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
 
     final = r.render_final(3.0, "answer", status="done")
     assert final.startswith("done · 3s · step 3")
     assert "running:" not in final
     assert "ran:" not in final
-    assert final.endswith("answer")
+    assert "answer" in final
+    assert final.rstrip().endswith("resume: `0199a213-81c0-7800-8aa1-bbab2a035a53`")
 
 
 def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:

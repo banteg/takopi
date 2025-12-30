@@ -557,10 +557,8 @@ async def _handle_message(
 
     elapsed = clock() - started_at
     status = "done" if saw_agent_message else "error"
-    final_md = (
-        progress_renderer.render_final(elapsed, answer, status=status)
-        + f"\n\nresume: `{session_id}`"
-    )
+    progress_renderer.resume_session = session_id
+    final_md = progress_renderer.render_final(elapsed, answer, status=status)
     logger.debug("[final] markdown: %s", final_md)
     final_rendered, final_entities = render_markdown(final_md)
     can_edit_final = (
