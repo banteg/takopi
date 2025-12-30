@@ -884,7 +884,7 @@ def run(
     except ConfigError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
-    anyio.run(_run_main_loop, cfg, backend="asyncio")
+    anyio.run(_run_main_loop, cfg)
 
 
 def main() -> None:
