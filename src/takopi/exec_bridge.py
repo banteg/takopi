@@ -579,8 +579,11 @@ async def _handle_message(
         )
         return
     finally:
-        if tracked_session_id and running_tasks is not None:
-            running_tasks.pop(tracked_session_id, None)
+        if tracked_session_id and running_tasks is not None and exec_task is not None:
+            # Avoid removing a newer task for the same session_id if another run
+            # registered while this one was finishing.
+            if running_tasks.get(tracked_session_id) is exec_task:
+                running_tasks.pop(tracked_session_id, None)
 
     if cancelled:
         if edit_task is not None:
