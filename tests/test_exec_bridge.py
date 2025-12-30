@@ -188,6 +188,7 @@ class _FakeClock:
         self._now = start
         self._sleep_until: float | None = None
         self._sleep_event: asyncio.Event | None = None
+        self.sleep_calls = 0
 
     def __call__(self) -> float:
         return self._now
@@ -202,6 +203,7 @@ class _FakeClock:
             self._sleep_event = None
 
     async def sleep(self, delay: float) -> None:
+        self.sleep_calls += 1
         if delay <= 0:
             await asyncio.sleep(0)
             return
@@ -220,6 +222,7 @@ class _FakeRunnerWithEvents:
         answer: str = "ok",
         session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2",
         advance_after: float | None = None,
+        hold: asyncio.Event | None = None,
     ) -> None:
         self._events = events
         self._times = times
@@ -227,6 +230,7 @@ class _FakeRunnerWithEvents:
         self._answer = answer
         self._session_id = session_id
         self._advance_after = advance_after
+        self._hold = hold
 
     async def run_serialized(self, *_args, **kwargs) -> tuple[str, str, bool]:
         on_event = kwargs.get("on_event")
@@ -238,6 +242,8 @@ class _FakeRunnerWithEvents:
             if self._advance_after is not None:
                 self._clock.set(self._advance_after)
                 await asyncio.sleep(0)
+        if self._hold is not None:
+            await self._hold.wait()
         return (self._session_id, self._answer, True)
 
 
@@ -354,6 +360,90 @@ def test_progress_edits_are_rate_limited() -> None:
 
     assert len(bot.edit_calls) == 1
     assert "echo 2" in bot.edit_calls[0]["text"]
+
+
+def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
+    from takopi.exec_bridge import BridgeConfig, handle_message
+
+    bot = _FakeBot()
+    clock = _FakeClock()
+    hold = asyncio.Event()
+    events = [
+        {
+            "type": "item.started",
+            "item": {
+                "id": "item_0",
+                "type": "command_execution",
+                "command": "echo 1",
+                "status": "in_progress",
+            },
+        },
+        {
+            "type": "item.started",
+            "item": {
+                "id": "item_1",
+                "type": "command_execution",
+                "command": "echo 2",
+                "status": "in_progress",
+            },
+        },
+    ]
+    runner = _FakeRunnerWithEvents(
+        events=events,
+        times=[0.2, 0.4],
+        clock=clock,
+        advance_after=None,
+        hold=hold,
+    )
+    cfg = BridgeConfig(
+        bot=bot,  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+
+    async def run_test() -> None:
+        task = asyncio.create_task(
+            handle_message(
+                cfg,
+                chat_id=123,
+                user_msg_id=10,
+                text="hi",
+                resume_session=None,
+                clock=clock,
+                sleep=clock.sleep,
+                progress_edit_every=1.0,
+            )
+        )
+
+        for _ in range(100):
+            if clock._sleep_until is not None:
+                break
+            await asyncio.sleep(0)
+
+        assert clock._sleep_until == pytest.approx(1.0)
+
+        clock.set(1.0)
+
+        for _ in range(100):
+            if bot.edit_calls:
+                break
+            await asyncio.sleep(0)
+
+        assert len(bot.edit_calls) == 1
+
+        for _ in range(5):
+            await asyncio.sleep(0)
+
+        assert clock.sleep_calls == 1
+        assert clock._sleep_until is None
+
+        hold.set()
+        await task
+
+    asyncio.run(run_test())
 
 
 def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:

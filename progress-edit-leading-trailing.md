@@ -33,23 +33,24 @@ Example (interval = 2s):
 
 ### State additions in `handle_message`
 - `publisher_task: Task | None` — background progress publisher worker.
-- `dirty: bool` — whether new renderer state should be published.
+- `event_seq: int` — monotonically increasing event counter (progress state changed).
+- `published_seq: int` — last `event_seq` that has been published.
 - `wakeup: Event` — wakes the publisher when new events arrive.
 - (Existing) `last_edit_at`, `last_rendered`.
 
 ### Event handling algorithm (on each event)
 1. If no `progress_id` → return.
 2. If `note_event` returns false → return.
-3. Set `dirty = True` and `wakeup.set()` (no sleeps / edits on the event path).
+3. Increment `event_seq` and `wakeup.set()` (no sleeps / edits on the event path).
 
 ### Publisher task algorithm
 1. Wait for `wakeup`.
-2. While `dirty`:
-   - Clear `dirty`.
+2. While `published_seq < event_seq`:
    - Sleep until `last_edit_at + interval` to **enforce the minimum interval**.
    - Render the **latest** progress state (coalesces bursts).
    - If rendered text differs from `last_rendered`, send the edit and update
      `last_edit_at` and `last_rendered`.
+   - Set `published_seq` to the latest `event_seq` observed before rendering.
 3. Loop back to waiting for `wakeup`.
 
 ### Cancellation / shutdown

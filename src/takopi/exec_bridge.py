@@ -219,7 +219,8 @@ class ProgressEdits:
         self.limit = limit
         self.last_edit_at = last_edit_at
         self.last_rendered = last_rendered
-        self.dirty = False
+        self._event_seq = 0
+        self._published_seq = 0
         self.wakeup = asyncio.Event()
         self.task: asyncio.Task[None] | None = (
             asyncio.create_task(self.run()) if self.progress_id is not None else None
@@ -231,9 +232,7 @@ class ProgressEdits:
         while True:
             await self.wakeup.wait()
             self.wakeup.clear()
-            while self.dirty:
-                self.dirty = False
-
+            while self._published_seq < self._event_seq:
                 await self.sleep(
                     max(
                         0.0,
@@ -241,36 +240,40 @@ class ProgressEdits:
                     )
                 )
 
+                seq_at_render = self._event_seq
                 now = self.clock()
                 md = self.renderer.render_progress(now - self.started_at)
                 rendered, entities = prepare_telegram(md, limit=self.limit)
-                if rendered == self.last_rendered:
-                    continue
+                if rendered != self.last_rendered:
+                    logger.debug(
+                        "[progress] edit message_id=%s md=%s", self.progress_id, md
+                    )
+                    self.last_edit_at = now
+                    try:
+                        await self.bot.edit_message_text(
+                            chat_id=self.chat_id,
+                            message_id=self.progress_id,
+                            text=rendered,
+                            entities=entities,
+                        )
+                        self.last_rendered = rendered
+                    except Exception as e:
+                        logger.info(
+                            "[progress] edit failed chat_id=%s message_id=%s: %s",
+                            self.chat_id,
+                            self.progress_id,
+                            e,
+                        )
 
-                logger.debug("[progress] edit message_id=%s md=%s", self.progress_id, md)
-                self.last_edit_at = now
-                try:
-                    await self.bot.edit_message_text(
-                        chat_id=self.chat_id,
-                        message_id=self.progress_id,
-                        text=rendered,
-                        entities=entities,
-                    )
-                    self.last_rendered = rendered
-                except Exception as e:
-                    logger.info(
-                        "[progress] edit failed chat_id=%s message_id=%s: %s",
-                        self.chat_id,
-                        self.progress_id,
-                        e,
-                    )
+                self._published_seq = seq_at_render
+            self.wakeup.clear()
 
     async def on_event(self, evt: dict[str, Any]) -> None:
         if not self.renderer.note_event(evt):
             return
         if self.progress_id is None:
             return
-        self.dirty = True
+        self._event_seq += 1
         self.wakeup.set()
 
     async def shutdown(self) -> None:
