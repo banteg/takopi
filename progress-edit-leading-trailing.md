@@ -39,15 +39,11 @@ Example (interval = 2s):
 ### Event handling algorithm (on each event)
 1. If no `progress_id` or `note_event` returns false → return.
 2. Compute `now = clock()`.
-3. If `edit_task` is running:
-   - Set `pending_update = True`.
-   - Ensure a trailing task is scheduled for `last_edit_at + interval`.
-   - Return.
-4. If `now - last_edit_at < interval`:
+3. If `edit_task` is running **or** `now - last_edit_at < interval`:
    - Set `pending_update = True`.
    - If no trailing task, schedule one for `last_edit_at + interval`.
    - Return.
-5. Otherwise:
+4. Otherwise:
    - Cancel any existing trailing task and clear `pending_update`.
    - Render + send an edit immediately (leading).
    - Update `last_edit_at = now`.
@@ -55,11 +51,14 @@ Example (interval = 2s):
 ### Trailing task algorithm
 1. Sleep until `due_at = last_edit_at + interval` (no sleeps on the event path).
 2. If cancelled or `pending_update` is false → exit.
-3. If an edit is in flight, wait for it to complete, then re-check `pending_update`.
-4. Render the **latest** progress state using current renderer state and
+3. If an edit is in flight, wait for it to complete.
+4. Recompute `due_at = last_edit_at + interval`; if `now < due_at`, sleep the
+   remaining time to **enforce the minimum interval**.
+5. If `pending_update` is now false → exit.
+6. Render the **latest** progress state using current renderer state and
    `elapsed = clock() - started_at`.
-5. If rendered text differs from `last_rendered`, send the edit.
-6. Update `last_edit_at` and clear `pending_update`.
+7. If rendered text differs from `last_rendered`, send the edit.
+8. Update `last_edit_at` and clear `pending_update`.
 
 ### Cancellation / shutdown
 - On completion, error, or cancellation: cancel `trailing_task` and await it
@@ -88,3 +87,5 @@ single trailing edit at t=12 reflects the latest state.
 ## Notes / tradeoffs
 - Trailing edits add a bit of latency but guarantee eventual freshness.
 - Scheduling work is isolated in a task to avoid blocking the Codex event stream.
+- To keep the handler readable, encapsulate progress-edit state and logic in a
+  small helper/controller (avoid large `nonlocal` blocks).
