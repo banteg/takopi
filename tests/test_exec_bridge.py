@@ -403,3 +403,168 @@ def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
     assert session_id in bot.send_calls[-1]["text"]
     assert "resume:" in bot.send_calls[-1]["text"].lower()
     assert len(bot.delete_calls) == 1
+
+
+def test_handle_cancel_without_reply_prompts_user() -> None:
+    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+
+    bot = _FakeBot()
+    runner = _FakeRunner(answer="ok")
+    cfg = BridgeConfig(
+        bot=bot,  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+    msg = {"chat": {"id": 123}, "message_id": 10}
+    running_tasks: dict = {}
+
+    asyncio.run(_handle_cancel(cfg, msg, running_tasks))
+
+    assert len(bot.send_calls) == 1
+    assert "reply to the progress message" in bot.send_calls[0]["text"]
+
+
+def test_handle_cancel_with_no_session_id_says_nothing_running() -> None:
+    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+
+    bot = _FakeBot()
+    runner = _FakeRunner(answer="ok")
+    cfg = BridgeConfig(
+        bot=bot,  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+    msg = {
+        "chat": {"id": 123},
+        "message_id": 10,
+        "reply_to_message": {"text": "no uuid here"},
+    }
+    running_tasks: dict = {}
+
+    asyncio.run(_handle_cancel(cfg, msg, running_tasks))
+
+    assert len(bot.send_calls) == 1
+    assert "nothing is currently running" in bot.send_calls[0]["text"]
+
+
+def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
+    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+
+    bot = _FakeBot()
+    runner = _FakeRunner(answer="ok")
+    cfg = BridgeConfig(
+        bot=bot,  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+    session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+    msg = {
+        "chat": {"id": 123},
+        "message_id": 10,
+        "reply_to_message": {"text": f"resume: `{session_id}`"},
+    }
+    running_tasks: dict = {}  # Session not in running_tasks
+
+    asyncio.run(_handle_cancel(cfg, msg, running_tasks))
+
+    assert len(bot.send_calls) == 1
+    assert "nothing is currently running" in bot.send_calls[0]["text"]
+
+
+def test_handle_cancel_cancels_running_task() -> None:
+    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+
+    bot = _FakeBot()
+    runner = _FakeRunner(answer="ok")
+    cfg = BridgeConfig(
+        bot=bot,  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+    session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+    msg = {
+        "chat": {"id": 123},
+        "message_id": 10,
+        "reply_to_message": {"text": f"resume: `{session_id}`"},
+    }
+
+    async def run_test():
+        task = asyncio.create_task(asyncio.sleep(10))
+        running_tasks = {session_id: task}
+        await _handle_cancel(cfg, msg, running_tasks)
+        try:
+            await task
+        except asyncio.CancelledError:
+            return True
+        return False
+
+    cancelled = asyncio.run(run_test())
+
+    assert cancelled is True
+    assert len(bot.send_calls) == 0  # No error message sent
+
+
+class _FakeRunnerCancellable:
+    def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
+        self._session_id = session_id
+
+    async def run_serialized(self, *_args, **kwargs) -> tuple[str, str, bool]:
+        on_event = kwargs.get("on_event")
+        if on_event:
+            await on_event({"type": "thread.started", "thread_id": self._session_id})
+        await asyncio.sleep(10)  # Will be cancelled
+        return (self._session_id, "ok", True)
+
+
+def test_handle_message_cancelled_renders_cancelled_state() -> None:
+    from takopi.exec_bridge import BridgeConfig, _handle_message
+
+    bot = _FakeBot()
+    session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+    runner = _FakeRunnerCancellable(session_id=session_id)
+    cfg = BridgeConfig(
+        bot=bot,  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+    running_tasks: dict = {}
+
+    async def run_test():
+        task = asyncio.create_task(
+            _handle_message(
+                cfg,
+                chat_id=123,
+                user_msg_id=10,
+                text="do something",
+                resume_session=None,
+                running_tasks=running_tasks,
+            )
+        )
+        await asyncio.sleep(0.01)  # Let task start and register
+        assert session_id in running_tasks
+        running_tasks[session_id].cancel()
+        await task
+
+    asyncio.run(run_test())
+
+    # Should have progress message and cancelled edit
+    assert len(bot.send_calls) == 1  # Progress message
+    assert len(bot.edit_calls) >= 1
+    last_edit = bot.edit_calls[-1]["text"]
+    assert "cancelled" in last_edit.lower()
+    assert session_id in last_edit
