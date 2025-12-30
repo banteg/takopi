@@ -6,11 +6,10 @@ A Telegram bot that bridges messages to [Codex](https://github.com/openai/codex)
 
 ## Features
 
-- **Stateless Resume**: No database required—sessions are resumed via `resume: <uuid>` lines embedded in messages
+- **Stateless Resume**: No database required—sessions are resumed via `resume: `codex:<token>`` lines embedded in messages
 - **Progress Updates**: Real-time progress edits showing commands, tools, and elapsed time
 - **Markdown Rendering**: Full Telegram-compatible markdown with entity support
 - **Concurrency**: Handles multiple conversations with per-session serialization
-- **Token Redaction**: Automatically redacts Telegram tokens from logs
 
 ## Quick Start
 
@@ -42,6 +41,12 @@ Create `~/.codex/takopi.toml` (or `.codex/takopi.toml` for a repo-local config):
 ```toml
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
+
+[codex]
+# Optional: Codex profile name (defined in ~/.codex/config.toml)
+profile = "takopi"
+# Optional: extra args passed before `codex exec`
+extra_args = ["-c", "notify=[]"]
 ```
 
 | Key | Description |
@@ -66,6 +71,8 @@ Then run takopi with:
 takopi --profile takopi
 ```
 
+Or set `profile = "takopi"` under `[codex]` in `~/.codex/takopi.toml`.
+
 ### Options
 
 | Flag | Default | Description |
@@ -84,14 +91,14 @@ Send any message to your bot. The bridge will:
 1. Send a silent progress message
 2. Stream events from `codex exec`
 3. Update progress every ~2 seconds
-4. Send final response with session ID
+4. Send final response with engine-qualified resume token
 
 ### Resume a Session
 
-Reply to a bot message (containing `resume: <uuid>`), or include the resume line in your message:
+Reply to a bot message (containing `resume: `codex:<token>``), or include the resume line in your message:
 
 ```
-resume: `019b66fc-64c2-7a71-81cd-081c504cfeb2`
+resume: `codex:019b66fc-64c2-7a71-81cd-081c504cfeb2`
 ```
 
 ### Cancel a Run

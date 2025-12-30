@@ -3,12 +3,13 @@ from __future__ import annotations
 import re
 import textwrap
 from collections import deque
-from pathlib import Path
-from textwrap import indent
+from dataclasses import dataclass
 from typing import Any
 
 from markdown_it import MarkdownIt
 from sulguk import transform_html
+
+from .runners.base import ResumeToken, TakopiEvent
 
 STATUS_RUNNING = "▸"
 STATUS_DONE = "✓"
@@ -18,7 +19,6 @@ HARD_BREAK = "  \n"
 
 MAX_PROGRESS_CMD_LEN = 300
 MAX_QUERY_LEN = 60
-MAX_PATH_LEN = 40
 
 _md = MarkdownIt("commonmark", {"html": False})
 
@@ -52,153 +52,87 @@ def format_header(elapsed_s: float, item: int | None, label: str) -> str:
     return HEADER_SEP.join(parts)
 
 
-def extract_numeric_id(item_id: object, fallback: int | None = None) -> int | None:
-    if isinstance(item_id, int):
-        return item_id
-    if isinstance(item_id, str):
-        match = re.search(r"(?:item_)?(\d+)", item_id)
-        if match:
-            return int(match.group(1))
-    return fallback
-
-
-def _shorten(text: str, width: int) -> str:
+def _shorten(text: str, width: int | None) -> str:
+    if width is None:
+        return text
     return textwrap.shorten(text, width=width, placeholder="…")
 
 
-def _format_change_path(path: str) -> str:
-    workdir = Path.cwd()
-    path_obj = Path(path)
-    if path_obj.is_absolute() and path_obj.is_relative_to(workdir):
-        return str(path_obj.relative_to(workdir))
-    return path
+def _action_status_symbol(action: dict[str, Any], *, completed: bool) -> str:
+    if not completed:
+        return STATUS_RUNNING
+    ok = action.get("ok")
+    if ok is not None:
+        return STATUS_DONE if ok else STATUS_FAIL
+    detail = action.get("detail") or {}
+    exit_code = detail.get("exit_code")
+    if isinstance(exit_code, int) and exit_code != 0:
+        return STATUS_FAIL
+    return STATUS_DONE
 
 
-def format_event(
-    event: dict[str, Any],
-    last_item: int | None,
-    *,
-    command_width: int | None = None,
-    escape_markdown: bool = False,
-) -> tuple[int | None, list[str], str | None, str | None]:
-    lines: list[str] = []
+def _action_exit_suffix(action: dict[str, Any]) -> str:
+    detail = action.get("detail") or {}
+    exit_code = detail.get("exit_code")
+    if isinstance(exit_code, int) and exit_code != 0:
+        return f" (exit {exit_code})"
+    return ""
 
-    match event["type"]:
-        case "thread.started":
-            return last_item, ["thread started"], None, None
-        case "turn.started":
-            return last_item, ["turn started"], None, None
-        case "turn.completed":
-            return last_item, ["turn completed"], None, None
-        case "turn.failed":
-            return last_item, [f"turn failed: {event['error']['message']}"], None, None
-        case "error":
-            return last_item, [f"stream error: {event['message']}"], None, None
-        case "item.started" | "item.updated" | "item.completed" as etype:
-            item = event["item"]
-            item_type = item.get("type") or item.get("item_type")
-            if item_type == "assistant_message":
-                item_type = "agent_message"
-            if item_type is None:
-                return last_item, [], None, None
-            item_num = extract_numeric_id(item.get("id"), last_item)
-            last_item = item_num if item_num is not None else last_item
-            prefix = f"{item_num}. "
-            if escape_markdown and item_num is not None:
-                # Avoid ordered-list parsing which renumbers items in MarkdownIt/CommonMark.
-                prefix = f"{item_num}\\." + " "
 
-            match (item_type, etype):
-                case ("agent_message", "item.completed"):
-                    lines.append("assistant:")
-                    lines.extend(indent(item["text"], "  ").splitlines())
-                    return last_item, lines, None, None
-                case ("reasoning", "item.completed"):
-                    text = item.get("text") or ""
-                    first_line = text.splitlines()[0] if text else ""
-                    line = prefix + first_line
-                    return last_item, [line], line, prefix
-                case ("command_execution", "item.started"):
-                    command = item["command"]
-                    if command_width is not None:
-                        command = _shorten(command, command_width)
-                    command = f"`{command}`"
-                    line = prefix + f"{STATUS_RUNNING} {command}"
-                    return last_item, [line], line, prefix
-                case ("command_execution", "item.completed"):
-                    command = item["command"]
-                    if command_width is not None:
-                        command = _shorten(command, command_width)
-                    command = f"`{command}`"
-                    exit_code = item["exit_code"]
-                    if exit_code == 0:
-                        status = STATUS_DONE
-                        exit_part = ""
-                    else:
-                        status = STATUS_FAIL if exit_code is not None else STATUS_DONE
-                        exit_part = (
-                            f" (exit {exit_code})" if exit_code is not None else ""
-                        )
-                    line = prefix + f"{status} {command}{exit_part}"
-                    return last_item, [line], line, prefix
-                case ("mcp_tool_call", "item.started"):
-                    name = (
-                        ".".join(
-                            part for part in (item["server"], item["tool"]) if part
-                        )
-                        or "tool"
-                    )
-                    line = prefix + f"{STATUS_RUNNING} tool: {name}"
-                    return last_item, [line], line, prefix
-                case ("mcp_tool_call", "item.completed"):
-                    name = (
-                        ".".join(
-                            part for part in (item["server"], item["tool"]) if part
-                        )
-                        or "tool"
-                    )
-                    line = prefix + f"{STATUS_DONE} tool: {name}"
-                    return last_item, [line], line, prefix
-                case ("web_search", "item.completed"):
-                    query = _shorten(item["query"], MAX_QUERY_LEN)
-                    line = prefix + f"{STATUS_DONE} searched: {query}"
-                    return last_item, [line], line, prefix
-                case ("file_change", "item.completed"):
-                    paths = [
-                        change["path"]
-                        for change in item["changes"]
-                        if change.get("path")
-                    ]
-                    if not paths:
-                        total = len(item["changes"])
-                        desc = (
-                            "updated files" if total == 0 else f"updated {total} files"
-                        )
-                    elif len(paths) <= 3:
-                        desc = "updated " + ", ".join(
-                            f"`{_format_change_path(p)}`" for p in paths
-                        )
-                    else:
-                        desc = f"updated {len(paths)} files"
-                    line = prefix + f"{STATUS_DONE} {desc}"
-                    return last_item, [line], line, prefix
-                case ("error", "item.completed"):
-                    warning = _shorten(item["message"], 120)
-                    line = prefix + f"{STATUS_DONE} warning: {warning}"
-                    return last_item, [line], line, prefix
-                case _:
-                    return last_item, [], None, None
-        case _:
-            return last_item, [], None, None
+def _format_action_title(action: dict[str, Any], *, command_width: int | None) -> str:
+    title = str(action.get("title") or "")
+    kind = action.get("kind")
+    if kind == "command":
+        title = _shorten(title, command_width)
+        return f"`{title}`"
+    if kind == "tool":
+        title = _shorten(title, command_width)
+        return f"tool: {title}"
+    if kind == "web_search":
+        title = _shorten(title, MAX_QUERY_LEN)
+        return f"searched: {title}"
+    if kind == "file_change":
+        title = _shorten(title, command_width)
+        return f"updated {title}"
+    if kind == "note":
+        title = _shorten(title, MAX_QUERY_LEN)
+        return title
+    return _shorten(title, command_width)
 
 
 def render_event_cli(
-    event: dict[str, Any], last_item: int | None = None
+    event: TakopiEvent, last_item: int | None = None
 ) -> tuple[int | None, list[str]]:
-    last_item, cli_lines, _, _ = format_event(
-        event, last_item, command_width=None, escape_markdown=False
-    )
-    return last_item, cli_lines
+    lines: list[str] = []
+    etype = event["type"]
+    match etype:
+        case "session.started":
+            lines.append(event.get("engine", "engine"))
+        case "action.started":
+            action = event["action"]
+            title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
+            lines.append(f"{STATUS_RUNNING} {title}")
+        case "action.completed":
+            action = event["action"]
+            status = _action_status_symbol(action, completed=True)
+            title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
+            suffix = _action_exit_suffix(action)
+            lines.append(f"{status} {title}{suffix}")
+        case "log":
+            level = event.get("level", "info")
+            lines.append(f"log[{level}]: {event.get('message', '')}")
+        case "error":
+            lines.append(f"error: {event.get('message', '')}")
+        case _:
+            return last_item, []
+    return last_item, lines
+
+
+@dataclass(slots=True)
+class _RenderedAction:
+    action_id: str
+    line: str
+    status: str
 
 
 class ExecProgressRenderer:
@@ -209,52 +143,76 @@ class ExecProgressRenderer:
     ) -> None:
         self.max_actions = max_actions
         self.command_width = command_width
-        self.recent_actions: deque[str] = deque(maxlen=max_actions)
-        self.last_item: int | None = None
-        self.resume_session: str | None = None
+        self.recent_actions: deque[_RenderedAction] = deque(maxlen=max_actions)
+        self.action_count = 0
+        self._started_ids: set[str] = set()
+        self.resume_token: ResumeToken | None = None
 
-    def note_event(self, event: dict[str, Any]) -> bool:
-        if event["type"] == "thread.started":
-            self.resume_session = event["thread_id"]
+    def note_event(self, event: TakopiEvent) -> bool:
+        if event["type"] == "session.started":
+            resume = event["resume"]
+            self.resume_token = ResumeToken(
+                engine=resume["engine"], value=resume["value"]
+            )
             return True
 
-        self.last_item, _, progress_line, progress_prefix = format_event(
-            event,
-            self.last_item,
-            command_width=self.command_width,
-            escape_markdown=True,
-        )
-        if progress_line is None:
+        if event["type"] not in {"action.started", "action.completed"}:
             return False
 
-        # Replace the preceding "running" line for the same item on completion.
-        if (
-            event["type"] == "item.completed"
-            and progress_prefix
-            and self.recent_actions
-        ):
-            last = self.recent_actions[-1]
-            if last.startswith(progress_prefix + f"{STATUS_RUNNING} "):
-                self.recent_actions.pop()
+        action = event["action"]
+        action_id = str(action.get("id") or "")
+        if not action_id:
+            return False
 
-        self.recent_actions.append(progress_line)
+        completed = event["type"] == "action.completed"
+        if not completed:
+            self._started_ids.add(action_id)
+            self.action_count += 1
+        elif action_id not in self._started_ids:
+            self.action_count += 1
+        else:
+            self._started_ids.remove(action_id)
+
+        status = _action_status_symbol(action, completed=completed)
+        title = _format_action_title(action, command_width=self.command_width)
+        suffix = _action_exit_suffix(action) if completed else ""
+        line = f"{status} {title}{suffix}"
+
+        if completed and self._replace_action(action_id, line, status):
+            return True
+
+        self._append_action(action_id, line, status)
         return True
 
+    def _append_action(self, action_id: str, line: str, status: str) -> None:
+        self.recent_actions.append(_RenderedAction(action_id, line, status))
+
+    def _replace_action(self, action_id: str, line: str, status: str) -> bool:
+        for i in range(len(self.recent_actions) - 1, -1, -1):
+            if self.recent_actions[i].action_id == action_id:
+                self.recent_actions[i] = _RenderedAction(action_id, line, status)
+                return True
+        return False
+
     def render_progress(self, elapsed_s: float, label: str = "working") -> str:
-        header = format_header(elapsed_s, self.last_item, label=label)
-        message = self._assemble(header, list(self.recent_actions))
+        step = self.action_count or None
+        header = format_header(elapsed_s, step, label=label)
+        message = self._assemble(header, [a.line for a in self.recent_actions])
         return self._append_resume(message)
 
     def render_final(self, elapsed_s: float, answer: str, status: str = "done") -> str:
-        header = format_header(elapsed_s, self.last_item, label=status)
+        step = self.action_count or None
+        header = format_header(elapsed_s, step, label=status)
         answer = (answer or "").strip()
         message = header + ("\n\n" + answer if answer else "")
         return self._append_resume(message)
 
     def _append_resume(self, message: str) -> str:
-        if not self.resume_session:
+        if not self.resume_token:
             return message
-        return message + f"\n\nresume: `{self.resume_session}`"
+        token = f"{self.resume_token.engine}:{self.resume_token.value}"
+        # Escape backticks so they remain literal in rendered text and reply parsing.
+        return message + f"\n\nresume: \\`{token}\\`"
 
     @staticmethod
     def _assemble(header: str, lines: list[str]) -> str:

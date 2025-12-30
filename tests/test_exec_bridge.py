@@ -2,11 +2,12 @@ import anyio
 import pytest
 
 from takopi.exec_bridge import (
-    extract_session_id,
+    extract_resume_token,
     prepare_telegram,
-    resolve_resume_session,
+    resolve_resume_token,
     truncate_for_telegram,
 )
+from takopi.runners.base import ResumeToken
 
 
 def _patch_config(monkeypatch, config):
@@ -39,62 +40,64 @@ def test_parse_bridge_config_rejects_string_chat_id(monkeypatch) -> None:
         exec_bridge._parse_bridge_config(final_notify=True, profile=None)
 
 
-def test_extract_session_id_finds_uuid_v7() -> None:
+def test_extract_resume_token_finds_engine_token() -> None:
     uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
-    text = f"resume: `{uuid}`"
+    text = f"resume: `codex:{uuid}`"
 
-    assert extract_session_id(text) == uuid
+    assert extract_resume_token(text) == f"codex:{uuid}"
 
 
-def test_extract_session_id_requires_resume_line() -> None:
+def test_extract_resume_token_requires_resume_line() -> None:
     uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     text = f"here is a uuid {uuid}"
 
-    assert extract_session_id(text) is None
+    assert extract_resume_token(text) is None
 
 
-def test_extract_session_id_uses_last_resume_line() -> None:
+def test_extract_resume_token_uses_last_resume_line() -> None:
     uuid_first = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     uuid_last = "123e4567-e89b-12d3-a456-426614174000"
-    text = f"resume: `{uuid_first}`\n\nresume: `{uuid_last}`"
+    text = f"resume: `codex:{uuid_first}`\n\nresume: `codex:{uuid_last}`"
 
-    assert extract_session_id(text) == uuid_last
+    assert extract_resume_token(text) == f"codex:{uuid_last}"
 
 
-def test_extract_session_id_ignores_malformed_resume_line() -> None:
+def test_extract_resume_token_ignores_malformed_resume_line() -> None:
     text = "resume: not-a-uuid"
 
-    assert extract_session_id(text) is None
+    assert extract_resume_token(text) is None
 
 
-def test_resolve_resume_session_prefers_message_text() -> None:
+def test_resolve_resume_token_prefers_message_text() -> None:
     uuid_message = "123e4567-e89b-12d3-a456-426614174000"
     uuid_reply = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
 
     assert (
-        resolve_resume_session(f"resume: `{uuid_message}`", f"resume: `{uuid_reply}`")
-        == uuid_message
+        resolve_resume_token(
+            f"resume: `codex:{uuid_message}`", f"resume: `codex:{uuid_reply}`"
+        )
+        == f"codex:{uuid_message}"
     )
 
 
-def test_resolve_resume_session_uses_reply_when_missing() -> None:
+def test_resolve_resume_token_uses_reply_when_missing() -> None:
     uuid_reply = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
 
     assert (
-        resolve_resume_session("no resume here", f"resume: `{uuid_reply}`")
-        == uuid_reply
+        resolve_resume_token("no resume here", f"resume: `codex:{uuid_reply}`")
+        == f"codex:{uuid_reply}"
     )
 
 
 def test_truncate_for_telegram_preserves_resume_line() -> None:
     uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
-    md = ("x" * 10_000) + f"\nresume: `{uuid}`"
+    md = ("x" * 10_000) + f"\nresume: `codex:{uuid}`"
 
     out = truncate_for_telegram(md, 400)
 
     assert len(out) <= 400
-    assert uuid in out
-    assert out.rstrip().endswith(f"resume: `{uuid}`")
+    assert f"codex:{uuid}" in out
+    assert out.rstrip().endswith(f"resume: `codex:{uuid}`")
 
 
 def test_truncate_for_telegram_keeps_last_non_empty_line() -> None:
@@ -170,13 +173,18 @@ class _FakeBot:
 
 
 class _FakeRunner:
+    engine = "codex"
+
     def __init__(self, *, answer: str, saw_agent_message: bool = True) -> None:
         self._answer = answer
         self._saw_agent_message = saw_agent_message
 
-    async def run_serialized(self, *_args, **_kwargs) -> tuple[str, str, bool]:
+    async def run(self, *_args, **_kwargs) -> tuple[ResumeToken, str, bool]:
         return (
-            "019b66fc-64c2-7a71-81cd-081c504cfeb2",
+            ResumeToken(
+                engine="codex",
+                value="019b66fc-64c2-7a71-81cd-081c504cfeb2",
+            ),
             self._answer,
             self._saw_agent_message,
         )
@@ -212,6 +220,8 @@ class _FakeClock:
 
 
 class _FakeRunnerWithEvents:
+    engine = "codex"
+
     def __init__(
         self,
         *,
@@ -231,7 +241,7 @@ class _FakeRunnerWithEvents:
         self._advance_after = advance_after
         self._hold = hold
 
-    async def run_serialized(self, *_args, **kwargs) -> tuple[str, str, bool]:
+    async def run(self, *_args, **kwargs) -> tuple[ResumeToken, str, bool]:
         on_event = kwargs.get("on_event")
         if on_event is not None:
             for when, event in zip(self._times, self._events, strict=False):
@@ -243,7 +253,11 @@ class _FakeRunnerWithEvents:
                 await anyio.sleep(0)
         if self._hold is not None:
             await self._hold.wait()
-        return (self._session_id, self._answer, True)
+        return (
+            ResumeToken(engine="codex", value=self._session_id),
+            self._answer,
+            True,
+        )
 
 
 @pytest.mark.anyio
@@ -266,7 +280,7 @@ async def test_final_notify_sends_loud_final_message() -> None:
         chat_id=123,
         user_msg_id=10,
         text="hi",
-        resume_session=None,
+        resume_token=None,
     )
 
     assert len(bot.send_calls) == 2
@@ -294,7 +308,7 @@ async def test_new_final_message_forces_notification_when_too_long_to_edit() -> 
         chat_id=123,
         user_msg_id=10,
         text="hi",
-        resume_session=None,
+        resume_token=None,
     )
 
     assert len(bot.send_calls) == 2
@@ -310,21 +324,23 @@ async def test_progress_edits_are_rate_limited() -> None:
     clock = _FakeClock()
     events = [
         {
-            "type": "item.started",
-            "item": {
+            "type": "action.started",
+            "engine": "codex",
+            "action": {
                 "id": "item_0",
-                "type": "command_execution",
-                "command": "echo 1",
-                "status": "in_progress",
+                "kind": "command",
+                "title": "echo 1",
+                "detail": {},
             },
         },
         {
-            "type": "item.started",
-            "item": {
+            "type": "action.started",
+            "engine": "codex",
+            "action": {
                 "id": "item_1",
-                "type": "command_execution",
-                "command": "echo 2",
-                "status": "in_progress",
+                "kind": "command",
+                "title": "echo 2",
+                "detail": {},
             },
         },
     ]
@@ -348,7 +364,7 @@ async def test_progress_edits_are_rate_limited() -> None:
         chat_id=123,
         user_msg_id=10,
         text="hi",
-        resume_session=None,
+        resume_token=None,
         clock=clock,
         sleep=clock.sleep,
         progress_edit_every=1.0,
@@ -367,21 +383,23 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
     hold = anyio.Event()
     events = [
         {
-            "type": "item.started",
-            "item": {
+            "type": "action.started",
+            "engine": "codex",
+            "action": {
                 "id": "item_0",
-                "type": "command_execution",
-                "command": "echo 1",
-                "status": "in_progress",
+                "kind": "command",
+                "title": "echo 1",
+                "detail": {},
             },
         },
         {
-            "type": "item.started",
-            "item": {
+            "type": "action.started",
+            "engine": "codex",
+            "action": {
                 "id": "item_1",
-                "type": "command_execution",
-                "command": "echo 2",
-                "status": "in_progress",
+                "kind": "command",
+                "title": "echo 2",
+                "detail": {},
             },
         },
     ]
@@ -407,7 +425,7 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
             chat_id=123,
             user_msg_id=10,
             text="hi",
-            resume_session=None,
+            resume_token=None,
             clock=clock,
             sleep=clock.sleep,
             progress_edit_every=1.0,
@@ -449,22 +467,24 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
     clock = _FakeClock()
     events = [
         {
-            "type": "item.started",
-            "item": {
+            "type": "action.started",
+            "engine": "codex",
+            "action": {
                 "id": "item_0",
-                "type": "command_execution",
-                "command": "echo ok",
-                "status": "in_progress",
+                "kind": "command",
+                "title": "echo ok",
+                "detail": {},
             },
         },
         {
-            "type": "item.completed",
-            "item": {
+            "type": "action.completed",
+            "engine": "codex",
+            "action": {
                 "id": "item_0",
-                "type": "command_execution",
-                "command": "echo ok",
-                "exit_code": 0,
-                "status": "completed",
+                "kind": "command",
+                "title": "echo ok",
+                "detail": {"exit_code": 0},
+                "ok": True,
             },
         },
     ]
@@ -490,7 +510,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
         chat_id=123,
         user_msg_id=42,
         text="do it",
-        resume_session=None,
+        resume_token=None,
         clock=clock,
         sleep=clock.sleep,
         progress_edit_every=1.0,
@@ -661,15 +681,23 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
 
 
 class _FakeRunnerCancellable:
+    engine = "codex"
+
     def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
         self._session_id = session_id
 
-    async def run_serialized(self, *_args, **kwargs) -> tuple[str, str, bool]:
+    async def run(self, *_args, **kwargs) -> tuple[ResumeToken, str, bool]:
         on_event = kwargs.get("on_event")
         if on_event:
-            await on_event({"type": "thread.started", "thread_id": self._session_id})
+            await on_event(
+                {
+                    "type": "session.started",
+                    "engine": "codex",
+                    "resume": {"engine": "codex", "value": self._session_id},
+                }
+            )
         await anyio.sleep(10)  # Will be cancelled
-        return (self._session_id, "ok", True)
+        return (ResumeToken(engine="codex", value=self._session_id), "ok", True)
 
 
 @pytest.mark.anyio
@@ -695,7 +723,7 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
             chat_id=123,
             user_msg_id=10,
             text="do something",
-            resume_session=None,
+            resume_token=None,
             running_tasks=running_tasks,
         )
 

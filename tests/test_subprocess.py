@@ -2,16 +2,25 @@ import sys
 
 import pytest
 
-from takopi import exec_bridge
+from takopi.runners import codex
 
 
 @pytest.mark.anyio
-async def test_manage_subprocess_kills_when_terminate_times_out() -> None:
-    async with exec_bridge.manage_subprocess(
+async def test_manage_subprocess_kills_when_terminate_times_out(monkeypatch) -> None:
+    import asyncio
+
+    # Make wait_for timeout immediately to trigger kill path
+    original_wait_for = asyncio.wait_for
+
+    async def fake_wait_for(coro, timeout):
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+
+    async with codex.manage_subprocess(
         sys.executable,
         "-c",
         "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(10)",
-        terminate_timeout=0.01,
     ) as proc:
         assert proc.returncode is None
 
