@@ -293,6 +293,7 @@ class CodexExecRunner:
     ) -> None:
         self.codex_cmd = codex_cmd
         self.extra_args = extra_args
+        self._new_session_lock = anyio.Lock()
 
         # Per-session locks to prevent concurrent resumes to the same session_id.
         self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
@@ -424,7 +425,8 @@ class CodexExecRunner:
         on_event: EventCallback | None = None,
     ) -> tuple[str, str, bool]:
         if not session_id:
-            return await self.run(prompt, session_id=None, on_event=on_event)
+            async with self._new_session_lock:
+                return await self.run(prompt, session_id=None, on_event=on_event)
         lock = await self._lock_for(session_id)
         async with lock:
             return await self.run(prompt, session_id=session_id, on_event=on_event)
