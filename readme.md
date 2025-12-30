@@ -94,6 +94,10 @@ Reply to a bot message (containing `resume: <uuid>`), or include the resume line
 resume: `019b66fc-64c2-7a71-81cd-081c504cfeb2`
 ```
 
+### Cancel a Run
+
+Reply to a progress message with `/cancel` to stop the running execution.
+
 ## Notes
 
 - **Startup**: Pending updates are drained (ignored) on startup
