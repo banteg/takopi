@@ -440,6 +440,7 @@ async def _handle_message(
     resume_session: str | None,
     running_tasks: dict[str, asyncio.Task[Any]] | None = None,
     clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
 ) -> None:
     logger.debug(
@@ -453,43 +454,137 @@ async def _handle_message(
     progress_renderer = ExecProgressRenderer(max_actions=5)
 
     progress_id: int | None = None
-
     last_edit_at = 0.0
-    edit_task: asyncio.Task[None] | None = None
     last_rendered: str | None = None
-    pending_rendered: str | None = None
 
-    async def _edit_progress(
-        md: str, rendered: str, entities: list[dict[str, Any]] | None
-    ) -> None:
-        nonlocal last_rendered, pending_rendered
-        if progress_id is None:
-            return
-        logger.debug(
-            "[progress] edit message_id=%s md=%s rendered=%s entities=%s",
-            progress_id,
-            md,
-            rendered,
-            entities,
-        )
-        try:
-            await cfg.bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=progress_id,
-                text=rendered,
-                entities=entities,
+    class ProgressEdits:
+        def __init__(
+            self,
+            *,
+            progress_id: int | None,
+            last_edit_at: float,
+            last_rendered: str | None,
+        ) -> None:
+            self.progress_id = progress_id
+            self.last_edit_at = last_edit_at
+            self.last_rendered = last_rendered
+            self.pending_rendered: str | None = None
+            self.pending_update = False
+            self.edit_task: asyncio.Task[None] | None = None
+            self.trailing_task: asyncio.Task[None] | None = None
+            self.exec_task: asyncio.Task[tuple[str, str, bool]] | None = None
+            self.tracked_session_id: str | None = None
+
+        async def _edit_progress(
+            self, md: str, rendered: str, entities: list[dict[str, Any]] | None
+        ) -> None:
+            if self.progress_id is None:
+                return
+            logger.debug(
+                "[progress] edit message_id=%s md=%s rendered=%s entities=%s",
+                self.progress_id,
+                md,
+                rendered,
+                entities,
             )
-            last_rendered = rendered
-        except Exception as e:
-            logger.info(
-                "[progress] edit failed chat_id=%s message_id=%s: %s",
-                chat_id,
-                progress_id,
-                e,
+            try:
+                await cfg.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=self.progress_id,
+                    text=rendered,
+                    entities=entities,
+                )
+                self.last_rendered = rendered
+            except Exception as e:
+                logger.info(
+                    "[progress] edit failed chat_id=%s message_id=%s: %s",
+                    chat_id,
+                    self.progress_id,
+                    e,
+                )
+            finally:
+                if self.pending_rendered == rendered:
+                    self.pending_rendered = None
+
+        def _queue_edit(self, now: float) -> None:
+            if self.progress_id is None:
+                return
+            md = progress_renderer.render_progress(now - started_at)
+            rendered, entities = prepare_telegram(md, limit=TELEGRAM_MARKDOWN_LIMIT)
+            if rendered == self.last_rendered or rendered == self.pending_rendered:
+                return
+            self.last_edit_at = now
+            self.pending_rendered = rendered
+            self.edit_task = asyncio.create_task(
+                self._edit_progress(md, rendered, entities)
             )
-        finally:
-            if pending_rendered == rendered:
-                pending_rendered = None
+
+        async def _run_trailing(self) -> None:
+            try:
+                while True:
+                    await sleep(
+                        max(0.0, self.last_edit_at + progress_edit_every - clock())
+                    )
+                    if not self.pending_update:
+                        return
+
+                    if self.edit_task is not None and not self.edit_task.done():
+                        await asyncio.gather(self.edit_task, return_exceptions=True)
+                        continue
+
+                    now = clock()
+                    if (now - self.last_edit_at) < progress_edit_every:
+                        continue
+
+                    self.pending_update = False
+                    self._queue_edit(now)
+                    return
+            finally:
+                self.trailing_task = None
+
+        def _ensure_trailing(self) -> None:
+            if self.trailing_task is not None and self.trailing_task.done():
+                self.trailing_task = None
+            if self.trailing_task is None:
+                self.trailing_task = asyncio.create_task(self._run_trailing())
+
+        async def on_event(self, evt: dict[str, Any]) -> None:
+            if self.progress_id is None:
+                return
+            if not progress_renderer.note_event(evt):
+                return
+
+            if (
+                evt["type"] == "thread.started"
+                and running_tasks is not None
+                and self.exec_task is not None
+            ):
+                self.tracked_session_id = progress_renderer.resume_session
+                if self.tracked_session_id:
+                    running_tasks[self.tracked_session_id] = self.exec_task
+
+            now = clock()
+            if (self.edit_task is not None and not self.edit_task.done()) or (
+                (now - self.last_edit_at) < progress_edit_every
+            ):
+                self.pending_update = True
+                self._ensure_trailing()
+                return
+
+            if self.trailing_task is not None and not self.trailing_task.done():
+                self.trailing_task.cancel()
+            self.pending_update = False
+            self._queue_edit(now)
+
+        async def shutdown(self) -> None:
+            self.pending_update = False
+            if self.trailing_task is not None and not self.trailing_task.done():
+                self.trailing_task.cancel()
+            tasks = [
+                task for task in (self.edit_task, self.trailing_task) if task is not None
+            ]
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     try:
         initial_md = progress_renderer.render_progress(0.0)
@@ -519,52 +614,25 @@ async def _handle_message(
             "[handle] failed to send progress message chat_id=%s: %s", chat_id, e
         )
 
-    exec_task: asyncio.Task[tuple[str, str, bool]] | None = None
-    tracked_session_id: str | None = None
-
-    async def on_event(evt: dict[str, Any]) -> None:
-        nonlocal last_edit_at, edit_task, pending_rendered, tracked_session_id
-        if progress_id is None:
-            return
-        if not progress_renderer.note_event(evt):
-            return
-
-        if (
-            evt["type"] == "thread.started"
-            and running_tasks is not None
-            and exec_task is not None
-        ):
-            tracked_session_id = progress_renderer.resume_session
-            if tracked_session_id:
-                running_tasks[tracked_session_id] = exec_task
-
-        now = clock()
-        if (now - last_edit_at) < progress_edit_every:
-            return
-        if edit_task is not None and not edit_task.done():
-            return
-        elapsed = now - started_at
-        md = progress_renderer.render_progress(elapsed)
-        rendered, entities = prepare_telegram(md, limit=TELEGRAM_MARKDOWN_LIMIT)
-        if rendered == last_rendered or rendered == pending_rendered:
-            return
-        last_edit_at = now
-        pending_rendered = rendered
-        edit_task = asyncio.create_task(_edit_progress(md, rendered, entities))
+    edits = ProgressEdits(
+        progress_id=progress_id,
+        last_edit_at=last_edit_at,
+        last_rendered=last_rendered,
+    )
 
     exec_task = asyncio.create_task(
-        cfg.runner.run_serialized(text, resume_session, on_event=on_event)
+        cfg.runner.run_serialized(text, resume_session, on_event=edits.on_event)
     )
+    edits.exec_task = exec_task
 
     cancelled = False
     try:
         session_id, answer, saw_agent_message = await exec_task
     except asyncio.CancelledError:
         cancelled = True
-        session_id = tracked_session_id or resume_session
+        session_id = edits.tracked_session_id or resume_session
     except Exception as e:
-        if edit_task is not None:
-            await asyncio.gather(edit_task, return_exceptions=True)
+        await edits.shutdown()
 
         err = _clamp_tg_text(f"Error:\n{e}")
         logger.debug("[error] send reply_to=%s text=%s", user_msg_id, err)
@@ -579,14 +647,17 @@ async def _handle_message(
         )
         return
     finally:
-        if tracked_session_id and running_tasks is not None and exec_task is not None:
+        if (
+            edits.tracked_session_id
+            and running_tasks is not None
+            and exec_task is not None
+        ):
             # Avoid removing a newer task for the same session_id if another run
             # registered while this one was finishing.
-            if running_tasks.get(tracked_session_id) is exec_task:
-                running_tasks.pop(tracked_session_id, None)
+            if running_tasks.get(edits.tracked_session_id) is exec_task:
+                running_tasks.pop(edits.tracked_session_id, None)
 
-    if edit_task is not None:
-        await asyncio.gather(edit_task, return_exceptions=True)
+    await edits.shutdown()
 
     elapsed = clock() - started_at
     if cancelled:

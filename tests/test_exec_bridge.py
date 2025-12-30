@@ -186,12 +186,28 @@ class _FakeRunner:
 class _FakeClock:
     def __init__(self, start: float = 0.0) -> None:
         self._now = start
+        self._sleep_until: float | None = None
+        self._sleep_event: asyncio.Event | None = None
 
     def __call__(self) -> float:
         return self._now
 
     def set(self, value: float) -> None:
         self._now = value
+        if self._sleep_until is None or self._sleep_event is None:
+            return
+        if self._sleep_until <= self._now:
+            self._sleep_event.set()
+            self._sleep_until = None
+            self._sleep_event = None
+
+    async def sleep(self, delay: float) -> None:
+        if delay <= 0:
+            await asyncio.sleep(0)
+            return
+        self._sleep_until = self._now + delay
+        self._sleep_event = asyncio.Event()
+        await self._sleep_event.wait()
 
 
 class _FakeRunnerWithEvents:
@@ -203,12 +219,14 @@ class _FakeRunnerWithEvents:
         clock: _FakeClock,
         answer: str = "ok",
         session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2",
+        advance_after: float | None = None,
     ) -> None:
         self._events = events
         self._times = times
         self._clock = clock
         self._answer = answer
         self._session_id = session_id
+        self._advance_after = advance_after
 
     async def run_serialized(self, *_args, **kwargs) -> tuple[str, str, bool]:
         on_event = kwargs.get("on_event")
@@ -216,6 +234,9 @@ class _FakeRunnerWithEvents:
             for when, event in zip(self._times, self._events, strict=False):
                 self._clock.set(when)
                 await on_event(event)
+                await asyncio.sleep(0)
+            if self._advance_after is not None:
+                self._clock.set(self._advance_after)
                 await asyncio.sleep(0)
         return (self._session_id, self._answer, True)
 
@@ -294,16 +315,6 @@ def test_progress_edits_are_rate_limited() -> None:
             },
         },
         {
-            "type": "item.completed",
-            "item": {
-                "id": "item_0",
-                "type": "command_execution",
-                "command": "echo 1",
-                "exit_code": 0,
-                "status": "completed",
-            },
-        },
-        {
             "type": "item.started",
             "item": {
                 "id": "item_1",
@@ -315,8 +326,9 @@ def test_progress_edits_are_rate_limited() -> None:
     ]
     runner = _FakeRunnerWithEvents(
         events=events,
-        times=[0.2, 0.4, 1.2],
+        times=[0.2, 0.4],
         clock=clock,
+        advance_after=1.0,
     )
     cfg = BridgeConfig(
         bot=bot,  # type: ignore[arg-type]
@@ -335,11 +347,13 @@ def test_progress_edits_are_rate_limited() -> None:
             text="hi",
             resume_session=None,
             clock=clock,
+            sleep=clock.sleep,
             progress_edit_every=1.0,
         )
     )
 
     assert len(bot.edit_calls) == 1
+    assert "echo 2" in bot.edit_calls[0]["text"]
 
 
 def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
