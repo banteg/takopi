@@ -282,10 +282,10 @@ class CodexExecRunner:
                         except Exception as e:
                             logger.info("[codex][on_event] callback error: %s", e)
 
-                    if evt.get("type") == "thread.started":
+                    if evt["type"] == "thread.started":
                         found_session = evt.get("thread_id") or found_session
 
-                    if evt.get("type") == "item.completed":
+                    if evt["type"] == "item.completed":
                         item = evt.get("item") or {}
                         if item.get("type") == "agent_message" and isinstance(
                             item.get("text"), str
@@ -530,7 +530,7 @@ async def _handle_message(
             return
 
         if (
-            evt.get("type") == "thread.started"
+            evt["type"] == "thread.started"
             and running_tasks is not None
             and exec_task is not None
         ):
