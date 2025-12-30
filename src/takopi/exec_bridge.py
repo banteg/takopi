@@ -12,7 +12,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 from weakref import WeakValueDictionary
 
 import typer
@@ -28,6 +28,12 @@ from .exec_render import (
 from .logging import setup_logging
 from .onboarding import check_setup, render_setup_guide
 from .telegram import TelegramClient
+
+
+class RunningTask(NamedTuple):
+    task: asyncio.Task[Any]
+    progress_msg_id: int | None
+    renderer: ExecProgressRenderer
 
 logger = logging.getLogger(__name__)
 UUID_PATTERN_TEXT = r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"
@@ -436,7 +442,7 @@ async def _handle_message(
     user_msg_id: int,
     text: str,
     resume_session: str | None,
-    running_tasks: dict[str, tuple[asyncio.Task[Any], int | None]] | None = None,
+    running_tasks: dict[str, RunningTask] | None = None,
     clock: Callable[[], float] = time.monotonic,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
 ) -> None:
@@ -535,7 +541,9 @@ async def _handle_message(
         ):
             tracked_session_id = progress_renderer.resume_session
             if tracked_session_id:
-                running_tasks[tracked_session_id] = (exec_task, progress_id)
+                running_tasks[tracked_session_id] = RunningTask(
+                    exec_task, progress_id, progress_renderer
+                )
 
         now = clock()
         if (now - last_edit_at) < progress_edit_every:
@@ -680,7 +688,8 @@ async def poll_updates(cfg: BridgeConfig):
 async def _handle_cancel(
     cfg: BridgeConfig,
     msg: dict[str, Any],
-    running_tasks: dict[str, tuple[asyncio.Task[Any], int | None]],
+    running_tasks: dict[str, RunningTask],
+    clock: Callable[[], float] = time.monotonic,
 ) -> None:
     chat_id = msg["chat"]["id"]
     user_msg_id = msg["message_id"]
@@ -704,7 +713,7 @@ async def _handle_cancel(
         return
 
     entry = running_tasks.get(session_id)
-    if not entry or entry[0].done():
+    if not entry or entry.task.done():
         await cfg.bot.send_message(
             chat_id=chat_id,
             text="nothing is currently running for that message.",
@@ -712,26 +721,21 @@ async def _handle_cancel(
         )
         return
 
-    task, progress_msg_id = entry
     logger.info("[cancel] cancelling session_id=%s", session_id)
 
-    if progress_msg_id is not None:
-        # Replace "working" header with "cancelling", keep rest intact
-        progress_text = reply.get("text") or ""
-        if progress_text.startswith("working"):
-            cancelling_text = "cancelling" + progress_text[7:]
-        else:
-            cancelling_text = "cancelling…"
+    if entry.progress_msg_id is not None:
+        cancelling_md = entry.renderer.render_progress(clock())
+        cancelling_md = cancelling_md.replace("working", "cancelling", 1)
         try:
             await cfg.bot.edit_message_text(
                 chat_id=chat_id,
-                message_id=progress_msg_id,
-                text=cancelling_text,
+                message_id=entry.progress_msg_id,
+                text=cancelling_md,
             )
         except Exception as e:
             logger.debug("[cancel] edit failed: %s", e)
 
-    task.cancel()
+    entry.task.cancel()
 
 
 async def _run_main_loop(cfg: BridgeConfig) -> None:
@@ -739,7 +743,7 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
     queue: asyncio.Queue[tuple[int, int, str, str | None]] = asyncio.Queue(
         maxsize=worker_count * 2
     )
-    running_tasks: dict[str, tuple[asyncio.Task[Any], int | None]] = {}
+    running_tasks: dict[str, RunningTask] = {}
 
     async def worker() -> None:
         while True:
