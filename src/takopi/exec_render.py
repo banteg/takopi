@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import textwrap
 from collections import deque
+from pathlib import Path
 from textwrap import indent
 from typing import Any
 
@@ -65,9 +66,12 @@ def _shorten(text: str, width: int) -> str:
     return textwrap.shorten(text, width=width, placeholder="…")
 
 
-def _shorten_path(path: str, width: int) -> str:
-    # Encourage word-boundary truncation for paths (since they may have no spaces).
-    return _shorten(path.replace("/", " /"), width).replace(" /", "/")
+def _format_change_path(path: str) -> str:
+    workdir = Path.cwd()
+    path_obj = Path(path)
+    if path_obj.is_absolute() and path_obj.is_relative_to(workdir):
+        return str(path_obj.relative_to(workdir))
+    return path
 
 
 def format_event(
@@ -172,7 +176,7 @@ def format_event(
                         )
                     elif len(paths) <= 3:
                         desc = "updated " + ", ".join(
-                            f"`{_shorten_path(p, MAX_PATH_LEN)}`" for p in paths
+                            f"`{_format_change_path(p)}`" for p in paths
                         )
                     else:
                         desc = f"updated {len(paths)} files"
