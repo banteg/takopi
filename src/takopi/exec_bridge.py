@@ -431,6 +431,7 @@ async def _handle_message(
     user_msg_id: int,
     text: str,
     resume_session: str | None,
+    running_tasks: dict[str, asyncio.Task[Any]] | None = None,
     clock: Callable[[], float] = time.monotonic,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
 ) -> None:
@@ -511,12 +512,26 @@ async def _handle_message(
             "[handle] failed to send progress message chat_id=%s: %s", chat_id, e
         )
 
+    exec_task: asyncio.Task[tuple[str, str, bool]] | None = None
+    tracked_session_id: str | None = None
+
     async def on_event(evt: dict[str, Any]) -> None:
-        nonlocal last_edit_at, edit_task, pending_rendered
+        nonlocal last_edit_at, edit_task, pending_rendered, tracked_session_id
         if progress_id is None:
             return
         if not progress_renderer.note_event(evt):
             return
+
+        # Register task for cancellation when session_id becomes known
+        if (
+            evt.get("type") == "thread.started"
+            and running_tasks is not None
+            and exec_task is not None
+        ):
+            tracked_session_id = progress_renderer.resume_session
+            if tracked_session_id:
+                running_tasks[tracked_session_id] = exec_task
+
         now = clock()
         if (now - last_edit_at) < progress_edit_every:
             return
@@ -531,10 +546,16 @@ async def _handle_message(
         pending_rendered = rendered
         edit_task = asyncio.create_task(_edit_progress(md, rendered, entities))
 
+    exec_task = asyncio.create_task(
+        cfg.runner.run_serialized(text, resume_session, on_event=on_event)
+    )
+
+    cancelled = False
     try:
-        session_id, answer, saw_agent_message = await cfg.runner.run_serialized(
-            text, resume_session, on_event=on_event
-        )
+        session_id, answer, saw_agent_message = await exec_task
+    except asyncio.CancelledError:
+        cancelled = True
+        session_id = tracked_session_id or resume_session
     except Exception as e:
         if edit_task is not None:
             await asyncio.gather(edit_task, return_exceptions=True)
@@ -545,6 +566,29 @@ async def _handle_message(
             cfg.bot,
             chat_id=chat_id,
             text=err,
+            edit_message_id=progress_id,
+            reply_to_message_id=user_msg_id,
+            disable_notification=True,
+            limit=TELEGRAM_MARKDOWN_LIMIT,
+        )
+        return
+    finally:
+        if tracked_session_id and running_tasks is not None:
+            running_tasks.pop(tracked_session_id, None)
+
+    if cancelled:
+        if edit_task is not None:
+            await asyncio.gather(edit_task, return_exceptions=True)
+
+        elapsed = clock() - started_at
+        progress_renderer.resume_session = session_id
+        final_md = progress_renderer.render_final(
+            elapsed, "cancelled by user.", status="cancelled"
+        )
+        await _send_or_edit_markdown(
+            cfg.bot,
+            chat_id=chat_id,
+            text=final_md,
             edit_message_id=progress_id,
             reply_to_message_id=user_msg_id,
             disable_notification=True,
@@ -624,11 +668,50 @@ async def poll_updates(cfg: BridgeConfig):
             yield msg
 
 
+async def _handle_cancel(
+    cfg: BridgeConfig,
+    msg: dict[str, Any],
+    running_tasks: dict[str, asyncio.Task[Any]],
+) -> None:
+    chat_id = msg["chat"]["id"]
+    user_msg_id = msg["message_id"]
+    reply = msg.get("reply_to_message")
+
+    if not reply:
+        await cfg.bot.send_message(
+            chat_id=chat_id,
+            text="reply to the progress message to cancel.",
+            reply_to_message_id=user_msg_id,
+        )
+        return
+
+    session_id = extract_session_id(reply.get("text"))
+    if not session_id:
+        await cfg.bot.send_message(
+            chat_id=chat_id,
+            text="nothing is currently running for that message.",
+            reply_to_message_id=user_msg_id,
+        )
+        return
+
+    task = running_tasks.get(session_id)
+    if not task or task.done():
+        await cfg.bot.send_message(
+            chat_id=chat_id,
+            text="nothing is currently running for that message.",
+            reply_to_message_id=user_msg_id,
+        )
+        return
+
+    task.cancel()
+
+
 async def _run_main_loop(cfg: BridgeConfig) -> None:
     worker_count = max(1, min(cfg.max_concurrency, 16))
     queue: asyncio.Queue[tuple[int, int, str, str | None]] = asyncio.Queue(
         maxsize=worker_count * 2
     )
+    running_tasks: dict[str, asyncio.Task[Any]] = {}
 
     async def worker() -> None:
         while True:
@@ -640,6 +723,7 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
                     user_msg_id=user_msg_id,
                     text=text,
                     resume_session=resume_session,
+                    running_tasks=running_tasks,
                 )
             except Exception:
                 logger.exception("[handle] worker failed")
@@ -653,6 +737,11 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
             async for msg in poll_updates(cfg):
                 text = msg["text"]
                 user_msg_id = msg["message_id"]
+
+                if text == "/cancel":
+                    tg.create_task(_handle_cancel(cfg, msg, running_tasks))
+                    continue
+
                 r = msg.get("reply_to_message") or {}
                 resume_session = resolve_resume_session(text, r.get("text"))
 
