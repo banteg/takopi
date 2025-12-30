@@ -242,7 +242,7 @@ class _FakeRunnerWithEvents:
 
 
 def test_final_notify_sends_loud_final_message() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_message
+    from takopi.exec_bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     runner = _FakeRunner(answer="ok")
@@ -256,7 +256,7 @@ def test_final_notify_sends_loud_final_message() -> None:
     )
 
     asyncio.run(
-        _handle_message(
+        handle_message(
             cfg,
             chat_id=123,
             user_msg_id=10,
@@ -271,7 +271,7 @@ def test_final_notify_sends_loud_final_message() -> None:
 
 
 def test_new_final_message_forces_notification_when_too_long_to_edit() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_message
+    from takopi.exec_bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     runner = _FakeRunner(answer="x" * 10_000)
@@ -285,7 +285,7 @@ def test_new_final_message_forces_notification_when_too_long_to_edit() -> None:
     )
 
     asyncio.run(
-        _handle_message(
+        handle_message(
             cfg,
             chat_id=123,
             user_msg_id=10,
@@ -300,7 +300,7 @@ def test_new_final_message_forces_notification_when_too_long_to_edit() -> None:
 
 
 def test_progress_edits_are_rate_limited() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_message
+    from takopi.exec_bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     clock = _FakeClock()
@@ -340,7 +340,7 @@ def test_progress_edits_are_rate_limited() -> None:
     )
 
     asyncio.run(
-        _handle_message(
+        handle_message(
             cfg,
             chat_id=123,
             user_msg_id=10,
@@ -357,7 +357,7 @@ def test_progress_edits_are_rate_limited() -> None:
 
 
 def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_message
+    from takopi.exec_bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     clock = _FakeClock()
@@ -400,13 +400,14 @@ def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
     )
 
     asyncio.run(
-        _handle_message(
+        handle_message(
             cfg,
             chat_id=123,
             user_msg_id=42,
             text="do it",
             resume_session=None,
             clock=clock,
+            sleep=clock.sleep,
             progress_edit_every=1.0,
         )
     )
@@ -543,7 +544,7 @@ class _FakeRunnerCancellable:
 
 
 def test_handle_message_cancelled_renders_cancelled_state() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_message
+    from takopi.exec_bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
@@ -560,7 +561,7 @@ def test_handle_message_cancelled_renders_cancelled_state() -> None:
 
     async def run_test():
         task = asyncio.create_task(
-            _handle_message(
+            handle_message(
                 cfg,
                 chat_id=123,
                 user_msg_id=10,

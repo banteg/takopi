@@ -31,39 +31,31 @@ Example (interval = 2s):
 - **Trailing edit**: deferred edit scheduled for `last_edit_at + interval` if
   events occur within the window.
 
-### State additions in `_handle_message`
-- `trailing_task: Task | None` — scheduled trailing edit worker.
-- `pending_update: bool` — whether a trailing edit should fire.
-- (Existing) `last_edit_at`, `edit_task`, `last_rendered`, `pending_rendered`.
+### State additions in `handle_message`
+- `publisher_task: Task | None` — background progress publisher worker.
+- `dirty: bool` — whether new renderer state should be published.
+- `wakeup: Event` — wakes the publisher when new events arrive.
+- (Existing) `last_edit_at`, `last_rendered`.
 
 ### Event handling algorithm (on each event)
-1. If no `progress_id` or `note_event` returns false → return.
-2. Compute `now = clock()`.
-3. If `edit_task` is running **or** `now - last_edit_at < interval`:
-   - Set `pending_update = True`.
-   - If no trailing task, schedule one for `last_edit_at + interval`.
-   - Return.
-4. Otherwise:
-   - Cancel any existing trailing task and clear `pending_update`.
-   - Render + send an edit immediately (leading).
-   - Update `last_edit_at = now`.
+1. If no `progress_id` → return.
+2. If `note_event` returns false → return.
+3. Set `dirty = True` and `wakeup.set()` (no sleeps / edits on the event path).
 
-### Trailing task algorithm
-1. Sleep until `due_at = last_edit_at + interval` (no sleeps on the event path).
-2. If cancelled or `pending_update` is false → exit.
-3. If an edit is in flight, wait for it to complete.
-4. Recompute `due_at = last_edit_at + interval`; if `now < due_at`, sleep the
-   remaining time to **enforce the minimum interval**.
-5. If `pending_update` is now false → exit.
-6. Render the **latest** progress state using current renderer state and
-   `elapsed = clock() - started_at`.
-7. If rendered text differs from `last_rendered`, send the edit.
-8. Update `last_edit_at` and clear `pending_update`.
+### Publisher task algorithm
+1. Wait for `wakeup`.
+2. While `dirty`:
+   - Clear `dirty`.
+   - Sleep until `last_edit_at + interval` to **enforce the minimum interval**.
+   - Render the **latest** progress state (coalesces bursts).
+   - If rendered text differs from `last_rendered`, send the edit and update
+     `last_edit_at` and `last_rendered`.
+3. Loop back to waiting for `wakeup`.
 
 ### Cancellation / shutdown
-- On completion, error, or cancellation: cancel `trailing_task` and await it
-  (alongside `edit_task`) before sending the final message.
-- If the initial progress message fails to send, do not schedule trailing edits.
+- On completion, error, or cancellation: cancel `publisher_task` and await it
+  before sending the final message.
+- If the initial progress message fails to send, do not start the publisher task.
 
 ## Expected behavior by example
 Interval = 2s:
@@ -78,11 +70,8 @@ single trailing edit at t=12 reflects the latest state.
 ## Testing plan
 - Update `tests/test_exec_bridge.py`:
   - `test_progress_edits_are_rate_limited` should now expect a trailing edit.
-  - Add a test for coalescing: multiple events within the window result in
-    exactly one trailing edit with the latest state.
-  - Add a test that a leading edit cancels a pending trailing task.
-- Consider injecting a `sleep` function into `_handle_message` (defaulting to
-  `asyncio.sleep`) to make trailing behavior deterministic and fast in tests.
+- Consider injecting a `sleep` function into `handle_message` (defaulting to
+  `asyncio.sleep`) to make behavior deterministic and fast in tests.
 
 ## Notes / tradeoffs
 - Trailing edits add a bit of latency but guarantee eventual freshness.

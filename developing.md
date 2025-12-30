@@ -38,7 +38,7 @@ The orchestrator module containing:
 | `CodexExecRunner` | Spawns `codex exec`, streams JSONL, handles cancellation |
 | `poll_updates()` | Async generator that drains backlog, long-polls updates, filters messages |
 | `_run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
-| `_handle_message()` | Per-message handler with progress updates |
+| `handle_message()` | Per-message handler with progress updates |
 | `extract_session_id()` | Parses `resume: <uuid>` from message text |
 | `truncate_for_telegram()` | Smart truncation preserving resume lines |
 
@@ -122,7 +122,7 @@ poll_updates() drains backlog, long-polls, filters chat_id == from_id == cfg.cha
     ↓
 _run_main_loop() spawns tasks in TaskGroup
     ↓
-_handle_message() spawned as task
+handle_message() spawned as task
     ↓
 Send initial progress message (silent)
     ↓
