@@ -145,7 +145,7 @@ class ExecProgressRenderer:
         self.command_width = command_width
         self.recent_actions: deque[_RenderedAction] = deque(maxlen=max_actions)
         self.action_count = 0
-        self._started_ids: set[str] = set()
+        self._started_counts: dict[str, int] = {}
         self.resume_token: ResumeToken | None = None
 
     def note_event(self, event: TakopiEvent) -> bool:
@@ -166,12 +166,16 @@ class ExecProgressRenderer:
 
         completed = event["type"] == "action.completed"
         if not completed:
-            self._started_ids.add(action_id)
-            self.action_count += 1
-        elif action_id not in self._started_ids:
+            self._started_counts[action_id] = self._started_counts.get(action_id, 0) + 1
             self.action_count += 1
         else:
-            self._started_ids.remove(action_id)
+            count = self._started_counts.get(action_id, 0)
+            if count <= 0:
+                self.action_count += 1
+            elif count == 1:
+                self._started_counts.pop(action_id, None)
+            else:
+                self._started_counts[action_id] = count - 1
 
         status = _action_status_symbol(action, completed=completed)
         title = _format_action_title(action, command_width=self.command_width)
@@ -189,9 +193,13 @@ class ExecProgressRenderer:
 
     def _replace_action(self, action_id: str, line: str, status: str) -> bool:
         for i in range(len(self.recent_actions) - 1, -1, -1):
-            if self.recent_actions[i].action_id == action_id:
-                self.recent_actions[i] = _RenderedAction(action_id, line, status)
-                return True
+            entry = self.recent_actions[i]
+            if entry.action_id != action_id:
+                continue
+            if entry.status != STATUS_RUNNING:
+                continue
+            self.recent_actions[i] = _RenderedAction(action_id, line, status)
+            return True
         return False
 
     def render_progress(self, elapsed_s: float, label: str = "working") -> str:

@@ -6,7 +6,6 @@ import json
 import logging
 from collections.abc import Awaitable
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any, cast
 from weakref import WeakValueDictionary
 
@@ -87,12 +86,6 @@ def _action_event(
     return cast(TakopiEvent, payload)
 
 
-def _first_line(text: str | None) -> str:
-    if not text:
-        return ""
-    return text.splitlines()[0]
-
-
 def _short_tool_name(item: dict[str, Any]) -> str:
     name = ".".join(part for part in (item.get("server"), item.get("tool")) if part)
     return name or "tool"
@@ -106,17 +99,7 @@ def _format_change_summary(item: dict[str, Any]) -> str:
         if total <= 0:
             return "files"
         return f"{total} files"
-    if len(paths) <= 3:
-        return ", ".join(_format_change_path(p) for p in paths)
-    return f"{len(paths)} files"
-
-
-def _format_change_path(path: str) -> str:
-    workdir = Path.cwd()
-    path_obj = Path(path)
-    if path_obj.is_absolute() and path_obj.is_relative_to(workdir):
-        return str(path_obj.relative_to(workdir))
-    return path
+    return ", ".join(str(path) for path in paths)
 
 
 def _translate_item_event(
@@ -133,9 +116,8 @@ def _translate_item_event(
         return []
 
     action_id = item.get("id")
-    if action_id is None:
+    if not isinstance(action_id, str) or not action_id:
         return [_log_event("error", "missing item id in codex event")]
-    action_id = str(action_id)
 
     kind = _ACTION_KIND_MAP.get(item_type)
     if kind is None:
@@ -220,7 +202,7 @@ def _translate_item_event(
     if kind == "note":
         if etype != "item.completed":
             return []
-        title = _first_line(item.get("text"))
+        title = str(item.get("text") or "")
         return [
             _action_event(
                 event_type="action.completed",
@@ -390,7 +372,7 @@ class CodexRunner:
                 _drain_stderr(proc_stderr, stderr_chunks)
             )
 
-            found_session: ResumeToken | None = None
+            found_session: ResumeToken | None = resume_token
             saw_session_started = False
             last_agent_text: str | None = None
             saw_agent_message = False
@@ -402,6 +384,10 @@ class CodexRunner:
                 proc_stdin.write(prompt.encode())
                 await proc_stdin.drain()
                 proc_stdin.close()
+
+                if resume_token is not None:
+                    saw_session_started = True
+                    self._emit_event(on_event, _session_started_event(resume_token))
 
                 async for raw_line in proc_stdout:
                     raw = raw_line.decode(errors="replace")
@@ -431,10 +417,22 @@ class CodexRunner:
                     for out_evt in translate_codex_event(evt):
                         if out_evt["type"] == "session.started":
                             token = out_evt["resume"]
-                            found_session = ResumeToken(
+                            session = ResumeToken(
                                 engine=token["engine"], value=token["value"]
                             )
-                            saw_session_started = True
+                            if found_session is None:
+                                found_session = session
+                                saw_session_started = True
+                                self._emit_event(on_event, out_evt)
+                            elif session != found_session:
+                                self._emit_event(
+                                    on_event,
+                                    _log_event(
+                                        "error",
+                                        "codex emitted a different session id than expected",
+                                    ),
+                                )
+                            continue
                         self._emit_event(on_event, out_evt)
             except asyncio.CancelledError:
                 cancelled = True

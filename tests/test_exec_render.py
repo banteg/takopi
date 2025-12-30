@@ -185,3 +185,58 @@ def test_progress_renderer_renders_commands_in_markdown() -> None:
     assert "✓ echo 30" in text
     assert "✓ echo 31" in text
     assert "✓ echo 32" in text
+
+
+def test_progress_renderer_handles_duplicate_action_ids() -> None:
+    r = ExecProgressRenderer(max_actions=5)
+    events = [
+        {
+            "type": "action.started",
+            "engine": "codex",
+            "action": {
+                "id": "dup",
+                "kind": "command",
+                "title": "echo first",
+                "detail": {},
+            },
+        },
+        {
+            "type": "action.completed",
+            "engine": "codex",
+            "action": {
+                "id": "dup",
+                "kind": "command",
+                "title": "echo first",
+                "detail": {"exit_code": 0},
+                "ok": True,
+            },
+        },
+        {
+            "type": "action.started",
+            "engine": "codex",
+            "action": {
+                "id": "dup",
+                "kind": "command",
+                "title": "echo second",
+                "detail": {},
+            },
+        },
+        {
+            "type": "action.completed",
+            "engine": "codex",
+            "action": {
+                "id": "dup",
+                "kind": "command",
+                "title": "echo second",
+                "detail": {"exit_code": 0},
+                "ok": True,
+            },
+        },
+    ]
+
+    for evt in events:
+        assert r.note_event(evt) is True
+
+    assert len(r.recent_actions) == 2
+    assert "echo first" in r.recent_actions[0].line
+    assert "echo second" in r.recent_actions[1].line

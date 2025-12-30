@@ -43,10 +43,10 @@ The orchestrator module containing:
 | `truncate_for_telegram()` | Smart truncation preserving resume lines |
 
 **Key patterns:**
-- Per-session locks prevent concurrent resumes to the same `session_id`
+- Per-runner locks prevent concurrent resumes to the same resume token
 - Worker pool with an AnyIO memory stream limits concurrency (default: 16 workers)
 - AnyIO task groups manage worker tasks
-- Progress edits are throttled to ~2s intervals
+- Progress edits are throttled to ~1s intervals
 - Subprocess stderr is drained to a bounded deque for error reporting
 - `poll_updates()` uses Telegram `getUpdates` long-polling with a single server-side updates
   queue per bot token; updates are confirmed when a client requests a higher `offset`, so

@@ -1,5 +1,6 @@
 import asyncio
 
+import anyio
 import pytest
 
 from takopi.runners.base import ResumeToken

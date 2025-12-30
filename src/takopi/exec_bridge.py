@@ -18,7 +18,7 @@ from .exec_render import ExecProgressRenderer, render_markdown
 from .logging import setup_logging
 from .onboarding import check_setup, render_setup_guide
 from .telegram import TelegramClient
-from .runners.base import ResumeToken, TakopiEvent
+from .runners.base import ResumeToken, Runner, TakopiEvent
 from .runners.codex import CodexRunner
 
 
@@ -53,7 +53,7 @@ def resolve_resume_token(text: str | None, reply_text: str | None) -> str | None
 
 
 TELEGRAM_MARKDOWN_LIMIT = 3500
-PROGRESS_EDIT_EVERY_S = 2.0
+PROGRESS_EDIT_EVERY_S = 1.0
 
 
 def _clamp_tg_text(text: str, limit: int = TELEGRAM_MARKDOWN_LIMIT) -> str:
@@ -223,7 +223,7 @@ class ProgressEdits:
 @dataclass(frozen=True)
 class BridgeConfig:
     bot: TelegramClient
-    runner: CodexRunner
+    runner: Runner
     chat_id: int
     final_notify: bool
     startup_msg: str
@@ -401,12 +401,13 @@ async def handle_message(
     )
 
     exec_scope = anyio.CancelScope()
+    cancel_exc_type = anyio.get_cancelled_exc_class()
     cancelled = False
     error: Exception | None = None
-    answer: str | None = None
-    saw_agent_message: bool | None = None
-    running_task: RunningTask | None = None
     resume_token_value: ResumeToken | None = None
+    answer: str = ""
+    saw_agent_message: bool = False
+    running_task: RunningTask | None = None
     if running_tasks is not None and progress_id is not None:
         running_task = RunningTask(scope=exec_scope)
         running_tasks[progress_id] = running_task
@@ -423,12 +424,14 @@ async def handle_message(
                 resume_token_value, answer, saw_agent_message = await cfg.runner.run(
                     text, resume_token, on_event=on_event
                 )
+        except cancel_exc_type:
+            cancelled = True
+            resume_token_value = progress_renderer.resume_token
         except Exception as e:
             error = e
         finally:
-            if running_task is not None:
-                if running_tasks is not None and progress_id is not None:
-                    running_tasks.pop(progress_id, None)
+            if running_task is not None and running_tasks is not None and progress_id is not None:
+                running_tasks.pop(progress_id, None)
             if exec_scope.cancelled_caught and not cancelled and error is None:
                 cancelled = True
                 resume_token_value = progress_renderer.resume_token
@@ -470,7 +473,7 @@ async def handle_message(
         )
         return
 
-    if resume_token_value is None or answer is None or saw_agent_message is None:
+    if resume_token_value is None:
         raise RuntimeError("codex exec finished without a result")
 
     status = "done" if saw_agent_message else "error"
