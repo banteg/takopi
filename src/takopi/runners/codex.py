@@ -357,6 +357,9 @@ class CodexRunner:
             raise RuntimeError(f"resume token is for engine {token.engine!r}")
         return f"`codex resume {token.value}`"
 
+    def is_resume_line(self, line: str) -> bool:
+        return bool(_RESUME_LINE.match(line))
+
     def extract_resume(self, text: str | None) -> ResumeToken | None:
         if not text:
             return None

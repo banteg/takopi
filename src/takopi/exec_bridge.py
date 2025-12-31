@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import shutil
 import time
 from collections.abc import Awaitable, Callable
@@ -23,10 +22,6 @@ from .runners.codex import CodexRunner
 
 
 logger = logging.getLogger(__name__)
-RESUME_LINE = re.compile(
-    r"^\s*`?(?:codex\s+resume|claude\s+--resume|mock\s+resume)\b[^`]*`?\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
 
 
 def _print_version_and_exit() -> None:
@@ -49,7 +44,9 @@ TELEGRAM_MARKDOWN_LIMIT = 3500
 PROGRESS_EDIT_EVERY_S = 1.0
 
 
-def truncate_for_telegram(text: str, limit: int) -> str:
+def truncate_for_telegram(
+    text: str, limit: int, *, is_resume_line: Callable[[str], bool]
+) -> str:
     """
     Truncate text to fit Telegram limits while preserving the trailing resume command
     line (if present), otherwise preserving the last non-empty line.
@@ -63,7 +60,7 @@ def truncate_for_telegram(text: str, limit: int) -> str:
     is_resume_tail = False
     for i in range(len(lines) - 1, -1, -1):
         line = lines[i]
-        if RESUME_LINE.match(line):
+        if is_resume_line(line):
             tail_lines = lines[i:]
             is_resume_tail = True
             break
@@ -88,10 +85,21 @@ def truncate_for_telegram(text: str, limit: int) -> str:
     return (head + sep + tail)[:limit]
 
 
-def prepare_telegram(md: str, *, limit: int) -> tuple[str, list[dict[str, Any]] | None]:
+def prepare_telegram(
+    md: str,
+    *,
+    limit: int,
+    is_resume_line: Callable[[str], bool] | None = None,
+) -> tuple[str, list[dict[str, Any]] | None]:
     rendered, entities = render_markdown(md)
     if len(rendered) > limit:
-        rendered = truncate_for_telegram(rendered, limit)
+        if is_resume_line is None:
+
+            def _never_resume_line(_line: str) -> bool:
+                return False
+
+            is_resume_line = _never_resume_line
+        rendered = truncate_for_telegram(rendered, limit, is_resume_line=is_resume_line)
         return rendered, None
     return rendered, entities
 
@@ -105,9 +113,12 @@ async def _send_or_edit_markdown(
     reply_to_message_id: int | None = None,
     disable_notification: bool = False,
     limit: int = TELEGRAM_MARKDOWN_LIMIT,
+    is_resume_line: Callable[[str], bool] | None = None,
 ) -> tuple[dict[str, Any] | None, bool]:
     if edit_message_id is not None:
-        rendered, entities = prepare_telegram(text, limit=limit)
+        rendered, entities = prepare_telegram(
+            text, limit=limit, is_resume_line=is_resume_line
+        )
         edited = await bot.edit_message_text(
             chat_id=chat_id,
             message_id=edit_message_id,
@@ -117,7 +128,9 @@ async def _send_or_edit_markdown(
         if edited is not None:
             return (edited, True)
 
-    rendered, entities = prepare_telegram(text, limit=limit)
+    rendered, entities = prepare_telegram(
+        text, limit=limit, is_resume_line=is_resume_line
+    )
     return (
         await bot.send_message(
             chat_id=chat_id,
@@ -145,6 +158,7 @@ class ProgressEdits:
         limit: int,
         last_edit_at: float,
         last_rendered: str | None,
+        is_resume_line: Callable[[str], bool],
     ) -> None:
         self.bot = bot
         self.chat_id = chat_id
@@ -157,6 +171,7 @@ class ProgressEdits:
         self.limit = limit
         self.last_edit_at = last_edit_at
         self.last_rendered = last_rendered
+        self.is_resume_line = is_resume_line
         self._event_seq = 0
         self._published_seq = 0
         self.wakeup = anyio.Event()
@@ -181,7 +196,9 @@ class ProgressEdits:
                 seq_at_render = self._event_seq
                 now = self.clock()
                 md = self.renderer.render_progress(now - self.started_at)
-                rendered, entities = prepare_telegram(md, limit=self.limit)
+                rendered, entities = prepare_telegram(
+                    md, limit=self.limit, is_resume_line=self.is_resume_line
+                )
                 if rendered != self.last_rendered:
                     logger.debug(
                         "[progress] edit message_id=%s md=%s", self.progress_id, md
@@ -345,6 +362,7 @@ async def handle_message(
     )
     started_at = clock()
     runner = cfg.runner
+    is_resume_line = runner.is_resume_line
 
     progress_renderer = ExecProgressRenderer(
         max_actions=5, resume_formatter=runner.format_resume
@@ -358,7 +376,7 @@ async def handle_message(
         0.0, label=f"working ({runner.engine})"
     )
     initial_rendered, initial_entities = prepare_telegram(
-        initial_md, limit=TELEGRAM_MARKDOWN_LIMIT
+        initial_md, limit=TELEGRAM_MARKDOWN_LIMIT, is_resume_line=is_resume_line
     )
     logger.debug(
         "[progress] send reply_to=%s md=%s rendered=%s entities=%s",
@@ -392,6 +410,7 @@ async def handle_message(
         limit=TELEGRAM_MARKDOWN_LIMIT,
         last_edit_at=last_edit_at,
         last_rendered=last_rendered,
+        is_resume_line=is_resume_line,
     )
 
     exec_scope = anyio.CancelScope()
@@ -460,6 +479,7 @@ async def handle_message(
             reply_to_message_id=user_msg_id,
             disable_notification=True,
             limit=TELEGRAM_MARKDOWN_LIMIT,
+            is_resume_line=is_resume_line,
         )
         return
 
@@ -480,6 +500,7 @@ async def handle_message(
             reply_to_message_id=user_msg_id,
             disable_notification=True,
             limit=TELEGRAM_MARKDOWN_LIMIT,
+            is_resume_line=is_resume_line,
         )
         return
 
@@ -520,6 +541,7 @@ async def handle_message(
         reply_to_message_id=user_msg_id,
         disable_notification=False,
         limit=TELEGRAM_MARKDOWN_LIMIT,
+        is_resume_line=is_resume_line,
     )
     if final_msg is None:
         return

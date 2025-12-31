@@ -84,7 +84,8 @@ def test_truncate_for_telegram_preserves_resume_line() -> None:
     uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     md = ("x" * 10_000) + f"\n`codex resume {uuid}`"
 
-    out = truncate_for_telegram(md, 400)
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    out = truncate_for_telegram(md, 400, is_resume_line=runner.is_resume_line)
 
     assert len(out) <= 400
     assert f"codex resume {uuid}" in out
@@ -94,7 +95,7 @@ def test_truncate_for_telegram_preserves_resume_line() -> None:
 def test_truncate_for_telegram_keeps_last_non_empty_line() -> None:
     md = "intro\n\n" + ("x" * 500) + "\nlast line"
 
-    out = truncate_for_telegram(md, 120)
+    out = truncate_for_telegram(md, 120, is_resume_line=lambda _line: False)
 
     assert len(out) <= 120
     assert out.rstrip().endswith("last line")
@@ -181,6 +182,9 @@ class _FakeRunner:
     def format_resume(self, token: ResumeToken) -> str:
         return f"`codex resume {token.value}`"
 
+    def is_resume_line(self, line: str) -> bool:
+        return "codex resume" in line
+
     def extract_resume(self, _text: str | None) -> ResumeToken | None:
         return None
 
@@ -248,6 +252,9 @@ class _FakeRunnerWithEvents:
 
     def format_resume(self, token: ResumeToken) -> str:
         return f"`codex resume {token.value}`"
+
+    def is_resume_line(self, line: str) -> bool:
+        return "codex resume" in line
 
     def extract_resume(self, _text: str | None) -> ResumeToken | None:
         return None
@@ -700,6 +707,9 @@ class _FakeRunnerCancellable:
     def format_resume(self, token: ResumeToken) -> str:
         return f"`codex resume {token.value}`"
 
+    def is_resume_line(self, line: str) -> bool:
+        return "codex resume" in line
+
     def extract_resume(self, _text: str | None) -> ResumeToken | None:
         return None
 
@@ -729,6 +739,9 @@ class _FakeRunnerError:
 
     def format_resume(self, token: ResumeToken) -> str:
         return f"`codex resume {token.value}`"
+
+    def is_resume_line(self, line: str) -> bool:
+        return "codex resume" in line
 
     def extract_resume(self, _text: str | None) -> ResumeToken | None:
         return None

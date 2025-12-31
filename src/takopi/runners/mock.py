@@ -36,6 +36,11 @@ class MockRunner:
             raise RuntimeError(f"resume token is for engine {token.engine!r}")
         return f"`mock resume {token.value}`"
 
+    def is_resume_line(self, line: str) -> bool:
+        return bool(
+            re.match(r"^\s*`?mock\s+resume\s+[^`\s]+`?\s*$", line, flags=re.IGNORECASE)
+        )
+
     def extract_resume(self, text: str | None) -> ResumeToken | None:
         if not text:
             return None
