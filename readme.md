@@ -50,6 +50,8 @@ profile = "takopi"
 extra_args = ["-c", "notify=[]"]
 ```
 
+Engine-specific settings live under a table named after the engine id (e.g. `[codex]`).
+
 | Key | Description |
 |-----|-------------|
 | `bot_token` | Telegram Bot API token from [@BotFather](https://t.me/BotFather) |
@@ -74,13 +76,17 @@ takopi --profile takopi
 
 Or set `profile = "takopi"` under `[codex]` in `~/.codex/takopi.toml`.
 
+You can also use `--engine-option profile=takopi` instead of `--profile`.
+
 ### Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--final-notify` / `--no-final-notify` | `--final-notify` | Send final response as new message (vs. edit) |
 | `--debug` / `--no-debug` | `--no-debug` | Enable verbose logging |
-| `--profile NAME` | (codex default) | Codex profile name |
+| `--engine ID` | `codex` | Engine backend id |
+| `--engine-option KEY=VALUE` |  | Engine-specific override (repeatable) |
+| `--profile NAME` | (codex default) | (codex) profile name (alias for `--engine-option profile=...`) |
 | `--version` |  | Show the version and exit |
 
 ## Usage

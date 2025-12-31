@@ -3,6 +3,7 @@ import uuid
 import anyio
 import pytest
 
+from takopi import engines
 from takopi.exec_bridge import prepare_telegram, truncate_for_telegram
 from takopi.runners.base import ResumeToken, RunResult
 from takopi.runners.codex import CodexRunner
@@ -26,7 +27,11 @@ def test_parse_bridge_config_rejects_empty_token(monkeypatch) -> None:
     _patch_config(monkeypatch, {"bot_token": "   ", "chat_id": 123})
 
     with pytest.raises(exec_bridge.ConfigError, match="bot_token"):
-        exec_bridge._parse_bridge_config(final_notify=True, profile=None)
+        exec_bridge._parse_bridge_config(
+            final_notify=True,
+            backend=engines.get_backend("codex"),
+            engine_overrides={},
+        )
 
 
 def test_parse_bridge_config_rejects_string_chat_id(monkeypatch) -> None:
@@ -35,7 +40,11 @@ def test_parse_bridge_config_rejects_string_chat_id(monkeypatch) -> None:
     _patch_config(monkeypatch, {"bot_token": "token", "chat_id": "123"})
 
     with pytest.raises(exec_bridge.ConfigError, match="chat_id"):
-        exec_bridge._parse_bridge_config(final_notify=True, profile=None)
+        exec_bridge._parse_bridge_config(
+            final_notify=True,
+            backend=engines.get_backend("codex"),
+            engine_overrides={},
+        )
 
 
 def test_codex_extract_resume_finds_command() -> None:

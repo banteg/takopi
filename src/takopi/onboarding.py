@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,32 +7,52 @@ from rich.console import Console
 from rich.panel import Panel
 
 from .config import ConfigError, HOME_CONFIG_PATH, load_telegram_config
+from .engines import EngineBackend, SetupIssue
 
 _OCTOPUS = "\N{OCTOPUS}"
 
 
 @dataclass(slots=True)
 class SetupResult:
-    missing_codex: bool = False
-    missing_or_invalid_config: bool = False
+    issues: list[SetupIssue]
     config_path: Path = HOME_CONFIG_PATH
 
     @property
     def ok(self) -> bool:
-        return not (self.missing_codex or self.missing_or_invalid_config)
+        return not self.issues
 
 
-def check_setup() -> SetupResult:
-    missing_codex = shutil.which("codex") is None
+def _config_issue(path: Path) -> SetupIssue:
+    config_display = _config_path_display(path)
+    return SetupIssue(
+        "Create a config",
+        (
+            f"   [dim]{config_display}[/]",
+            "",
+            '   [cyan]bot_token[/] = [green]"123456789:ABCdef..."[/]',
+            "   [cyan]chat_id[/]   = [green]123456789[/]",
+            "",
+            "[dim]" + ("-" * 56) + "[/]",
+            "",
+            "[bold]Getting your Telegram credentials:[/]",
+            "",
+            "   [cyan]bot_token[/]  create a bot with [link=https://t.me/BotFather]@BotFather[/]",
+            "   [cyan]chat_id[/]    message [link=https://t.me/myidbot]@myidbot[/] to get your id",
+        ),
+    )
+
+
+def check_setup(backend: EngineBackend) -> SetupResult:
+    issues: list[SetupIssue] = []
+    config_path = HOME_CONFIG_PATH
+    config: dict = {}
 
     try:
         config, config_path = load_telegram_config()
     except ConfigError:
-        return SetupResult(
-            missing_codex=missing_codex,
-            missing_or_invalid_config=True,
-            config_path=HOME_CONFIG_PATH,
-        )
+        issues.extend(backend.check_setup({}, config_path))
+        issues.append(_config_issue(config_path))
+        return SetupResult(issues=issues, config_path=config_path)
 
     token = config.get("bot_token")
     chat_id = config.get("chat_id")
@@ -41,11 +60,11 @@ def check_setup() -> SetupResult:
     missing_or_invalid_config = not (isinstance(token, str) and token.strip())
     missing_or_invalid_config |= type(chat_id) is not int
 
-    return SetupResult(
-        missing_codex=missing_codex,
-        missing_or_invalid_config=missing_or_invalid_config,
-        config_path=config_path,
-    )
+    issues.extend(backend.check_setup(config, config_path))
+    if missing_or_invalid_config:
+        issues.append(_config_issue(config_path))
+
+    return SetupResult(issues=issues, config_path=config_path)
 
 
 def _config_path_display(path: Path) -> str:
@@ -72,28 +91,8 @@ def render_setup_guide(result: SetupResult) -> None:
         parts.extend(lines)
         parts.append("")
 
-    if result.missing_codex:
-        add_step(
-            "Install the Codex CLI",
-            "   [dim]$[/] npm install -g @openai/codex",
-        )
-
-    if result.missing_or_invalid_config:
-        config_display = _config_path_display(result.config_path)
-        add_step(
-            "Create a config",
-            f"   [dim]{config_display}[/]",
-            "",
-            '   [cyan]bot_token[/] = [green]"123456789:ABCdef..."[/]',
-            "   [cyan]chat_id[/]   = [green]123456789[/]",
-            "",
-            "[dim]" + ("-" * 56) + "[/]",
-            "",
-            "[bold]Getting your Telegram credentials:[/]",
-            "",
-            "   [cyan]bot_token[/]  create a bot with [link=https://t.me/BotFather]@BotFather[/]",
-            "   [cyan]chat_id[/]    message [link=https://t.me/myidbot]@myidbot[/] to get your id",
-        )
+    for issue in result.issues:
+        add_step(issue.title, *issue.lines)
 
     panel = Panel(
         "\n".join(parts).rstrip(),

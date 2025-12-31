@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -15,10 +14,16 @@ from . import __version__
 from .config import ConfigError, load_telegram_config
 from .exec_render import ExecProgressRenderer, render_markdown
 from .logging import setup_logging
+from .engines import (
+    EngineBackend,
+    get_backend,
+    get_engine_config,
+    list_backend_ids,
+    parse_engine_overrides,
+)
 from .onboarding import check_setup, render_setup_guide
 from .telegram import TelegramClient
 from .runners.base import ResumeToken, RunResult, Runner, TakopiEvent
-from .runners.codex import CodexRunner
 
 
 logger = logging.getLogger(__name__)
@@ -245,7 +250,8 @@ class RunningTask:
 def _parse_bridge_config(
     *,
     final_notify: bool,
-    profile: str | None,
+    backend: EngineBackend,
+    engine_overrides: dict[str, Any],
 ) -> BridgeConfig:
     startup_pwd = os.getcwd()
 
@@ -268,43 +274,11 @@ def _parse_bridge_config(
         ) from None
     chat_id = chat_id_value
 
-    codex_cmd = shutil.which("codex")
-    if not codex_cmd:
-        raise ConfigError(
-            "codex not found on PATH. Install the Codex CLI with:\n"
-            "  npm install -g @openai/codex\n"
-            "  # or on macOS\n"
-            "  brew install codex"
-        )
-
-    codex_cfg = config.get("codex") or {}
-    if not isinstance(codex_cfg, dict):
-        raise ConfigError(f"Invalid `codex` config in {config_path}; expected a table.")
-
-    extra_args_value = codex_cfg.get("extra_args")
-    if extra_args_value is None:
-        extra_args = ["-c", "notify=[]"]
-    elif isinstance(extra_args_value, list) and all(
-        isinstance(item, str) for item in extra_args_value
-    ):
-        extra_args = list(extra_args_value)
-    else:
-        raise ConfigError(
-            f"Invalid `codex.extra_args` in {config_path}; expected a list of strings."
-        )
-
-    profile_value = profile or codex_cfg.get("profile")
-    if profile_value:
-        if not isinstance(profile_value, str):
-            raise ConfigError(
-                f"Invalid `codex.profile` in {config_path}; expected a string."
-            )
-        extra_args.extend(["--profile", profile_value])
-
-    startup_msg = f"codex is ready\npwd: {startup_pwd}"
+    engine_cfg = get_engine_config(config, backend.id, config_path)
+    startup_msg = backend.startup_message(startup_pwd)
 
     bot = TelegramClient(token)
-    runner = CodexRunner(codex_cmd=codex_cmd, extra_args=extra_args)
+    runner = backend.build_runner(engine_cfg, engine_overrides, config_path)
 
     return BridgeConfig(
         bot=bot,
@@ -737,26 +711,51 @@ def run(
         "--final-notify/--no-final-notify",
         help="Send the final response as a new message (not an edit).",
     ),
+    engine: str = typer.Option(
+        "codex",
+        "--engine",
+        help=f"Engine backend id ({', '.join(list_backend_ids())}).",
+    ),
     debug: bool = typer.Option(
         False,
         "--debug/--no-debug",
-        help="Log codex JSONL, Telegram requests, and rendered messages.",
+        help="Log engine JSONL, Telegram requests, and rendered messages.",
+    ),
+    engine_option: list[str] = typer.Option(
+        [],
+        "--engine-option",
+        "-E",
+        help="Engine-specific override in KEY=VALUE form (repeatable).",
     ),
     profile: str | None = typer.Option(
         None,
         "--profile",
-        help="Codex profile name to pass to `codex --profile`.",
+        help="(codex) Profile name to pass to `codex --profile`.",
     ),
 ) -> None:
     setup_logging(debug=debug)
-    setup = check_setup()
+    try:
+        backend = get_backend(engine)
+    except ConfigError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+    try:
+        overrides = parse_engine_overrides(engine_option)
+    except ConfigError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+    if profile:
+        overrides["profile"] = profile
+
+    setup = check_setup(backend)
     if not setup.ok:
         render_setup_guide(setup)
         raise typer.Exit(code=1)
     try:
         cfg = _parse_bridge_config(
             final_notify=final_notify,
-            profile=profile,
+            backend=backend,
+            engine_overrides=overrides,
         )
     except ConfigError as e:
         typer.echo(str(e), err=True)
