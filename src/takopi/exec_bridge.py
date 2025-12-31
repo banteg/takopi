@@ -411,8 +411,12 @@ async def handle_message(
     edits_scope = anyio.CancelScope()
 
     async def run_edits() -> None:
-        with edits_scope:
-            await edits.run()
+        try:
+            with edits_scope:
+                await edits.run()
+        except cancel_exc_type:
+            # Edits are best-effort; cancellation should not bubble into the task group.
+            return
 
     async with anyio.create_task_group() as tg:
         if progress_id is not None:
