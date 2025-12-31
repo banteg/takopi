@@ -113,25 +113,22 @@ def _format_action_title(action: Action, *, command_width: int | None) -> str:
 
 
 def render_event_cli(event: TakopiEvent) -> list[str]:
-    lines: list[str] = []
-    if isinstance(event, StartedEvent):
-        lines.append(str(event.engine))
-    elif isinstance(event, ActionEvent):
-        action = event.action
-        if action.kind == "turn":
+    match event:
+        case StartedEvent(engine=engine):
+            return [str(engine)]
+        case ActionEvent(action=action, phase=phase, ok=ok):
+            if action.kind == "turn":
+                return []
+            if phase == "completed":
+                status = _action_status_symbol(action, completed=True, ok=ok)
+                suffix = _action_exit_suffix(action)
+            else:
+                status = STATUS_UPDATE if phase == "updated" else STATUS_RUNNING
+                suffix = ""
+            title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
+            return [f"{status} {title}{suffix}"]
+        case _:
             return []
-        phase = event.phase
-        if phase == "completed":
-            status = _action_status_symbol(action, completed=True, ok=event.ok)
-            suffix = _action_exit_suffix(action)
-        else:
-            status = STATUS_UPDATE if phase == "updated" else STATUS_RUNNING
-            suffix = ""
-        title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
-        lines.append(f"{status} {title}{suffix}")
-    else:
-        return []
-    return lines
 
 
 class ExecProgressRenderer:
@@ -155,35 +152,32 @@ class ExecProgressRenderer:
         self.show_title = show_title
 
     def note_event(self, event: TakopiEvent) -> bool:
-        if isinstance(event, StartedEvent):
-            self.resume_token = event.resume
-            self.session_title = event.title
-            return True
-
-        if isinstance(event, ActionEvent):
-            action = event.action
-            if action.kind == "turn":
-                return False
-            phase = event.phase
-            action_id = str(action.id or "")
-            if not action_id:
-                return False
-            completed = phase == "completed"
-            ok = event.ok if completed else None
-            if completed:
-                is_update = False
-            else:
-                started_count = self._started_counts.get(action_id, 0)
-                is_update = phase == "updated" or started_count > 0
-                if started_count == 0:
-                    self.action_count += 1
-                    self._started_counts[action_id] = 1
-                elif phase == "started":
-                    self._started_counts[action_id] = started_count + 1
+        match event:
+            case StartedEvent(resume=resume, title=title):
+                self.resume_token = resume
+                self.session_title = title
+                return True
+            case ActionEvent(action=action, phase=phase, ok=ok):
+                if action.kind == "turn":
+                    return False
+                action_id = str(action.id or "")
+                if not action_id:
+                    return False
+                completed = phase == "completed"
+                if completed:
+                    is_update = False
                 else:
-                    self._started_counts[action_id] = started_count
-        else:
-            return False
+                    started_count = self._started_counts.get(action_id, 0)
+                    is_update = phase == "updated" or started_count > 0
+                    if started_count == 0:
+                        self.action_count += 1
+                        self._started_counts[action_id] = 1
+                    elif phase == "started":
+                        self._started_counts[action_id] = started_count + 1
+                    else:
+                        self._started_counts[action_id] = started_count
+            case _:
+                return False
 
         if completed:
             count = self._started_counts.get(action_id, 0)
