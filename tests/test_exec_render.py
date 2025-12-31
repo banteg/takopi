@@ -30,11 +30,9 @@ SAMPLE_EVENTS: list[TakopiEvent] = [
 
 
 def test_render_event_cli_sample_events() -> None:
-    last = None
     out: list[str] = []
     for evt in SAMPLE_EVENTS:
-        last, lines = render_event_cli(evt, last)
-        out.extend(lines)
+        out.extend(render_event_cli(evt))
 
     assert out == [
         "codex",
@@ -71,11 +69,9 @@ def test_render_event_cli_handles_action_kinds() -> None:
         action_completed("n-1", "note", "stream error", ok=False),
     ]
 
-    last = None
     out: list[str] = []
     for evt in events:
-        last, lines = render_event_cli(evt, last)
-        out.extend(lines)
+        out.extend(render_event_cli(evt))
 
     assert any(line.startswith("✗ `pytest -q` (exit 1)") for line in out)
     assert any(

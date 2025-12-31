@@ -3,7 +3,15 @@ import pytest
 from collections.abc import AsyncGenerator
 from typing import cast
 
-from takopi.model import Action, ActionEvent, EngineId, ResumeToken, TakopiEvent
+from takopi.model import (
+    Action,
+    ActionEvent,
+    CompletedEvent,
+    EngineId,
+    ResumeToken,
+    StartedEvent,
+    TakopiEvent,
+)
 from takopi.runners.mock import Emit, Return, ScriptRunner, Wait
 from tests.factories import action_started
 
@@ -30,10 +38,10 @@ async def test_runner_contract_session_started_and_order() -> None:
     runner = ScriptRunner(script, engine=CODEX_ENGINE, resume_value="abc123")
     seen = [evt async for evt in runner.run("hi", None)]
 
-    session_events = [evt for evt in seen if evt.type == "started"]
+    session_events = [evt for evt in seen if isinstance(evt, StartedEvent)]
     assert len(session_events) == 1
 
-    completed_events = [evt for evt in seen if evt.type == "completed"]
+    completed_events = [evt for evt in seen if isinstance(evt, CompletedEvent)]
     assert len(completed_events) == 1
     assert seen[-1].type == "completed"
 
@@ -49,7 +57,7 @@ async def test_runner_contract_session_started_and_order() -> None:
     ]
 
     completed_event = next(
-        evt for evt in seen if evt.type == "action" and evt.phase == "completed"
+        evt for evt in seen if isinstance(evt, ActionEvent) and evt.phase == "completed"
     )
     assert completed_event.type == "action"
     assert completed_event.ok is True
@@ -65,8 +73,8 @@ async def test_runner_contract_resume_matches_session_started() -> None:
         [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
     )
     seen = [evt async for evt in runner.run("hello", None)]
-    session = next(evt for evt in seen if evt.type == "started")
-    completed = next(evt for evt in seen if evt.type == "completed")
+    session = next(evt for evt in seen if isinstance(evt, StartedEvent))
+    completed = next(evt for evt in seen if isinstance(evt, CompletedEvent))
     assert completed.resume == session.resume
     assert isinstance(completed.resume, ResumeToken)
 
@@ -80,7 +88,7 @@ async def test_runner_releases_lock_when_consumer_closes() -> None:
     try:
         while True:
             evt = await anext(gen)
-            if evt.type == "started":
+            if isinstance(evt, StartedEvent):
                 break
     finally:
         await gen.aclose()
@@ -92,7 +100,7 @@ async def test_runner_releases_lock_when_consumer_closes() -> None:
     try:
         while True:
             evt2 = await anext(gen2)
-            if evt2.type == "started":
+            if isinstance(evt2, StartedEvent):
                 break
     finally:
         await gen2.aclose()

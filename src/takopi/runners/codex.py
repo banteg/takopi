@@ -690,7 +690,7 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                         for out_evt in translate_codex_event(
                             evt, title=self.session_title
                         ):
-                            if out_evt.type == "started":
+                            if isinstance(out_evt, StartedEvent):
                                 session = out_evt.resume
                                 if found_session is None:
                                     if session.engine != ENGINE:

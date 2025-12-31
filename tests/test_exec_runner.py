@@ -4,7 +4,14 @@ import pytest
 
 from collections.abc import AsyncIterator
 
-from takopi.model import CompletedEvent, EngineId, ResumeToken, TakopiEvent
+from takopi.model import (
+    ActionEvent,
+    CompletedEvent,
+    EngineId,
+    ResumeToken,
+    StartedEvent,
+    TakopiEvent,
+)
 from takopi.runners.codex import CodexRunner
 
 CODEX_ENGINE = EngineId("codex")
@@ -171,7 +178,7 @@ async def test_run_serializes_new_session_after_session_is_known(
     async def run_new() -> None:
         nonlocal resume_value
         async for event in runner.run("hello", None):
-            if event.type == "started":
+            if isinstance(event, StartedEvent):
                 resume_value = event.resume.value
                 session_started.set()
         new_done.set()
@@ -222,16 +229,16 @@ async def test_codex_runner_preserves_warning_order(tmp_path) -> None:
     seen = [evt async for evt in runner.run("hi", None)]
 
     assert len(seen) == 3
-    assert seen[0].type == "action"
+    assert isinstance(seen[0], ActionEvent)
     assert seen[0].phase == "completed"
     assert seen[0].ok is False
     assert seen[0].action.kind == "warning"
     assert seen[0].action.title == "warning one"
 
-    assert seen[1].type == "started"
+    assert isinstance(seen[1], StartedEvent)
     assert seen[1].resume.value == thread_id
 
-    assert seen[2].type == "completed"
+    assert isinstance(seen[2], CompletedEvent)
     assert seen[2].resume == seen[1].resume
     assert seen[2].answer == "ok"
 
@@ -272,12 +279,12 @@ async def test_run_serializes_two_new_sessions_same_thread(
 
     async def run_first() -> None:
         async for event in runner.run("one", None):
-            if event.type == "started":
+            if isinstance(event, StartedEvent):
                 started_first.set()
 
     async def run_second() -> None:
         async for event in runner.run("two", None):
-            if event.type == "started":
+            if isinstance(event, StartedEvent):
                 started_second.set()
 
     async with anyio.create_task_group() as tg:

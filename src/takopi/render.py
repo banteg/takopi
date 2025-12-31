@@ -6,7 +6,7 @@ import textwrap
 from collections import deque
 from typing import Callable
 
-from .model import Action, ResumeToken, TakopiEvent
+from .model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
 
 STATUS_RUNNING = "▸"
 STATUS_UPDATE = "↻"
@@ -109,19 +109,17 @@ def _format_action_title(action: Action, *, command_width: int | None) -> str:
     if kind == "warning":
         title = _shorten(title, MAX_QUERY_LEN)
         return title
-    if kind == "turn":
-        return _shorten(title, command_width)
     return _shorten(title, command_width)
 
 
-def render_event_cli(
-    event: TakopiEvent, last_item: int | None = None
-) -> tuple[int | None, list[str]]:
+def render_event_cli(event: TakopiEvent) -> list[str]:
     lines: list[str] = []
-    if event.type == "started":
+    if isinstance(event, StartedEvent):
         lines.append(str(event.engine))
-    elif event.type == "action":
+    elif isinstance(event, ActionEvent):
         action = event.action
+        if action.kind == "turn":
+            return []
         phase = event.phase
         if phase == "completed":
             status = _action_status_symbol(action, completed=True, ok=event.ok)
@@ -132,8 +130,8 @@ def render_event_cli(
         title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
         lines.append(f"{status} {title}{suffix}")
     else:
-        return last_item, []
-    return last_item, lines
+        return []
+    return lines
 
 
 class ExecProgressRenderer:
@@ -157,13 +155,15 @@ class ExecProgressRenderer:
         self.show_title = show_title
 
     def note_event(self, event: TakopiEvent) -> bool:
-        if event.type == "started":
+        if isinstance(event, StartedEvent):
             self.resume_token = event.resume
             self.session_title = event.title
             return True
 
-        if event.type == "action":
+        if isinstance(event, ActionEvent):
             action = event.action
+            if action.kind == "turn":
+                return False
             phase = event.phase
             action_id = str(action.id or "")
             if not action_id:

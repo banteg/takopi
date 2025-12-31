@@ -14,7 +14,7 @@ from typing import Any
 import anyio
 
 from .markdown import TELEGRAM_MARKDOWN_LIMIT, prepare_telegram
-from .model import CompletedEvent, ResumeToken, TakopiEvent
+from .model import CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
 from .render import ExecProgressRenderer
 from .runner import Runner
 from .telegram import BotClient
@@ -365,7 +365,7 @@ async def handle_message(
                     nonlocal resume_token_value, completed, answer, run_ok, run_error
                     try:
                         async for evt in runner.run(runner_text, resume_token):
-                            if evt.type == "started":
+                            if isinstance(evt, StartedEvent):
                                 resume_token_value = evt.resume
                                 if (
                                     running_task is not None
@@ -377,7 +377,7 @@ async def handle_message(
                                         await on_thread_known(
                                             resume_token_value, running_task.done
                                         )
-                            elif evt.type == "completed":
+                            elif isinstance(evt, CompletedEvent):
                                 resume_token_value = evt.resume or resume_token_value
                                 answer = evt.answer
                                 run_ok = evt.ok
