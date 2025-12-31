@@ -283,7 +283,7 @@ This prevents:
 - history corruption due to concurrent engine operations
 
 **Bridge note (non-normative):**
-The bridge additionally enforces FIFO scheduling per thread to ensure queued prompts do not consume the global **16 active runs** slots (§7.1.1).
+The bridge may enforce FIFO scheduling per thread to avoid emitting multiple progress messages for the same thread while a run is already in-flight.
 
 **Codex note (non-normative):**
 Codex emits `thread.started` (with `thread_id`) before any `turn.*` / `item.*` events for both new and resumed runs. Codex MAY emit top-level warning `error` lines (e.g., config warnings) before `thread.started`; the Codex runner translates these warnings into `action` events with `phase="completed"` and yields them in the same order as received (so `started` is not guaranteed to be the first yielded event). If the subprocess exits before `thread.started` is observed, no `started` can be emitted and the bridge reports an error without a resume line.
@@ -328,7 +328,6 @@ If the runner subprocess crashes or exits uncleanly:
 The bridge MUST:
 
 - Poll Telegram updates.
-- Execute at most **16 active runs** concurrently across all threads.
 - Resolve resume token (from message text or reply target).
 - Start runner execution with appropriate cancellation support.
 - Maintain progress rendering and Telegram edits (rate-limited).
@@ -338,7 +337,6 @@ The bridge MUST:
 **Queuing behavior:**
 
 - Multiple prompts to the same thread are queued and executed sequentially.
-- Prompts queued behind an in-flight run MUST NOT count toward the **16 active runs** limit.
 - There is no queue depth limit; all prompts are accepted.
 
 ### 7.1.1 Scheduling algorithm (MUST)
@@ -354,8 +352,6 @@ The bridge MUST implement per-thread FIFO scheduling in a way that does not requ
 
 - For `resume != None`, the bridge MUST enqueue the job into `pending_by_thread[ThreadKey]` and ensure exactly one worker drains that queue sequentially.
 - If a run starts with `resume == None` but later emits `started(resume=token)`, the bridge MUST treat that run as the in-flight job for `ThreadKey(token)` for scheduling purposes until it completes.
-- A worker MUST acquire the global concurrency limiter only when it has dequeued a job and is about to start runner execution (and send the initial progress message).
-- A worker MUST release the global concurrency limiter when the job completes (success, error, or cancellation) and then proceed to the next queued job.
 - A thread worker MUST exit when its queue is empty; the bridge SHOULD avoid retaining per-thread state for inactive threads.
 
 The bridge MUST NOT:
@@ -471,7 +467,6 @@ The architecture SHOULD keep this future change localized to a `RunnerRegistry` 
 3. **Bridge per-thread scheduling tests (critical)**
    - Enqueue two prompts for the same `ResumeToken`
    - Assert the bridge does not start the second run until the first completes
-   - Assert queued prompts do not consume the global **16 active runs** slots
 4. **Bridge progress throttling tests**
    - Edits no more frequently than configured interval
    - No edits without changes
@@ -523,7 +518,7 @@ To reduce friction adding new runners, v0.2.0 SHOULD treat engine IDs as strings
   - Telegram-only bridge with progress edits + cancellation
   - Recommended module split into one-word modules
   - Clarify: `ok` semantics are runner-defined, `detail` is freeform
-  - Clarify: 16 concurrent runs limit, indefinite queue per thread
+  - Clarify: bridge queues per thread (FIFO)
   - Clarify: SIGTERM for cancellation, `/cancel` ignores accompanying text
   - Clarify: truncation preserves head + resume line
   - Clarify: crash publishes error with resume if known

@@ -70,7 +70,6 @@ def _parse_bridge_config(
         chat_id=chat_id,
         final_notify=final_notify,
         startup_msg=startup_msg,
-        max_concurrency=16,
     )
 
 

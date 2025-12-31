@@ -9,7 +9,7 @@ A Telegram bot that bridges messages to [Codex](https://github.com/openai/codex)
 - **Stateless Resume**: No database required—sessions are resumed via `` `codex resume <token>` `` lines embedded in messages
 - **Progress Updates**: Real-time progress edits showing commands, tools, and elapsed time
 - **Markdown Rendering**: Full Telegram-compatible markdown with entity support
-- **Concurrency**: Parallel runs across threads with per-session serialization (16 active runs max)
+- **Concurrency**: Parallel runs across threads with per-session serialization
 
 ## Quick Start
 

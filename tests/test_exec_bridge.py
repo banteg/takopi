@@ -244,7 +244,6 @@ async def test_final_notify_sends_loud_final_message() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=2,
     )
 
     await handle_message(
@@ -272,7 +271,6 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
     resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
     text = "do this\n`codex resume sid`\nand that"
@@ -303,7 +301,6 @@ async def test_new_final_message_forces_notification_when_too_long_to_edit() -> 
         chat_id=123,
         final_notify=False,
         startup_msg="",
-        max_concurrency=1,
     )
 
     await handle_message(
@@ -345,7 +342,6 @@ async def test_progress_edits_are_rate_limited() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
 
     await handle_message(
@@ -390,7 +386,6 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
 
     async def run_handle_message() -> None:
@@ -466,7 +461,6 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
 
     await handle_message(
@@ -500,7 +494,6 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
     msg = {"chat": {"id": 123}, "message_id": 10}
     running_tasks: dict = {}
@@ -523,7 +516,6 @@ async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> 
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
     msg = {
         "chat": {"id": 123},
@@ -550,7 +542,6 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
     progress_id = 99
     msg = {
@@ -578,7 +569,6 @@ async def test_handle_cancel_cancels_running_task() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
     progress_id = 42
     msg = {
@@ -609,7 +599,6 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
     from takopi.bridge import RunningTask
 
@@ -674,7 +663,6 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
     running_tasks: dict = {}
 
@@ -724,7 +712,6 @@ async def test_handle_message_error_preserves_resume_token() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
 
     await handle_message(
@@ -851,7 +838,6 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
     )
 
     async def poller(_cfg: BridgeConfig):

@@ -216,7 +216,6 @@ class BridgeConfig:
     chat_id: int
     final_notify: bool
     startup_msg: str
-    max_concurrency: int
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S
 
 
@@ -647,8 +646,6 @@ async def _run_main_loop(
     cfg: BridgeConfig,
     poller: Callable[[BridgeConfig], AsyncIterator[dict[str, Any]]] = poll_updates,
 ) -> None:
-    worker_count = max(1, min(cfg.max_concurrency, 16))
-    limiter = anyio.Semaphore(worker_count)
     running_tasks: dict[int, RunningTask] = {}
 
     try:
@@ -692,20 +689,16 @@ async def _run_main_loop(
                 | None = None,
             ) -> None:
                 try:
-                    await limiter.acquire()
-                    try:
-                        await handle_message(
-                            cfg,
-                            chat_id=chat_id,
-                            user_msg_id=user_msg_id,
-                            text=text,
-                            resume_token=resume_token,
-                            running_tasks=running_tasks,
-                            on_thread_known=on_thread_known,
-                            progress_edit_every=cfg.progress_edit_every,
-                        )
-                    finally:
-                        limiter.release()
+                    await handle_message(
+                        cfg,
+                        chat_id=chat_id,
+                        user_msg_id=user_msg_id,
+                        text=text,
+                        resume_token=resume_token,
+                        running_tasks=running_tasks,
+                        on_thread_known=on_thread_known,
+                        progress_edit_every=cfg.progress_edit_every,
+                    )
                 except Exception:
                     logger.exception("[handle] worker failed")
 
