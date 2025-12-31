@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, NewType, TypeAlias
+from typing import Any, Literal, TypeAlias
 
-EngineId = NewType("EngineId", str)
+EngineId: TypeAlias = str
 
 ActionKind: TypeAlias = Literal[
     "command",
