@@ -210,7 +210,7 @@ Required:
 
 Optional:
 
-- `level: "debug" | "info" | "warning" | "error"`
+- `level: "debug" | "info" | "warning" | "error"` (default: `"info"`)
 
 #### 5.3.5 `error`
 
@@ -247,6 +247,10 @@ Action kinds SHOULD be from a stable set (extensible):
 
 Runners MAY include additional kinds, but renderers MAY treat unknown kinds as `note`.
 
+The `detail` dict is **freeform per runner**; no per-kind schema is enforced. Renderers SHOULD handle missing or unexpected fields gracefully.
+
+The `ok` field semantics are **runner-defined**. For example, a runner MAY treat `grep` exit code 1 (no match) as `ok=True` if contextually appropriate.
+
 ------
 
 ## 6. Runner interface and concurrency semantics
@@ -271,13 +275,14 @@ class Runner(Protocol):
 
 - Parallel runs are allowed only if they target **different** threads.
 - Runs targeting the same thread MUST be queued and executed sequentially.
+- If a run attempts to acquire the per-thread lock while another run holds it, the run MUST **queue indefinitely** until the lock is released.
 
 **Critical requirement for new sessions:**
-If `resume is None`, the runner MUST acquire the per-thread lock **as soon as the new thread’s ResumeToken becomes known**, and MUST do so **before emitting `session.started`** to downstream consumers.
+If `resume is None`, the runner MUST acquire the per-thread lock **as soon as the new thread's ResumeToken becomes known**, and MUST do so **before emitting `session.started`** to downstream consumers.
 
 This prevents:
 
-- a second run resuming the thread while the original “new session” run is still active
+- a second run resuming the thread while the original "new session" run is still active
 - history corruption due to concurrent engine operations
 
 ### 6.3 RunResult (MUST)
@@ -295,6 +300,14 @@ Event ordering is significant. The system MUST ensure:
 
 - Events are delivered to `on_event` in the same order they are produced by the runner.
 - Event delivery MUST NOT spawn unbounded background tasks per event.
+- If `on_event` raises an exception, the runner MUST abort the run.
+
+### 6.5 Crash and error handling
+
+If the runner subprocess crashes or exits uncleanly:
+
+- The bridge MUST publish an error status message.
+- If `session.started` was received, the bridge MUST include the resume line in the error message.
 
 ------
 
@@ -305,12 +318,17 @@ Event ordering is significant. The system MUST ensure:
 The bridge MUST:
 
 - Poll Telegram updates.
-- Route each message to a worker (bounded concurrency).
+- Route each message to a worker (bounded concurrency: **16 concurrent runs**).
 - Resolve resume token (from message text or reply target).
 - Start runner execution with appropriate cancellation support.
 - Maintain progress rendering and Telegram edits (rate-limited).
 - Publish final answer and include resume line.
 - Support `/cancel` to cancel the run associated with an in-flight progress message.
+
+**Queuing behavior:**
+
+- Multiple prompts to the same thread are queued and executed sequentially.
+- There is no queue depth limit; all prompts are accepted.
 
 The bridge MUST NOT:
 
@@ -335,8 +353,9 @@ The progress renderer and/or final message MUST include the canonical resume lin
 ### 7.4 Cancellation `/cancel`
 
 - The bridge MUST allow the user to cancel a run in progress by sending `/cancel` in reply to the progress message (or by other defined mapping).
-- Cancel MUST terminate the runner process and stop further progress edits.
-- After cancellation, the bridge MUST publish a “cancelled” status message and SHOULD include the resume line if known.
+- Cancel MUST terminate the runner process via **SIGTERM** and stop further progress edits.
+- After cancellation, the bridge MUST publish a "cancelled" status message and SHOULD include the resume line if known.
+- If `/cancel` is sent with additional text, the additional text is ignored; only cancellation occurs.
 
 ### 7.5 Telegram markdown constraints
 
@@ -348,8 +367,8 @@ The bridge MUST:
 
 If truncation is required:
 
-- the bridge SHOULD keep the last resume line intact if present
-- the bridge SHOULD preserve a useful tail of content and add an ellipsis marker
+- the bridge MUST keep the resume line intact
+- the bridge SHOULD preserve the **head** (beginning) of content and add an ellipsis marker before truncation point
 
 ------
 
@@ -471,6 +490,12 @@ To reduce friction adding new runners, v0.2.0 SHOULD treat engine IDs as strings
   - Enforce per-thread serialization including new sessions once token is known
   - Telegram-only bridge with progress edits + cancellation
   - Recommended module split into one-word modules
+  - Clarify: `ok` semantics are runner-defined, `detail` is freeform
+  - Clarify: 16 concurrent runs limit, indefinite queue per thread
+  - Clarify: SIGTERM for cancellation, `/cancel` ignores accompanying text
+  - Clarify: truncation preserves head + resume line
+  - Clarify: log level defaults to `info`, callback errors abort run
+  - Clarify: crash publishes error with resume if known
 
 ------
 
