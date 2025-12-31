@@ -133,13 +133,13 @@ def test_progress_renderer_renders_progress_and_final() -> None:
     progress = r.render_progress(3.0)
     assert progress.startswith("working · 3s · step 2")
     assert "✓ `bash -lc ls`" in progress
-    assert "resume: \\`codex:0199a213-81c0-7800-8aa1-bbab2a035a53\\`" in progress
+    assert "resume: `codex:0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
 
     final = r.render_final(3.0, "answer", status="done")
     assert final.startswith("done · 3s · step 2")
     assert "answer" in final
     assert final.rstrip().endswith(
-        "resume: \\`codex:0199a213-81c0-7800-8aa1-bbab2a035a53\\`"
+        "resume: `codex:0199a213-81c0-7800-8aa1-bbab2a035a53`"
     )
 
 

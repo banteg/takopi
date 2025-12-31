@@ -47,7 +47,7 @@ The orchestrator module containing:
 - Worker pool with an AnyIO memory stream limits concurrency (default: 16 workers)
 - `/cancel` maps progress message ids to an AnyIO CancelScope for immediate cancellation
 - Progress edits are throttled to ~1s intervals and only run when new events arrive
-- Resume tokens are engine-qualified and backtick-escaped for reliable Telegram parsing
+- Resume tokens are engine-qualified for reliable routing
 - Runner routing prefers the resume token engine and falls back to the default runner
 
 ### `runners/codex.py` - Codex runner

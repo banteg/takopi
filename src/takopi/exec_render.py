@@ -198,8 +198,7 @@ class ExecProgressRenderer:
         if not self.resume_token:
             return message
         token = f"{self.resume_token.engine}:{self.resume_token.value}"
-        # Escape backticks so they remain literal in rendered text and reply parsing.
-        return message + f"\n\nresume: \\`{token}\\`"
+        return message + f"\n\nresume: `{token}`"
 
     @staticmethod
     def _assemble(header: str, lines: list[str]) -> str:
