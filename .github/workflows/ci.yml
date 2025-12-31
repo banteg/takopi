@@ -16,6 +16,9 @@ jobs:
   checks:
     name: ${{ matrix.task }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     strategy:
       fail-fast: false
       matrix:
@@ -24,13 +27,13 @@ jobs:
             command: uv run ruff format --check
             sync_args: --no-install-project
           - task: ruff
-            command: uv run ruff check .
+            command: uv run ruff check . --output-format=github
             sync_args: --no-install-project
           - task: ty
             command: uv run ty check .
             sync_args: --no-install-project
           - task: pytest
-            command: uv run pytest
+            command: uv run pytest --junitxml=pytest.xml --cov-report=xml:coverage.xml
             sync_args: ""
           - task: build
             command: uv build
@@ -51,3 +54,34 @@ jobs:
 
       - name: Run check
         run: ${{ matrix.command }}
+
+      - name: Publish test report
+        if: ${{ always() && matrix.task == 'pytest' }}
+        uses: dorny/test-reporter@v1
+        continue-on-error: true
+        with:
+          name: Pytest results
+          path: pytest.xml
+          reporter: java-junit
+
+      - name: Add coverage to summary
+        if: ${{ always() && matrix.task == 'pytest' }}
+        run: |
+          {
+            echo "## Pytest"
+            echo ""
+            echo "- Test report: pytest.xml"
+            echo "- Coverage report: coverage.xml"
+            echo ""
+            echo "### Coverage (text)"
+            uv run python -m coverage report || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage to Codecov
+        if: ${{ always() && matrix.task == 'pytest' }}
+        uses: codecov/codecov-action@v4
+        continue-on-error: true
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
