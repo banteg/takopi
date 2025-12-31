@@ -60,7 +60,7 @@ This is a normative spec using **MUST / SHOULD / MAY** language. Sections labele
 **Runner Implementations (engine-owned logic)**
 
 - Codex runner translates engine-specific stream into Takopi events.
-- Each runner enforces per-thread serialization (MUST, §6.2).
+- Runner implementations SHOULD be stateless with respect to cross-run scheduling.
 
 **Renderers (Takopi-owned)**
 
@@ -285,18 +285,18 @@ class Runner(Protocol):
 
 - Parallel runs are allowed only if they target **different** threads.
 - Runs targeting the same thread MUST be queued and executed sequentially.
-- If a run attempts to acquire the per-thread lock while another run holds it, the run MUST **queue indefinitely** until the lock is released.
+- Queued runs MUST NOT count toward the global **16 active runs** limit.
 
-**Critical requirement for new sessions:**
-If `resume is None`, the runner MUST acquire the per-thread lock **as soon as the new thread's ResumeToken becomes known**, and MUST do so **before emitting `session.started`** to downstream consumers.
+**Decision: Bridge-owned scheduling**
 
-This prevents:
+The bridge MUST be the single source of truth for per-thread scheduling:
 
-- a second run resuming the thread while the original "new session" run is still active
-- history corruption due to concurrent engine operations
+- The bridge MUST implement a FIFO queue per thread key (`engine:value`).
+- The bridge MUST run at most one job from a given thread queue at a time.
+- The bridge MUST acquire the global concurrency limiter only when a job is dequeued and is about to start (i.e., queued jobs do not consume the limiter).
+- The bridge SHOULD avoid spawning one task per queued job that blocks on a lock; queued jobs SHOULD be represented as data in a queue.
 
-**Codex note (non-normative):**
-For Codex, the resume token typically arrives as the first NDJSON event within ~1–2 seconds. If the subprocess exits before a resume token is observed, no `session.started` can be emitted and the bridge reports an error without a resume line.
+Runner implementations SHOULD NOT maintain their own per-thread lock maps. Takopi correctness and concurrency accounting MUST NOT depend on runner-level locking.
 
 ### 6.3 Run completion event (MUST)
 
@@ -316,7 +316,7 @@ Event ordering is significant. The system MUST ensure:
 
 - Events are yielded to the consumer in the same order they are produced by the runner.
 - Event delivery MUST NOT spawn unbounded background tasks per event.
-- If the consumer stops iteration early (break/cancel/exception), the runner MUST abort the run (best-effort) and release any held locks.
+- If the consumer stops iteration early (break/cancel/exception), the runner MUST abort the run (best-effort) and release any held resources.
 
 ### 6.5 Crash and error handling
 
@@ -365,7 +365,7 @@ The progress renderer and/or final message MUST include the canonical resume lin
 - If `session.started` has been received, the progress view SHOULD include the resume line.
 - The final message MUST include the resume line.
 
-**Important:** because the resume line may appear during progress updates, runner-level locking for new sessions (§6.2) is REQUIRED.
+**Important:** because the resume line may appear during progress updates, the bridge MUST treat `session.started` as the point at which the thread key becomes known for scheduling and cancellation routing.
 
 ### 7.4 Cancellation `/cancel`
 
@@ -454,9 +454,9 @@ The architecture SHOULD keep this future change localized to a `RunnerRegistry` 
    - Event ordering is preserved
    - `ok` semantics match intended behavior
 2. **Per-thread serialization test (critical)**
-   - Start new session run (resume=None) that emits `session.started` then blocks
-   - Attempt second run using that resume token before first completes
-   - Assert second run does not enter execution until first finishes
+   - Enqueue two prompts for the same `ResumeToken`
+   - Assert the bridge does not start the second run until the first completes
+   - Assert queued prompts do not consume the global **16 active runs** slots
 3. **Bridge progress throttling tests**
    - Edits no more frequently than configured interval
    - No edits without changes
@@ -527,10 +527,11 @@ To reduce friction adding new runners, v0.2.0 SHOULD treat engine IDs as strings
    - `action.started(id="1", kind="command", title="pytest", detail={...})`
    - `action.completed(id="1", ok=True, ...)`
    - `log("All tests passed")`
+   - `run.completed(resume=..., answer="...")`
 5. Progress renderer now includes resume line:
    - ``codex resume <uuid>``
 6. User replies to progress message with follow-up prompt.
-7. Bridge extracts resume via runner, chooses same thread, runner queues it behind the in-flight run if still active.
+7. Bridge extracts resume via runner, chooses same thread, and queues it behind the in-flight run if still active.
 8. Final message includes:
    - “done”
    - final answer
