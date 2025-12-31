@@ -108,6 +108,7 @@ The normalized event model MUST NOT live under `runners/` because it is core dom
 The canonical representation of “resume” embedded in chat is the runner’s **engine CLI resume command**, e.g.:
 
 - Codex: ``codex resume <uuid>``
+- Claude Code: ``claude --resume <uuid>``
 
 Takopi MUST treat the runner as the authority for:
 
@@ -289,6 +290,9 @@ The bridge may enforce FIFO scheduling per thread to avoid emitting multiple pro
 Codex emits `thread.started` (with `thread_id`) before any `turn.*` / `item.*` events for both new and resumed runs. Codex MAY emit top-level warning `error` lines (e.g., config warnings) before `thread.started`; the Codex runner translates these warnings into `action` events with `phase="completed"` and yields them in the same order as received (so `started` is not guaranteed to be the first yielded event). If the subprocess exits before `thread.started` is observed, no `started` can be emitted and the bridge reports an error without a resume line.
 
 Codex also emits exactly one `agent_message`/`assistant_message` per turn; the runner uses that message text as `completed.answer`.
+
+**Claude Code note (non-normative):**
+Claude Code emits `system.init` (with `session_id`) before any `assistant`/`user` message objects; the runner should emit `started` on `system.init`. Claude’s final `result` message carries the session id and final answer (`result.result`), which the runner uses as `completed.answer`.
 
 ### 6.3 Run completion event (MUST)
 
