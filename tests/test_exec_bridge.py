@@ -261,6 +261,37 @@ async def test_final_notify_sends_loud_final_message() -> None:
 
 
 @pytest.mark.anyio
+async def test_handle_message_strips_resume_line_from_prompt() -> None:
+    from takopi.bridge import BridgeConfig, handle_message
+
+    bot = _FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    cfg = BridgeConfig(
+        bot=bot,
+        runner=runner,
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+    resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+    text = "do this\n`codex resume sid`\nand that"
+
+    await handle_message(
+        cfg,
+        chat_id=123,
+        user_msg_id=10,
+        text=text,
+        resume_token=resume,
+    )
+
+    assert runner.calls
+    prompt, passed_resume = runner.calls[0]
+    assert prompt == "do this\nand that"
+    assert passed_resume == resume
+
+
+@pytest.mark.anyio
 async def test_new_final_message_forces_notification_when_too_long_to_edit() -> None:
     from takopi.bridge import BridgeConfig, handle_message
 
@@ -606,14 +637,12 @@ def test_cancel_command_accepts_extra_text() -> None:
     assert _is_cancel_command("/cancelled") is False
 
 
-def test_resume_warning_for_unparseable_resume() -> None:
-    from takopi.bridge import _resume_attempt, _resume_warning_text
+def test_resume_attempt_does_not_trigger_on_plain_resume_word() -> None:
+    from takopi.bridge import _resume_attempt
 
     attempt, engine = _resume_attempt("resume abc123")
-    assert attempt is True
+    assert attempt is False
     assert engine is None
-    warning = _resume_warning_text(engine, "codex")
-    assert "resume command" in warning.lower()
 
 
 def test_resume_warning_for_other_engine() -> None:

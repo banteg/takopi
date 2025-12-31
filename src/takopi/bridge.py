@@ -37,7 +37,9 @@ def _is_cancel_command(text: str) -> bool:
     return command == "/cancel" or command.startswith("/cancel@")
 
 
-_RESUME_COMMAND_RE = re.compile(r"(?i)\b(?P<engine>[a-z0-9_-]+)\s+resume\s+\S+")
+_RESUME_COMMAND_RE = re.compile(
+    r"(?im)^\s*`?(?P<engine>[a-z0-9_-]+)\s+resume\s+(?P<token>(?=[^`\s]*\d)[^`\s]+)`?\s*$"
+)
 
 
 def _resume_attempt(text: str | None) -> tuple[bool, str | None]:
@@ -46,8 +48,6 @@ def _resume_attempt(text: str | None) -> tuple[bool, str | None]:
     match = _RESUME_COMMAND_RE.search(text)
     if match:
         return True, match.group("engine").lower()
-    if "resume" in text.lower():
-        return True, None
     return False, None
 
 
@@ -58,6 +58,16 @@ def _resume_warning_text(engine_hint: str | None, current_engine: str) -> str:
             f"{current_engine}. Starting a new thread."
         )
     return "Couldn't parse a resume command; starting a new thread."
+
+
+def _strip_resume_lines(text: str, *, is_resume_line: Callable[[str], bool]) -> str:
+    stripped_lines: list[str] = []
+    for line in text.splitlines():
+        if is_resume_line(line) or _RESUME_COMMAND_RE.match(line):
+            continue
+        stripped_lines.append(line)
+    prompt = "\n".join(stripped_lines).strip()
+    return prompt or "continue"
 
 
 async def _send_resume_warning(
@@ -267,6 +277,7 @@ async def handle_message(
     started_at = clock()
     runner = cfg.runner
     is_resume_line = runner.is_resume_line
+    runner_text = _strip_resume_lines(text, is_resume_line=is_resume_line)
 
     progress_renderer = ExecProgressRenderer(
         max_actions=5, resume_formatter=runner.format_resume
@@ -351,7 +362,7 @@ async def handle_message(
                 async def run_runner() -> None:
                     nonlocal resume_token_value, completed
                     try:
-                        async for evt in runner.run(text, resume_token):
+                        async for evt in runner.run(runner_text, resume_token):
                             if evt["type"] == "session.started":
                                 resume_token_value = evt["resume"]
                                 if (
