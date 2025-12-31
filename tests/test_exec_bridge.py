@@ -39,7 +39,7 @@ def test_parse_bridge_config_rejects_string_chat_id(monkeypatch) -> None:
 def test_codex_extract_resume_finds_command() -> None:
     uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
-    text = f"resume: `codex resume {uuid}`"
+    text = f"`codex resume {uuid}`"
 
     assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid)
 
@@ -48,14 +48,14 @@ def test_codex_extract_resume_uses_last_resume_line() -> None:
     uuid_first = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     uuid_last = "123e4567-e89b-12d3-a456-426614174000"
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
-    text = f"resume: `codex resume {uuid_first}`\n\nresume: `codex resume {uuid_last}`"
+    text = f"`codex resume {uuid_first}`\n\n`codex resume {uuid_last}`"
 
     assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid_last)
 
 
 def test_codex_extract_resume_ignores_malformed_resume_line() -> None:
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
-    text = "resume: codex resume"
+    text = "codex resume"
 
     assert runner.extract_resume(text) is None
 
@@ -63,20 +63,20 @@ def test_codex_extract_resume_ignores_malformed_resume_line() -> None:
 def test_codex_extract_resume_accepts_plain_line() -> None:
     uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
-    text = f"resume: codex resume {uuid}"
+    text = f"codex resume {uuid}"
 
     assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid)
 
 
 def test_truncate_for_telegram_preserves_resume_line() -> None:
     uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
-    md = ("x" * 10_000) + f"\nresume: codex resume {uuid}"
+    md = ("x" * 10_000) + f"\n`codex resume {uuid}`"
 
     out = truncate_for_telegram(md, 400)
 
     assert len(out) <= 400
     assert f"codex resume {uuid}" in out
-    assert out.rstrip().endswith(f"resume: codex resume {uuid}")
+    assert out.rstrip().endswith(f"`codex resume {uuid}`")
 
 
 def test_truncate_for_telegram_keeps_last_non_empty_line() -> None:
@@ -167,7 +167,7 @@ class _FakeRunner:
         self._ok = ok
 
     def format_resume(self, token: ResumeToken) -> str:
-        return f"resume: `codex resume {token.value}`"
+        return f"`codex resume {token.value}`"
 
     def extract_resume(self, _text: str | None) -> ResumeToken | None:
         return None
@@ -235,7 +235,7 @@ class _FakeRunnerWithEvents:
         self._hold = hold
 
     def format_resume(self, token: ResumeToken) -> str:
-        return f"resume: `codex resume {token.value}`"
+        return f"`codex resume {token.value}`"
 
     def extract_resume(self, _text: str | None) -> ResumeToken | None:
         return None
@@ -519,7 +519,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
     assert "working" in bot.send_calls[0]["text"]
     assert len(bot.edit_calls) >= 1
     assert session_id in bot.send_calls[-1]["text"]
-    assert "resume:" in bot.send_calls[-1]["text"].lower()
+    assert "codex resume" in bot.send_calls[-1]["text"].lower()
     assert len(bot.delete_calls) == 1
 
 
@@ -686,7 +686,7 @@ class _FakeRunnerCancellable:
         self._session_id = session_id
 
     def format_resume(self, token: ResumeToken) -> str:
-        return f"resume: `codex resume {token.value}`"
+        return f"`codex resume {token.value}`"
 
     def extract_resume(self, _text: str | None) -> ResumeToken | None:
         return None
@@ -716,7 +716,7 @@ class _FakeRunnerError:
         self._session_id = session_id
 
     def format_resume(self, token: ResumeToken) -> str:
-        return f"resume: `codex resume {token.value}`"
+        return f"`codex resume {token.value}`"
 
     def extract_resume(self, _text: str | None) -> ResumeToken | None:
         return None
@@ -805,7 +805,7 @@ async def test_handle_message_error_preserves_resume_token() -> None:
     last_edit = bot.edit_calls[-1]["text"]
     assert "error" in last_edit.lower()
     assert session_id in last_edit
-    assert "resume:" in last_edit.lower()
+    assert "codex resume" in last_edit.lower()
 
 
 @pytest.mark.anyio

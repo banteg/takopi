@@ -5,7 +5,7 @@ from takopi.runners.base import ResumeToken, TakopiEvent
 
 
 def _format_resume(token: ResumeToken) -> str:
-    return f"resume: `codex resume {token.value}`"
+    return f"`codex resume {token.value}`"
 
 
 SAMPLE_EVENTS = [
@@ -137,13 +137,13 @@ def test_progress_renderer_renders_progress_and_final() -> None:
     progress = r.render_progress(3.0)
     assert progress.startswith("working · 3s · step 2")
     assert "✓ `bash -lc ls`" in progress
-    assert "resume: `codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
+    assert "`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
 
     final = r.render_final(3.0, "answer", status="done")
     assert final.startswith("done · 3s · step 2")
     assert "answer" in final
     assert final.rstrip().endswith(
-        "resume: `codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`"
+        "`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`"
     )
 
 

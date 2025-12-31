@@ -6,7 +6,7 @@ A Telegram bot that bridges messages to [Codex](https://github.com/openai/codex)
 
 ## Features
 
-- **Stateless Resume**: No database required—sessions are resumed via ``resume: `codex resume <token>` `` lines embedded in messages
+- **Stateless Resume**: No database required—sessions are resumed via `` `codex resume <token>` `` lines embedded in messages
 - **Progress Updates**: Real-time progress edits showing commands, tools, and elapsed time
 - **Markdown Rendering**: Full Telegram-compatible markdown with entity support
 - **Concurrency**: Handles multiple conversations with per-session serialization
@@ -95,10 +95,10 @@ Send any message to your bot. The bridge will:
 
 ### Resume a Session
 
-Reply to a bot message (containing ``resume: `codex resume <token>` ``), or include the resume line in your message:
+Reply to a bot message (containing `` `codex resume <token>` ``), or include the resume line in your message:
 
 ```
-resume: `codex resume 019b66fc-64c2-7a71-81cd-081c504cfeb2`
+`codex resume 019b66fc-64c2-7a71-81cd-081c504cfeb2`
 ```
 
 ### Cancel a Run

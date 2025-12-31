@@ -147,7 +147,7 @@ Send/edit final message
 ### Resume Flow
 
 Same as above, but:
-- Runners parse resume lines (e.g. ``resume: `codex resume <token>` ``)
+- Runners parse resume lines (e.g. `` `codex resume <token>` ``)
 - Codex runner accepts legacy ``resume: `<uuid>` `` and ``resume: `codex:<uuid>` `` for compatibility
 - Command becomes: `codex exec --json resume <token> -`
 - Per-token lock serializes concurrent resumes

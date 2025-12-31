@@ -40,7 +40,7 @@ _ACTION_KIND_MAP: dict[str, ActionKind] = {
 }
 
 _RESUME_LINE = re.compile(
-    r"^\s*resume\s*:\s*`?(?P<cmd>[^`]+?)`?\s*$",
+    r"^\s*(?:resume\s*:\s*)?`?(?P<cmd>(?:codex\s+resume\s+[^`\s]+|codex:[^`\s]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))`?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -359,7 +359,7 @@ class CodexRunner:
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
             raise RuntimeError(f"resume token is for engine {token.engine!r}")
-        return f"resume: `codex resume {token.value}`"
+        return f"`codex resume {token.value}`"
 
     def extract_resume(self, text: str | None) -> ResumeToken | None:
         if not text:

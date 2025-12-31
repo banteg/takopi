@@ -24,7 +24,7 @@ from .runners.codex import CodexRunner
 
 logger = logging.getLogger(__name__)
 RESUME_LINE = re.compile(
-    r"^\s*resume\s*:\s*`?(?P<cmd>[^`]+?)`?\s*$",
+    r"^\s*(?:resume\s*:\s*)?`?(?:codex\s+resume|claude\s+--resume|mock\s+resume)\b[^`]*`?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -51,7 +51,7 @@ PROGRESS_EDIT_EVERY_S = 1.0
 
 def truncate_for_telegram(text: str, limit: int) -> str:
     """
-    Truncate text to fit Telegram limits while preserving the trailing `resume: ...`
+    Truncate text to fit Telegram limits while preserving the trailing resume command
     line (if present), otherwise preserving the last non-empty line.
     """
     if len(text) <= limit:
