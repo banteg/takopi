@@ -167,9 +167,7 @@ Takopi MUST support the following event types:
 1. `session.started`
 2. `action.started`
 3. `action.completed`
-4. `log`
-5. `error`
-6. `run.completed`
+4. `run.completed`
 
 ### 5.3 Required fields by event type
 
@@ -199,31 +197,7 @@ Required:
 - `action: Action`
 - `ok: bool` (success/failure of the action)
 
-#### 5.3.4 `log`
-
-Required:
-
-- `type: "log"`
-- `engine: EngineId`
-- `message: str`
-
-Optional:
-
-- `level: "debug" | "info" | "warning" | "error"` (default: `"info"`)
-
-#### 5.3.5 `error`
-
-Required:
-
-- `type: "error"`
-- `engine: EngineId`
-- `message: str`
-
-Optional:
-
-- `detail: str` (stack trace / stderr tail)
-
-#### 5.3.6 `run.completed`
+#### 5.3.4 `run.completed`
 
 Required:
 
@@ -261,6 +235,8 @@ Runners MAY include additional kinds, but renderers MAY treat unknown kinds as `
 The `detail` dict is **freeform per runner**; no per-kind schema is enforced. Renderers SHOULD handle missing or unexpected fields gracefully.
 
 The `ok` field semantics are **runner-defined**. For example, a runner MAY treat `grep` exit code 1 (no match) as `ok=True` if contextually appropriate.
+
+**User-visible warnings and errors:** runners SHOULD surface these as `action.completed` events (typically `kind="note"`) with `ok=False`, rather than introducing additional event types.
 
 ------
 
@@ -433,8 +409,9 @@ The progress renderer SHOULD maintain:
 - session title
 - current running actions and their latest summaries
 - completed actions and status
-- latest log/error lines (bounded tail)
 - resume token if known
+
+If the runner emits multiple `action.started` events for the same `Action.id` while it is still running, the progress renderer SHOULD treat these as updates and collapse them into a single line (replacing the prior running line rather than appending a new one).
 
 ### 8.3 Final rendering
 
@@ -491,7 +468,7 @@ The architecture SHOULD keep this future change localized to a `RunnerRegistry` 
    - “cancelled” status produced
    - resume line included if known
 6. **Renderer formatting tests**
-   - Correct rendering of actions, errors, logs
+   - Correct rendering of actions
    - Stable formatting under event sequences
 
 ### 10.2 Test tooling guidelines (SHOULD)
@@ -536,7 +513,6 @@ To reduce friction adding new runners, v0.2.0 SHOULD treat engine IDs as strings
   - Clarify: 16 concurrent runs limit, indefinite queue per thread
   - Clarify: SIGTERM for cancellation, `/cancel` ignores accompanying text
   - Clarify: truncation preserves head + resume line
-  - Clarify: log level defaults to `info`
   - Clarify: crash publishes error with resume if known
 
 ------
@@ -551,7 +527,6 @@ To reduce friction adding new runners, v0.2.0 SHOULD treat engine IDs as strings
    - `session.started(engine="codex", resume={engine:"codex", value:"<uuid>"})`
    - `action.started(id="1", kind="command", title="pytest", detail={...})`
    - `action.completed(id="1", ok=True, ...)`
-   - `log("All tests passed")`
    - `run.completed(resume=..., answer="...")`
 5. Progress renderer now includes resume line:
    - ``codex resume <uuid>``
