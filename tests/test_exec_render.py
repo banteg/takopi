@@ -1,7 +1,7 @@
 from typing import cast
 
 from takopi.exec_render import ExecProgressRenderer, render_event_cli, render_markdown
-from takopi.runners.base import ResumeToken, TakopiEvent
+from takopi.model import ResumeToken, TakopiEvent
 
 
 def _format_resume(token: ResumeToken) -> str:
@@ -12,7 +12,10 @@ SAMPLE_EVENTS = [
     {
         "type": "session.started",
         "engine": "codex",
-        "resume": {"engine": "codex", "value": "0199a213-81c0-7800-8aa1-bbab2a035a53"},
+        "resume": ResumeToken(
+            engine="codex", value="0199a213-81c0-7800-8aa1-bbab2a035a53"
+        ),
+        "title": "Codex",
     },
     {
         "type": "action.started",
@@ -32,8 +35,8 @@ SAMPLE_EVENTS = [
             "kind": "command",
             "title": "bash -lc ls",
             "detail": {"exit_code": 0},
-            "ok": True,
         },
+        "ok": True,
     },
     {
         "type": "action.completed",
@@ -44,6 +47,7 @@ SAMPLE_EVENTS = [
             "title": "Checking repository root for README",
             "detail": {},
         },
+        "ok": True,
     },
 ]
 
@@ -74,6 +78,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
                 "title": "pytest -q",
                 "detail": {"exit_code": 1},
             },
+            "ok": False,
         },
         {
             "type": "action.completed",
@@ -84,6 +89,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
                 "title": "python jsonlines parser handle unknown fields",
                 "detail": {},
             },
+            "ok": True,
         },
         {
             "type": "action.completed",
@@ -94,6 +100,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
                 "title": "github.search_issues",
                 "detail": {},
             },
+            "ok": True,
         },
         {
             "type": "action.completed",
@@ -104,12 +111,12 @@ def test_render_event_cli_handles_action_kinds() -> None:
                 "title": "src/compute_answer.py",
                 "detail": {},
             },
+            "ok": True,
         },
         {
             "type": "error",
             "engine": "codex",
             "message": "stream error",
-            "fatal": False,
         },
     ]
 
@@ -158,8 +165,8 @@ def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
                 "kind": "command",
                 "title": f"echo {i}",
                 "detail": {"exit_code": 0},
-                "ok": True,
             },
+            "ok": True,
         }
         for i in range(6)
     ]
@@ -186,8 +193,8 @@ def test_progress_renderer_renders_commands_in_markdown() -> None:
                 "kind": "command",
                 "title": f"echo {i}",
                 "detail": {"exit_code": 0},
-                "ok": True,
             },
+            "ok": True,
         }
         r.note_event(cast(TakopiEvent, evt))
 
@@ -219,8 +226,8 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
                 "kind": "command",
                 "title": "echo first",
                 "detail": {"exit_code": 0},
-                "ok": True,
             },
+            "ok": True,
         },
         {
             "type": "action.started",
@@ -240,8 +247,8 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
                 "kind": "command",
                 "title": "echo second",
                 "detail": {"exit_code": 0},
-                "ok": True,
             },
+            "ok": True,
         },
     ]
 

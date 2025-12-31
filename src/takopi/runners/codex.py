@@ -14,24 +14,22 @@ from weakref import WeakValueDictionary
 import anyio
 from anyio.abc import ByteReceiveStream, Process
 from anyio.streams.text import TextReceiveStream
-from .base import (
+from ..model import (
     Action,
     ActionKind,
     EngineId,
-    EventQueue,
     ErrorEvent,
-    EventSink,
     LogEvent,
-    ResumePayload,
     ResumeToken,
     RunResult,
     SessionStartedEvent,
     TakopiEvent,
 )
+from ..runner import EventQueue, EventSink
 
 logger = logging.getLogger(__name__)
 
-ENGINE: EngineId = "codex"
+ENGINE: EngineId = EngineId("codex")
 STDERR_TAIL_LINES = 200
 
 _ACTION_KIND_MAP: dict[str, ActionKind] = {
@@ -48,15 +46,12 @@ _RESUME_LINE = re.compile(
 )
 
 
-def _resume_payload(token: ResumeToken) -> ResumePayload:
-    return {"engine": token.engine, "value": token.value}
-
-
-def _session_started_event(token: ResumeToken) -> SessionStartedEvent:
+def _session_started_event(token: ResumeToken, *, title: str) -> SessionStartedEvent:
     return {
         "type": "session.started",
         "engine": token.engine,
-        "resume": _resume_payload(token),
+        "resume": token,
+        "title": title,
     }
 
 
@@ -69,13 +64,15 @@ def _log_event(level: str, message: str) -> LogEvent:
     }
 
 
-def _error_event(message: str, *, fatal: bool = False) -> ErrorEvent:
-    return {
+def _error_event(message: str, *, detail: str | None = None) -> ErrorEvent:
+    payload: ErrorEvent = {
         "type": "error",
         "engine": ENGINE,
         "message": message,
-        "fatal": fatal,
     }
+    if detail:
+        payload["detail"] = detail
+    return payload
 
 
 def _action_event(
@@ -93,9 +90,16 @@ def _action_event(
         "title": title,
         "detail": detail or {},
     }
-    if ok is not None:
-        action["ok"] = ok
-    payload: dict[str, Any] = {"type": event_type, "engine": ENGINE, "action": action}
+    if event_type == "action.started":
+        payload = {"type": event_type, "engine": ENGINE, "action": action}
+        return cast(TakopiEvent, payload)
+    ok_value = True if ok is None else ok
+    payload = {
+        "type": "action.completed",
+        "engine": ENGINE,
+        "action": action,
+        "ok": ok_value,
+    }
     return cast(TakopiEvent, payload)
 
 
@@ -150,7 +154,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             ]
         if etype == "item.completed":
             exit_code = item.get("exit_code")
-            ok = None
+            ok = True
             if isinstance(exit_code, int):
                 ok = exit_code == 0
             detail = {"exit_code": exit_code} if exit_code is not None else {}
@@ -186,6 +190,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
                     kind=kind,
                     title=title,
                     detail=detail,
+                    ok=True,
                 )
             ]
 
@@ -199,6 +204,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
                 action_id=action_id,
                 kind=kind,
                 title=title,
+                ok=True,
             )
         ]
 
@@ -214,6 +220,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
                 kind=kind,
                 title=title,
                 detail=detail,
+                ok=True,
             )
         ]
 
@@ -227,19 +234,20 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
                 action_id=action_id,
                 kind=kind,
                 title=title,
+                ok=True,
             )
         ]
 
     return []
 
 
-def translate_codex_event(event: dict[str, Any]) -> list[TakopiEvent]:
+def translate_codex_event(event: dict[str, Any], *, title: str) -> list[TakopiEvent]:
     etype = event.get("type")
     if etype == "thread.started":
         thread_id = event.get("thread_id")
         if thread_id:
             token = ResumeToken(engine=ENGINE, value=str(thread_id))
-            return [_session_started_event(token)]
+            return [_session_started_event(token, title=title)]
         return [_log_event("error", "codex thread.started missing thread_id")]
 
     if etype == "error":
@@ -352,9 +360,11 @@ class CodexRunner:
         *,
         codex_cmd: str,
         extra_args: list[str],
+        title: str = "Codex",
     ) -> None:
         self.codex_cmd = codex_cmd
         self.extra_args = extra_args
+        self.session_title = title
         self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
             WeakValueDictionary()
         )
@@ -396,16 +406,14 @@ class CodexRunner:
             return m.group("token")
         return None
 
-    def _emit_event(self, dispatcher: EventQueue | None, event: TakopiEvent) -> None:
-        if dispatcher is None:
-            return
+    def _emit_event(self, dispatcher: EventQueue, event: TakopiEvent) -> None:
         dispatcher.emit(event)
 
     async def run(
         self,
         prompt: str,
         resume: ResumeToken | None,
-        on_event: EventSink | None = None,
+        on_event: EventSink,
     ) -> RunResult:
         resume_token = resume
         if resume_token is not None and resume_token.engine != ENGINE:
@@ -422,7 +430,7 @@ class CodexRunner:
         self,
         prompt: str,
         resume_token: ResumeToken | None,
-        on_event: EventSink | None,
+        on_event: EventSink,
     ) -> RunResult:
         logger.info(
             "[codex] start run resume=%r", resume_token.value if resume_token else None
@@ -437,11 +445,8 @@ class CodexRunner:
         else:
             args.append("-")
 
-        dispatcher = (
-            EventQueue(on_event, label="codex") if on_event is not None else None
-        )
-        if dispatcher is not None:
-            await dispatcher.start()
+        dispatcher = EventQueue(on_event, label="codex")
+        await dispatcher.start()
 
         cancelled_exc_type = anyio.get_cancelled_exc_class()
         cancelled_exc: BaseException | None = None
@@ -468,10 +473,10 @@ class CodexRunner:
                 found_session: ResumeToken | None = resume_token
                 saw_session_started = False
                 last_agent_text: str | None = None
-                saw_agent_message = False
 
                 async with anyio.create_task_group() as tg:
                     tg.start_soon(_drain_stderr, proc_stderr, stderr_chunks)
+                    tg.start_soon(dispatcher.wait_error)
 
                     try:
                         await proc_stdin.send(prompt.encode())
@@ -480,7 +485,10 @@ class CodexRunner:
                         if resume_token is not None:
                             saw_session_started = True
                             self._emit_event(
-                                dispatcher, _session_started_event(resume_token)
+                                dispatcher,
+                                _session_started_event(
+                                    resume_token, title=self.session_title
+                                ),
                             )
 
                         async for raw_line in _iter_text_lines(proc_stdout):
@@ -507,14 +515,12 @@ class CodexRunner:
                                     item.get("text"), str
                                 ):
                                     last_agent_text = item["text"]
-                                    saw_agent_message = True
 
-                            for out_evt in translate_codex_event(evt):
+                            for out_evt in translate_codex_event(
+                                evt, title=self.session_title
+                            ):
                                 if out_evt["type"] == "session.started":
-                                    token = out_evt["resume"]
-                                    session = ResumeToken(
-                                        engine=token["engine"], value=token["value"]
-                                    )
+                                    session = out_evt["resume"]
                                     if found_session is None:
                                         if session.engine != ENGINE:
                                             raise RuntimeError(
@@ -549,18 +555,12 @@ class CodexRunner:
                 logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
                 if rc != 0:
                     stderr_text = "".join(stderr_chunks)
-                    if saw_agent_message:
-                        self._emit_event(
-                            dispatcher,
-                            _log_event(
-                                "error",
-                                f"codex exited rc={rc}. stderr tail:\n{stderr_text}",
-                            ),
-                        )
-                    else:
-                        raise RuntimeError(
-                            f"codex exec failed (rc={rc}). stderr tail:\n{stderr_text}"
-                        )
+                    message = f"codex exec failed (rc={rc})."
+                    self._emit_event(
+                        dispatcher,
+                        _error_event(message, detail=f"stderr tail:\n{stderr_text}"),
+                    )
+                    raise RuntimeError(f"{message} stderr tail:\n{stderr_text}")
 
                 if not saw_session_started or not found_session:
                     raise RuntimeError(
@@ -575,5 +575,4 @@ class CodexRunner:
         finally:
             if session_lock is not None and session_lock_acquired:
                 session_lock.release()
-            if dispatcher is not None:
-                await dispatcher.close()
+            await dispatcher.close()

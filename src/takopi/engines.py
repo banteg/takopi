@@ -63,6 +63,7 @@ def _codex_build_runner(
             f"Invalid `codex.extra_args` in {config_path}; expected a list of strings."
         )
 
+    title = "Codex"
     profile_value = config.get("profile")
     if profile_value:
         if not isinstance(profile_value, str):
@@ -70,12 +71,13 @@ def _codex_build_runner(
                 f"Invalid `codex.profile` in {config_path}; expected a string."
             )
         extra_args.extend(["--profile", profile_value])
+        title = profile_value
 
     if overrides:
         unknown = ", ".join(sorted(overrides))
         raise ConfigError(f"Unknown codex override(s): {unknown}")
 
-    return CodexRunner(codex_cmd=codex_cmd, extra_args=extra_args)
+    return CodexRunner(codex_cmd=codex_cmd, extra_args=extra_args, title=title)
 
 
 def _codex_startup_message(cwd: str) -> str:

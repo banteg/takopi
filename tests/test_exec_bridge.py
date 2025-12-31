@@ -6,7 +6,7 @@ import pytest
 
 from takopi import engines
 from takopi.exec_bridge import prepare_telegram, truncate_for_telegram
-from takopi.runners.base import ResumeToken, TakopiEvent
+from takopi.model import ResumeToken, TakopiEvent
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
 
@@ -484,8 +484,8 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
                     "kind": "command",
                     "title": "echo ok",
                     "detail": {"exit_code": 0},
-                    "ok": True,
                 },
+                "ok": True,
             },
         ),
     ]

@@ -8,17 +8,10 @@ from typing import TypeAlias
 
 import anyio
 
-from .base import (
-    EngineId,
-    EventQueue,
-    EventSink,
-    ResumeToken,
-    RunResult,
-    SessionStartedEvent,
-    TakopiEvent,
-)
+from ..model import EngineId, ResumeToken, RunResult, SessionStartedEvent, TakopiEvent
+from ..runner import EventQueue, EventSink
 
-ENGINE: EngineId = "mock"
+ENGINE: EngineId = EngineId("mock")
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,11 +75,13 @@ class MockRunner:
         answer: str = "",
         engine: EngineId = ENGINE,
         resume_value: str | None = None,
+        title: str | None = None,
     ) -> None:
         self.engine = engine
         self._events = list(events or [])
         self._answer = answer
         self._resume_value = resume_value
+        self.title = title or str(engine).title()
         (
             self._resume_line_re,
             self._resume_cmd_re,
@@ -126,7 +121,7 @@ class MockRunner:
         self,
         prompt: str,
         resume: ResumeToken | None,
-        on_event: EventSink | None = None,
+        on_event: EventSink,
     ) -> RunResult:
         _ = prompt
         token_value = None
@@ -142,24 +137,23 @@ class MockRunner:
         session_evt: SessionStartedEvent = {
             "type": "session.started",
             "engine": self.engine,
-            "resume": {"engine": self.engine, "value": token.value},
+            "resume": token,
+            "title": self.title,
         }
-        dispatcher = EventQueue(on_event, label=self.engine) if on_event else None
-        if dispatcher is not None:
-            await dispatcher.start()
+        dispatcher = EventQueue(on_event, label=str(self.engine))
+        await dispatcher.start()
         try:
-            if dispatcher is not None:
-                dispatcher.emit(session_evt)
+            dispatcher.emit(session_evt)
 
             for event in self._events:
-                if dispatcher is not None:
-                    dispatcher.emit(event)
+                if event.get("type") == "action.completed" and "ok" not in event:
+                    event = {**event, "ok": True}
+                dispatcher.emit(event)
                 await anyio.sleep(0)
 
             return RunResult(resume=token, answer=self._answer)
         finally:
-            if dispatcher is not None:
-                await dispatcher.close()
+            await dispatcher.close()
 
 
 class ScriptRunner(MockRunner):
@@ -173,12 +167,14 @@ class ScriptRunner(MockRunner):
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         advance: Callable[[float], None] | None = None,
         default_answer: str = "",
+        title: str | None = None,
     ) -> None:
         super().__init__(
             events=[],
             answer=default_answer,
             engine=engine,
             resume_value=resume_value,
+            title=title,
         )
         self.calls: list[tuple[str, ResumeToken | None]] = []
         self._script = list(script)
@@ -195,7 +191,7 @@ class ScriptRunner(MockRunner):
         self,
         prompt: str,
         resume: ResumeToken | None,
-        on_event: EventSink | None = None,
+        on_event: EventSink,
     ) -> RunResult:
         self.calls.append((prompt, resume))
         _ = prompt
@@ -212,12 +208,13 @@ class ScriptRunner(MockRunner):
         session_evt: SessionStartedEvent = {
             "type": "session.started",
             "engine": self.engine,
-            "resume": {"engine": self.engine, "value": token.value},
+            "resume": token,
+            "title": self.title,
         }
 
         async def emit(event: TakopiEvent) -> None:
-            if on_event is None:
-                return
+            if event.get("type") == "action.completed" and "ok" not in event:
+                event = {**event, "ok": True}
             res = on_event(event)
             if res is not None:
                 await res

@@ -8,7 +8,7 @@ from typing import Any, Callable
 from markdown_it import MarkdownIt
 from sulguk import transform_html
 
-from .runners.base import Action, ResumeToken, TakopiEvent
+from .model import Action, ResumeToken, TakopiEvent
 
 STATUS_RUNNING = "▸"
 STATUS_DONE = "✓"
@@ -57,10 +57,11 @@ def _shorten(text: str, width: int | None) -> str:
     return textwrap.shorten(text, width=width, placeholder="…")
 
 
-def _action_status_symbol(action: Action, *, completed: bool) -> str:
+def _action_status_symbol(
+    action: Action, *, completed: bool, ok: bool | None = None
+) -> str:
     if not completed:
         return STATUS_RUNNING
-    ok = action.get("ok")
     if ok is not None:
         return STATUS_DONE if ok else STATUS_FAIL
     detail = action.get("detail") or {}
@@ -111,7 +112,7 @@ def render_event_cli(
         lines.append(f"{STATUS_RUNNING} {title}")
     elif event["type"] == "action.completed":
         action = event["action"]
-        status = _action_status_symbol(action, completed=True)
+        status = _action_status_symbol(action, completed=True, ok=event.get("ok"))
         title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
         suffix = _action_exit_suffix(action)
         lines.append(f"{status} {title}{suffix}")
@@ -142,18 +143,17 @@ class ExecProgressRenderer:
 
     def note_event(self, event: TakopiEvent) -> bool:
         if event["type"] == "session.started":
-            resume = event["resume"]
-            self.resume_token = ResumeToken(
-                engine=resume["engine"], value=resume["value"]
-            )
+            self.resume_token = event["resume"]
             return True
 
         if event["type"] == "action.started":
             action = event["action"]
             completed = False
+            ok = None
         elif event["type"] == "action.completed":
             action = event["action"]
             completed = True
+            ok = event.get("ok")
         else:
             return False
         action_id = str(action.get("id") or "")
@@ -172,7 +172,7 @@ class ExecProgressRenderer:
             else:
                 self._started_counts[action_id] = count - 1
 
-        status = _action_status_symbol(action, completed=completed)
+        status = _action_status_symbol(action, completed=completed, ok=ok)
         title = _format_action_title(action, command_width=self.command_width)
         suffix = _action_exit_suffix(action) if completed else ""
         line = f"{status} {title}{suffix}"

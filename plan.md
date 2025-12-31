@@ -15,42 +15,42 @@ Legend:
 ### 1. Create `model.py` with domain types
 🟢 Extract from `runners/base.py` → new `takopi/model.py`
 
-- [ ] 1.1 Move `ResumeToken` to `model.py`
-- [ ] 1.2 Move `RunResult` to `model.py`
-- [ ] 1.3 Move `Action` TypedDict to `model.py`
-- [ ] 1.4 Move all `TakopiEvent` types to `model.py`
-- [ ] 1.5 Move `ActionKind` type alias to `model.py`
-- [ ] 1.6 Move `TakopiEventType` type alias to `model.py`
-- [ ] 1.7 Add re-exports in `runners/base.py` for backwards compatibility
+- [x] 1.1 Move `ResumeToken` to `model.py`
+- [x] 1.2 Move `RunResult` to `model.py`
+- [x] 1.3 Move `Action` TypedDict to `model.py`
+- [x] 1.4 Move all `TakopiEvent` types to `model.py`
+- [x] 1.5 Move `ActionKind` type alias to `model.py`
+- [x] 1.6 Move `TakopiEventType` type alias to `model.py`
+- [x] 1.7 Add re-exports in `runners/base.py` for backwards compatibility
 
 ### 2. Update `EngineId` typing (§11.2)
 🟢 Loosen type from closed Literal to open string
 
-- [ ] 2.1 Change `EngineId: TypeAlias = Literal["codex", "mock"]` → `EngineId = NewType("EngineId", str)`
-- [ ] 2.2 Update all type annotations that use `EngineId`
+- [x] 2.1 Change `EngineId: TypeAlias = Literal["codex", "mock"]` → `EngineId = NewType("EngineId", str)`
+- [x] 2.2 Update all type annotations that use `EngineId`
 
 ### 3. Add required `title` field to `session.started` (§5.3.1)
 🟡 New required field
 
-- [ ] 3.1 Update `SessionStartedEvent` TypedDict to include `title: str`
-- [ ] 3.2 Update `CodexRunner` to emit `title` (use profile name or "Codex")
-- [ ] 3.3 Update `MockRunner` to emit `title`
-- [ ] 3.4 Update `ScriptRunner` to emit `title`
+- [x] 3.1 Update `SessionStartedEvent` TypedDict to include `title: str`
+- [x] 3.2 Update `CodexRunner` to emit `title` (use profile name or "Codex")
+- [x] 3.3 Update `MockRunner` to emit `title`
+- [x] 3.4 Update `ScriptRunner` to emit `title`
 - [ ] 3.5 Update renderer to display session title if desired
 
 ### 4. Make `ok` required on `action.completed` (§5.3.3)
 🔴 Schema tightening
 
-- [ ] 4.1 Update `ActionCompletedEvent` to require `ok: bool` at top level (not inside Action)
-- [ ] 4.2 Update `CodexRunner._translate_item_event()` to always compute `ok` (default `True` if unknown)
-- [ ] 4.3 Update `MockRunner` event emission
-- [ ] 4.4 Update renderer to read `ok` from event, not from `action.detail`
+- [x] 4.1 Update `ActionCompletedEvent` to require `ok: bool` at top level (not inside Action)
+- [x] 4.2 Update `CodexRunner._translate_item_event()` to always compute `ok` (default `True` if unknown)
+- [x] 4.3 Update `MockRunner` event emission
+- [x] 4.4 Update renderer to read `ok` from event, not from `action.detail`
 
 ### 5. Add optional `detail` to `error` event (§5.3.5)
 🟢 Already compatible, document behavior
 
-- [ ] 5.1 Update `ErrorEvent` TypedDict to include `detail: str` (optional)
-- [ ] 5.2 Update `CodexRunner` to populate `detail` with stderr tail on crash
+- [x] 5.1 Update `ErrorEvent` TypedDict to include `detail: str` (optional)
+- [x] 5.2 Update `CodexRunner` to populate `detail` with stderr tail on crash
 
 ---
 
@@ -59,12 +59,12 @@ Legend:
 ### 6. Make `on_event` parameter non-optional (§6.1)
 🔴 Signature change
 
-- [ ] 6.1 Update `Runner` Protocol: `on_event: EventSink` (remove `| None`)
-- [ ] 6.2 Update `CodexRunner.run()` signature
-- [ ] 6.3 Update `MockRunner.run()` signature
-- [ ] 6.4 Update `ScriptRunner.run()` signature
-- [ ] 6.5 Create `NO_OP_SINK: EventSink = lambda _: None` helper for tests
-- [ ] 6.6 Update all test call sites to pass `on_event=NO_OP_SINK` or a real sink
+- [x] 6.1 Update `Runner` Protocol: `on_event: EventSink` (remove `| None`)
+- [x] 6.2 Update `CodexRunner.run()` signature
+- [x] 6.3 Update `MockRunner.run()` signature
+- [x] 6.4 Update `ScriptRunner.run()` signature
+- [x] 6.5 Create `NO_OP_SINK: EventSink = lambda _: None` helper for tests
+- [x] 6.6 Update all test call sites to pass `on_event=NO_OP_SINK` or a real sink
 
 ### 7. Implement pre-emit locking for new sessions (§6.2)
 🔴 Critical behavioral change
@@ -78,8 +78,8 @@ Legend:
 ### 8. Callback errors must abort run (§6.4)
 🔴 Behavioral change
 
-- [ ] 8.1 Update `EventQueue._drain()`: re-raise exceptions instead of logging and continuing
-- [ ] 8.2 Ensure runner catches the exception and terminates subprocess
+- [x] 8.1 Update `EventQueue._drain()`: re-raise exceptions instead of logging and continuing
+- [x] 8.2 Ensure runner catches the exception and terminates subprocess
 - [ ] 8.3 Add test: callback that raises → run aborts with error status
 - [ ] 8.4 Document migration: callbacks must not raise (or run fails)
 

@@ -2,7 +2,8 @@ import anyio
 
 import pytest
 
-from takopi.runners.base import ResumeToken, RunResult
+from takopi.model import ResumeToken, RunResult
+from takopi.runner import NO_OP_SINK
 from takopi.runners.codex import CodexRunner
 
 
@@ -28,8 +29,8 @@ async def test_run_serializes_same_session() -> None:
 
     token = ResumeToken(engine="codex", value="sid")
     async with anyio.create_task_group() as tg:
-        tg.start_soon(runner.run, "a", token)
-        tg.start_soon(runner.run, "b", token)
+        tg.start_soon(runner.run, "a", token, NO_OP_SINK)
+        tg.start_soon(runner.run, "b", token, NO_OP_SINK)
         await anyio.sleep(0)
         gate.set()
     assert max_in_flight == 1
@@ -56,8 +57,8 @@ async def test_run_allows_parallel_new_sessions() -> None:
     runner._run = run_stub  # type: ignore[assignment]
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(runner.run, "a", None)
-        tg.start_soon(runner.run, "b", None)
+        tg.start_soon(runner.run, "a", None, NO_OP_SINK)
+        tg.start_soon(runner.run, "b", None, NO_OP_SINK)
         await anyio.sleep(0.01)
         gate.set()
     assert max_in_flight == 2
@@ -110,18 +111,20 @@ async def test_run_serializes_new_session_after_session_is_known(
     async def on_event(event) -> None:
         nonlocal resume_value
         if event.get("type") == "session.started":
-            resume_value = event["resume"]["value"]
+            resume_value = event["resume"].value
             session_started.set()
 
     new_done = anyio.Event()
 
     async def run_new() -> None:
-        await runner.run("hello", None, on_event=on_event)
+        await runner.run("hello", None, on_event)
         new_done.set()
 
     async def run_resume() -> None:
         assert resume_value is not None
-        await runner.run("resume", ResumeToken(engine="codex", value=resume_value))
+        await runner.run(
+            "resume", ResumeToken(engine="codex", value=resume_value), NO_OP_SINK
+        )
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_new)
