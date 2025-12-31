@@ -201,23 +201,15 @@ class ExecProgressRenderer:
         return True
 
     def _append_action(self, action_id: str, *, completed: bool, line: str) -> None:
-        if not completed:
-            for i in range(len(self._recent_action_ids) - 1, -1, -1):
-                if (
-                    self._recent_action_ids[i] == action_id
-                    and not self._recent_action_completed[i]
-                ):
-                    self.recent_actions[i] = line
-                    return
-        if completed:
-            for i in range(len(self._recent_action_ids) - 1, -1, -1):
-                if (
-                    self._recent_action_ids[i] == action_id
-                    and not self._recent_action_completed[i]
-                ):
-                    self.recent_actions[i] = line
+        for i in range(len(self._recent_action_ids) - 1, -1, -1):
+            if (
+                self._recent_action_ids[i] == action_id
+                and not self._recent_action_completed[i]
+            ):
+                self.recent_actions[i] = line
+                if completed:
                     self._recent_action_completed[i] = True
-                    return
+                return
 
         if len(self.recent_actions) >= self.max_actions:
             self.recent_actions.popleft()
