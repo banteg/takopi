@@ -45,7 +45,6 @@ class Wait:
 @dataclass(frozen=True, slots=True)
 class Return:
     answer: str
-    ok: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,8 +156,7 @@ class MockRunner:
                     dispatcher.emit(event)
                 await anyio.sleep(0)
 
-            ok = bool(self._answer)
-            return RunResult(resume=token, answer=self._answer, ok=ok)
+            return RunResult(resume=token, answer=self._answer)
         finally:
             if dispatcher is not None:
                 await dispatcher.close()
@@ -175,7 +173,6 @@ class ScriptRunner(MockRunner):
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         advance: Callable[[float], None] | None = None,
         default_answer: str = "",
-        default_ok: bool | None = None,
     ) -> None:
         super().__init__(
             events=[],
@@ -188,7 +185,6 @@ class ScriptRunner(MockRunner):
         self._emit_session_start = emit_session_start
         self._sleep = sleep
         self._advance = advance
-        self._default_ok = default_ok
 
     def _advance_to(self, now: float) -> None:
         if self._advance is None:
@@ -249,9 +245,7 @@ class ScriptRunner(MockRunner):
             if isinstance(step, Raise):
                 raise step.error
             if isinstance(step, Return):
-                ok = step.ok if step.ok is not None else bool(step.answer)
-                return RunResult(resume=token, answer=step.answer, ok=ok)
+                return RunResult(resume=token, answer=step.answer)
             raise RuntimeError(f"Unhandled script step: {step!r}")
 
-        ok = self._default_ok if self._default_ok is not None else bool(self._answer)
-        return RunResult(resume=token, answer=self._answer, ok=ok)
+        return RunResult(resume=token, answer=self._answer)

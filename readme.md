@@ -68,15 +68,7 @@ Create a Codex profile in `~/.codex/config.toml`:
 model = "gpt-5.2-codex"
 ```
 
-Then run takopi with:
-
-```bash
-takopi --profile takopi
-```
-
-Or set `profile = "takopi"` under `[codex]` in `~/.takopi/takopi.toml`.
-
-You can also use `--engine-option profile=takopi` instead of `--profile`.
+Then set `profile = "takopi"` under `[codex]` in `~/.takopi/takopi.toml`.
 
 ### Options
 
@@ -86,7 +78,6 @@ You can also use `--engine-option profile=takopi` instead of `--profile`.
 | `--debug` / `--no-debug` | `--no-debug` | Enable verbose logging |
 | `--engine ID` | `codex` | Engine backend id |
 | `--engine-option KEY=VALUE` |  | Engine-specific override (repeatable) |
-| `--profile NAME` | (codex default) | (codex) profile name (alias for `--engine-option profile=...`) |
 | `--version` |  | Show the version and exit |
 
 ## Usage

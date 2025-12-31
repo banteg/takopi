@@ -137,7 +137,7 @@ CodexRunner.run()
     │   ExecProgressRenderer.note_event()
     │       ↓
     │   ProgressEdits throttled edit_message_text()
-    └── Returns RunResult(resume, answer, ok)
+    └── Returns RunResult(resume, answer)
     ↓
 render_final() with resume line (runner-formatted)
     ↓
@@ -160,4 +160,4 @@ Same as above, but:
 | Telegram API error | Logged, edit skipped (progress continues) |
 | Cancellation | Cancel scope terminates the process group (POSIX) and renders `cancelled` |
 | Errors in handler | Final render uses `status=error` and preserves resume tokens when known |
-| No agent_message | Final shows `error` status |
+| No agent_message (empty answer) | Final shows `error` status |

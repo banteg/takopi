@@ -558,12 +558,10 @@ class CodexRunner:
                         "codex exec finished but no session_id/thread_id was captured"
                     )
 
-                ok = bool(saw_agent_message) and rc == 0
                 logger.info("[codex] done run session=%s", found_session.value)
                 return RunResult(
                     resume=found_session,
                     answer=last_agent_text or "",
-                    ok=ok,
                 )
         finally:
             if dispatcher is not None:

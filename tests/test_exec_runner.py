@@ -22,7 +22,6 @@ async def test_run_serializes_same_session() -> None:
         return RunResult(
             resume=ResumeToken(engine="codex", value="sid"),
             answer="ok",
-            ok=True,
         )
 
     runner._run = run_stub  # type: ignore[assignment]
@@ -52,7 +51,6 @@ async def test_run_allows_parallel_new_sessions() -> None:
         return RunResult(
             resume=ResumeToken(engine="codex", value="sid"),
             answer="ok",
-            ok=True,
         )
 
     runner._run = run_stub  # type: ignore[assignment]

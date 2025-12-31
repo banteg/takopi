@@ -41,7 +41,6 @@ class ResumeToken:
 class RunResult:
     resume: ResumeToken
     answer: str
-    ok: bool
 
 
 class ResumePayload(TypedDict):

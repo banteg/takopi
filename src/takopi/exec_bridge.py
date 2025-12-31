@@ -483,9 +483,10 @@ async def handle_message(
         raise RuntimeError("codex exec finished without a result")
 
     resume_token_value = result.resume
-    status = "done" if result.ok else "error"
+    answer = result.answer
+    status = "done" if answer.strip() else "error"
     progress_renderer.resume_token = resume_token_value
-    final_md = progress_renderer.render_final(elapsed, result.answer, status=status)
+    final_md = progress_renderer.render_final(elapsed, answer, status=status)
     logger.debug("[final] markdown: %s", final_md)
     final_rendered, final_entities = render_markdown(final_md)
     can_edit_final = (
@@ -732,11 +733,6 @@ def run(
         "-E",
         help="Engine-specific override in KEY=VALUE form (repeatable).",
     ),
-    profile: str | None = typer.Option(
-        None,
-        "--profile",
-        help="(codex) Profile name to pass to `codex --profile`.",
-    ),
 ) -> None:
     setup_logging(debug=debug)
     try:
@@ -749,9 +745,6 @@ def run(
     except ConfigError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
-    if profile:
-        overrides["profile"] = profile
-
     setup = check_setup(backend)
     if not setup.ok:
         render_setup_guide(setup)

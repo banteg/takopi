@@ -1,5 +1,12 @@
 # changelog
 
+## Unreleased
+
+### changes
+
+- remove `--profile`; configure Codex profiles via `[codex].profile` only
+- `RunResult` now carries only `resume` and `answer`
+
 ## v0.2.0 (2025-12-31)
 
 ### highlights

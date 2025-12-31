@@ -12,7 +12,7 @@ Below is a detailed spec for what `takopi/runners/base.py` should define, plus w
 
 ## 1) Single Runner protocol (v0.2.0)
 
-For v0.2.0 we keep it simple: **one runner per engine**, plus a small backend registry for setup checks and runner construction.
+For v0.2.0 we keep it simple: **one runner per engine**, plus a small backend registry for setup checks and runner construction. The bridge process runs a single engine selected at startup; multi-engine routing is deferred.
 
 The runner is the only protocol and is responsible for:
 
@@ -44,6 +44,8 @@ These are the events your renderer needs to produce the current UX:
 2. **Action started**
 3. **Action completed**
 4. **Optional logs/notes** (debug, warnings)
+
+Event types are strict: runners must emit only the supported takopi event types. Unknown engine items should be dropped or mapped to `note`.
 
 Everything else (assistant deltas, tool IO payloads, etc.) is optional and can be added later.
 
@@ -238,7 +240,7 @@ async def run(
 
 `resume` is the parsed token from the user (or `None`). The bridge extracts it via `runner.extract_resume()` and passes it in.
 
-Returns `RunResult(resume, answer, ok)`. Errors raise `RuntimeError`. Cancellation raises `CancelledError`.
+Returns `RunResult(resume, answer)`. Errors raise `RuntimeError`. Cancellation raises `CancelledError`.
 
 ### NDJSON handling is an implementation detail
 
@@ -436,7 +438,7 @@ extra_args = ["-c", "notify=[]"]
 ### Data Model Simplifications
 
 **Run result shape:**
-* Shared `RunResult` dataclass with `resume`, `answer`, and `ok`.
+* Shared `RunResult` dataclass with `resume` and `answer`.
 * `answer` is an empty string if the engine produces no textual response.
 
 **Action detail:**
@@ -555,6 +557,7 @@ The following are explicitly deferred:
 * Structured error taxonomy
 * Multi-turn conversations with user prompts mid-run
 * Multiple working directories / workspace abstraction
+* Multi-engine router in a single process
 * Answer streaming (incremental answer delivery)
 * Permission request events
 * Per-request profile selection
