@@ -7,7 +7,7 @@ from takopi.exec_bridge import (
     resolve_resume_token,
     truncate_for_telegram,
 )
-from takopi.runners.base import ResumeToken
+from takopi.runners.base import ResumeToken, RunResult
 
 
 def _patch_config(monkeypatch, config):
@@ -175,18 +175,18 @@ class _FakeBot:
 class _FakeRunner:
     engine = "codex"
 
-    def __init__(self, *, answer: str, saw_agent_message: bool = True) -> None:
+    def __init__(self, *, answer: str, ok: bool = True) -> None:
         self._answer = answer
-        self._saw_agent_message = saw_agent_message
+        self._ok = ok
 
-    async def run(self, *_args, **_kwargs) -> tuple[ResumeToken, str, bool]:
-        return (
-            ResumeToken(
+    async def run(self, *_args, **_kwargs) -> RunResult:
+        return RunResult(
+            resume=ResumeToken(
                 engine="codex",
                 value="019b66fc-64c2-7a71-81cd-081c504cfeb2",
             ),
-            self._answer,
-            self._saw_agent_message,
+            answer=self._answer,
+            ok=self._ok,
         )
 
 
@@ -241,7 +241,7 @@ class _FakeRunnerWithEvents:
         self._advance_after = advance_after
         self._hold = hold
 
-    async def run(self, *_args, **kwargs) -> tuple[ResumeToken, str, bool]:
+    async def run(self, *_args, **kwargs) -> RunResult:
         on_event = kwargs.get("on_event")
         if on_event is not None:
             for when, event in zip(self._times, self._events, strict=False):
@@ -253,10 +253,10 @@ class _FakeRunnerWithEvents:
                 await anyio.sleep(0)
         if self._hold is not None:
             await self._hold.wait()
-        return (
-            ResumeToken(engine="codex", value=self._session_id),
-            self._answer,
-            True,
+        return RunResult(
+            resume=ResumeToken(engine="codex", value=self._session_id),
+            answer=self._answer,
+            ok=True,
         )
 
 
@@ -686,7 +686,7 @@ class _FakeRunnerCancellable:
     def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
         self._session_id = session_id
 
-    async def run(self, *_args, **kwargs) -> tuple[ResumeToken, str, bool]:
+    async def run(self, *_args, **kwargs) -> RunResult:
         on_event = kwargs.get("on_event")
         if on_event:
             await on_event(
@@ -697,7 +697,11 @@ class _FakeRunnerCancellable:
                 }
             )
         await anyio.sleep(10)  # Will be cancelled
-        return (ResumeToken(engine="codex", value=self._session_id), "ok", True)
+        return RunResult(
+            resume=ResumeToken(engine="codex", value=self._session_id),
+            answer="ok",
+            ok=True,
+        )
 
 
 class _FakeRunnerError:
@@ -706,7 +710,7 @@ class _FakeRunnerError:
     def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
         self._session_id = session_id
 
-    async def run(self, *_args, **kwargs) -> tuple[ResumeToken, str, bool]:
+    async def run(self, *_args, **kwargs) -> RunResult:
         on_event = kwargs.get("on_event")
         if on_event:
             await on_event(

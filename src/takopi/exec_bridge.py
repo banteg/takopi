@@ -7,7 +7,7 @@ import shutil
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import typer
@@ -18,7 +18,7 @@ from .exec_render import ExecProgressRenderer, render_markdown
 from .logging import setup_logging
 from .onboarding import check_setup, render_setup_guide
 from .telegram import TelegramClient
-from .runners.base import ResumeToken, Runner, TakopiEvent
+from .runners.base import EngineId, ResumeToken, RunResult, Runner, TakopiEvent
 from .runners.codex import CodexRunner
 
 
@@ -50,6 +50,16 @@ def extract_resume_token(text: str | None) -> str | None:
 
 def resolve_resume_token(text: str | None, reply_text: str | None) -> str | None:
     return extract_resume_token(text) or extract_resume_token(reply_text)
+
+
+def _engine_from_resume(resume: str | None) -> EngineId | None:
+    if not resume:
+        return None
+    token = resume.strip().strip("`")
+    if ":" not in token:
+        return None
+    engine, _value = token.split(":", 1)
+    return cast(EngineId, engine) if engine else None
 
 
 TELEGRAM_MARKDOWN_LIMIT = 3500
@@ -222,6 +232,22 @@ class BridgeConfig:
     final_notify: bool
     startup_msg: str
     max_concurrency: int
+    router: "RunnerRouter | None" = None
+
+
+@dataclass(frozen=True)
+class RunnerRouter:
+    default: Runner
+    runners: dict[EngineId, Runner]
+
+    def choose(self, resume: str | None) -> Runner:
+        engine = _engine_from_resume(resume)
+        if engine is None:
+            return self.default
+        runner = self.runners.get(engine)
+        if runner is None:
+            raise RuntimeError(f"unknown engine {engine!r} in resume token")
+        return runner
 
 
 @dataclass
@@ -292,6 +318,7 @@ def _parse_bridge_config(
 
     bot = TelegramClient(token)
     runner = CodexRunner(codex_cmd=codex_cmd, extra_args=extra_args)
+    router = RunnerRouter(default=runner, runners={runner.engine: runner})
 
     return BridgeConfig(
         bot=bot,
@@ -300,6 +327,7 @@ def _parse_bridge_config(
         final_notify=final_notify,
         startup_msg=startup_msg,
         max_concurrency=16,
+        router=router,
     )
 
 
@@ -350,12 +378,27 @@ async def handle_message(
     started_at = clock()
     progress_renderer = ExecProgressRenderer(max_actions=5)
 
+    try:
+        runner = cfg.router.choose(resume_token) if cfg.router else cfg.runner
+    except Exception as e:
+        err_body = f"Error:\n{e}"
+        final_md = progress_renderer.render_final(0.0, err_body, status="error")
+        await _send_or_edit_markdown(
+            cfg.bot,
+            chat_id=chat_id,
+            text=final_md,
+            reply_to_message_id=user_msg_id,
+            disable_notification=True,
+            limit=TELEGRAM_MARKDOWN_LIMIT,
+        )
+        return
+
     progress_id: int | None = None
     last_edit_at = 0.0
     last_rendered: str | None = None
 
     initial_md = progress_renderer.render_progress(
-        0.0, label=f"working ({cfg.runner.engine})"
+        0.0, label=f"working ({runner.engine})"
     )
     initial_rendered, initial_entities = prepare_telegram(
         initial_md, limit=TELEGRAM_MARKDOWN_LIMIT
@@ -399,8 +442,7 @@ async def handle_message(
     cancelled = False
     error: Exception | None = None
     resume_token_value: ResumeToken | None = None
-    answer: str = ""
-    saw_agent_message: bool = False
+    result: RunResult | None = None
     running_task: RunningTask | None = None
     if running_tasks is not None and progress_id is not None:
         running_task = RunningTask(scope=exec_scope)
@@ -415,9 +457,8 @@ async def handle_message(
 
         try:
             with exec_scope:
-                resume_token_value, answer, saw_agent_message = await cfg.runner.run(
-                    text, resume_token, on_event=on_event
-                )
+                result = await runner.run(text, resume_token, on_event=on_event)
+                resume_token_value = result.resume
         except cancel_exc_type:
             cancelled = True
             resume_token_value = progress_renderer.resume_token
@@ -476,12 +517,13 @@ async def handle_message(
         )
         return
 
-    if resume_token_value is None:
+    if result is None:
         raise RuntimeError("codex exec finished without a result")
 
-    status = "done" if saw_agent_message else "error"
+    resume_token_value = result.resume
+    status = "done" if result.ok else "error"
     progress_renderer.resume_token = resume_token_value
-    final_md = progress_renderer.render_final(elapsed, answer, status=status)
+    final_md = progress_renderer.render_final(elapsed, result.answer, status=status)
     logger.debug("[final] markdown: %s", final_md)
     final_rendered, final_entities = render_markdown(final_md)
     can_edit_final = (

@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import uuid
-from collections.abc import Awaitable, Iterable
+from collections.abc import Iterable
 
-from .base import EngineId, EventSink, ResumeToken, SessionStartedEvent, TakopiEvent
+from .base import (
+    EngineId,
+    EventSink,
+    ResumeToken,
+    RunResult,
+    SessionStartedEvent,
+    TakopiEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +22,6 @@ ENGINE: EngineId = "mock"
 
 def _resume_token(value: str | None) -> ResumeToken:
     return ResumeToken(engine=ENGINE, value=value or uuid.uuid4().hex)
-
-
-async def _await_event(awaitable: Awaitable[None]) -> None:
-    await awaitable
 
 
 class MockRunner:
@@ -29,7 +33,7 @@ class MockRunner:
         self._events = list(events or [])
         self._answer = answer
 
-    def _emit_event(self, on_event: EventSink | None, event: TakopiEvent) -> None:
+    async def _emit_event(self, on_event: EventSink | None, event: TakopiEvent) -> None:
         if on_event is None:
             return
         try:
@@ -39,25 +43,20 @@ class MockRunner:
             return
         if res is None:
             return
-        awaitable = res
-        task = asyncio.create_task(_await_event(awaitable))
-
-        def _done(t: asyncio.Task[None]) -> None:
-            try:
-                t.result()
-            except asyncio.CancelledError:
-                return
-            except Exception as e:  # pragma: no cover - defensive
-                logger.info("[mock][on_event] callback error: %s", e)
-
-        task.add_done_callback(_done)
+        try:
+            if inspect.isawaitable(res):
+                await res
+            else:
+                logger.info("[mock][on_event] callback returned non-awaitable result")
+        except Exception as e:  # pragma: no cover - defensive
+            logger.info("[mock][on_event] callback error: %s", e)
 
     async def run(
         self,
         prompt: str,
         resume: str | None,
         on_event: EventSink | None = None,
-    ) -> tuple[ResumeToken, str, bool]:
+    ) -> RunResult:
         _ = prompt
         token_value = None
         if resume:
@@ -77,11 +76,11 @@ class MockRunner:
             "engine": ENGINE,
             "resume": {"engine": ENGINE, "value": token.value},
         }
-        self._emit_event(on_event, session_evt)
+        await self._emit_event(on_event, session_evt)
 
         for event in self._events:
-            self._emit_event(on_event, event)
+            await self._emit_event(on_event, event)
             await asyncio.sleep(0)
 
-        saw_agent_message = bool(self._answer)
-        return (token, self._answer, saw_agent_message)
+        ok = bool(self._answer)
+        return RunResult(resume=token, answer=self._answer, ok=ok)

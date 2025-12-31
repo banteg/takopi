@@ -29,6 +29,13 @@ class ResumeToken:
     value: str
 
 
+@dataclass(frozen=True, slots=True)
+class RunResult:
+    resume: ResumeToken
+    answer: str
+    ok: bool
+
+
 class ResumePayload(TypedDict):
     engine: EngineId
     value: str
@@ -93,4 +100,4 @@ class Runner(Protocol):
         prompt: str,
         resume: str | None,
         on_event: EventSink | None = None,
-    ) -> tuple[ResumeToken, str, bool]: ...
+    ) -> RunResult: ...

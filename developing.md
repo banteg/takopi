@@ -39,6 +39,7 @@ The orchestrator module containing:
 | `_run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
 | `handle_message()` | Per-message handler with progress updates and final render |
 | `ProgressEdits` | Throttled progress edit worker |
+| `RunnerRouter` | Selects a runner based on resume token engine |
 | `extract_resume_token()` | Parses ``resume: `<engine>:<token>` `` from message text |
 | `truncate_for_telegram()` | Smart truncation preserving resume lines |
 
@@ -47,6 +48,7 @@ The orchestrator module containing:
 - `/cancel` maps progress message ids to an AnyIO CancelScope for immediate cancellation
 - Progress edits are throttled to ~1s intervals and only run when new events arrive
 - Resume tokens are engine-qualified and backtick-escaped for reliable Telegram parsing
+- Runner routing prefers the resume token engine and falls back to the default runner
 
 ### `runners/codex.py` - Codex runner
 
@@ -136,7 +138,7 @@ CodexRunner.run()
     │   ExecProgressRenderer.note_event()
     │       ↓
     │   ProgressEdits throttled edit_message_text()
-    └── Returns (resume_token, answer, saw_agent_message)
+    └── Returns RunResult(resume, answer, ok)
     ↓
 render_final() with resume line (engine-qualified)
     ↓

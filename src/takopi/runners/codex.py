@@ -20,6 +20,7 @@ from .base import (
     LogEvent,
     ResumePayload,
     ResumeToken,
+    RunResult,
     SessionStartedEvent,
     TakopiEvent,
 )
@@ -379,7 +380,7 @@ class CodexRunner:
             WeakValueDictionary()
         )
 
-    async def _lock_for(self, token: ResumeToken) -> asyncio.Lock:
+    def _lock_for(self, token: ResumeToken) -> asyncio.Lock:
         key = f"{token.engine}:{token.value}"
         lock = self._session_locks.get(key)
         if lock is None:
@@ -413,11 +414,11 @@ class CodexRunner:
         prompt: str,
         resume: str | None,
         on_event: EventSink | None = None,
-    ) -> tuple[ResumeToken, str, bool]:
+    ) -> RunResult:
         resume_token = self._parse_resume(resume)
         if resume_token is None:
             return await self._run(prompt, resume_token, on_event)
-        lock = await self._lock_for(resume_token)
+        lock = self._lock_for(resume_token)
         async with lock:
             return await self._run(prompt, resume_token, on_event)
 
@@ -426,7 +427,7 @@ class CodexRunner:
         prompt: str,
         resume_token: ResumeToken | None,
         on_event: EventSink | None,
-    ) -> tuple[ResumeToken, str, bool]:
+    ) -> RunResult:
         logger.info(
             "[codex] start run resume=%r", resume_token.value if resume_token else None
         )
@@ -559,8 +560,13 @@ class CodexRunner:
                         "codex exec finished but no session_id/thread_id was captured"
                     )
 
+                ok = bool(saw_agent_message) and rc == 0
                 logger.info("[codex] done run session=%s", found_session.value)
-                return (found_session, last_agent_text or "", saw_agent_message)
+                return RunResult(
+                    resume=found_session,
+                    answer=last_agent_text or "",
+                    ok=ok,
+                )
             finally:
                 if dispatcher is not None:
                     await dispatcher.close()

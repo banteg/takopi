@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from takopi.runners.base import ResumeToken
+from takopi.runners.base import ResumeToken, RunResult
 from takopi.runners.codex import CodexRunner
 
 
@@ -19,7 +19,11 @@ async def test_run_serializes_same_session() -> None:
         max_in_flight = max(max_in_flight, in_flight)
         await gate.wait()
         in_flight -= 1
-        return (ResumeToken(engine="codex", value="sid"), "ok", True)
+        return RunResult(
+            resume=ResumeToken(engine="codex", value="sid"),
+            answer="ok",
+            ok=True,
+        )
 
     runner._run = run_stub  # type: ignore[assignment]
 
@@ -47,7 +51,11 @@ async def test_run_allows_parallel_new_sessions() -> None:
         max_in_flight = max(max_in_flight, in_flight)
         await gate.wait()
         in_flight -= 1
-        return (ResumeToken(engine="codex", value="sid"), "ok", True)
+        return RunResult(
+            resume=ResumeToken(engine="codex", value="sid"),
+            answer="ok",
+            ok=True,
+        )
 
     runner._run = run_stub  # type: ignore[assignment]
 

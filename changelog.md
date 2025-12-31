@@ -8,6 +8,7 @@
 - engine-qualified resume tokens: ``resume: `codex:<token>` ``
 - `/cancel` support via progress message id + AnyIO cancel scopes
 - ordered event sink delivery via a single drain task (no per-event tasks)
+- run results are semantic (`RunResult.ok`) and routing is ready for multi-engine support
 
 ### fixes
 
