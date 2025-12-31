@@ -2,41 +2,38 @@
 
 ## v0.2.0 (2025-12-31)
 
-### highlights
-
-- codex runner refactor with takopi event normalization (`session.started`, `action.*`, `log`, `error`)
-- resume command lines: `` `codex resume <token>` ``
-- `/cancel` support via progress message id + AnyIO cancel scopes
-- ordered event sink delivery via a single drain task (no per-event tasks)
-
 ### changes
 
-- align codebase to v0.2.0 spec (domain model, runner protocol, module split)
-- normalize event schema (session titles, action `ok`, error `detail`, log levels)
-- enforce per-thread serialization for new sessions and abort on event callback errors
-- bridge queueing caps active runs at 16 while keeping per-thread backlogs out of the limit
-- add runner contract, serialization, and renderer/bridge coverage
-- remove `--profile`; configure Codex profiles via `[codex].profile` only
-- `RunResult` now carries only `resume` and `answer`
+- refactor runner with takopi event normalization and protocol contract #8
+- migrate async runtime from asyncio to anyio #6
+- add `/cancel` command with progress message targeting #4
+- queue event delivery via single drain task instead of per-event tasks
+- render resume as `` `codex resume <token>` `` command lines
+- cap active bridge runs at 16 with per-thread backlog management
+- simplify `RunResult` to carry only `resume` and `answer`
+- remove `--profile` flag; configure via `[codex].profile` only
+- require python 3.14+
 
 ### fixes
 
-- preserve resume tokens in error renders
-- terminate codex process groups on cancel (POSIX) and keep bounded stderr tails
-- handle worker shutdown cleanly on stream close
-- align docs with the current runner / event architecture
+- preserve resume tokens in error renders #3
+- preserve file-change paths in action events #2
+- terminate codex process groups on cancel (POSIX)
+- serialize new sessions once resume token is known
+- handle cancel scope cleanup without event queue mismatch
+- correct resume command matching in bridge
+- stop `wait_error` hang in runner
 
 ## v0.1.0 (2025-12-29)
 
-initial release.
-
 ### features
 
-- telegram bot bridge for openai codex cli using `codex exec` and `codex exec resume`
-- stateless session resume via `` `codex resume <token>` `` lines embedded in messages
-- real-time progress updates with ~2s throttling, showing commands, tools, and elapsed time
-- full markdown rendering with telegram entity support (via markdown-it-py + sulguk)
-- concurrent message handling with per-session serialization to prevent race conditions
-- automatic telegram token redaction in logs
+- telegram bot bridge for openai codex cli via `codex exec`
+- stateless session resume via `` `codex resume <token>` `` lines
+- real-time progress updates with ~2s throttling
+- full markdown rendering with telegram entities (markdown-it-py + sulguk)
+- per-session serialization to prevent race conditions
 - interactive onboarding guide for first-time setup
-- cli options: `--profile`, `--debug`, `--final-notify`, `--version`
+- codex profile configuration
+- automatic telegram token redaction in logs
+- cli options: `--debug`, `--final-notify`, `--version`
