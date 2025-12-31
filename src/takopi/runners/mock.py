@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass
@@ -10,7 +9,7 @@ from weakref import WeakValueDictionary
 import anyio
 
 from ..model import EngineId, ResumeToken, SessionStartedEvent, TakopiEvent
-from ..runner import Runner
+from ..runner import ResumeRunnerMixin, Runner, compile_resume_pattern
 
 ENGINE: EngineId = EngineId("mock")
 
@@ -53,20 +52,7 @@ def _resume_token(engine: EngineId, value: str | None) -> ResumeToken:
     return ResumeToken(engine=engine, value=value or uuid.uuid4().hex)
 
 
-def _resume_patterns(
-    engine: EngineId,
-) -> tuple[re.Pattern[str], re.Pattern[str], re.Pattern[str]]:
-    name = re.escape(engine)
-    line_re = re.compile(rf"^\s*`?{name}\s+resume\s+[^`\s]+`?\s*$", flags=re.IGNORECASE)
-    cmd_re = re.compile(
-        rf"^\s*`?(?P<cmd>{name}\s+resume\s+[^`\s]+)`?\s*$",
-        flags=re.IGNORECASE | re.MULTILINE,
-    )
-    parse_re = re.compile(rf"^{name}\s+resume\s+(?P<token>\S+)$", flags=re.IGNORECASE)
-    return line_re, cmd_re, parse_re
-
-
-class MockRunner(Runner):
+class MockRunner(ResumeRunnerMixin, Runner):
     engine: EngineId
 
     def __init__(
@@ -86,11 +72,7 @@ class MockRunner(Runner):
         self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
             WeakValueDictionary()
         )
-        (
-            self._resume_line_re,
-            self._resume_cmd_re,
-            self._resume_parse_re,
-        ) = _resume_patterns(engine)
+        self.resume_re = compile_resume_pattern(engine)
 
     def _lock_for(self, token: ResumeToken) -> anyio.Lock:
         key = f"{token.engine}:{token.value}"
@@ -99,35 +81,6 @@ class MockRunner(Runner):
             lock = anyio.Lock()
             self._session_locks[key] = lock
         return lock
-
-    def format_resume(self, token: ResumeToken) -> str:
-        if token.engine != self.engine:
-            raise RuntimeError(f"resume token is for engine {token.engine!r}")
-        return f"`{self.engine} resume {token.value}`"
-
-    def is_resume_line(self, line: str) -> bool:
-        return bool(self._resume_line_re.match(line))
-
-    def extract_resume(self, text: str | None) -> ResumeToken | None:
-        if not text:
-            return None
-        found: str | None = None
-        for match in self._resume_cmd_re.finditer(text):
-            cmd = match.group("cmd").strip()
-            token = self._parse_resume_command(cmd)
-            if token:
-                found = token
-        if not found:
-            return None
-        return ResumeToken(engine=self.engine, value=found)
-
-    def _parse_resume_command(self, cmd: str) -> str | None:
-        if not cmd:
-            return None
-        m = self._resume_parse_re.match(cmd)
-        if m:
-            return m.group("token")
-        return None
 
     async def run(self, prompt: str, resume: ResumeToken | None) -> AsyncIterator[TakopiEvent]:
         _ = prompt

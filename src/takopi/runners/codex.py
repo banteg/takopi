@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import signal
 import subprocess
 from collections import deque
@@ -26,7 +25,7 @@ from ..model import (
     SessionStartedEvent,
     TakopiEvent,
 )
-from ..runner import Runner
+from ..runner import ResumeRunnerMixin, Runner, compile_resume_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +40,7 @@ _ACTION_KIND_MAP: dict[str, ActionKind] = {
     "reasoning": "note",
 }
 
-_RESUME_LINE = re.compile(
-    r"^\s*`?(?P<cmd>codex\s+resume\s+[^`\s]+)`?\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
+_RESUME_RE = compile_resume_pattern(ENGINE)
 
 
 def _session_started_event(token: ResumeToken, *, title: str) -> SessionStartedEvent:
@@ -365,8 +361,9 @@ async def manage_subprocess(*args, **kwargs):
                     await proc.wait()
 
 
-class CodexRunner(Runner):
+class CodexRunner(ResumeRunnerMixin, Runner):
     engine: EngineId = ENGINE
+    resume_re = _RESUME_RE
 
     def __init__(
         self,
@@ -389,35 +386,6 @@ class CodexRunner(Runner):
             lock = anyio.Lock()
             self._session_locks[key] = lock
         return lock
-
-    def format_resume(self, token: ResumeToken) -> str:
-        if token.engine != ENGINE:
-            raise RuntimeError(f"resume token is for engine {token.engine!r}")
-        return f"`codex resume {token.value}`"
-
-    def is_resume_line(self, line: str) -> bool:
-        return bool(_RESUME_LINE.match(line))
-
-    def extract_resume(self, text: str | None) -> ResumeToken | None:
-        if not text:
-            return None
-        found: str | None = None
-        for match in _RESUME_LINE.finditer(text):
-            cmd = match.group("cmd").strip()
-            token = self._parse_resume_command(cmd)
-            if token:
-                found = token
-        if not found:
-            return None
-        return ResumeToken(engine=ENGINE, value=found)
-
-    def _parse_resume_command(self, cmd: str) -> str | None:
-        if not cmd:
-            return None
-        m = re.match(r"^codex\s+resume\s+(?P<token>\S+)$", cmd, flags=re.IGNORECASE)
-        if m:
-            return m.group("token")
-        return None
 
     async def run(self, prompt: str, resume: ResumeToken | None) -> AsyncIterator[TakopiEvent]:
         resume_token = resume
