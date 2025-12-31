@@ -471,10 +471,9 @@ class CodexRunner(Runner):
                 stderr_chunks: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
                 rc: int | None = None
 
-                found_session: ResumeToken | None = resume_token
-                saw_session_started = False
+                expected_session: ResumeToken | None = resume_token
+                found_session: ResumeToken | None = None
                 final_answer: str | None = None
-                emitted_run_completed = False
 
                 async with anyio.create_task_group() as tg:
                     tg.start_soon(_drain_stderr, proc_stderr, stderr_chunks)
@@ -501,16 +500,14 @@ class CodexRunner(Runner):
                             if item_type == "agent_message" and isinstance(
                                 item.get("text"), str
                             ):
-                                final_answer = item["text"]
-                                if (
-                                    found_session is not None
-                                    and saw_session_started
-                                    and not emitted_run_completed
-                                ):
-                                    emitted_run_completed = True
-                                    yield _run_completed_event(
-                                        found_session, answer=final_answer
+                                if final_answer is None:
+                                    final_answer = item["text"]
+                                else:
+                                    yield _log_event(
+                                        "error",
+                                        "codex emitted multiple agent messages; using the last one",
                                     )
+                                    final_answer = item["text"]
 
                         for out_evt in translate_codex_event(evt, title=self.session_title):
                             if out_evt["type"] == "session.started":
@@ -520,24 +517,18 @@ class CodexRunner(Runner):
                                         raise RuntimeError(
                                             f"codex emitted session token for engine {session.engine!r}"
                                         )
-                                    session_lock = self._lock_for(session)
-                                    await session_lock.acquire()
-                                    session_lock_acquired = True
-                                    found_session = session
-                                elif session != found_session:
-                                    yield _log_event(
-                                        "error",
-                                        "codex emitted a different session id than expected",
-                                    )
-                                    continue
-                                if not saw_session_started:
-                                    saw_session_started = True
-                                    yield out_evt
-                                    if final_answer is not None and not emitted_run_completed:
-                                        emitted_run_completed = True
-                                        yield _run_completed_event(
-                                            found_session, answer=final_answer
+                                    if expected_session is not None and session != expected_session:
+                                        message = (
+                                            "codex emitted a different session id than expected"
                                         )
+                                        yield _log_event("error", message)
+                                        raise RuntimeError(message)
+                                    if expected_session is None:
+                                        session_lock = self._lock_for(session)
+                                        await session_lock.acquire()
+                                        session_lock_acquired = True
+                                    found_session = session
+                                    yield out_evt
                                 continue
                             yield out_evt
                     rc = await proc.wait()
@@ -549,14 +540,13 @@ class CodexRunner(Runner):
                     yield _error_event(message, detail=f"stderr tail:\n{stderr_text}")
                     raise RuntimeError(f"{message} stderr tail:\n{stderr_text}")
 
-                if not saw_session_started or not found_session:
+                if not found_session:
                     raise RuntimeError(
                         "codex exec finished but no session_id/thread_id was captured"
                     )
 
                 logger.info("[codex] done run session=%s", found_session.value)
-                if not emitted_run_completed:
-                    yield _run_completed_event(found_session, answer=final_answer or "")
+                yield _run_completed_event(found_session, answer=final_answer or "")
         finally:
             if session_lock is not None and session_lock_acquired:
                 session_lock.release()
