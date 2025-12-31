@@ -1,5 +1,21 @@
 # changelog
 
+## v0.2.0 (2025-12-31)
+
+### highlights
+
+- codex runner refactor with takopi event normalization (`session.started`, `action.*`, `log`, `error`)
+- engine-qualified resume tokens: ``resume: `codex:<token>` ``
+- `/cancel` support via progress message id + AnyIO cancel scopes
+- ordered event sink delivery via a single drain task (no per-event tasks)
+
+### fixes
+
+- preserve resume tokens in error renders
+- terminate codex process groups on cancel (POSIX) and keep bounded stderr tails
+- handle worker shutdown cleanly on stream close
+- align docs with the current runner / event architecture
+
 ## v0.1.0 (2025-12-29)
 
 initial release.

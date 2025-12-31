@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
-from collections.abc import Awaitable
+import os
+import signal
+from collections import deque
 from contextlib import asynccontextmanager
 from typing import Any, cast
 from weakref import WeakValueDictionary
@@ -24,6 +27,7 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 ENGINE: EngineId = "codex"
+STDERR_TAIL_LINES = 200
 
 _ACTION_KIND_MAP: dict[str, ActionKind] = {
     "command_execution": "command",
@@ -83,10 +87,6 @@ def _action_event(
         action["ok"] = ok
     payload: dict[str, Any] = {"type": event_type, "engine": ENGINE, "action": action}
     return cast(TakopiEvent, payload)
-
-
-async def _await_event(awaitable: Awaitable[None]) -> None:
-    await awaitable
 
 
 def _short_tool_name(item: dict[str, Any]) -> str:
@@ -248,31 +248,119 @@ def translate_codex_event(event: dict[str, Any]) -> list[TakopiEvent]:
     return []
 
 
-async def _drain_stderr(stderr: asyncio.StreamReader, chunks: list[str]) -> None:
+class _EventDispatcher:
+    def __init__(self, on_event: EventSink) -> None:
+        self._on_event = on_event
+        self._queue: asyncio.Queue[TakopiEvent | None] = asyncio.Queue()
+        self._closed = False
+        self._task = asyncio.create_task(self._drain())
+
+    def emit(self, event: TakopiEvent) -> None:
+        if self._closed:
+            return
+        try:
+            self._queue.put_nowait(event)
+        except Exception as e:  # pragma: no cover - defensive
+            logger.info("[codex][on_event] enqueue error: %s", e)
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._queue.put_nowait(None)
+        try:
+            await self._task
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # pragma: no cover - defensive
+            logger.info("[codex][on_event] drain error: %s", e)
+
+    async def _drain(self) -> None:
+        while True:
+            event = await self._queue.get()
+            if event is None:
+                return
+            try:
+                res = self._on_event(event)
+            except Exception as e:
+                logger.info("[codex][on_event] callback error: %s", e)
+                continue
+            if res is None:
+                continue
+            try:
+                if inspect.isawaitable(res):
+                    await res
+                else:
+                    logger.info(
+                        "[codex][on_event] callback returned non-awaitable result"
+                    )
+            except asyncio.CancelledError:
+                return
+            except Exception as e:  # pragma: no cover - defensive
+                logger.info("[codex][on_event] callback error: %s", e)
+
+
+async def _drain_stderr(stderr: asyncio.StreamReader, chunks: deque[str]) -> None:
     try:
         while True:
             line = await stderr.readline()
             if not line:
                 return
             decoded = line.decode(errors="replace")
-            logger.info("[codex][stderr] %s", decoded.rstrip())
+            logger.debug("[codex][stderr] %s", decoded.rstrip())
             chunks.append(decoded)
     except Exception as e:
         logger.debug("[codex][stderr] drain error: %s", e)
 
 
+def _terminate_process(proc: asyncio.subprocess.Process) -> None:
+    if proc.returncode is not None:
+        return
+    if os.name == "posix" and proc.pid is not None:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+            return
+        except ProcessLookupError:
+            return
+        except Exception as e:
+            logger.debug("[codex] failed to terminate process group: %s", e)
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        return
+
+
+def _kill_process(proc: asyncio.subprocess.Process) -> None:
+    if proc.returncode is not None:
+        return
+    if os.name == "posix" and proc.pid is not None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            return
+        except Exception as e:
+            logger.debug("[codex] failed to kill process group: %s", e)
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
+
+
 @asynccontextmanager
 async def manage_subprocess(*args, **kwargs):
+    if os.name == "posix":
+        kwargs.setdefault("start_new_session", True)
     proc = await asyncio.create_subprocess_exec(*args, **kwargs)
     try:
         yield proc
     finally:
         if proc.returncode is None:
-            proc.terminate()
+            _terminate_process(proc)
             try:
                 await asyncio.wait_for(proc.wait(), timeout=2.0)
             except asyncio.TimeoutError:
-                proc.kill()
+                _kill_process(proc)
                 await proc.wait()
 
 
@@ -313,28 +401,12 @@ class CodexRunner:
             raise RuntimeError("resume token is empty")
         return ResumeToken(engine=ENGINE, value=value)
 
-    def _emit_event(self, on_event: EventSink | None, event: TakopiEvent) -> None:
-        if on_event is None:
+    def _emit_event(
+        self, dispatcher: _EventDispatcher | None, event: TakopiEvent
+    ) -> None:
+        if dispatcher is None:
             return
-        try:
-            res = on_event(event)
-        except Exception as e:
-            logger.info("[codex][on_event] callback error: %s", e)
-            return
-        if res is None:
-            return
-        awaitable = res
-        task = asyncio.create_task(_await_event(awaitable))
-
-        def _done(t: asyncio.Task[None]) -> None:
-            try:
-                t.result()
-            except asyncio.CancelledError:
-                return
-            except Exception as e:  # pragma: no cover - defensive
-                logger.info("[codex][on_event] callback error: %s", e)
-
-        task.add_done_callback(_done)
+        dispatcher.emit(event)
 
     async def run(
         self,
@@ -368,6 +440,8 @@ class CodexRunner:
         else:
             args.append("-")
 
+        dispatcher = _EventDispatcher(on_event) if on_event is not None else None
+
         async with manage_subprocess(
             *args,
             stdin=asyncio.subprocess.PIPE,
@@ -379,7 +453,7 @@ class CodexRunner:
             proc_stderr = cast(asyncio.StreamReader, proc.stderr)
             logger.debug("[codex] spawn pid=%s args=%r", proc.pid, args)
 
-            stderr_chunks: list[str] = []
+            stderr_chunks: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
             stderr_task = asyncio.create_task(_drain_stderr(proc_stderr, stderr_chunks))
 
             found_session: ResumeToken | None = resume_token
@@ -397,7 +471,7 @@ class CodexRunner:
 
                 if resume_token is not None:
                     saw_session_started = True
-                    self._emit_event(on_event, _session_started_event(resume_token))
+                    self._emit_event(dispatcher, _session_started_event(resume_token))
 
                 async for raw_line in proc_stdout:
                     raw = raw_line.decode(errors="replace")
@@ -409,7 +483,8 @@ class CodexRunner:
                         evt = json.loads(line)
                     except json.JSONDecodeError:
                         self._emit_event(
-                            on_event, _log_event("error", f"invalid json line: {line}")
+                            dispatcher,
+                            _log_event("error", f"invalid json line: {line}"),
                         )
                         continue
 
@@ -433,17 +508,17 @@ class CodexRunner:
                             if found_session is None:
                                 found_session = session
                                 saw_session_started = True
-                                self._emit_event(on_event, out_evt)
+                                self._emit_event(dispatcher, out_evt)
                             elif session != found_session:
                                 self._emit_event(
-                                    on_event,
+                                    dispatcher,
                                     _log_event(
                                         "error",
                                         "codex emitted a different session id than expected",
                                     ),
                                 )
                             continue
-                        self._emit_event(on_event, out_evt)
+                        self._emit_event(dispatcher, out_evt)
             except asyncio.CancelledError:
                 cancelled = True
             finally:
@@ -458,28 +533,34 @@ class CodexRunner:
                 await asyncio.gather(stderr_task, return_exceptions=True)
 
             if cancelled:
+                if dispatcher is not None:
+                    await dispatcher.close()
                 raise asyncio.CancelledError
 
-            logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
-            if rc != 0:
-                stderr_text = "".join(stderr_chunks)
-                if saw_agent_message:
-                    self._emit_event(
-                        on_event,
-                        _log_event(
-                            "error",
-                            f"codex exited rc={rc}. stderr:\n{stderr_text}",
-                        ),
-                    )
-                else:
+            try:
+                logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
+                if rc != 0:
+                    stderr_text = "".join(stderr_chunks)
+                    if saw_agent_message:
+                        self._emit_event(
+                            dispatcher,
+                            _log_event(
+                                "error",
+                                f"codex exited rc={rc}. stderr tail:\n{stderr_text}",
+                            ),
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"codex exec failed (rc={rc}). stderr tail:\n{stderr_text}"
+                        )
+
+                if not saw_session_started or not found_session:
                     raise RuntimeError(
-                        f"codex exec failed (rc={rc}). stderr:\n{stderr_text}"
+                        "codex exec finished but no session_id/thread_id was captured"
                     )
 
-            if not saw_session_started or not found_session:
-                raise RuntimeError(
-                    "codex exec finished but no session_id/thread_id was captured"
-                )
-
-            logger.info("[codex] done run session=%s", found_session.value)
-            return (found_session, last_agent_text or "", saw_agent_message)
+                logger.info("[codex] done run session=%s", found_session.value)
+                return (found_session, last_agent_text or "", saw_agent_message)
+            finally:
+                if dispatcher is not None:
+                    await dispatcher.close()

@@ -700,6 +700,25 @@ class _FakeRunnerCancellable:
         return (ResumeToken(engine="codex", value=self._session_id), "ok", True)
 
 
+class _FakeRunnerError:
+    engine = "codex"
+
+    def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
+        self._session_id = session_id
+
+    async def run(self, *_args, **kwargs) -> tuple[ResumeToken, str, bool]:
+        on_event = kwargs.get("on_event")
+        if on_event:
+            await on_event(
+                {
+                    "type": "session.started",
+                    "engine": "codex",
+                    "resume": {"engine": "codex", "value": self._session_id},
+                }
+            )
+        raise RuntimeError("boom")
+
+
 @pytest.mark.anyio
 async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     from takopi.exec_bridge import BridgeConfig, handle_message
@@ -741,3 +760,34 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     last_edit = bot.edit_calls[-1]["text"]
     assert "cancelled" in last_edit.lower()
     assert session_id in last_edit
+
+
+@pytest.mark.anyio
+async def test_handle_message_error_preserves_resume_token() -> None:
+    from takopi.exec_bridge import BridgeConfig, handle_message
+
+    bot = _FakeBot()
+    session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+    runner = _FakeRunnerError(session_id=session_id)
+    cfg = BridgeConfig(
+        bot=bot,  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+
+    await handle_message(
+        cfg,
+        chat_id=123,
+        user_msg_id=10,
+        text="do something",
+        resume_token=None,
+    )
+
+    assert bot.edit_calls
+    last_edit = bot.edit_calls[-1]["text"]
+    assert "error" in last_edit.lower()
+    assert session_id in last_edit
+    assert "resume:" in last_edit.lower()

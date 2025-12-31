@@ -56,12 +56,6 @@ TELEGRAM_MARKDOWN_LIMIT = 3500
 PROGRESS_EDIT_EVERY_S = 1.0
 
 
-def _clamp_tg_text(text: str, limit: int = TELEGRAM_MARKDOWN_LIMIT) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 20] + "\n...(truncated)"
-
-
 def truncate_for_telegram(text: str, limit: int) -> str:
     """
     Truncate text to fit Telegram limits while preserving the trailing `resume: ...`
@@ -444,12 +438,17 @@ async def handle_message(
             tg.cancel_scope.cancel()
 
     if error is not None:
-        err = _clamp_tg_text(f"Error:\n{error}")
-        logger.debug("[error] send reply_to=%s text=%s", user_msg_id, err)
+        elapsed = clock() - started_at
+        if resume_token_value is None:
+            resume_token_value = progress_renderer.resume_token
+        progress_renderer.resume_token = resume_token_value
+        err_body = f"Error:\n{error}"
+        final_md = progress_renderer.render_final(elapsed, err_body, status="error")
+        logger.debug("[error] markdown: %s", final_md)
         await _send_or_edit_markdown(
             cfg.bot,
             chat_id=chat_id,
-            text=err,
+            text=final_md,
             edit_message_id=progress_id,
             reply_to_message_id=user_msg_id,
             disable_notification=True,
@@ -594,7 +593,10 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
 
     async def worker() -> None:
         while True:
-            chat_id, user_msg_id, text, resume_token = await receive_stream.receive()
+            try:
+                chat_id, user_msg_id, text, resume_token = await receive_stream.receive()
+            except anyio.EndOfStream:
+                return
             try:
                 await handle_message(
                     cfg,
