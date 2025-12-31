@@ -163,15 +163,11 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
     for evt in events:
         assert r.note_event(evt) is True
 
-    assert len(r.recent_actions) == 4
-    assert r.recent_actions[0].startswith("▸ ")
+    assert len(r.recent_actions) == 2
+    assert r.recent_actions[0].startswith("✓ ")
     assert "echo first" in r.recent_actions[0]
     assert r.recent_actions[1].startswith("✓ ")
-    assert "echo first" in r.recent_actions[1]
-    assert r.recent_actions[2].startswith("▸ ")
-    assert "echo second" in r.recent_actions[2]
-    assert r.recent_actions[3].startswith("✓ ")
-    assert "echo second" in r.recent_actions[3]
+    assert "echo second" in r.recent_actions[1]
 
 
 def test_render_event_cli_handles_log_event() -> None:

@@ -123,6 +123,8 @@ class ExecProgressRenderer:
         self.max_actions = max_actions
         self.command_width = command_width
         self.recent_actions: deque[str] = deque(maxlen=max_actions)
+        self._recent_action_ids: deque[str] = deque(maxlen=max_actions)
+        self._recent_action_completed: deque[bool] = deque(maxlen=max_actions)
         self.action_count = 0
         self._started_counts: dict[str, int] = {}
         self.resume_token: ResumeToken | None = None
@@ -167,11 +169,28 @@ class ExecProgressRenderer:
         suffix = _action_exit_suffix(action) if completed else ""
         line = f"{status} {title}{suffix}"
 
-        self._append_action(line)
+        self._append_action(action_id, completed=completed, line=line)
         return True
 
-    def _append_action(self, line: str) -> None:
+    def _append_action(self, action_id: str, *, completed: bool, line: str) -> None:
+        if completed:
+            for i in range(len(self._recent_action_ids) - 1, -1, -1):
+                if (
+                    self._recent_action_ids[i] == action_id
+                    and not self._recent_action_completed[i]
+                ):
+                    self.recent_actions[i] = line
+                    self._recent_action_completed[i] = True
+                    return
+
+        if len(self.recent_actions) >= self.max_actions:
+            self.recent_actions.popleft()
+            self._recent_action_ids.popleft()
+            self._recent_action_completed.popleft()
+
         self.recent_actions.append(line)
+        self._recent_action_ids.append(action_id)
+        self._recent_action_completed.append(completed)
 
     def render_progress(self, elapsed_s: float, label: str = "working") -> str:
         step = self.action_count or None
