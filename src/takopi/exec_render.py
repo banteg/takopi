@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import textwrap
 from collections import deque
-from typing import Any
+from typing import Any, Callable
 
 from markdown_it import MarkdownIt
 from sulguk import transform_html
@@ -130,6 +130,7 @@ class ExecProgressRenderer:
         self,
         max_actions: int = 5,
         command_width: int | None = MAX_PROGRESS_CMD_LEN,
+        resume_formatter: Callable[[ResumeToken], str] | None = None,
     ) -> None:
         self.max_actions = max_actions
         self.command_width = command_width
@@ -137,6 +138,7 @@ class ExecProgressRenderer:
         self.action_count = 0
         self._started_counts: dict[str, int] = {}
         self.resume_token: ResumeToken | None = None
+        self._resume_formatter = resume_formatter
 
     def note_event(self, event: TakopiEvent) -> bool:
         if event["type"] == "session.started":
@@ -195,10 +197,9 @@ class ExecProgressRenderer:
         return self._append_resume(message)
 
     def _append_resume(self, message: str) -> str:
-        if not self.resume_token:
+        if not self.resume_token or self._resume_formatter is None:
             return message
-        token = f"{self.resume_token.engine}:{self.resume_token.value}"
-        return message + f"\n\nresume: `{token}`"
+        return message + "\n\n" + self._resume_formatter(self.resume_token)
 
     @staticmethod
     def _assemble(header: str, lines: list[str]) -> str:

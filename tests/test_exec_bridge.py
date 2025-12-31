@@ -1,13 +1,9 @@
 import anyio
 import pytest
 
-from takopi.exec_bridge import (
-    extract_resume_token,
-    prepare_telegram,
-    resolve_resume_token,
-    truncate_for_telegram,
-)
+from takopi.exec_bridge import prepare_telegram, truncate_for_telegram
 from takopi.runners.base import ResumeToken, RunResult
+from takopi.runners.codex import CodexRunner
 
 
 def _patch_config(monkeypatch, config):
@@ -40,64 +36,47 @@ def test_parse_bridge_config_rejects_string_chat_id(monkeypatch) -> None:
         exec_bridge._parse_bridge_config(final_notify=True, profile=None)
 
 
-def test_extract_resume_token_finds_engine_token() -> None:
+def test_codex_extract_resume_finds_command() -> None:
     uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
-    text = f"resume: `codex:{uuid}`"
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    text = f"resume: `codex resume {uuid}`"
 
-    assert extract_resume_token(text) == f"codex:{uuid}"
-
-
-def test_extract_resume_token_requires_resume_line() -> None:
-    uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
-    text = f"here is a uuid {uuid}"
-
-    assert extract_resume_token(text) is None
+    assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid)
 
 
-def test_extract_resume_token_uses_last_resume_line() -> None:
+def test_codex_extract_resume_uses_last_resume_line() -> None:
     uuid_first = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     uuid_last = "123e4567-e89b-12d3-a456-426614174000"
-    text = f"resume: `codex:{uuid_first}`\n\nresume: `codex:{uuid_last}`"
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    text = f"resume: `codex resume {uuid_first}`\n\nresume: `codex resume {uuid_last}`"
 
-    assert extract_resume_token(text) == f"codex:{uuid_last}"
-
-
-def test_extract_resume_token_ignores_malformed_resume_line() -> None:
-    text = "resume: not-a-uuid"
-
-    assert extract_resume_token(text) is None
+    assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid_last)
 
 
-def test_resolve_resume_token_prefers_message_text() -> None:
-    uuid_message = "123e4567-e89b-12d3-a456-426614174000"
-    uuid_reply = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+def test_codex_extract_resume_ignores_malformed_resume_line() -> None:
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    text = "resume: codex resume"
 
-    assert (
-        resolve_resume_token(
-            f"resume: `codex:{uuid_message}`", f"resume: `codex:{uuid_reply}`"
-        )
-        == f"codex:{uuid_message}"
-    )
+    assert runner.extract_resume(text) is None
 
 
-def test_resolve_resume_token_uses_reply_when_missing() -> None:
-    uuid_reply = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+def test_codex_extract_resume_accepts_plain_line() -> None:
+    uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    text = f"resume: codex resume {uuid}"
 
-    assert (
-        resolve_resume_token("no resume here", f"resume: `codex:{uuid_reply}`")
-        == f"codex:{uuid_reply}"
-    )
+    assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid)
 
 
 def test_truncate_for_telegram_preserves_resume_line() -> None:
     uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
-    md = ("x" * 10_000) + f"\nresume: `codex:{uuid}`"
+    md = ("x" * 10_000) + f"\nresume: codex resume {uuid}"
 
     out = truncate_for_telegram(md, 400)
 
     assert len(out) <= 400
-    assert f"codex:{uuid}" in out
-    assert out.rstrip().endswith(f"resume: `codex:{uuid}`")
+    assert f"codex resume {uuid}" in out
+    assert out.rstrip().endswith(f"resume: codex resume {uuid}")
 
 
 def test_truncate_for_telegram_keeps_last_non_empty_line() -> None:
@@ -174,9 +153,9 @@ class _FakeBot:
 
 class _SendStream:
     def __init__(self) -> None:
-        self.sent: list[tuple[int, int, str, str | None]] = []
+        self.sent: list[tuple[int, int, str, ResumeToken | None]] = []
 
-    async def send(self, item: tuple[int, int, str, str | None]) -> None:
+    async def send(self, item: tuple[int, int, str, ResumeToken | None]) -> None:
         self.sent.append(item)
 
 
@@ -186,6 +165,12 @@ class _FakeRunner:
     def __init__(self, *, answer: str, ok: bool = True) -> None:
         self._answer = answer
         self._ok = ok
+
+    def format_resume(self, token: ResumeToken) -> str:
+        return f"resume: `codex resume {token.value}`"
+
+    def extract_resume(self, _text: str | None) -> ResumeToken | None:
+        return None
 
     async def run(self, *_args, **_kwargs) -> RunResult:
         return RunResult(
@@ -248,6 +233,12 @@ class _FakeRunnerWithEvents:
         self._session_id = session_id
         self._advance_after = advance_after
         self._hold = hold
+
+    def format_resume(self, token: ResumeToken) -> str:
+        return f"resume: `codex resume {token.value}`"
+
+    def extract_resume(self, _text: str | None) -> ResumeToken | None:
+        return None
 
     async def run(self, *_args, **kwargs) -> RunResult:
         on_event = kwargs.get("on_event")
@@ -694,6 +685,12 @@ class _FakeRunnerCancellable:
     def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
         self._session_id = session_id
 
+    def format_resume(self, token: ResumeToken) -> str:
+        return f"resume: `codex resume {token.value}`"
+
+    def extract_resume(self, _text: str | None) -> ResumeToken | None:
+        return None
+
     async def run(self, *_args, **kwargs) -> RunResult:
         on_event = kwargs.get("on_event")
         if on_event:
@@ -717,6 +714,12 @@ class _FakeRunnerError:
 
     def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
         self._session_id = session_id
+
+    def format_resume(self, token: ResumeToken) -> str:
+        return f"resume: `codex resume {token.value}`"
+
+    def extract_resume(self, _text: str | None) -> ResumeToken | None:
+        return None
 
     async def run(self, *_args, **kwargs) -> RunResult:
         on_event = kwargs.get("on_event")
@@ -829,7 +832,9 @@ async def test_send_with_resume_waits_for_token() -> None:
             "hello",
         )
 
-    assert send_stream.sent == [(123, 10, "hello", "codex:abc123")]
+    assert send_stream.sent == [
+        (123, 10, "hello", ResumeToken(engine="codex", value="abc123"))
+    ]
 
 
 @pytest.mark.anyio

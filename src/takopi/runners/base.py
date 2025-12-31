@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypedDict, TypeAlias
 
-EngineId: TypeAlias = Literal["codex", "mock"]
+EngineId: TypeAlias = Literal["codex", "claude", "mock"]
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,10 @@ EventSink: TypeAlias = Callable[[TakopiEvent], Awaitable[None] | None]
 
 class Runner(Protocol):
     engine: EngineId
+
+    def format_resume(self, token: ResumeToken) -> str: ...
+
+    def extract_resume(self, text: str | None) -> ResumeToken | None: ...
 
     async def run(
         self,

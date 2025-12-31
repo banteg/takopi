@@ -1,7 +1,11 @@
 from typing import cast
 
 from takopi.exec_render import ExecProgressRenderer, render_event_cli, render_markdown
-from takopi.runners.base import TakopiEvent
+from takopi.runners.base import ResumeToken, TakopiEvent
+
+
+def _format_resume(token: ResumeToken) -> str:
+    return f"resume: `codex resume {token.value}`"
 
 
 SAMPLE_EVENTS = [
@@ -126,20 +130,20 @@ def test_render_event_cli_handles_action_kinds() -> None:
 
 
 def test_progress_renderer_renders_progress_and_final() -> None:
-    r = ExecProgressRenderer(max_actions=5)
+    r = ExecProgressRenderer(max_actions=5, resume_formatter=_format_resume)
     for evt in SAMPLE_EVENTS:
         r.note_event(cast(TakopiEvent, evt))
 
     progress = r.render_progress(3.0)
     assert progress.startswith("working · 3s · step 2")
     assert "✓ `bash -lc ls`" in progress
-    assert "resume: `codex:0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
+    assert "resume: `codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
 
     final = r.render_final(3.0, "answer", status="done")
     assert final.startswith("done · 3s · step 2")
     assert "answer" in final
     assert final.rstrip().endswith(
-        "resume: `codex:0199a213-81c0-7800-8aa1-bbab2a035a53`"
+        "resume: `codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`"
     )
 
 

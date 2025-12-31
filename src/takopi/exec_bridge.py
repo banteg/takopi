@@ -7,7 +7,7 @@ import shutil
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any
 
 import anyio
 import typer
@@ -24,7 +24,7 @@ from .runners.codex import CodexRunner
 
 logger = logging.getLogger(__name__)
 RESUME_LINE = re.compile(
-    r"^\s*resume\s*:\s*`(?P<token>[^`\s]+)`\s*$",
+    r"^\s*resume\s*:\s*`?(?P<cmd>[^`]+?)`?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -39,27 +39,10 @@ def _version_callback(value: bool) -> None:
         _print_version_and_exit()
 
 
-def extract_resume_token(text: str | None) -> str | None:
-    if not text:
-        return None
-    found: str | None = None
-    for match in RESUME_LINE.finditer(text):
-        found = match.group("token")
-    return found
-
-
-def resolve_resume_token(text: str | None, reply_text: str | None) -> str | None:
-    return extract_resume_token(text) or extract_resume_token(reply_text)
-
-
-def _engine_from_resume(resume: str | None) -> EngineId | None:
-    if not resume:
-        return None
-    token = resume.strip().strip("`")
-    if ":" not in token:
-        return None
-    engine, _value = token.split(":", 1)
-    return cast(EngineId, engine) if engine else None
+def _resolve_resume(
+    router: "RunnerRouter", text: str | None, reply_text: str | None
+) -> ResumeToken | None:
+    return router.extract_resume(text) or router.extract_resume(reply_text)
 
 
 TELEGRAM_MARKDOWN_LIMIT = 3500
@@ -240,14 +223,25 @@ class RunnerRouter:
     default: Runner
     runners: dict[EngineId, Runner]
 
-    def choose(self, resume: str | None) -> Runner:
-        engine = _engine_from_resume(resume)
-        if engine is None:
+    def choose(self, resume: ResumeToken | None) -> Runner:
+        if resume is None:
             return self.default
-        runner = self.runners.get(engine)
+        runner = self.runners.get(resume.engine)
         if runner is None:
-            raise RuntimeError(f"unknown engine {engine!r} in resume token")
+            raise RuntimeError(f"unknown engine {resume.engine!r} in resume token")
         return runner
+
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        if not text:
+            return None
+        ordered = [self.default] + [
+            runner for runner in self.runners.values() if runner is not self.default
+        ]
+        for runner in ordered:
+            token = runner.extract_resume(text)
+            if token is not None:
+                return token
+        return None
 
 
 @dataclass
@@ -365,7 +359,7 @@ async def handle_message(
     chat_id: int,
     user_msg_id: int,
     text: str,
-    resume_token: str | None,
+    resume_token: ResumeToken | None,
     running_tasks: dict[int, RunningTask] | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
@@ -379,11 +373,10 @@ async def handle_message(
         text,
     )
     started_at = clock()
-    progress_renderer = ExecProgressRenderer(max_actions=5)
-
     try:
         runner = cfg.router.choose(resume_token) if cfg.router else cfg.runner
     except Exception as e:
+        progress_renderer = ExecProgressRenderer(max_actions=5)
         err_body = f"Error:\n{e}"
         final_md = progress_renderer.render_final(0.0, err_body, status="error")
         await _send_or_edit_markdown(
@@ -395,6 +388,10 @@ async def handle_message(
             limit=TELEGRAM_MARKDOWN_LIMIT,
         )
         return
+
+    progress_renderer = ExecProgressRenderer(
+        max_actions=5, resume_formatter=runner.format_resume
+    )
 
     progress_id: int | None = None
     last_edit_at = 0.0
@@ -467,7 +464,8 @@ async def handle_message(
 
         try:
             with exec_scope:
-                result = await runner.run(text, resume_token, on_event=on_event)
+                resume_value = resume_token.value if resume_token is not None else None
+                result = await runner.run(text, resume_value, on_event=on_event)
                 resume_token_value = result.resume
         except cancel_exc_type:
             cancelled = True
@@ -677,8 +675,7 @@ async def _send_with_resume(
             disable_notification=True,
         )
         return
-    resume_token = f"{resume.engine}:{resume.value}"
-    await send_stream.send((chat_id, user_msg_id, text, resume_token))
+    await send_stream.send((chat_id, user_msg_id, text, resume))
 
 
 async def _run_main_loop(cfg: BridgeConfig) -> None:
@@ -687,6 +684,9 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
         max_buffer_size=worker_count * 2
     )
     running_tasks: dict[int, RunningTask] = {}
+    router = cfg.router or RunnerRouter(
+        default=cfg.runner, runners={cfg.runner.engine: cfg.runner}
+    )
 
     async def worker() -> None:
         while True:
@@ -724,7 +724,7 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
                     continue
 
                 r = msg.get("reply_to_message") or {}
-                resume_token = resolve_resume_token(text, r.get("text"))
+                resume_token = _resolve_resume(router, text, r.get("text"))
                 reply_id = r.get("message_id")
                 if resume_token is None and reply_id is not None:
                     running_task = running_tasks.get(int(reply_id))

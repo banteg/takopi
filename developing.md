@@ -39,8 +39,7 @@ The orchestrator module containing:
 | `_run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
 | `handle_message()` | Per-message handler with progress updates and final render |
 | `ProgressEdits` | Throttled progress edit worker |
-| `RunnerRouter` | Selects a runner based on resume token engine |
-| `extract_resume_token()` | Parses ``resume: `<engine>:<token>` `` from message text |
+| `RunnerRouter` | Selects a runner and delegates resume parsing to runners |
 | `truncate_for_telegram()` | Smart truncation preserving resume lines |
 
 **Key patterns:**
@@ -148,8 +147,8 @@ Send/edit final message
 ### Resume Flow
 
 Same as above, but:
-- `extract_resume_token()` finds the last ``resume: `<engine>:<token>` `` line in message or reply
-- Codex runner accepts legacy ``resume: `<uuid>` `` as `codex:<uuid>` for compatibility
+- Runners parse resume lines (e.g. ``resume: `codex resume <token>` ``)
+- Codex runner accepts legacy ``resume: `<uuid>` `` and ``resume: `codex:<uuid>` `` for compatibility
 - Command becomes: `codex exec --json resume <token> -`
 - Per-token lock serializes concurrent resumes
 

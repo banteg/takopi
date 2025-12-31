@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import signal
 from collections import deque
 from contextlib import asynccontextmanager
@@ -37,6 +38,11 @@ _ACTION_KIND_MAP: dict[str, ActionKind] = {
     "file_change": "file_change",
     "reasoning": "note",
 }
+
+_RESUME_LINE = re.compile(
+    r"^\s*resume\s*:\s*`?(?P<cmd>[^`]+?)`?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def _resume_payload(token: ResumeToken) -> ResumePayload:
@@ -349,6 +355,37 @@ class CodexRunner:
         if not value:
             raise RuntimeError("resume token is empty")
         return ResumeToken(engine=ENGINE, value=value)
+
+    def format_resume(self, token: ResumeToken) -> str:
+        if token.engine != ENGINE:
+            raise RuntimeError(f"resume token is for engine {token.engine!r}")
+        return f"resume: `codex resume {token.value}`"
+
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        if not text:
+            return None
+        found: str | None = None
+        for match in _RESUME_LINE.finditer(text):
+            cmd = match.group("cmd").strip()
+            token = self._parse_resume_command(cmd)
+            if token:
+                found = token
+        if not found:
+            return None
+        return ResumeToken(engine=ENGINE, value=found)
+
+    def _parse_resume_command(self, cmd: str) -> str | None:
+        if not cmd:
+            return None
+        m = re.match(r"^codex\s+resume\s+(?P<token>\S+)$", cmd, flags=re.IGNORECASE)
+        if m:
+            return m.group("token")
+        m = re.match(r"^codex:(?P<token>\S+)$", cmd, flags=re.IGNORECASE)
+        if m:
+            return m.group("token")
+        if " " not in cmd:
+            return cmd
+        return None
 
     def _emit_event(self, dispatcher: EventQueue | None, event: TakopiEvent) -> None:
         if dispatcher is None:

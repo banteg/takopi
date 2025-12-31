@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from collections.abc import Iterable
 
@@ -29,6 +30,41 @@ class MockRunner:
     ) -> None:
         self._events = list(events or [])
         self._answer = answer
+
+    def format_resume(self, token: ResumeToken) -> str:
+        if token.engine != ENGINE:
+            raise RuntimeError(f"resume token is for engine {token.engine!r}")
+        return f"resume: `mock resume {token.value}`"
+
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        if not text:
+            return None
+        found: str | None = None
+        for match in re.finditer(
+            r"^\s*resume\s*:\s*`?(?P<cmd>[^`]+?)`?\s*$",
+            text,
+            flags=re.IGNORECASE | re.MULTILINE,
+        ):
+            cmd = match.group("cmd").strip()
+            token = self._parse_resume_command(cmd)
+            if token:
+                found = token
+        if not found:
+            return None
+        return ResumeToken(engine=ENGINE, value=found)
+
+    def _parse_resume_command(self, cmd: str) -> str | None:
+        if not cmd:
+            return None
+        m = re.match(r"^mock\s+resume\s+(?P<token>\S+)$", cmd, flags=re.IGNORECASE)
+        if m:
+            return m.group("token")
+        m = re.match(r"^mock:(?P<token>\S+)$", cmd, flags=re.IGNORECASE)
+        if m:
+            return m.group("token")
+        if " " not in cmd:
+            return cmd
+        return None
 
     async def run(
         self,
