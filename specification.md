@@ -347,6 +347,22 @@ The bridge MUST:
 - Prompts queued behind an in-flight run MUST NOT count toward the **16 active runs** limit.
 - There is no queue depth limit; all prompts are accepted.
 
+### 7.1.1 Scheduling algorithm (MUST)
+
+The bridge MUST implement per-thread FIFO scheduling in a way that does not require spawning one task per queued job.
+
+**Definitions:**
+
+- `ThreadKey := f"{resume.engine}:{resume.value}"`
+- `Job := (chat_id, user_msg_id, text, resume: ResumeToken | None)`
+
+**Required behavior:**
+
+- For `resume != None`, the bridge MUST enqueue the job into `pending_by_thread[ThreadKey]` and ensure exactly one worker drains that queue sequentially.
+- A worker MUST acquire the global concurrency limiter only when it has dequeued a job and is about to start runner execution (and send the initial progress message).
+- A worker MUST release the global concurrency limiter when the job completes (success, error, or cancellation) and then proceed to the next queued job.
+- A thread worker MUST exit when its queue is empty; the bridge SHOULD avoid retaining per-thread state for inactive threads.
+
 The bridge MUST NOT:
 
 - parse engine-native events
