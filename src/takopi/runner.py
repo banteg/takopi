@@ -117,7 +117,21 @@ class EventQueue:
             if self._closed and not self._queue:
                 return
 
-    async def wait_error(self) -> None:
-        await self._error_event.wait()
+    async def wait_error(self, done: anyio.Event | None = None) -> None:
+        if done is None:
+            await self._error_event.wait()
+        else:
+            async with anyio.create_task_group() as tg:
+                async def wait_done() -> None:
+                    await done.wait()
+                    tg.cancel_scope.cancel()
+
+                async def wait_error() -> None:
+                    await self._error_event.wait()
+                    tg.cancel_scope.cancel()
+
+                tg.start_soon(wait_done)
+                tg.start_soon(wait_error)
+
         if self._error is not None:
             raise self._error

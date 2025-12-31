@@ -476,8 +476,9 @@ class CodexRunner:
                 last_agent_text: str | None = None
 
                 async with anyio.create_task_group() as tg:
+                    done = anyio.Event()
                     tg.start_soon(_drain_stderr, proc_stderr, stderr_chunks)
-                    tg.start_soon(dispatcher.wait_error)
+                    tg.start_soon(dispatcher.wait_error, done)
 
                     try:
                         await proc_stdin.send(prompt.encode())
@@ -549,6 +550,7 @@ class CodexRunner:
                     finally:
                         if cancelled_exc is None:
                             rc = await proc.wait()
+                        done.set()
 
                 if cancelled_exc is not None:
                     raise cancelled_exc
