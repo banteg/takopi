@@ -55,7 +55,18 @@ def test_render_event_cli_handles_action_kinds() -> None:
             ok=True,
         ),
         action_completed("t-1", "tool", "github.search_issues", ok=True),
-        action_completed("f-1", "file_change", "src/compute_answer.py", ok=True),
+        action_completed(
+            "f-1",
+            "file_change",
+            "2 files",
+            ok=True,
+            detail={
+                "changes": [
+                    {"path": "README.md", "kind": "add"},
+                    {"path": "src/compute_answer.py", "kind": "update"},
+                ]
+            },
+        ),
         action_completed("n-1", "note", "stream error", ok=False),
     ]
 
@@ -71,7 +82,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
         for line in out
     )
     assert any("tool: github.search_issues" in line for line in out)
-    assert any("updated src/compute_answer.py" in line for line in out)
+    assert any("files: +README.md, ~src/compute_answer.py" in line for line in out)
     assert any(line.startswith("✗ stream error") for line in out)
 
 
@@ -166,6 +177,29 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
     assert "echo first" in r.recent_actions[0]
     assert r.recent_actions[1].startswith("✓ ")
     assert "echo second" in r.recent_actions[1]
+
+
+def test_progress_renderer_collapses_action_updates() -> None:
+    r = ExecProgressRenderer(max_actions=5)
+    events = [
+        action_started("a-1", "command", "echo one"),
+        action_started("a-1", "command", "echo two"),
+        action_completed(
+            "a-1",
+            "command",
+            "echo two",
+            ok=True,
+            detail={"exit_code": 0},
+        ),
+    ]
+
+    for evt in events:
+        assert r.note_event(evt) is True
+
+    assert r.action_count == 1
+    assert len(r.recent_actions) == 1
+    assert r.recent_actions[0].startswith("✓ ")
+    assert "echo two" in r.recent_actions[0]
 
 
 def test_progress_renderer_deterministic_output() -> None:

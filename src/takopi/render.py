@@ -9,6 +9,7 @@ from typing import Callable
 from .model import Action, ResumeToken, TakopiEvent
 
 STATUS_RUNNING = "▸"
+STATUS_UPDATE = "↻"
 STATUS_DONE = "✓"
 STATUS_FAIL = "✗"
 HEADER_SEP = " · "
@@ -16,6 +17,7 @@ HARD_BREAK = "  \n"
 
 MAX_PROGRESS_CMD_LEN = 300
 MAX_QUERY_LEN = 60
+MAX_FILE_CHANGES_INLINE = 3
 
 
 def format_elapsed(elapsed_s: float) -> str:
@@ -78,8 +80,29 @@ def _format_action_title(action: Action, *, command_width: int | None) -> str:
         title = _shorten(title, MAX_QUERY_LEN)
         return f"searched: {title}"
     if kind == "file_change":
+        detail = action.get("detail") or {}
+        changes = detail.get("changes")
+        if isinstance(changes, list) and changes:
+            rendered: list[str] = []
+            for raw_change in changes:
+                if not isinstance(raw_change, dict):
+                    continue
+                path = raw_change.get("path")
+                if not path:
+                    continue
+                kind = raw_change.get("kind")
+                prefix = {"add": "+", "delete": "-", "update": "~"}.get(kind, "~")
+                rendered.append(f"{prefix}{path}")
+            if rendered:
+                if len(rendered) > MAX_FILE_CHANGES_INLINE:
+                    remaining = len(rendered) - MAX_FILE_CHANGES_INLINE
+                    rendered = rendered[:MAX_FILE_CHANGES_INLINE]
+                    rendered.append(f"…(+{remaining})")
+                title = ", ".join(rendered)
+                title = _shorten(title, command_width)
+                return f"files: {title}"
         title = _shorten(title, command_width)
-        return f"updated {title}"
+        return f"files: {title}"
     if kind == "note":
         title = _shorten(title, MAX_QUERY_LEN)
         return title
@@ -137,20 +160,26 @@ class ExecProgressRenderer:
             action = event["action"]
             completed = False
             ok = None
+            action_id = str(action.get("id") or "")
+            if not action_id:
+                return False
+            started_count = self._started_counts.get(action_id, 0)
+            is_update = started_count > 0
+            if not is_update:
+                self._started_counts[action_id] = 1
+                self.action_count += 1
         elif event["type"] == "action.completed":
             action = event["action"]
             completed = True
             ok = event.get("ok")
+            action_id = str(action.get("id") or "")
+            if not action_id:
+                return False
+            is_update = False
         else:
-            return False
-        action_id = str(action.get("id") or "")
-        if not action_id:
             return False
 
-        if not completed:
-            self._started_counts[action_id] = self._started_counts.get(action_id, 0) + 1
-            self.action_count += 1
-        else:
+        if completed:
             count = self._started_counts.get(action_id, 0)
             if count <= 0:
                 self.action_count += 1
@@ -159,7 +188,9 @@ class ExecProgressRenderer:
             else:
                 self._started_counts[action_id] = count - 1
 
-        status = _action_status_symbol(action, completed=completed, ok=ok)
+        status = (
+            STATUS_UPDATE if (is_update and not completed) else _action_status_symbol(action, completed=completed, ok=ok)
+        )
         title = _format_action_title(action, command_width=self.command_width)
         suffix = _action_exit_suffix(action) if completed else ""
         line = f"{status} {title}{suffix}"
@@ -168,6 +199,14 @@ class ExecProgressRenderer:
         return True
 
     def _append_action(self, action_id: str, *, completed: bool, line: str) -> None:
+        if not completed:
+            for i in range(len(self._recent_action_ids) - 1, -1, -1):
+                if (
+                    self._recent_action_ids[i] == action_id
+                    and not self._recent_action_completed[i]
+                ):
+                    self.recent_actions[i] = line
+                    return
         if completed:
             for i in range(len(self._recent_action_ids) - 1, -1, -1):
                 if (
