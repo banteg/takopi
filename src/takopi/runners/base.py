@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypedDict, TypeAlias
 
-EngineId: TypeAlias = Literal["codex", "claude", "mock"]
+EngineId: TypeAlias = Literal["codex", "mock"]
 
 logger = logging.getLogger(__name__)
 
