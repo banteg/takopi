@@ -629,24 +629,11 @@ async def test_handle_cancel_cancels_running_task() -> None:
 
     from takopi.exec_bridge import RunningTask
 
-    cancelled_event = anyio.Event()
-    cancel_scope = anyio.CancelScope()
-    running_task = RunningTask(scope=cancel_scope)
+    running_task = RunningTask()
+    running_tasks = {progress_id: running_task}
+    await _handle_cancel(cfg, msg, running_tasks)
 
-    async def sleeper() -> None:
-        with cancel_scope:
-            try:
-                await anyio.sleep(10)
-            except anyio.get_cancelled_exc_class():
-                cancelled_event.set()
-                return
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(sleeper)
-        running_tasks = {progress_id: running_task}
-        await _handle_cancel(cfg, msg, running_tasks)
-        await cancelled_event.wait()
-
+    assert running_task.cancel_requested.is_set() is True
     assert len(bot.send_calls) == 0  # No error message sent
 
 
@@ -666,10 +653,8 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     )
     from takopi.exec_bridge import RunningTask
 
-    scope_first = anyio.CancelScope()
-    scope_second = anyio.CancelScope()
-    task_first = RunningTask(scope=scope_first)
-    task_second = RunningTask(scope=scope_second)
+    task_first = RunningTask()
+    task_second = RunningTask()
     msg = {
         "chat": {"id": 123},
         "message_id": 10,
@@ -679,8 +664,8 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
 
     await _handle_cancel(cfg, msg, running_tasks)
 
-    assert scope_first.cancel_called is True
-    assert scope_second.cancel_called is False
+    assert task_first.cancel_requested.is_set() is True
+    assert task_second.cancel_requested.is_set() is False
     assert len(bot.send_calls) == 0
 
 
@@ -723,7 +708,10 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
                 break
             await anyio.sleep(0)
         assert running_tasks
-        running_tasks[next(iter(running_tasks))].scope.cancel()
+        running_task = running_tasks[next(iter(running_tasks))]
+        with anyio.fail_after(1):
+            await running_task.resume_ready.wait()
+        running_task.cancel_requested.set()
 
     assert len(bot.send_calls) == 1  # Progress message
     assert len(bot.edit_calls) >= 1
@@ -773,7 +761,7 @@ async def test_send_with_resume_waits_for_token() -> None:
 
     bot = _FakeBot()
     send_stream = _SendStream()
-    running_task = RunningTask(scope=anyio.CancelScope())
+    running_task = RunningTask()
 
     async def trigger_resume() -> None:
         await anyio.sleep(0)
@@ -802,7 +790,7 @@ async def test_send_with_resume_reports_when_missing() -> None:
 
     bot = _FakeBot()
     send_stream = _SendStream()
-    running_task = RunningTask(scope=anyio.CancelScope())
+    running_task = RunningTask()
     running_task.done.set()
 
     await _send_with_resume(

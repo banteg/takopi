@@ -241,9 +241,9 @@ class BridgeConfig:
 
 @dataclass
 class RunningTask:
-    scope: anyio.CancelScope
     resume: ResumeToken | None = None
     resume_ready: anyio.Event = field(default_factory=anyio.Event)
+    cancel_requested: anyio.Event = field(default_factory=anyio.Event)
     done: anyio.Event = field(default_factory=anyio.Event)
 
 
@@ -387,7 +387,6 @@ async def handle_message(
         is_resume_line=is_resume_line,
     )
 
-    exec_scope = anyio.CancelScope()
     cancel_exc_type = anyio.get_cancelled_exc_class()
     cancelled = False
     error: Exception | None = None
@@ -395,7 +394,7 @@ async def handle_message(
     result: RunResult | None = None
     running_task: RunningTask | None = None
     if running_tasks is not None and progress_id is not None:
-        running_task = RunningTask(scope=exec_scope)
+        running_task = RunningTask()
         running_tasks[progress_id] = running_task
 
     async def on_event(evt: TakopiEvent) -> None:
@@ -422,15 +421,42 @@ async def handle_message(
         if progress_id is not None:
             tg.start_soon(run_edits)
 
+        async def run_exec() -> RunResult | None:
+            nonlocal cancelled
+            exec_result: RunResult | None = None
+            cancel_flag = False
+
+            async with anyio.create_task_group() as exec_tg:
+
+                async def run_runner() -> None:
+                    nonlocal exec_result
+                    try:
+                        exec_result = await runner.run(
+                            text, resume_token, on_event=on_event
+                        )
+                    finally:
+                        exec_tg.cancel_scope.cancel()
+
+                async def wait_cancel() -> None:
+                    nonlocal cancel_flag
+                    if running_task is None:
+                        return
+                    await running_task.cancel_requested.wait()
+                    cancel_flag = True
+                    exec_tg.cancel_scope.cancel()
+
+                exec_tg.start_soon(run_runner)
+                if running_task is not None:
+                    exec_tg.start_soon(wait_cancel)
+
+            if cancel_flag:
+                cancelled = True
+            return exec_result
+
         try:
-            with exec_scope:
-                result = await runner.run(text, resume_token, on_event=on_event)
-                if exec_scope.cancel_called:
-                    await anyio.sleep(0)
+            result = await run_exec()
+            if result is not None:
                 resume_token_value = result.resume
-        except cancel_exc_type:
-            cancelled = True
-            resume_token_value = progress_renderer.resume_token
         except Exception as e:
             error = e
         finally:
@@ -441,9 +467,6 @@ async def handle_message(
             ):
                 running_task.done.set()
                 running_tasks.pop(progress_id, None)
-            if exec_scope.cancelled_caught and not cancelled and error is None:
-                cancelled = True
-                resume_token_value = progress_renderer.resume_token
             if not cancelled and error is None:
                 await anyio.sleep(0)
             edits_scope.cancel()
@@ -470,6 +493,8 @@ async def handle_message(
 
     elapsed = clock() - started_at
     if cancelled:
+        if resume_token_value is None:
+            resume_token_value = progress_renderer.resume_token
         logger.info(
             "[handle] cancelled resume=%s elapsed=%.1fs",
             resume_token_value.value if resume_token_value else None,
@@ -597,7 +622,7 @@ async def _handle_cancel(
         return
 
     logger.info("[cancel] cancelling progress_message_id=%s", progress_id)
-    running_task.scope.cancel()
+    running_task.cancel_requested.set()
 
 
 async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
