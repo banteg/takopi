@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 import re
 import time
+import inspect
+from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
-from weakref import WeakValueDictionary
 
 import anyio
 
@@ -249,7 +250,8 @@ async def handle_message(
     text: str,
     resume_token: ResumeToken | None,
     running_tasks: dict[int, RunningTask] | None = None,
-    acquire_lock: Callable[[ResumeToken], Awaitable[None]] | None = None,
+    on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
+    | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
@@ -351,14 +353,16 @@ async def handle_message(
                         async for evt in runner.run(text, resume_token):
                             if evt["type"] == "session.started":
                                 resume_token_value = evt["resume"]
-                                if acquire_lock is not None:
-                                    await acquire_lock(resume_token_value)
                                 if (
                                     running_task is not None
                                     and running_task.resume is None
                                 ):
                                     running_task.resume = resume_token_value
                                     running_task.resume_ready.set()
+                                    if on_thread_known is not None:
+                                        await on_thread_known(
+                                            resume_token_value, running_task.done
+                                        )
                             elif evt["type"] == "run.completed":
                                 resume_token_value = evt["resume"]
                                 completed = (evt["resume"], evt["answer"])
@@ -577,7 +581,7 @@ async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
 
 async def _send_with_resume(
     bot: BotClient,
-    enqueue: Callable[[int, int, str, ResumeToken], None],
+    enqueue: Callable[[int, int, str, ResumeToken], Awaitable[None] | None],
     running_task: RunningTask,
     chat_id: int,
     user_msg_id: int,
@@ -592,7 +596,9 @@ async def _send_with_resume(
             disable_notification=True,
         )
         return
-    enqueue(chat_id, user_msg_id, text, resume)
+    result = enqueue(chat_id, user_msg_id, text, resume)
+    if inspect.isawaitable(result):
+        await result
 
 
 async def _run_main_loop(
@@ -602,66 +608,114 @@ async def _run_main_loop(
     worker_count = max(1, min(cfg.max_concurrency, 16))
     limiter = anyio.Semaphore(worker_count)
     running_tasks: dict[int, RunningTask] = {}
-    session_locks: WeakValueDictionary[str, anyio.Semaphore] = WeakValueDictionary()
-
-    def _lock_for(resume_token: ResumeToken) -> anyio.Semaphore:
-        key = f"{resume_token.engine}:{resume_token.value}"
-        lock = session_locks.get(key)
-        if lock is None:
-            lock = anyio.Semaphore(1)
-            session_locks[key] = lock
-        return lock
-
-    async def _run_message(
-        chat_id: int,
-        user_msg_id: int,
-        text: str,
-        resume_token: ResumeToken | None,
-    ) -> None:
-        lock: anyio.Semaphore | None = None
-        lock_acquired = False
-
-        async def acquire_lock(token: ResumeToken) -> None:
-            nonlocal lock, lock_acquired
-            if lock_acquired:
-                return
-            lock = _lock_for(token)
-            await lock.acquire()
-            lock_acquired = True
-
-        try:
-            if resume_token is not None:
-                await acquire_lock(resume_token)
-            await limiter.acquire()
-            try:
-                await handle_message(
-                    cfg,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    text=text,
-                    resume_token=resume_token,
-                    running_tasks=running_tasks,
-                    acquire_lock=acquire_lock,
-                    progress_edit_every=cfg.progress_edit_every,
-                )
-            finally:
-                limiter.release()
-        except Exception:
-            logger.exception("[handle] worker failed")
-        finally:
-            if lock is not None and lock_acquired:
-                lock.release()
 
     try:
         async with anyio.create_task_group() as tg:
+            scheduler_lock = anyio.Lock()
 
-            def enqueue(
+            @dataclass(frozen=True, slots=True)
+            class ThreadJob:
+                chat_id: int
+                user_msg_id: int
+                text: str
+                resume_token: ResumeToken
+
+            pending_by_thread: dict[str, deque[ThreadJob]] = {}
+            active_threads: set[str] = set()
+            busy_until: dict[str, anyio.Event] = {}
+
+            def thread_key(token: ResumeToken) -> str:
+                return f"{token.engine}:{token.value}"
+
+            async def clear_busy(key: str, done: anyio.Event) -> None:
+                await done.wait()
+                async with scheduler_lock:
+                    if busy_until.get(key) is done:
+                        busy_until.pop(key, None)
+
+            async def note_thread_known(token: ResumeToken, done: anyio.Event) -> None:
+                key = thread_key(token)
+                async with scheduler_lock:
+                    current = busy_until.get(key)
+                    if current is None or current.is_set():
+                        busy_until[key] = done
+                tg.start_soon(clear_busy, key, done)
+
+            async def run_job(
                 chat_id: int,
                 user_msg_id: int,
                 text: str,
                 resume_token: ResumeToken | None,
+                on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
+                | None = None,
             ) -> None:
-                tg.start_soon(_run_message, chat_id, user_msg_id, text, resume_token)
+                try:
+                    await limiter.acquire()
+                    try:
+                        await handle_message(
+                            cfg,
+                            chat_id=chat_id,
+                            user_msg_id=user_msg_id,
+                            text=text,
+                            resume_token=resume_token,
+                            running_tasks=running_tasks,
+                            on_thread_known=on_thread_known,
+                            progress_edit_every=cfg.progress_edit_every,
+                        )
+                    finally:
+                        limiter.release()
+                except Exception:
+                    logger.exception("[handle] worker failed")
+
+            async def thread_worker(key: str) -> None:
+                try:
+                    while True:
+                        async with scheduler_lock:
+                            done = busy_until.get(key)
+                            queue = pending_by_thread.get(key)
+                            if not queue:
+                                pending_by_thread.pop(key, None)
+                                active_threads.discard(key)
+                                return
+                            job = queue.popleft()
+
+                        if done is not None and not done.is_set():
+                            await done.wait()
+
+                        await run_job(
+                            job.chat_id,
+                            job.user_msg_id,
+                            job.text,
+                            job.resume_token,
+                        )
+                finally:
+                    async with scheduler_lock:
+                        active_threads.discard(key)
+
+            async def enqueue(
+                chat_id: int,
+                user_msg_id: int,
+                text: str,
+                resume_token: ResumeToken,
+            ) -> None:
+                key = thread_key(resume_token)
+                async with scheduler_lock:
+                    queue = pending_by_thread.get(key)
+                    if queue is None:
+                        queue = deque()
+                        pending_by_thread[key] = queue
+                    queue.append(
+                        ThreadJob(
+                            chat_id=chat_id,
+                            user_msg_id=user_msg_id,
+                            text=text,
+                            resume_token=resume_token,
+                        )
+                    )
+                    if key in active_threads:
+                        return
+                    active_threads.add(key)
+                tg.start_soon(thread_worker, key)
 
             async for msg in poller(cfg):
                 text = msg["text"]
@@ -701,6 +755,16 @@ async def _run_main_loop(
                             str(cfg.runner.engine),
                         )
 
-                enqueue(msg["chat"]["id"], user_msg_id, text, resume_token)
+                if resume_token is None:
+                    tg.start_soon(
+                        run_job,
+                        msg["chat"]["id"],
+                        user_msg_id,
+                        text,
+                        None,
+                        note_thread_known,
+                    )
+                else:
+                    await enqueue(msg["chat"]["id"], user_msg_id, text, resume_token)
     finally:
         await cfg.bot.close()
