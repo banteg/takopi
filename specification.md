@@ -275,7 +275,7 @@ This prevents:
 The bridge additionally enforces FIFO scheduling per thread to ensure queued prompts do not consume the global **16 active runs** slots (§7.1.1).
 
 **Codex note (non-normative):**
-Codex emits `thread.started` (with `thread_id`) before any `turn.*` / `item.*` events for both new and resumed runs. Codex MAY emit top-level warning `error` lines (e.g., config warnings) before `thread.started`; the Codex runner buffers these warnings and yields them only after `session.started` to satisfy the runner contract (tests require `session.started` to be the first yielded event). If the subprocess exits before `thread.started` is observed, no `session.started` can be emitted and the bridge reports an error without a resume line.
+Codex emits `thread.started` (with `thread_id`) before any `turn.*` / `item.*` events for both new and resumed runs. Codex MAY emit top-level warning `error` lines (e.g., config warnings) before `thread.started`; the Codex runner translates these warnings into `action.completed(kind="note", ok=False)` and yields them in the same order as received (so `session.started` is not guaranteed to be the first yielded event). If the subprocess exits before `thread.started` is observed, no `session.started` can be emitted and the bridge reports an error without a resume line.
 
 Codex also emits exactly one `agent_message`/`assistant_message` per turn; the runner uses that message text as `run.completed.answer`.
 
