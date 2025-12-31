@@ -445,6 +445,8 @@ class CodexRunner:
 
         cancelled_exc_type = anyio.get_cancelled_exc_class()
         cancelled_exc: BaseException | None = None
+        session_lock: anyio.Lock | None = None
+        session_lock_acquired = False
 
         try:
             async with manage_subprocess(
@@ -514,6 +516,13 @@ class CodexRunner:
                                         engine=token["engine"], value=token["value"]
                                     )
                                     if found_session is None:
+                                        if session.engine != ENGINE:
+                                            raise RuntimeError(
+                                                f"codex emitted session token for engine {session.engine!r}"
+                                            )
+                                        session_lock = self._lock_for(session)
+                                        await session_lock.acquire()
+                                        session_lock_acquired = True
                                         found_session = session
                                         saw_session_started = True
                                         self._emit_event(dispatcher, out_evt)
@@ -564,5 +573,7 @@ class CodexRunner:
                     answer=last_agent_text or "",
                 )
         finally:
+            if session_lock is not None and session_lock_acquired:
+                session_lock.release()
             if dispatcher is not None:
                 await dispatcher.close()

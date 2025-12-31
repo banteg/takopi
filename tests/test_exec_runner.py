@@ -61,3 +61,80 @@ async def test_run_allows_parallel_new_sessions() -> None:
         await anyio.sleep(0.01)
         gate.set()
     assert max_in_flight == 2
+
+
+@pytest.mark.anyio
+async def test_run_serializes_new_session_after_session_is_known(
+    tmp_path, monkeypatch
+) -> None:
+    gate_path = tmp_path / "gate"
+    resume_marker = tmp_path / "resume_started"
+    thread_id = "019b73c4-0c3f-7701-a0bb-aac6b4d8a3bc"
+
+    codex_path = tmp_path / "codex"
+    codex_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import os\n"
+        "import sys\n"
+        "import time\n"
+        "\n"
+        "gate = os.environ['CODEX_TEST_GATE']\n"
+        "resume_marker = os.environ['CODEX_TEST_RESUME_MARKER']\n"
+        "thread_id = os.environ['CODEX_TEST_THREAD_ID']\n"
+        "\n"
+        "args = sys.argv[1:]\n"
+        "if 'resume' in args:\n"
+        "    with open(resume_marker, 'w', encoding='utf-8') as f:\n"
+        "        f.write('started')\n"
+        "        f.flush()\n"
+        "    sys.exit(0)\n"
+        "\n"
+        "print(json.dumps({'type': 'thread.started', 'thread_id': thread_id}), flush=True)\n"
+        "while not os.path.exists(gate):\n"
+        "    time.sleep(0.01)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    codex_path.chmod(0o755)
+
+    monkeypatch.setenv("CODEX_TEST_GATE", str(gate_path))
+    monkeypatch.setenv("CODEX_TEST_RESUME_MARKER", str(resume_marker))
+    monkeypatch.setenv("CODEX_TEST_THREAD_ID", thread_id)
+
+    runner = CodexRunner(codex_cmd=str(codex_path), extra_args=[])
+
+    session_started = anyio.Event()
+    resume_value: str | None = None
+
+    async def on_event(event) -> None:
+        nonlocal resume_value
+        if event.get("type") == "session.started":
+            resume_value = event["resume"]["value"]
+            session_started.set()
+
+    new_done = anyio.Event()
+
+    async def run_new() -> None:
+        await runner.run("hello", None, on_event=on_event)
+        new_done.set()
+
+    async def run_resume() -> None:
+        assert resume_value is not None
+        await runner.run("resume", ResumeToken(engine="codex", value=resume_value))
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_new)
+        await session_started.wait()
+
+        tg.start_soon(run_resume)
+        await anyio.sleep(0.05)
+
+        assert not resume_marker.exists()
+
+        gate_path.write_text("go", encoding="utf-8")
+        await new_done.wait()
+
+        with anyio.fail_after(2):
+            while not resume_marker.exists():
+                await anyio.sleep(0.01)
