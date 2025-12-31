@@ -1,6 +1,13 @@
 # changelog
 
-## Unreleased
+## v0.2.0 (2025-12-31)
+
+### highlights
+
+- codex runner refactor with takopi event normalization (`session.started`, `action.*`, `log`, `error`)
+- resume command lines: `` `codex resume <token>` ``
+- `/cancel` support via progress message id + AnyIO cancel scopes
+- ordered event sink delivery via a single drain task (no per-event tasks)
 
 ### changes
 
@@ -11,16 +18,6 @@
 - add runner contract, serialization, and renderer/bridge coverage
 - remove `--profile`; configure Codex profiles via `[codex].profile` only
 - `RunResult` now carries only `resume` and `answer`
-
-## v0.2.0 (2025-12-31)
-
-### highlights
-
-- codex runner refactor with takopi event normalization (`session.started`, `action.*`, `log`, `error`)
-- resume command lines: `` `codex resume <token>` ``
-- `/cancel` support via progress message id + AnyIO cancel scopes
-- ordered event sink delivery via a single drain task (no per-event tasks)
-- run results carry `resume` + `answer`, keeping routing ready for multi-engine support
 
 ### fixes
 
