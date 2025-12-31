@@ -94,7 +94,7 @@ Legend:
 - [x] 9.2 Move `Runner` Protocol from `runners/base.py` → `runner.py`
 - [x] 9.3 Move `EventQueue` from `runners/base.py` → `runner.py`
 - [x] 9.4 Move `EventSink` type alias → `runner.py`
-- [x] 9.5 Keep `runners/base.py` as re-export shim for compatibility
+- [x] 9.5 Remove re-export shim (`runners/base.py`)
 
 ### 10. Create `render.py` from `exec_render.py`
 🟢 File rename

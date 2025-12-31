@@ -106,7 +106,6 @@ Transforms takopi events into human-readable text:
 | File | Purpose |
 |------|---------|
 | `engines.py` | Engine backend registry (setup checks + runner construction) |
-| `runners/base.py` | Re-export shim for legacy imports |
 | `runners/codex.py` | Codex runner (JSONL → takopi events) + per-resume locks |
 | `runners/mock.py` | Mock runner for tests/demos |
 
