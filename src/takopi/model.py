@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Literal, NewType, TypeAlias, TypedDict
+from dataclasses import dataclass, field
+from typing import Any, Literal, NewType, TypeAlias
 
 EngineId = NewType("EngineId", str)
 
@@ -13,14 +13,19 @@ ActionKind: TypeAlias = Literal[
     "file_change",
     "web_search",
     "note",
+    "turn",
+    "warning",
+    "telemetry",
 ]
 
 TakopiEventType: TypeAlias = Literal[
-    "session.started",
-    "action.started",
-    "action.completed",
-    "run.completed",
+    "started",
+    "action",
+    "completed",
 ]
+
+ActionPhase: TypeAlias = Literal["started", "updated", "completed"]
+ActionLevel: TypeAlias = Literal["debug", "info", "warning", "error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,43 +34,47 @@ class ResumeToken:
     value: str
 
 
-class Action(TypedDict):
+@dataclass(frozen=True, slots=True)
+class Action:
     id: str
     kind: ActionKind
     title: str
-    detail: dict[str, Any]
+    detail: dict[str, Any] = field(default_factory=dict)
 
 
-class SessionStartedEvent(TypedDict):
-    type: Literal["session.started"]
+@dataclass(frozen=True, slots=True)
+class StartedEvent:
+    type: Literal["started"] = field(default="started", init=False)
     engine: EngineId
     resume: ResumeToken
-    title: str
+    title: str | None = None
+    meta: dict[str, Any] | None = None
 
 
-class ActionStartedEvent(TypedDict):
-    type: Literal["action.started"]
+@dataclass(frozen=True, slots=True)
+class ActionEvent:
+    type: Literal["action"] = field(default="action", init=False)
     engine: EngineId
     action: Action
+    phase: ActionPhase
+    ok: bool | None = None
+    message: str | None = None
+    level: ActionLevel | None = None
 
 
-class ActionCompletedEvent(TypedDict):
-    type: Literal["action.completed"]
+@dataclass(frozen=True, slots=True)
+class CompletedEvent:
+    type: Literal["completed"] = field(default="completed", init=False)
     engine: EngineId
-    action: Action
     ok: bool
-
-
-class RunCompletedEvent(TypedDict):
-    type: Literal["run.completed"]
-    engine: EngineId
-    resume: ResumeToken
     answer: str
+    resume: ResumeToken | None = None
+    error: str | None = None
+    usage: dict[str, Any] | None = None
 
 
 TakopiEvent: TypeAlias = (
-    SessionStartedEvent
-    | ActionStartedEvent
-    | ActionCompletedEvent
-    | RunCompletedEvent
+    StartedEvent
+    | ActionEvent
+    | CompletedEvent
 )

@@ -57,7 +57,7 @@ Emitted once at end-of-run with the **final answer** (from `agent_message`) and 
 
 Why this fits Takopi cleanly:
 
-* Your `started` corresponds to “session.started” in the current spec (runner learns resume token; bridge can now safely serialize per thread). 
+* Your `started` corresponds to the old “session.started” concept (runner learns resume token; bridge can now safely serialize per thread). 
 * Your `action` is “everything that would have been action.started/action.completed/log/error” collapsed into one stream. 
 * Your `completed` corresponds to final `RunResult` + status, using Codex’s `agent_message` as the answer source.  
 

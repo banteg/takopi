@@ -4,7 +4,7 @@ import pytest
 
 from collections.abc import AsyncIterator
 
-from takopi.model import EngineId, ResumeToken, TakopiEvent
+from takopi.model import CompletedEvent, EngineId, ResumeToken, TakopiEvent
 from takopi.runners.codex import CodexRunner
 
 CODEX_ENGINE = EngineId("codex")
@@ -23,12 +23,12 @@ async def test_run_serializes_same_session() -> None:
         max_in_flight = max(max_in_flight, in_flight)
         try:
             await gate.wait()
-            yield {
-                "type": "run.completed",
-                "engine": CODEX_ENGINE,
-                "resume": ResumeToken(engine=CODEX_ENGINE, value="sid"),
-                "answer": "ok",
-            }
+            yield CompletedEvent(
+                engine=CODEX_ENGINE,
+                resume=ResumeToken(engine=CODEX_ENGINE, value="sid"),
+                ok=True,
+                answer="ok",
+            )
         finally:
             in_flight -= 1
 
@@ -60,12 +60,12 @@ async def test_run_allows_parallel_new_sessions() -> None:
         max_in_flight = max(max_in_flight, in_flight)
         try:
             await gate.wait()
-            yield {
-                "type": "run.completed",
-                "engine": CODEX_ENGINE,
-                "resume": ResumeToken(engine=CODEX_ENGINE, value="sid"),
-                "answer": "ok",
-            }
+            yield CompletedEvent(
+                engine=CODEX_ENGINE,
+                resume=ResumeToken(engine=CODEX_ENGINE, value="sid"),
+                ok=True,
+                answer="ok",
+            )
         finally:
             in_flight -= 1
 
@@ -96,12 +96,12 @@ async def test_run_allows_parallel_different_sessions() -> None:
         max_in_flight = max(max_in_flight, in_flight)
         try:
             await gate.wait()
-            yield {
-                "type": "run.completed",
-                "engine": CODEX_ENGINE,
-                "resume": ResumeToken(engine=CODEX_ENGINE, value="sid"),
-                "answer": "ok",
-            }
+            yield CompletedEvent(
+                engine=CODEX_ENGINE,
+                resume=ResumeToken(engine=CODEX_ENGINE, value="sid"),
+                ok=True,
+                answer="ok",
+            )
         finally:
             in_flight -= 1
 
@@ -171,8 +171,8 @@ async def test_run_serializes_new_session_after_session_is_known(
     async def run_new() -> None:
         nonlocal resume_value
         async for event in runner.run("hello", None):
-            if event["type"] == "session.started":
-                resume_value = event["resume"].value
+            if event.type == "started":
+                resume_value = event.resume.value
                 session_started.set()
         new_done.set()
 
@@ -222,17 +222,18 @@ async def test_codex_runner_preserves_warning_order(tmp_path) -> None:
     seen = [evt async for evt in runner.run("hi", None)]
 
     assert len(seen) == 3
-    assert seen[0]["type"] == "action.completed"
-    assert seen[0]["ok"] is False
-    assert seen[0]["action"]["kind"] == "note"
-    assert seen[0]["action"]["title"] == "warning one"
+    assert seen[0].type == "action"
+    assert seen[0].phase == "completed"
+    assert seen[0].ok is False
+    assert seen[0].action.kind == "warning"
+    assert seen[0].action.title == "warning one"
 
-    assert seen[1]["type"] == "session.started"
-    assert seen[1]["resume"].value == thread_id
+    assert seen[1].type == "started"
+    assert seen[1].resume.value == thread_id
 
-    assert seen[2]["type"] == "run.completed"
-    assert seen[2]["resume"] == seen[1]["resume"]
-    assert seen[2]["answer"] == "ok"
+    assert seen[2].type == "completed"
+    assert seen[2].resume == seen[1].resume
+    assert seen[2].answer == "ok"
 
 
 @pytest.mark.anyio
@@ -271,12 +272,12 @@ async def test_run_serializes_two_new_sessions_same_thread(
 
     async def run_first() -> None:
         async for event in runner.run("one", None):
-            if event["type"] == "session.started":
+            if event.type == "started":
                 started_first.set()
 
     async def run_second() -> None:
         async for event in runner.run("two", None):
-            if event["type"] == "session.started":
+            if event.type == "started":
                 started_second.set()
 
     async with anyio.create_task_group() as tg:

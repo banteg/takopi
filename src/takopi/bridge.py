@@ -14,7 +14,7 @@ from typing import Any
 import anyio
 
 from .markdown import TELEGRAM_MARKDOWN_LIMIT, prepare_telegram
-from .model import ResumeToken, TakopiEvent
+from .model import CompletedEvent, ResumeToken, TakopiEvent
 from .render import ExecProgressRenderer
 from .runner import Runner
 from .telegram import BotClient
@@ -333,6 +333,8 @@ async def handle_message(
     error: Exception | None = None
     resume_token_value: ResumeToken | None = None
     answer: str | None = None
+    run_ok: bool | None = None
+    run_error: str | None = None
     running_task: RunningTask | None = None
     if running_tasks is not None and progress_id is not None:
         running_task = RunningTask()
@@ -352,19 +354,19 @@ async def handle_message(
         if progress_id is not None:
             tg.start_soon(run_edits)
 
-        async def run_exec() -> tuple[ResumeToken, str] | None:
+        async def run_exec() -> CompletedEvent | None:
             nonlocal cancelled
             cancel_flag = False
-            completed: tuple[ResumeToken, str] | None = None
+            completed: CompletedEvent | None = None
 
             async with anyio.create_task_group() as exec_tg:
 
                 async def run_runner() -> None:
-                    nonlocal resume_token_value, completed
+                    nonlocal resume_token_value, completed, answer, run_ok, run_error
                     try:
                         async for evt in runner.run(runner_text, resume_token):
-                            if evt["type"] == "session.started":
-                                resume_token_value = evt["resume"]
+                            if evt.type == "started":
+                                resume_token_value = evt.resume
                                 if (
                                     running_task is not None
                                     and running_task.resume is None
@@ -375,9 +377,12 @@ async def handle_message(
                                         await on_thread_known(
                                             resume_token_value, running_task.done
                                         )
-                            elif evt["type"] == "run.completed":
-                                resume_token_value = evt["resume"]
-                                completed = (evt["resume"], evt["answer"])
+                            elif evt.type == "completed":
+                                resume_token_value = evt.resume or resume_token_value
+                                answer = evt.answer
+                                run_ok = evt.ok
+                                run_error = evt.error
+                                completed = evt
                             await edits.on_event(evt)
                     finally:
                         exec_tg.cancel_scope.cancel()
@@ -401,7 +406,10 @@ async def handle_message(
         try:
             completed = await run_exec()
             if completed is not None:
-                resume_token_value, answer = completed
+                resume_token_value = completed.resume or resume_token_value
+                answer = completed.answer
+                run_ok = completed.ok
+                run_error = completed.error
         except Exception as e:
             error = e
         finally:
@@ -469,12 +477,21 @@ async def handle_message(
             await cfg.bot.delete_message(chat_id=chat_id, message_id=progress_id)
         return
 
-    if answer is None or resume_token_value is None:
-        raise RuntimeError("runner finished without a run.completed event")
+    if answer is None:
+        raise RuntimeError("runner finished without a completed event")
 
-    status = "done" if answer.strip() else "error"
+    final_answer = answer
+    if run_ok is False and run_error:
+        if final_answer.strip():
+            final_answer = f"{final_answer}\n\nError:\n{run_error}"
+        else:
+            final_answer = f"Error:\n{run_error}"
+
+    status = "error" if run_ok is False else ("done" if final_answer.strip() else "error")
+    if resume_token_value is None:
+        resume_token_value = progress_renderer.resume_token
     progress_renderer.resume_token = resume_token_value
-    final_md = progress_renderer.render_final(elapsed, answer, status=status)
+    final_md = progress_renderer.render_final(elapsed, final_answer, status=status)
     logger.debug("[final] markdown: %s", final_md)
     final_rendered, final_entities = prepare_telegram(
         final_md, limit=TELEGRAM_MARKDOWN_LIMIT, is_resume_line=is_resume_line

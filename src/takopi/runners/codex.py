@@ -17,10 +17,14 @@ from anyio.abc import ByteReceiveStream, Process
 from anyio.streams.text import TextReceiveStream
 from ..model import (
     Action,
+    ActionEvent,
     ActionKind,
+    ActionLevel,
+    ActionPhase,
+    CompletedEvent,
     EngineId,
     ResumeToken,
-    SessionStartedEvent,
+    StartedEvent,
     TakopiEvent,
 )
 from ..runner import ResumeRunnerMixin, Runner, compile_resume_pattern
@@ -43,51 +47,53 @@ _ACTION_KIND_MAP: dict[str, ActionKind] = {
 _RESUME_RE = compile_resume_pattern(ENGINE)
 
 
-def _session_started_event(token: ResumeToken, *, title: str) -> SessionStartedEvent:
-    return {
-        "type": "session.started",
-        "engine": token.engine,
-        "resume": token,
-        "title": title,
-    }
+def _started_event(token: ResumeToken, *, title: str) -> StartedEvent:
+    return StartedEvent(engine=token.engine, resume=token, title=title)
 
 
-def _run_completed_event(token: ResumeToken, *, answer: str) -> TakopiEvent:
-    payload = {
-        "type": "run.completed",
-        "engine": ENGINE,
-        "resume": token,
-        "answer": answer,
-    }
-    return cast(TakopiEvent, payload)
+def _completed_event(
+    *,
+    resume: ResumeToken | None,
+    ok: bool,
+    answer: str,
+    error: str | None = None,
+    usage: dict[str, Any] | None = None,
+) -> TakopiEvent:
+    return CompletedEvent(
+        engine=ENGINE,
+        ok=ok,
+        answer=answer,
+        resume=resume,
+        error=error,
+        usage=usage,
+    )
 
 
 def _action_event(
     *,
-    event_type: str,
+    phase: ActionPhase,
     action_id: str,
     kind: ActionKind,
     title: str,
     detail: dict[str, Any] | None = None,
     ok: bool | None = None,
+    message: str | None = None,
+    level: ActionLevel | None = None,
 ) -> TakopiEvent:
-    action: Action = {
-        "id": action_id,
-        "kind": kind,
-        "title": title,
-        "detail": detail or {},
-    }
-    if event_type == "action.started":
-        payload = {"type": event_type, "engine": ENGINE, "action": action}
-        return cast(TakopiEvent, payload)
-    ok_value = True if ok is None else ok
-    payload = {
-        "type": "action.completed",
-        "engine": ENGINE,
-        "action": action,
-        "ok": ok_value,
-    }
-    return cast(TakopiEvent, payload)
+    action = Action(
+        id=action_id,
+        kind=kind,
+        title=title,
+        detail=detail or {},
+    )
+    return ActionEvent(
+        engine=ENGINE,
+        action=action,
+        phase=phase,
+        ok=ok,
+        message=message,
+        level=level,
+    )
 
 
 def _note_completed(
@@ -98,18 +104,34 @@ def _note_completed(
     detail: dict[str, Any] | None = None,
 ) -> TakopiEvent:
     return _action_event(
-        event_type="action.completed",
+        phase="completed",
         action_id=action_id,
-        kind="note",
+        kind="warning",
         title=message,
         detail=detail,
         ok=ok,
+        message=message,
+        level="warning" if not ok else "info",
     )
 
 
 def _short_tool_name(item: dict[str, Any]) -> str:
     name = ".".join(part for part in (item.get("server"), item.get("tool")) if part)
     return name or "tool"
+
+
+def _summarize_tool_result(result: Any) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+    summary: dict[str, Any] = {}
+    content = result.get("content")
+    if isinstance(content, list):
+        summary["content_blocks"] = len(content)
+    elif content is not None:
+        summary["content_blocks"] = 1
+    if "structured" in result:
+        summary["has_structured"] = bool(result.get("structured"))
+    return summary or None
 
 
 def _format_change_summary(item: dict[str, Any]) -> str:
@@ -177,33 +199,41 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
         logger.debug("[codex] missing item id in codex event: %r", item)
         return []
 
+    phase = cast(ActionPhase, etype.split(".")[-1])
+
+    if item_type == "error":
+        if phase != "completed":
+            return []
+        message = str(item.get("message") or "codex item error")
+        return [
+            _action_event(
+                phase="completed",
+                action_id=action_id,
+                kind="warning",
+                title=message,
+                detail={"message": message},
+                ok=False,
+                message=message,
+                level="warning",
+            )
+        ]
+
     kind = _ACTION_KIND_MAP.get(item_type)
     if kind is None:
-        if item_type == "error" and etype == "item.completed":
-            message = str(item.get("message") or "codex item error")
-            return [
-                _action_event(
-                    event_type="action.completed",
-                    action_id=action_id,
-                    kind="note",
-                    title=message,
-                    ok=False,
-                )
-            ]
         return []
 
     if kind == "command":
         title = str(item.get("command") or "")
-        if etype in {"item.started", "item.updated"}:
+        if phase in {"started", "updated"}:
             return [
                 _action_event(
-                    event_type="action.started",
+                    phase=phase,
                     action_id=action_id,
                     kind=kind,
                     title=title,
                 )
             ]
-        if etype == "item.completed":
+        if phase == "completed":
             exit_code = item.get("exit_code")
             ok = item.get("status") != "failed"
             if isinstance(exit_code, int):
@@ -214,7 +244,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             }
             return [
                 _action_event(
-                    event_type="action.completed",
+                    phase="completed",
                     action_id=action_id,
                     kind=kind,
                     title=title,
@@ -226,28 +256,44 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
     if kind == "tool":
         tool_name = _short_tool_name(item)
         title = tool_name
-        detail = {"server": item.get("server"), "tool": item.get("tool")}
+        detail = {
+            "server": item.get("server"),
+            "tool": item.get("tool"),
+            "status": item.get("status"),
+        }
+        if "arguments" in item:
+            detail["arguments"] = item.get("arguments")
         if item_type == "tool_call":
             name = item.get("name")
             tool_name = str(name) if name else "tool"
             title = tool_name
             detail = {"name": name, "status": item.get("status")}
+            if "arguments" in item:
+                detail["arguments"] = item.get("arguments")
 
-        if etype in {"item.started", "item.updated"}:
+        if phase in {"started", "updated"}:
             return [
                 _action_event(
-                    event_type="action.started",
+                    phase=phase,
                     action_id=action_id,
                     kind=kind,
                     title=title,
                     detail=detail,
                 )
             ]
-        if etype == "item.completed":
+        if phase == "completed":
             ok = item.get("status") != "failed" and not item.get("error")
+            error = item.get("error")
+            if error:
+                detail["error_message"] = str(
+                    error.get("message") if isinstance(error, dict) else error
+                )
+            result_summary = _summarize_tool_result(item.get("result"))
+            if result_summary is not None:
+                detail["result_summary"] = result_summary
             return [
                 _action_event(
-                    event_type="action.completed",
+                    phase="completed",
                     action_id=action_id,
                     kind=kind,
                     title=title,
@@ -258,28 +304,31 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
 
     if kind == "web_search":
         title = str(item.get("query") or "")
-        if etype in {"item.started", "item.updated"}:
+        detail = {"query": item.get("query")}
+        if phase in {"started", "updated"}:
             return [
                 _action_event(
-                    event_type="action.started",
+                    phase=phase,
                     action_id=action_id,
                     kind=kind,
                     title=title,
+                    detail=detail,
                 )
             ]
-        if etype == "item.completed":
+        if phase == "completed":
             return [
                 _action_event(
-                    event_type="action.completed",
+                    phase="completed",
                     action_id=action_id,
                     kind=kind,
                     title=title,
+                    detail=detail,
                     ok=True,
                 )
             ]
 
     if kind == "file_change":
-        if etype != "item.completed":
+        if phase != "completed":
             return []
         title = _format_change_summary(item)
         detail = {
@@ -290,7 +339,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
         ok = item.get("status") != "failed"
         return [
             _action_event(
-                event_type="action.completed",
+                phase="completed",
                 action_id=action_id,
                 kind=kind,
                 title=title,
@@ -308,20 +357,20 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             title = str(item.get("text") or "")
             detail = None
 
-        if etype in {"item.started", "item.updated"}:
+        if phase in {"started", "updated"}:
             return [
                 _action_event(
-                    event_type="action.started",
+                    phase=phase,
                     action_id=action_id,
                     kind=kind,
                     title=title,
                     detail=detail,
                 )
             ]
-        if etype == "item.completed":
+        if phase == "completed":
             return [
                 _action_event(
-                    event_type="action.completed",
+                    phase="completed",
                     action_id=action_id,
                     kind=kind,
                     title=title,
@@ -339,7 +388,7 @@ def translate_codex_event(event: dict[str, Any], *, title: str) -> list[TakopiEv
         thread_id = event.get("thread_id")
         if thread_id:
             token = ResumeToken(engine=ENGINE, value=str(thread_id))
-            return [_session_started_event(token, title=title)]
+            return [_started_event(token, title=title)]
         logger.debug("[codex] codex thread.started missing thread_id: %r", event)
         return []
 
@@ -518,8 +567,9 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                 expected_session: ResumeToken | None = resume_token
                 found_session: ResumeToken | None = None
                 final_answer: str | None = None
-                fatal_message: str | None = None
                 note_seq = 0
+                did_emit_completed = False
+                turn_index = 0
 
                 def next_note_id() -> str:
                     nonlocal note_seq
@@ -537,6 +587,8 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                         line = raw.strip()
                         if not line:
                             continue
+                        if did_emit_completed:
+                            continue
                         try:
                             evt = json.loads(line)
                         except json.JSONDecodeError:
@@ -552,9 +604,22 @@ class CodexRunner(ResumeRunnerMixin, Runner):
 
                         etype = evt.get("type")
                         if etype == "error":
+                            message = str(evt.get("message") or "codex error")
+                            fatal_flag = evt.get("fatal")
+                            fatal = fatal_flag is True or fatal_flag is None
+                            if fatal:
+                                resume_for_completed = found_session or resume_token
+                                yield _completed_event(
+                                    resume=resume_for_completed,
+                                    ok=False,
+                                    answer=final_answer or "",
+                                    error=message,
+                                )
+                                did_emit_completed = True
+                                continue
                             note = _note_completed(
                                 next_note_id(),
-                                str(evt.get("message") or "codex error"),
+                                message,
                                 ok=False,
                                 detail={
                                     "code": evt.get("code"),
@@ -562,14 +627,18 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                 },
                             )
                             yield note
-                            if evt.get("fatal") is True:
-                                fatal_message = str(evt.get("message") or "codex error")
                             continue
                         if etype == "turn.failed":
                             error = evt.get("error") or {}
-                            fatal_message = str(error.get("message") or "codex turn failed")
-                            note = _note_completed(next_note_id(), fatal_message, ok=False)
-                            yield note
+                            message = str(error.get("message") or "codex turn failed")
+                            resume_for_completed = found_session or resume_token
+                            yield _completed_event(
+                                resume=resume_for_completed,
+                                ok=False,
+                                answer=final_answer or "",
+                                error=message,
+                            )
+                            did_emit_completed = True
                             continue
                         if etype == "turn.rate_limited":
                             retry_ms = evt.get("retry_after_ms")
@@ -578,6 +647,26 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                 message = f"rate limited (retry after {retry_ms}ms)"
                             note = _note_completed(next_note_id(), message, ok=False)
                             yield note
+                            continue
+                        if etype == "turn.started":
+                            action_id = f"turn_{turn_index}"
+                            turn_index += 1
+                            yield _action_event(
+                                phase="started",
+                                action_id=action_id,
+                                kind="turn",
+                                title="turn started",
+                            )
+                            continue
+                        if etype == "turn.completed":
+                            resume_for_completed = found_session or resume_token
+                            yield _completed_event(
+                                resume=resume_for_completed,
+                                ok=True,
+                                answer=final_answer or "",
+                                usage=evt.get("usage"),
+                            )
+                            did_emit_completed = True
                             continue
 
                         if evt.get("type") == "item.completed":
@@ -597,8 +686,8 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                     final_answer = item["text"]
 
                         for out_evt in translate_codex_event(evt, title=self.session_title):
-                            if out_evt["type"] == "session.started":
-                                session = out_evt["resume"]
+                            if out_evt.type == "started":
+                                session = out_evt.resume
                                 if found_session is None:
                                     if session.engine != ENGINE:
                                         raise RuntimeError(
@@ -620,27 +709,45 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                     rc = await proc.wait()
 
                 logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
-                if fatal_message:
-                    raise RuntimeError(fatal_message)
+                if did_emit_completed:
+                    return
                 if rc != 0:
                     stderr_text = "".join(stderr_chunks)
                     message = f"codex exec failed (rc={rc})."
-                    if found_session is not None:
-                        yield _note_completed(
-                            next_note_id(),
-                            message,
-                            ok=False,
-                            detail={"stderr_tail": stderr_text},
-                        )
-                    raise RuntimeError(f"{message} stderr tail:\n{stderr_text}")
+                    yield _note_completed(
+                        next_note_id(),
+                        message,
+                        ok=False,
+                        detail={"stderr_tail": stderr_text},
+                    )
+                    resume_for_completed = found_session or resume_token
+                    yield _completed_event(
+                        resume=resume_for_completed,
+                        ok=False,
+                        answer=final_answer or "",
+                        error=message,
+                    )
+                    return
 
                 if not found_session:
-                    raise RuntimeError(
+                    message = (
                         "codex exec finished but no session_id/thread_id was captured"
                     )
+                    resume_for_completed = resume_token
+                    yield _completed_event(
+                        resume=resume_for_completed,
+                        ok=False,
+                        answer=final_answer or "",
+                        error=message,
+                    )
+                    return
 
                 logger.info("[codex] done run session=%s", found_session.value)
-                yield _run_completed_event(found_session, answer=final_answer or "")
+                yield _completed_event(
+                    resume=found_session,
+                    ok=True,
+                    answer=final_answer or "",
+                )
         finally:
             if session_lock is not None and session_lock_acquired:
                 session_lock.release()

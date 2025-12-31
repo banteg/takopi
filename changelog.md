@@ -10,7 +10,7 @@
 - stream runner events via async iterators (natural backpressure)
 - render resume as `` `codex resume <token>` `` command lines
 - cap active bridge runs at 16 with per-thread backlog management
-- emit `run.completed` as the terminal event (resume + final answer)
+- emit `completed` as the terminal event (resume + final answer)
 - remove `--profile` flag; configure via `[codex].profile` only
 - require python 3.14+
 

@@ -1,4 +1,5 @@
 from typing import cast
+from types import SimpleNamespace
 
 from takopi.markdown import render_markdown
 from takopi.model import TakopiEvent
@@ -123,9 +124,8 @@ def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
     assert len(r.recent_actions) == 3
     assert "echo 3" in r.recent_actions[0]
     assert "echo 5" in r.recent_actions[-1]
-    assert (
-        r.note_event(cast(TakopiEvent, {"type": "mystery", "engine": "codex"})) is False
-    )
+    mystery = SimpleNamespace(type="mystery")
+    assert r.note_event(cast(TakopiEvent, mystery)) is False
 
 
 def test_progress_renderer_renders_commands_in_markdown() -> None:

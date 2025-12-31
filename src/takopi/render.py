@@ -52,7 +52,7 @@ def _action_status_symbol(
         return STATUS_RUNNING
     if ok is not None:
         return STATUS_DONE if ok else STATUS_FAIL
-    detail = action.get("detail") or {}
+    detail = action.detail or {}
     exit_code = detail.get("exit_code")
     if isinstance(exit_code, int) and exit_code != 0:
         return STATUS_FAIL
@@ -60,7 +60,7 @@ def _action_status_symbol(
 
 
 def _action_exit_suffix(action: Action) -> str:
-    detail = action.get("detail") or {}
+    detail = action.detail or {}
     exit_code = detail.get("exit_code")
     if isinstance(exit_code, int) and exit_code != 0:
         return f" (exit {exit_code})"
@@ -68,8 +68,8 @@ def _action_exit_suffix(action: Action) -> str:
 
 
 def _format_action_title(action: Action, *, command_width: int | None) -> str:
-    title = str(action.get("title") or "")
-    kind = action.get("kind")
+    title = str(action.title or "")
+    kind = action.kind
     if kind == "command":
         title = _shorten(title, command_width)
         return f"`{title}`"
@@ -80,7 +80,7 @@ def _format_action_title(action: Action, *, command_width: int | None) -> str:
         title = _shorten(title, MAX_QUERY_LEN)
         return f"searched: {title}"
     if kind == "file_change":
-        detail = action.get("detail") or {}
+        detail = action.detail or {}
         changes = detail.get("changes")
         if isinstance(changes, list) and changes:
             rendered: list[str] = []
@@ -106,6 +106,11 @@ def _format_action_title(action: Action, *, command_width: int | None) -> str:
     if kind == "note":
         title = _shorten(title, MAX_QUERY_LEN)
         return title
+    if kind == "warning":
+        title = _shorten(title, MAX_QUERY_LEN)
+        return title
+    if kind == "turn":
+        return _shorten(title, command_width)
     return _shorten(title, command_width)
 
 
@@ -113,17 +118,18 @@ def render_event_cli(
     event: TakopiEvent, last_item: int | None = None
 ) -> tuple[int | None, list[str]]:
     lines: list[str] = []
-    if event["type"] == "session.started":
-        lines.append(event.get("engine", "engine"))
-    elif event["type"] == "action.started":
-        action = event["action"]
+    if event.type == "started":
+        lines.append(str(event.engine))
+    elif event.type == "action":
+        action = event.action
+        phase = event.phase
+        if phase == "completed":
+            status = _action_status_symbol(action, completed=True, ok=event.ok)
+            suffix = _action_exit_suffix(action)
+        else:
+            status = STATUS_UPDATE if phase == "updated" else STATUS_RUNNING
+            suffix = ""
         title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
-        lines.append(f"{STATUS_RUNNING} {title}")
-    elif event["type"] == "action.completed":
-        action = event["action"]
-        status = _action_status_symbol(action, completed=True, ok=event.get("ok"))
-        title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
-        suffix = _action_exit_suffix(action)
         lines.append(f"{status} {title}{suffix}")
     else:
         return last_item, []
@@ -151,31 +157,31 @@ class ExecProgressRenderer:
         self.show_title = show_title
 
     def note_event(self, event: TakopiEvent) -> bool:
-        if event["type"] == "session.started":
-            self.resume_token = event["resume"]
-            self.session_title = event.get("title")
+        if event.type == "started":
+            self.resume_token = event.resume
+            self.session_title = event.title
             return True
 
-        if event["type"] == "action.started":
-            action = event["action"]
-            completed = False
-            ok = None
-            action_id = str(action.get("id") or "")
+        if event.type == "action":
+            action = event.action
+            phase = event.phase
+            action_id = str(action.id or "")
             if not action_id:
                 return False
-            started_count = self._started_counts.get(action_id, 0)
-            is_update = started_count > 0
-            if not is_update:
-                self._started_counts[action_id] = 1
-                self.action_count += 1
-        elif event["type"] == "action.completed":
-            action = event["action"]
-            completed = True
-            ok = event.get("ok")
-            action_id = str(action.get("id") or "")
-            if not action_id:
-                return False
-            is_update = False
+            completed = phase == "completed"
+            ok = event.ok if completed else None
+            if completed:
+                is_update = False
+            else:
+                started_count = self._started_counts.get(action_id, 0)
+                is_update = phase == "updated" or started_count > 0
+                if started_count == 0:
+                    self.action_count += 1
+                    self._started_counts[action_id] = 1
+                elif phase == "started":
+                    self._started_counts[action_id] = started_count + 1
+                else:
+                    self._started_counts[action_id] = started_count
         else:
             return False
 
@@ -189,7 +195,9 @@ class ExecProgressRenderer:
                 self._started_counts[action_id] = count - 1
 
         status = (
-            STATUS_UPDATE if (is_update and not completed) else _action_status_symbol(action, completed=completed, ok=ok)
+            STATUS_UPDATE
+            if (is_update and not completed)
+            else _action_status_symbol(action, completed=completed, ok=ok)
         )
         title = _format_action_title(action, command_width=self.command_width)
         suffix = _action_exit_suffix(action) if completed else ""

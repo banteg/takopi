@@ -90,9 +90,9 @@ Transforms takopi events into human-readable text:
 | `render_markdown()` | Moved to `markdown.py` |
 
 **Supported event types:**
-- `session.started`
-- `action.started`, `action.completed`
-- `log`, `error`
+- `started`
+- `action`
+- `completed`
 
 ### `model.py` / `runner.py` - Core domain types
 
@@ -169,7 +169,7 @@ CodexRunner.run()
     │   ExecProgressRenderer.note_event()
     │       ↓
     │   ProgressEdits throttled edit_message_text()
-    └── Ends with run.completed(resume, answer)
+    └── Ends with completed(resume, ok, answer)
     ↓
 render_final() with resume line (runner-formatted)
     ↓
@@ -187,7 +187,7 @@ Same as above, but:
 
 | Scenario | Behavior |
 |----------|----------|
-| `codex exec` fails (rc != 0) | Emits an `error` event and raises `RuntimeError` with stderr tail |
+| `codex exec` fails (rc != 0) | Emits a warning `action` plus `completed(ok=false, error=...)` |
 | Telegram API error | Logged, edit skipped (progress continues) |
 | Cancellation | Cancel scope terminates the process group (POSIX) and renders `cancelled` |
 | Errors in handler | Final render uses `status=error` and preserves resume tokens when known |

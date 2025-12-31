@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
-from takopi.model import ActionKind, EngineId, ResumeToken, TakopiEvent
+from takopi.model import Action, ActionEvent, ActionKind, EngineId, ResumeToken, StartedEvent, TakopiEvent
 
 
 def session_started(engine: str, value: str, title: str = "Codex") -> TakopiEvent:
     engine_id = EngineId(engine)
-    return cast(
-        TakopiEvent,
-        {
-            "type": "session.started",
-            "engine": engine_id,
-            "resume": ResumeToken(engine=engine_id, value=value),
-            "title": title,
-        },
+    return StartedEvent(
+        engine=engine_id,
+        resume=ResumeToken(engine=engine_id, value=value),
+        title=title,
     )
 
 
@@ -26,18 +22,15 @@ def action_started(
     engine: str = "codex",
 ) -> TakopiEvent:
     engine_id = EngineId(engine)
-    return cast(
-        TakopiEvent,
-        {
-            "type": "action.started",
-            "engine": engine_id,
-            "action": {
-                "id": action_id,
-                "kind": kind,
-                "title": title,
-                "detail": detail or {},
-            },
-        },
+    return ActionEvent(
+        engine=engine_id,
+        action=Action(
+            id=action_id,
+            kind=kind,
+            title=title,
+            detail=detail or {},
+        ),
+        phase="started",
     )
 
 
@@ -50,17 +43,14 @@ def action_completed(
     engine: str = "codex",
 ) -> TakopiEvent:
     engine_id = EngineId(engine)
-    return cast(
-        TakopiEvent,
-        {
-            "type": "action.completed",
-            "engine": engine_id,
-            "action": {
-                "id": action_id,
-                "kind": kind,
-                "title": title,
-                "detail": detail or {},
-            },
-            "ok": ok,
-        },
+    return ActionEvent(
+        engine=engine_id,
+        action=Action(
+            id=action_id,
+            kind=kind,
+            title=title,
+            detail=detail or {},
+        ),
+        phase="completed",
+        ok=ok,
     )

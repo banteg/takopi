@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
-from dataclasses import dataclass
-from typing import TypeAlias, cast
+from dataclasses import dataclass, replace
+from typing import TypeAlias
 from weakref import WeakValueDictionary
 
 import anyio
 
-from ..model import EngineId, ResumeToken, SessionStartedEvent, TakopiEvent
+from ..model import ActionEvent, CompletedEvent, EngineId, ResumeToken, StartedEvent, TakopiEvent
 from ..runner import ResumeRunnerMixin, Runner, compile_resume_pattern
 
 ENGINE: EngineId = EngineId("mock")
@@ -94,29 +94,29 @@ class MockRunner(ResumeRunnerMixin, Runner):
         if token_value is None:
             token_value = self._resume_value
         token = _resume_token(self.engine, token_value)
-        session_evt: SessionStartedEvent = {
-            "type": "session.started",
-            "engine": self.engine,
-            "resume": token,
-            "title": self.title,
-        }
+        session_evt = StartedEvent(
+            engine=self.engine,
+            resume=token,
+            title=self.title,
+        )
         lock = self._lock_for(token)
         async with lock:
             yield session_evt
 
             for event in self._events:
                 event_out: TakopiEvent = event
-                if event_out.get("type") == "action.completed" and "ok" not in event_out:
-                    event_out = cast(TakopiEvent, {**event_out, "ok": True})
+                if isinstance(event_out, ActionEvent) and event_out.phase == "completed":
+                    if event_out.ok is None:
+                        event_out = replace(event_out, ok=True)
                 yield event_out
                 await anyio.sleep(0)
 
-            yield {
-                "type": "run.completed",
-                "engine": self.engine,
-                "resume": token,
-                "answer": self._answer,
-            }
+            yield CompletedEvent(
+                engine=self.engine,
+                resume=token,
+                ok=True,
+                answer=self._answer,
+            )
 
 
 class ScriptRunner(MockRunner):
@@ -163,12 +163,11 @@ class ScriptRunner(MockRunner):
         if token_value is None:
             token_value = self._resume_value
         token = _resume_token(self.engine, token_value)
-        session_evt: SessionStartedEvent = {
-            "type": "session.started",
-            "engine": self.engine,
-            "resume": token,
-            "title": self.title,
-        }
+        session_evt = StartedEvent(
+            engine=self.engine,
+            resume=token,
+            title=self.title,
+        )
         lock = self._lock_for(token)
 
         async with lock:
@@ -181,8 +180,9 @@ class ScriptRunner(MockRunner):
                     if step.at is not None:
                         self._advance_to(step.at)
                     event_out: TakopiEvent = step.event
-                    if event_out.get("type") == "action.completed" and "ok" not in event_out:
-                        event_out = cast(TakopiEvent, {**event_out, "ok": True})
+                    if isinstance(event_out, ActionEvent) and event_out.phase == "completed":
+                        if event_out.ok is None:
+                            event_out = replace(event_out, ok=True)
                     yield event_out
                     await anyio.sleep(0)
                     continue
@@ -198,18 +198,18 @@ class ScriptRunner(MockRunner):
                 if isinstance(step, Raise):
                     raise step.error
                 if isinstance(step, Return):
-                    yield {
-                        "type": "run.completed",
-                        "engine": self.engine,
-                        "resume": token,
-                        "answer": step.answer,
-                    }
+                    yield CompletedEvent(
+                        engine=self.engine,
+                        resume=token,
+                        ok=True,
+                        answer=step.answer,
+                    )
                     return
                 raise RuntimeError(f"Unhandled script step: {step!r}")
 
-            yield {
-                "type": "run.completed",
-                "engine": self.engine,
-                "resume": token,
-                "answer": self._answer,
-            }
+            yield CompletedEvent(
+                engine=self.engine,
+                resume=token,
+                ok=True,
+                answer=self._answer,
+            )
