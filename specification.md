@@ -49,7 +49,7 @@ This is a normative spec using **MUST / SHOULD / MAY** language. Sections labele
 
 **Domain Model (Takopi-owned)**
 
-- Defines: `ResumeToken`, `RunResult`, `TakopiEvent`, `Action`.
+- Defines: `ResumeToken`, `TakopiEvent`, `Action` (including the terminal `run.completed` event).
 - No Telegram, no subprocess, no engine JSON.
 
 **Runner Interface (Takopi-owned)**
@@ -80,9 +80,9 @@ This is a normative spec using **MUST / SHOULD / MAY** language. Sections labele
 Recommended module layout (single-word filenames, clean layering):
 
 - `takopi/model.py`
-  Domain types: events, actions, resume token, run result.
+  Domain types: events, actions, resume token.
 - `takopi/runner.py`
-  Runner protocol + shared runner utilities (e.g., `EventQueue` if retained).
+  Runner protocol.
 - `takopi/runners/codex.py`
   Codex runner implementation.
 - `takopi/runners/mock.py`
@@ -169,6 +169,7 @@ Takopi MUST support the following event types:
 3. `action.completed`
 4. `log`
 5. `error`
+6. `run.completed`
 
 ### 5.3 Required fields by event type
 
@@ -222,6 +223,15 @@ Optional:
 
 - `detail: str` (stack trace / stderr tail)
 
+#### 5.3.6 `run.completed`
+
+Required:
+
+- `type: "run.completed"`
+- `engine: EngineId`
+- `resume: ResumeToken` (final resume token for the run; new or existing)
+- `answer: str` (final assistant response text; may be empty)
+
 ### 5.4 Action schema (MUST, per your Decision #4)
 
 Actions MUST have stable IDs.
@@ -262,12 +272,11 @@ The `ok` field semantics are **runner-defined**. For example, a runner MAY treat
 class Runner(Protocol):
     engine: str
 
-    async def run(
+    def run(
         self,
         prompt: str,
         resume: ResumeToken | None,
-        on_event: Callable[[TakopiEvent], None | Awaitable[None]],
-    ) -> RunResult: ...
+    ) -> AsyncIterator[TakopiEvent]: ...
 ```
 
 ### 6.2 Per-thread serialization (MUST; core invariant)
@@ -289,22 +298,25 @@ This prevents:
 **Codex note (non-normative):**
 For Codex, the resume token typically arrives as the first NDJSON event within ~1–2 seconds. If the subprocess exits before a resume token is observed, no `session.started` can be emitted and the bridge reports an error without a resume line.
 
-### 6.3 RunResult (MUST)
+### 6.3 Run completion event (MUST)
 
 ```python
-@dataclass(frozen=True, slots=True)
-class RunResult:
+class RunCompletedEvent(TypedDict):
+    type: Literal["run.completed"]
+    engine: EngineId
     resume: ResumeToken      # final resume token for the run (new or existing)
-    answer: str              # final assistant response text (may be empty on failure)
+    answer: str              # final assistant response text (may be empty)
 ```
+
+`run.completed` MUST be the final event of a successful run.
 
 ### 6.4 Event delivery semantics (MUST)
 
 Event ordering is significant. The system MUST ensure:
 
-- Events are delivered to `on_event` in the same order they are produced by the runner.
+- Events are yielded to the consumer in the same order they are produced by the runner.
 - Event delivery MUST NOT spawn unbounded background tasks per event.
-- If `on_event` raises an exception, the runner MUST abort the run.
+- If the consumer stops iteration early (break/cancel/exception), the runner MUST abort the run (best-effort) and release any held locks.
 
 ### 6.5 Crash and error handling
 
@@ -438,7 +450,7 @@ The architecture SHOULD keep this future change localized to a `RunnerRegistry` 
 1. **Runner contract tests**
    - Emits exactly one `session.started`
    - All actions have required fields and stable IDs
-   - `RunResult.resume` matches session started token
+   - `run.completed.resume` matches session started token
    - Event ordering is preserved
    - `ok` semantics match intended behavior
 2. **Per-thread serialization test (critical)**
