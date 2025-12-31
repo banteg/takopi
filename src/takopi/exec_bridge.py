@@ -430,7 +430,11 @@ async def handle_message(
         except Exception as e:
             error = e
         finally:
-            if running_task is not None and running_tasks is not None and progress_id is not None:
+            if (
+                running_task is not None
+                and running_tasks is not None
+                and progress_id is not None
+            ):
                 running_tasks.pop(progress_id, None)
             if exec_scope.cancelled_caught and not cancelled and error is None:
                 cancelled = True

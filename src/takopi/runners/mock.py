@@ -21,7 +21,9 @@ def _resume_token(value: str | None) -> ResumeToken:
 class MockRunner:
     engine: EngineId = ENGINE
 
-    def __init__(self, *, events: Iterable[TakopiEvent] | None = None, answer: str = "") -> None:
+    def __init__(
+        self, *, events: Iterable[TakopiEvent] | None = None, answer: str = ""
+    ) -> None:
         self._events = list(events or [])
         self._answer = answer
 

@@ -113,7 +113,10 @@ def test_render_event_cli_handles_action_kinds() -> None:
         out.extend(lines)
 
     assert any(line.startswith("✗ `pytest -q` (exit 1)") for line in out)
-    assert any("searched: python jsonlines parser handle unknown fields" in line for line in out)
+    assert any(
+        "searched: python jsonlines parser handle unknown fields" in line
+        for line in out
+    )
     assert any("tool: github.search_issues" in line for line in out)
     assert any("updated src/compute_answer.py" in line for line in out)
     assert any(line.startswith("error: stream error") for line in out)

@@ -102,9 +102,7 @@ def _format_change_summary(item: dict[str, Any]) -> str:
     return ", ".join(str(path) for path in paths)
 
 
-def _translate_item_event(
-    etype: str, item: dict[str, Any]
-) -> list[TakopiEvent]:
+def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]:
     item_type = item.get("type") or item.get("item_type")
     if item_type == "assistant_message":
         item_type = "agent_message"
@@ -129,7 +127,14 @@ def _translate_item_event(
     if kind == "command":
         title = str(item.get("command") or "")
         if etype == "item.started":
-            return [_action_event(event_type="action.started", action_id=action_id, kind=kind, title=title)]
+            return [
+                _action_event(
+                    event_type="action.started",
+                    action_id=action_id,
+                    kind=kind,
+                    title=title,
+                )
+            ]
         if etype == "item.completed":
             exit_code = item.get("exit_code")
             ok = None
@@ -345,7 +350,9 @@ class CodexRunner:
         resume_token: ResumeToken | None,
         on_event: EventSink | None,
     ) -> tuple[ResumeToken, str, bool]:
-        logger.info("[codex] start run resume=%r", resume_token.value if resume_token else None)
+        logger.info(
+            "[codex] start run resume=%r", resume_token.value if resume_token else None
+        )
         logger.debug("[codex] prompt: %s", prompt)
         args = [self.codex_cmd]
         args.extend(self.extra_args)
@@ -368,9 +375,7 @@ class CodexRunner:
             logger.debug("[codex] spawn pid=%s args=%r", proc.pid, args)
 
             stderr_chunks: list[str] = []
-            stderr_task = asyncio.create_task(
-                _drain_stderr(proc_stderr, stderr_chunks)
-            )
+            stderr_task = asyncio.create_task(_drain_stderr(proc_stderr, stderr_chunks))
 
             found_session: ResumeToken | None = resume_token
             saw_session_started = False
