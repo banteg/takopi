@@ -19,7 +19,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [format, ruff, ty, pytest]
+        include:
+          - task: format
+            command: uv run ruff format --check
+            sync_args: --no-install-project
+          - task: ruff
+            command: uv run ruff check .
+            sync_args: --no-install-project
+          - task: ty
+            command: uv run ty check .
+            sync_args: --no-install-project
+          - task: pytest
+            command: uv run pytest
+            sync_args: ""
+          - task: build
+            command: uv build
+            sync_args: ""
 
     steps:
       - name: Checkout
@@ -32,14 +47,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --frozen ${{ matrix.sync_args }}
 
       - name: Run check
-        shell: bash
-        run: |
-          case "${{ matrix.task }}" in
-            format) uv run ruff format --check ;;
-            ruff) uv run ruff check . ;;
-            ty) uv run ty check . ;;
-            pytest) uv run pytest ;;
-          esac
+        run: ${{ matrix.command }}
