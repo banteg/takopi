@@ -8,6 +8,7 @@ import subprocess
 from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any, cast
 from weakref import WeakValueDictionary
 
@@ -32,9 +33,11 @@ STDERR_TAIL_LINES = 200
 _ACTION_KIND_MAP: dict[str, ActionKind] = {
     "command_execution": "command",
     "mcp_tool_call": "tool",
+    "tool_call": "tool",
     "web_search": "web_search",
     "file_change": "file_change",
     "reasoning": "note",
+    "todo_list": "note",
 }
 
 _RESUME_RE = compile_resume_pattern(ENGINE)
@@ -87,6 +90,23 @@ def _action_event(
     return cast(TakopiEvent, payload)
 
 
+def _note_completed(
+    action_id: str,
+    message: str,
+    *,
+    ok: bool = False,
+    detail: dict[str, Any] | None = None,
+) -> TakopiEvent:
+    return _action_event(
+        event_type="action.completed",
+        action_id=action_id,
+        kind="note",
+        title=message,
+        detail=detail,
+        ok=ok,
+    )
+
+
 def _short_tool_name(item: dict[str, Any]) -> str:
     name = ".".join(part for part in (item.get("server"), item.get("tool")) if part)
     return name or "tool"
@@ -101,6 +121,44 @@ def _format_change_summary(item: dict[str, Any]) -> str:
             return "files"
         return f"{total} files"
     return ", ".join(str(path) for path in paths)
+
+
+@dataclass(frozen=True, slots=True)
+class _TodoSummary:
+    done: int
+    total: int
+    next_text: str | None
+
+
+def _summarize_todo_list(items: Any) -> _TodoSummary:
+    if not isinstance(items, list):
+        return _TodoSummary(done=0, total=0, next_text=None)
+
+    done = 0
+    total = 0
+    next_text: str | None = None
+
+    for raw_item in items:
+        if not isinstance(raw_item, dict):
+            continue
+        total += 1
+        completed = raw_item.get("completed") is True
+        if completed:
+            done += 1
+            continue
+        if next_text is None:
+            text = raw_item.get("text")
+            next_text = str(text) if text is not None else None
+
+    return _TodoSummary(done=done, total=total, next_text=next_text)
+
+
+def _todo_title(summary: _TodoSummary) -> str:
+    if summary.total <= 0:
+        return "todo"
+    if summary.next_text:
+        return f"todo {summary.done}/{summary.total}: {summary.next_text}"
+    return f"todo {summary.done}/{summary.total}: done"
 
 
 def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]:
@@ -136,7 +194,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
 
     if kind == "command":
         title = str(item.get("command") or "")
-        if etype == "item.started":
+        if etype in {"item.started", "item.updated"}:
             return [
                 _action_event(
                     event_type="action.started",
@@ -147,10 +205,13 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             ]
         if etype == "item.completed":
             exit_code = item.get("exit_code")
-            ok = True
+            ok = item.get("status") != "failed"
             if isinstance(exit_code, int):
-                ok = exit_code == 0
-            detail = {"exit_code": exit_code} if exit_code is not None else {}
+                ok = ok and exit_code == 0
+            detail = {
+                "exit_code": exit_code,
+                "status": item.get("status"),
+            }
             return [
                 _action_event(
                     event_type="action.completed",
@@ -163,9 +224,91 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             ]
 
     if kind == "tool":
-        title = _short_tool_name(item)
+        tool_name = _short_tool_name(item)
+        title = tool_name
         detail = {"server": item.get("server"), "tool": item.get("tool")}
-        if etype == "item.started":
+        if item_type == "tool_call":
+            name = item.get("name")
+            tool_name = str(name) if name else "tool"
+            title = tool_name
+            detail = {"name": name, "status": item.get("status")}
+
+        if etype in {"item.started", "item.updated"}:
+            return [
+                _action_event(
+                    event_type="action.started",
+                    action_id=action_id,
+                    kind=kind,
+                    title=title,
+                    detail=detail,
+                )
+            ]
+        if etype == "item.completed":
+            ok = item.get("status") != "failed" and not item.get("error")
+            return [
+                _action_event(
+                    event_type="action.completed",
+                    action_id=action_id,
+                    kind=kind,
+                    title=title,
+                    detail=detail,
+                    ok=ok,
+                )
+            ]
+
+    if kind == "web_search":
+        title = str(item.get("query") or "")
+        if etype in {"item.started", "item.updated"}:
+            return [
+                _action_event(
+                    event_type="action.started",
+                    action_id=action_id,
+                    kind=kind,
+                    title=title,
+                )
+            ]
+        if etype == "item.completed":
+            return [
+                _action_event(
+                    event_type="action.completed",
+                    action_id=action_id,
+                    kind=kind,
+                    title=title,
+                    ok=True,
+                )
+            ]
+
+    if kind == "file_change":
+        if etype != "item.completed":
+            return []
+        title = _format_change_summary(item)
+        detail = {
+            "changes": item.get("changes") or [],
+            "status": item.get("status"),
+            "error": item.get("error"),
+        }
+        ok = item.get("status") != "failed"
+        return [
+            _action_event(
+                event_type="action.completed",
+                action_id=action_id,
+                kind=kind,
+                title=title,
+                detail=detail,
+                ok=ok,
+            )
+        ]
+
+    if kind == "note":
+        if item_type == "todo_list":
+            summary = _summarize_todo_list(item.get("items"))
+            title = _todo_title(summary)
+            detail = {"done": summary.done, "total": summary.total}
+        else:
+            title = str(item.get("text") or "")
+            detail = None
+
+        if etype in {"item.started", "item.updated"}:
             return [
                 _action_event(
                     event_type="action.started",
@@ -186,50 +329,6 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
                     ok=True,
                 )
             ]
-
-    if kind == "web_search":
-        if etype != "item.completed":
-            return []
-        title = str(item.get("query") or "")
-        return [
-            _action_event(
-                event_type="action.completed",
-                action_id=action_id,
-                kind=kind,
-                title=title,
-                ok=True,
-            )
-        ]
-
-    if kind == "file_change":
-        if etype != "item.completed":
-            return []
-        title = _format_change_summary(item)
-        detail = {"changes": item.get("changes") or []}
-        return [
-            _action_event(
-                event_type="action.completed",
-                action_id=action_id,
-                kind=kind,
-                title=title,
-                detail=detail,
-                ok=True,
-            )
-        ]
-
-    if kind == "note":
-        if etype != "item.completed":
-            return []
-        title = str(item.get("text") or "")
-        return [
-            _action_event(
-                event_type="action.completed",
-                action_id=action_id,
-                kind=kind,
-                title=title,
-                ok=True,
-            )
-        ]
 
     return []
 
@@ -418,7 +517,15 @@ class CodexRunner(ResumeRunnerMixin, Runner):
 
                 expected_session: ResumeToken | None = resume_token
                 found_session: ResumeToken | None = None
+                pending_events: list[TakopiEvent] = []
                 final_answer: str | None = None
+                fatal_message: str | None = None
+                note_seq = 0
+
+                def next_note_id() -> str:
+                    nonlocal note_seq
+                    note_seq += 1
+                    return f"codex.note.{note_seq}"
 
                 async with anyio.create_task_group() as tg:
                     tg.start_soon(_drain_stderr, proc_stderr, stderr_chunks)
@@ -435,6 +542,55 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                             evt = json.loads(line)
                         except json.JSONDecodeError:
                             logger.debug("[codex] invalid json line: %s", line)
+                            note = _note_completed(
+                                next_note_id(),
+                                "invalid JSON from codex; ignoring line",
+                                ok=False,
+                                detail={"line": line},
+                            )
+                            if found_session is None:
+                                pending_events.append(note)
+                            else:
+                                yield note
+                            continue
+
+                        etype = evt.get("type")
+                        if etype == "error":
+                            note = _note_completed(
+                                next_note_id(),
+                                str(evt.get("message") or "codex error"),
+                                ok=False,
+                                detail={
+                                    "code": evt.get("code"),
+                                    "fatal": evt.get("fatal"),
+                                },
+                            )
+                            if found_session is None:
+                                pending_events.append(note)
+                            else:
+                                yield note
+                            if evt.get("fatal") is True:
+                                fatal_message = str(evt.get("message") or "codex error")
+                            continue
+                        if etype == "turn.failed":
+                            error = evt.get("error") or {}
+                            fatal_message = str(error.get("message") or "codex turn failed")
+                            note = _note_completed(next_note_id(), fatal_message, ok=False)
+                            if found_session is None:
+                                pending_events.append(note)
+                            else:
+                                yield note
+                            continue
+                        if etype == "turn.rate_limited":
+                            retry_ms = evt.get("retry_after_ms")
+                            message = "rate limited"
+                            if isinstance(retry_ms, int):
+                                message = f"rate limited (retry after {retry_ms}ms)"
+                            note = _note_completed(next_note_id(), message, ok=False)
+                            if found_session is None:
+                                pending_events.append(note)
+                            else:
+                                yield note
                             continue
 
                         if evt.get("type") == "item.completed":
@@ -472,14 +628,30 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                         session_lock_acquired = True
                                     found_session = session
                                     yield out_evt
+                                    if pending_events:
+                                        for pending in pending_events:
+                                            yield pending
+                                        pending_events.clear()
                                 continue
-                            yield out_evt
+                            if found_session is None:
+                                pending_events.append(out_evt)
+                            else:
+                                yield out_evt
                     rc = await proc.wait()
 
                 logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
+                if fatal_message:
+                    raise RuntimeError(fatal_message)
                 if rc != 0:
                     stderr_text = "".join(stderr_chunks)
                     message = f"codex exec failed (rc={rc})."
+                    if found_session is not None:
+                        yield _note_completed(
+                            next_note_id(),
+                            message,
+                            ok=False,
+                            detail={"stderr_tail": stderr_text},
+                        )
                     raise RuntimeError(f"{message} stderr tail:\n{stderr_text}")
 
                 if not found_session:
