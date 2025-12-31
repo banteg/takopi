@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -630,7 +630,10 @@ async def _send_with_resume(
     await send_stream.send((chat_id, user_msg_id, text, resume))
 
 
-async def _run_main_loop(cfg: BridgeConfig) -> None:
+async def _run_main_loop(
+    cfg: BridgeConfig,
+    poller: Callable[[BridgeConfig], AsyncIterator[dict[str, Any]]] = poll_updates,
+) -> None:
     worker_count = max(1, min(cfg.max_concurrency, 16))
     send_stream, receive_stream = anyio.create_memory_object_stream(
         max_buffer_size=worker_count * 2
@@ -664,7 +667,7 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
         async with anyio.create_task_group() as tg:
             for _ in range(worker_count):
                 tg.start_soon(worker)
-            async for msg in poll_updates(cfg):
+            async for msg in poller(cfg):
                 text = msg["text"]
                 user_msg_id = msg["message_id"]
 

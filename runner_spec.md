@@ -12,7 +12,7 @@ Below is a detailed spec for what `takopi/runners/base.py` should define, plus w
 
 ## 1) Single Runner protocol (v0.2.0)
 
-For v0.2.0 we keep it simple: **one runner per engine** and **no backend abstraction**.
+For v0.2.0 we keep it simple: **one runner per engine**, plus a small backend registry for setup checks and runner construction.
 
 The runner is the only protocol and is responsible for:
 
@@ -22,9 +22,9 @@ The runner is the only protocol and is responsible for:
 * final answer extraction
 * cancellation handling
 
-Setup checks (e.g., “is `codex` on PATH?”, “is the config valid?”) live outside the runner in onboarding/bridge code.
+Setup checks (e.g., “is `codex` on PATH?”, “is the config valid?”) live outside the runner in onboarding/bridge code and are exposed via the engine backend.
 
-**In v0.2.0**, `runners/base.py` defines the Runner protocol + shared helpers, and each engine module exports a runner implementation (`codex` and `mock`).
+**In v0.2.0**, `runners/base.py` defines the Runner protocol + shared helpers, `engines.py` registers backends, and each engine module exports a runner implementation (`codex` and `mock`).
 
 ---
 
@@ -140,11 +140,9 @@ ActionKind = Literal[
 
 ---
 
-## 3) Resume tokens: make them engine-qualified
+## 3) Resume tokens: use runner-formatted resume commands
 
-You called out “resume tags and resume CLI options”. The CLI flags are engine-specific, but the *tag* is takopi-level.
-
-To avoid accidentally resuming Claude with a Codex UUID, make the token explicit:
+You called out “resume tags and resume CLI options”. The CLI flags are engine-specific, and the resume line should be formatted by the active runner.
 
 ### `ResumeToken`
 
@@ -155,34 +153,27 @@ class ResumeToken:
     value: str         # opaque, engine-defined
 ```
 
-### Tag format (v0.2.0)
+### Command format (v0.2.0)
 
 Emit:
 
-* `resume: `<engine>:<value>``
+* `<engine> resume <value>` (optionally wrapped in backticks)
 
 Examples:
 
-* `resume: `codex:019b...``
-* `resume: `mock:019b...``
+* `codex resume 019b...`
+* `mock resume 019b...`
 
-### Parsing (back-compat)
+### Parsing
 
 Parser should accept:
 
-* new: `resume: `<engine>:<token>`` (engine-qualified)
-* legacy: `resume: `<uuid>``
-
-  * treat as `codex:<uuid>` for compatibility with v0.1.x
-
-Parsing rules:
-
-* Only accept the strict format above (no extra whitespace inside backticks).
+* plain or backticked `<engine> resume <token>` lines
 * If multiple resume lines exist, use the **last** one.
 
 **Where should parsing live?**
 
-Parsing/formatting is handled inside each runner. Since runners are engine-specific, they can interpret legacy or engine-qualified resume strings directly. The base module does not define shared parse/format helpers.
+Parsing/formatting is handled inside each runner. Since runners are engine-specific, they can interpret their own resume command format (and any legacy forms) directly. The base module does not define shared parse/format helpers.
 
 ---
 
@@ -190,7 +181,7 @@ Parsing/formatting is handled inside each runner. Since runners are engine-speci
 
 For v0.2.0, discovery and config validation live in onboarding/bridge code:
 
-* check `codex` is on PATH
+* check selected engine CLI is on PATH
 * read `takopi.toml`
 * validate `bot_token` / `chat_id`
 
@@ -200,7 +191,7 @@ The runner protocol does **not** include discovery APIs or data models.
 
 ## 5) Configuration spec: engine-specific section, but common shape
 
-Yes: `takopi.toml` should have per-engine top-level sections that are fed into runner construction. Engine selection is via CLI subcommand, not config. There is no shared `RunnerConfig` dataclass; each runner accepts a plain mapping of its own options.
+Yes: `takopi.toml` should have per-engine top-level sections that are fed into runner construction. Engine selection is via CLI flag (`--engine`), not config. There is no shared `RunnerConfig` dataclass; each runner accepts a plain mapping of its own options.
 
 Suggested config layout (v0.2.0):
 
@@ -240,14 +231,14 @@ Runner protocol method:
 async def run(
     self,
     prompt: str,
-    resume: str | None,
+    resume: ResumeToken | None,
     on_event: EventSink | None = None,
-) -> tuple[ResumeToken, str, bool]
+) -> RunResult
 ```
 
-`resume` is the raw resume string from the user (legacy UUID or engine-qualified). The runner interprets it and returns a `ResumeToken`.
+`resume` is the parsed token from the user (or `None`). The bridge extracts it via `runner.extract_resume()` and passes it in.
 
-Returns `(resume_token, answer, saw_agent_message)`. Errors raise `RuntimeError`. Cancellation raises `CancelledError`.
+Returns `RunResult(resume, answer, ok)`. Errors raise `RuntimeError`. Cancellation raises `CancelledError`.
 
 ### NDJSON handling is an implementation detail
 
@@ -330,7 +321,7 @@ Single protocol:
 * `Runner`:
 
   * `engine: EngineId`
-  * `run(prompt: str, resume: str | None, on_event: EventSink | None) -> tuple[ResumeToken, str, bool]`
+  * `run(prompt: str, resume: ResumeToken | None, on_event: EventSink | None) -> RunResult`
 
 ### Shared helpers
 
@@ -356,7 +347,7 @@ The following decisions were made through detailed discussion to clarify impleme
 ### Scope for v0.2.0
 
 * **Engines:** Mock engine + Codex only. Claude runner is deferred to a later version.
-* **Engine selection:** Via CLI subcommand (`takopi codex`), not config-based selection.
+* **Engine selection:** Via CLI flag (`--engine`), not config-based selection.
 * **Permissions:** Controlled by Codex profile configuration, out of scope for takopi.
 * **Multi-turn:** Not supported in v0.2.0. Engines run uninterrupted without mid-run user interaction.
 * **Answer streaming:** Not supported. Final answer delivered only when run completes.
@@ -408,7 +399,7 @@ The following decisions were made through detailed discussion to clarify impleme
 * No history replay on resume. Renderer starts fresh, only new actions are tracked.
 * Resume token is emitted early via `session.started` event (not just at completion).
 * `session.started` always contains a resume token; if none is produced, the run fails.
-* Resume parsing uses the last matching resume line and requires strict formatting; the runner is responsible for interpreting legacy vs engine-qualified strings.
+* Resume parsing uses the last matching resume line and requires strict formatting; the runner is responsible for interpreting its own resume command format.
 
 ### Error Handling & Cancellation
 
@@ -445,7 +436,7 @@ extra_args = ["-c", "notify=[]"]
 ### Data Model Simplifications
 
 **Run result shape:**
-* No shared dataclass. Runners return a simple tuple `(resume_token, answer, saw_agent_message)`.
+* Shared `RunResult` dataclass with `resume`, `answer`, and `ok`.
 * `answer` is an empty string if the engine produces no textual response.
 
 **Action detail:**
@@ -480,7 +471,7 @@ extra_args = ["-c", "notify=[]"]
 * If `on_event` fails, log and continue.
 
 **run() method:**
-* `async def run(self, prompt: str, resume: str | None, on_event: EventSink | None = None) -> tuple[ResumeToken, str, bool]`
+* `async def run(self, prompt: str, resume: ResumeToken | None, on_event: EventSink | None = None) -> RunResult`
 * Sufficient for all use cases. No separate start/poll pattern.
 
 ### Mock Engine
@@ -543,9 +534,9 @@ class Runner(Protocol):
     async def run(
         self,
         prompt: str,
-        resume: str | None,
+        resume: ResumeToken | None,
         on_event: EventSink | None = None
-    ) -> tuple[ResumeToken, str, bool]: ...
+    ) -> RunResult: ...
 ```
 
 ### Shared Helpers
@@ -558,7 +549,7 @@ None required in v0.2.0.
 
 The following are explicitly deferred:
 
-* Backend/EngineBackend protocol split
+* Full plugin system / dynamic backend discovery
 * Claude runner implementation
 * Capabilities / feature flags
 * Structured error taxonomy

@@ -37,7 +37,7 @@ uvx takopi
 
 ### Configuration
 
-Create `~/.codex/takopi.toml` (or `.codex/takopi.toml` for a repo-local config):
+Create `~/.takopi/takopi.toml` (or `.takopi/takopi.toml` for a repo-local config):
 
 ```toml
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
@@ -74,7 +74,7 @@ Then run takopi with:
 takopi --profile takopi
 ```
 
-Or set `profile = "takopi"` under `[codex]` in `~/.codex/takopi.toml`.
+Or set `profile = "takopi"` under `[codex]` in `~/.takopi/takopi.toml`.
 
 You can also use `--engine-option profile=takopi` instead of `--profile`.
 
@@ -98,7 +98,7 @@ Send any message to your bot. The bridge will:
 1. Send a silent progress message
 2. Stream events from `codex exec`
 3. Update progress every ~1 second
-4. Send final response with engine-qualified resume token
+4. Send final response with a resume token line
 
 ### Resume a Session
 

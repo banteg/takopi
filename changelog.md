@@ -5,7 +5,7 @@
 ### highlights
 
 - codex runner refactor with takopi event normalization (`session.started`, `action.*`, `log`, `error`)
-- engine-qualified resume tokens: ``resume: `codex:<token>` ``
+- resume command lines: `` `codex resume <token>` ``
 - `/cancel` support via progress message id + AnyIO cancel scopes
 - ordered event sink delivery via a single drain task (no per-event tasks)
 - run results are semantic (`RunResult.ok`) and routing is ready for multi-engine support
@@ -24,7 +24,7 @@ initial release.
 ### features
 
 - telegram bot bridge for openai codex cli using `codex exec` and `codex exec resume`
-- stateless session resume via `resume: <uuid>` lines embedded in messages
+- stateless session resume via `` `codex resume <token>` `` lines embedded in messages
 - real-time progress updates with ~2s throttling, showing commands, tools, and elapsed time
 - full markdown rendering with telegram entity support (via markdown-it-py + sulguk)
 - concurrent message handling with per-session serialization to prevent race conditions

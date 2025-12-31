@@ -1,12 +1,14 @@
 import uuid
+from typing import cast
 
 import anyio
 import pytest
 
 from takopi import engines
 from takopi.exec_bridge import prepare_telegram, truncate_for_telegram
-from takopi.runners.base import EngineId, EventSink, ResumeToken, RunResult, Runner
+from takopi.runners.base import ResumeToken, TakopiEvent
 from takopi.runners.codex import CodexRunner
+from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
 
 
 def _patch_config(monkeypatch, config):
@@ -195,42 +197,6 @@ class _SendStream:
         self.sent.append(item)
 
 
-class _FakeRunner(Runner):
-    engine: EngineId = "codex"
-
-    def __init__(self, *, answer: str, ok: bool = True) -> None:
-        self._answer = answer
-        self._ok = ok
-
-    def format_resume(self, token: ResumeToken) -> str:
-        return f"`codex resume {token.value}`"
-
-    def is_resume_line(self, line: str) -> bool:
-        return "codex resume" in line
-
-    def extract_resume(self, text: str | None) -> ResumeToken | None:
-        _ = text
-        return None
-
-    async def run(
-        self,
-        prompt: str,
-        resume: ResumeToken | None,
-        on_event: EventSink | None = None,
-    ) -> RunResult:
-        _ = prompt
-        _ = resume
-        _ = on_event
-        return RunResult(
-            resume=ResumeToken(
-                engine="codex",
-                value="019b66fc-64c2-7a71-81cd-081c504cfeb2",
-            ),
-            answer=self._answer,
-            ok=self._ok,
-        )
-
-
 class _FakeClock:
     def __init__(self, start: float = 0.0) -> None:
         self._now = start
@@ -260,63 +226,14 @@ class _FakeClock:
         await self._sleep_event.wait()
 
 
-class _FakeRunnerWithEvents(Runner):
-    engine: EngineId = "codex"
-
-    def __init__(
-        self,
-        *,
-        events: list[dict],
-        times: list[float],
-        clock: _FakeClock,
-        answer: str = "ok",
-        session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2",
-        advance_after: float | None = None,
-        hold: anyio.Event | None = None,
-    ) -> None:
-        self._events = events
-        self._times = times
-        self._clock = clock
-        self._answer = answer
-        self._session_id = session_id
-        self._advance_after = advance_after
-        self._hold = hold
-
-    def format_resume(self, token: ResumeToken) -> str:
-        return f"`codex resume {token.value}`"
-
-    def is_resume_line(self, line: str) -> bool:
-        return "codex resume" in line
-
-    def extract_resume(self, text: str | None) -> ResumeToken | None:
-        _ = text
-        return None
-
-    async def run(
-        self,
-        prompt: str,
-        resume: ResumeToken | None,
-        on_event: EventSink | None = None,
-    ) -> RunResult:
-        _ = prompt
-        _ = resume
-        if on_event is not None:
-            for when, event in zip(self._times, self._events, strict=False):
-                self._clock.set(when)
-                res = on_event(event)
-                if res is not None:
-                    await res
-                await anyio.sleep(0)
-            if self._advance_after is not None:
-                self._clock.set(self._advance_after)
-                await anyio.sleep(0)
-        if self._hold is not None:
-            await self._hold.wait()
-        return RunResult(
-            resume=ResumeToken(engine="codex", value=self._session_id),
-            answer=self._answer,
-            ok=True,
-        )
+def _return_runner(
+    *, answer: str = "ok", resume_value: str | None = None
+) -> ScriptRunner:
+    return ScriptRunner(
+        [Return(answer=answer)],
+        engine="codex",
+        resume_value=resume_value,
+    )
 
 
 @pytest.mark.anyio
@@ -324,14 +241,14 @@ async def test_final_notify_sends_loud_final_message() -> None:
     from takopi.exec_bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
-    runner = _FakeRunner(answer="ok")
+    runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
         runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
-        max_concurrency=1,
+        max_concurrency=2,
     )
 
     await handle_message(
@@ -352,7 +269,7 @@ async def test_new_final_message_forces_notification_when_too_long_to_edit() -> 
     from takopi.exec_bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
-    runner = _FakeRunner(answer="x" * 10_000)
+    runner = _return_runner(answer="x" * 10_000)
     cfg = BridgeConfig(
         bot=bot,
         runner=runner,
@@ -381,33 +298,43 @@ async def test_progress_edits_are_rate_limited() -> None:
 
     bot = _FakeBot()
     clock = _FakeClock()
-    events = [
-        {
-            "type": "action.started",
-            "engine": "codex",
-            "action": {
-                "id": "item_0",
-                "kind": "command",
-                "title": "echo 1",
-                "detail": {},
+    events: list[TakopiEvent] = [
+        cast(
+            TakopiEvent,
+            {
+                "type": "action.started",
+                "engine": "codex",
+                "action": {
+                    "id": "item_0",
+                    "kind": "command",
+                    "title": "echo 1",
+                    "detail": {},
+                },
             },
-        },
-        {
-            "type": "action.started",
-            "engine": "codex",
-            "action": {
-                "id": "item_1",
-                "kind": "command",
-                "title": "echo 2",
-                "detail": {},
+        ),
+        cast(
+            TakopiEvent,
+            {
+                "type": "action.started",
+                "engine": "codex",
+                "action": {
+                    "id": "item_1",
+                    "kind": "command",
+                    "title": "echo 2",
+                    "detail": {},
+                },
             },
-        },
+        ),
     ]
-    runner = _FakeRunnerWithEvents(
-        events=events,
-        times=[0.2, 0.4],
-        clock=clock,
-        advance_after=1.0,
+    runner = ScriptRunner(
+        [
+            Emit(events[0], at=0.2),
+            Emit(events[1], at=0.4),
+            Advance(1.0),
+            Return(answer="ok"),
+        ],
+        engine="codex",
+        advance=clock.set,
     )
     cfg = BridgeConfig(
         bot=bot,
@@ -440,34 +367,43 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
     bot = _FakeBot()
     clock = _FakeClock()
     hold = anyio.Event()
-    events = [
-        {
-            "type": "action.started",
-            "engine": "codex",
-            "action": {
-                "id": "item_0",
-                "kind": "command",
-                "title": "echo 1",
-                "detail": {},
+    events: list[TakopiEvent] = [
+        cast(
+            TakopiEvent,
+            {
+                "type": "action.started",
+                "engine": "codex",
+                "action": {
+                    "id": "item_0",
+                    "kind": "command",
+                    "title": "echo 1",
+                    "detail": {},
+                },
             },
-        },
-        {
-            "type": "action.started",
-            "engine": "codex",
-            "action": {
-                "id": "item_1",
-                "kind": "command",
-                "title": "echo 2",
-                "detail": {},
+        ),
+        cast(
+            TakopiEvent,
+            {
+                "type": "action.started",
+                "engine": "codex",
+                "action": {
+                    "id": "item_1",
+                    "kind": "command",
+                    "title": "echo 2",
+                    "detail": {},
+                },
             },
-        },
+        ),
     ]
-    runner = _FakeRunnerWithEvents(
-        events=events,
-        times=[0.2, 0.4],
-        clock=clock,
-        advance_after=None,
-        hold=hold,
+    runner = ScriptRunner(
+        [
+            Emit(events[0], at=0.2),
+            Emit(events[1], at=0.4),
+            Wait(hold),
+            Return(answer="ok"),
+        ],
+        engine="codex",
+        advance=clock.set,
     )
     cfg = BridgeConfig(
         bot=bot,
@@ -524,36 +460,45 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
 
     bot = _FakeBot()
     clock = _FakeClock()
-    events = [
-        {
-            "type": "action.started",
-            "engine": "codex",
-            "action": {
-                "id": "item_0",
-                "kind": "command",
-                "title": "echo ok",
-                "detail": {},
+    events: list[TakopiEvent] = [
+        cast(
+            TakopiEvent,
+            {
+                "type": "action.started",
+                "engine": "codex",
+                "action": {
+                    "id": "item_0",
+                    "kind": "command",
+                    "title": "echo ok",
+                    "detail": {},
+                },
             },
-        },
-        {
-            "type": "action.completed",
-            "engine": "codex",
-            "action": {
-                "id": "item_0",
-                "kind": "command",
-                "title": "echo ok",
-                "detail": {"exit_code": 0},
-                "ok": True,
+        ),
+        cast(
+            TakopiEvent,
+            {
+                "type": "action.completed",
+                "engine": "codex",
+                "action": {
+                    "id": "item_0",
+                    "kind": "command",
+                    "title": "echo ok",
+                    "detail": {"exit_code": 0},
+                    "ok": True,
+                },
             },
-        },
+        ),
     ]
     session_id = "123e4567-e89b-12d3-a456-426614174000"
-    runner = _FakeRunnerWithEvents(
-        events=events,
-        times=[0.0, 2.1],
-        clock=clock,
-        answer="done",
-        session_id=session_id,
+    runner = ScriptRunner(
+        [
+            Emit(events[0], at=0.0),
+            Emit(events[1], at=2.1),
+            Return(answer="done"),
+        ],
+        engine="codex",
+        advance=clock.set,
+        resume_value=session_id,
     )
     cfg = BridgeConfig(
         bot=bot,
@@ -588,7 +533,7 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
     from takopi.exec_bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
-    runner = _FakeRunner(answer="ok")
+    runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
         runner=runner,
@@ -611,7 +556,7 @@ async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> 
     from takopi.exec_bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
-    runner = _FakeRunner(answer="ok")
+    runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
         runner=runner,
@@ -638,7 +583,7 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
     from takopi.exec_bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
-    runner = _FakeRunner(answer="ok")
+    runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
         runner=runner,
@@ -666,7 +611,7 @@ async def test_handle_cancel_cancels_running_task() -> None:
     from takopi.exec_bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
-    runner = _FakeRunner(answer="ok")
+    runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
         runner=runner,
@@ -710,7 +655,7 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     from takopi.exec_bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
-    runner = _FakeRunner(answer="ok")
+    runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
         bot=bot,
         runner=runner,
@@ -739,88 +684,18 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     assert len(bot.send_calls) == 0
 
 
-class _FakeRunnerCancellable(Runner):
-    engine: EngineId = "codex"
-
-    def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
-        self._session_id = session_id
-
-    def format_resume(self, token: ResumeToken) -> str:
-        return f"`codex resume {token.value}`"
-
-    def is_resume_line(self, line: str) -> bool:
-        return "codex resume" in line
-
-    def extract_resume(self, text: str | None) -> ResumeToken | None:
-        _ = text
-        return None
-
-    async def run(
-        self,
-        prompt: str,
-        resume: ResumeToken | None,
-        on_event: EventSink | None = None,
-    ) -> RunResult:
-        _ = prompt
-        _ = resume
-        if on_event:
-            await on_event(
-                {
-                    "type": "session.started",
-                    "engine": "codex",
-                    "resume": {"engine": "codex", "value": self._session_id},
-                }
-            )
-        await anyio.sleep(10)  # Will be cancelled
-        return RunResult(
-            resume=ResumeToken(engine="codex", value=self._session_id),
-            answer="ok",
-            ok=True,
-        )
-
-
-class _FakeRunnerError(Runner):
-    engine: EngineId = "codex"
-
-    def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
-        self._session_id = session_id
-
-    def format_resume(self, token: ResumeToken) -> str:
-        return f"`codex resume {token.value}`"
-
-    def is_resume_line(self, line: str) -> bool:
-        return "codex resume" in line
-
-    def extract_resume(self, text: str | None) -> ResumeToken | None:
-        _ = text
-        return None
-
-    async def run(
-        self,
-        prompt: str,
-        resume: ResumeToken | None,
-        on_event: EventSink | None = None,
-    ) -> RunResult:
-        _ = prompt
-        _ = resume
-        if on_event:
-            await on_event(
-                {
-                    "type": "session.started",
-                    "engine": "codex",
-                    "resume": {"engine": "codex", "value": self._session_id},
-                }
-            )
-        raise RuntimeError("boom")
-
-
 @pytest.mark.anyio
 async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     from takopi.exec_bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
-    runner = _FakeRunnerCancellable(session_id=session_id)
+    hold = anyio.Event()
+    runner = ScriptRunner(
+        [Wait(hold)],
+        engine="codex",
+        resume_value=session_id,
+    )
     cfg = BridgeConfig(
         bot=bot,
         runner=runner,
@@ -863,7 +738,11 @@ async def test_handle_message_error_preserves_resume_token() -> None:
 
     bot = _FakeBot()
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
-    runner = _FakeRunnerError(session_id=session_id)
+    runner = ScriptRunner(
+        [Raise(RuntimeError("boom"))],
+        engine="codex",
+        resume_value=session_id,
+    )
     cfg = BridgeConfig(
         bot=bot,
         runner=runner,
@@ -938,3 +817,91 @@ async def test_send_with_resume_reports_when_missing() -> None:
     assert send_stream.sent == []
     assert bot.send_calls
     assert "resume token" in bot.send_calls[-1]["text"].lower()
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_routes_reply_to_running_resume() -> None:
+    from takopi.exec_bridge import BridgeConfig, _run_main_loop
+
+    progress_ready = anyio.Event()
+    stop_polling = anyio.Event()
+    reply_ready = anyio.Event()
+    hold = anyio.Event()
+
+    class _BotWithProgress(_FakeBot):
+        def __init__(self) -> None:
+            super().__init__()
+            self.progress_id: int | None = None
+
+        async def send_message(
+            self,
+            chat_id: int,
+            text: str,
+            reply_to_message_id: int | None = None,
+            disable_notification: bool | None = False,
+            entities: list[dict] | None = None,
+            parse_mode: str | None = None,
+        ) -> dict:
+            msg = await super().send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_to_message_id=reply_to_message_id,
+                disable_notification=disable_notification,
+                entities=entities,
+                parse_mode=parse_mode,
+            )
+            if self.progress_id is None and reply_to_message_id is not None:
+                self.progress_id = int(msg["message_id"])
+                progress_ready.set()
+            return msg
+
+    bot = _BotWithProgress()
+    resume_value = "abc123"
+    runner = ScriptRunner(
+        [Wait(hold), Sleep(0.05), Return(answer="ok")],
+        engine="codex",
+        resume_value=resume_value,
+    )
+    cfg = BridgeConfig(
+        bot=bot,
+        runner=runner,
+        chat_id=123,
+        final_notify=True,
+        startup_msg="",
+        max_concurrency=1,
+    )
+
+    async def poller(_cfg: BridgeConfig):
+        yield {
+            "message_id": 1,
+            "text": "first",
+            "chat": {"id": 123},
+            "from": {"id": 123},
+        }
+        await progress_ready.wait()
+        assert bot.progress_id is not None
+        reply_ready.set()
+        yield {
+            "message_id": 2,
+            "text": "followup",
+            "chat": {"id": 123},
+            "from": {"id": 123},
+            "reply_to_message": {"message_id": bot.progress_id},
+        }
+        await stop_polling.wait()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_run_main_loop, cfg, poller)
+        try:
+            with anyio.fail_after(2):
+                await reply_ready.wait()
+            await anyio.sleep(0)
+            hold.set()
+            with anyio.fail_after(2):
+                while len(runner.calls) < 2:
+                    await anyio.sleep(0)
+            assert runner.calls[1][1] == ResumeToken(engine="codex", value=resume_value)
+        finally:
+            hold.set()
+            stop_polling.set()
+            tg.cancel_scope.cancel()

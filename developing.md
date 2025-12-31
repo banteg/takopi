@@ -45,8 +45,8 @@ The orchestrator module containing:
 - Worker pool with an AnyIO memory stream limits concurrency (default: 16 workers)
 - `/cancel` maps progress message ids to an AnyIO CancelScope for immediate cancellation
 - Progress edits are throttled to ~1s intervals and only run when new events arrive
-- Resume tokens are engine-qualified for reliable routing
-- Runner routing prefers the resume token engine and falls back to the default runner
+- Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``)
+- Resume parsing is delegated to the active runner (no cross-engine fallback)
 
 ### `runners/codex.py` - Codex runner
 
@@ -81,6 +81,7 @@ Transforms takopi events into human-readable text:
 
 | File | Purpose |
 |------|---------|
+| `engines.py` | Engine backend registry (setup checks + runner construction) |
 | `runners/base.py` | Runner protocol + takopi event types |
 | `runners/codex.py` | Codex runner (JSONL to takopi events) + per-resume locks |
 | `runners/mock.py` | Mock runner for tests/demos |
@@ -89,7 +90,7 @@ Transforms takopi events into human-readable text:
 
 ```python
 def load_telegram_config() -> tuple[dict, Path]:
-    # Loads ./.codex/takopi.toml, then ~/.codex/takopi.toml
+    # Loads ./.takopi/takopi.toml, then ~/.takopi/takopi.toml
 ```
 
 ### `logging.py` - Secure logging setup
@@ -105,8 +106,8 @@ def setup_logging(*, debug: bool):
 ### `onboarding.py` - Setup validation
 
 ```python
-def check_setup() -> SetupResult:
-    # Validates codex CLI on PATH and config file
+def check_setup(backend: EngineBackend) -> SetupResult:
+    # Validates engine CLI on PATH and config file
 
 def render_setup_guide(result: SetupResult):
     # Displays rich panel with setup instructions
@@ -138,7 +139,7 @@ CodexRunner.run()
     │   ProgressEdits throttled edit_message_text()
     └── Returns RunResult(resume, answer, ok)
     ↓
-render_final() with resume line (engine-qualified)
+render_final() with resume line (runner-formatted)
     ↓
 Send/edit final message
 ```
