@@ -39,7 +39,6 @@ The orchestrator module containing:
 | `_run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
 | `handle_message()` | Per-message handler with progress updates and final render |
 | `ProgressEdits` | Throttled progress edit worker |
-| `RunnerRouter` | Selects a runner and delegates resume parsing to runners |
 | `truncate_for_telegram()` | Smart truncation preserving resume lines |
 
 **Key patterns:**

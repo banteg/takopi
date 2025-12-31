@@ -18,7 +18,7 @@ from .exec_render import ExecProgressRenderer, render_markdown
 from .logging import setup_logging
 from .onboarding import check_setup, render_setup_guide
 from .telegram import TelegramClient
-from .runners.base import EngineId, ResumeToken, RunResult, Runner, TakopiEvent
+from .runners.base import ResumeToken, RunResult, Runner, TakopiEvent
 from .runners.codex import CodexRunner
 
 
@@ -40,9 +40,9 @@ def _version_callback(value: bool) -> None:
 
 
 def _resolve_resume(
-    router: "RunnerRouter", text: str | None, reply_text: str | None
+    runner: Runner, text: str | None, reply_text: str | None
 ) -> ResumeToken | None:
-    return router.extract_resume(text) or router.extract_resume(reply_text)
+    return runner.extract_resume(text) or runner.extract_resume(reply_text)
 
 
 TELEGRAM_MARKDOWN_LIMIT = 3500
@@ -215,33 +215,6 @@ class BridgeConfig:
     final_notify: bool
     startup_msg: str
     max_concurrency: int
-    router: "RunnerRouter | None" = None
-
-
-@dataclass(frozen=True)
-class RunnerRouter:
-    default: Runner
-    runners: dict[EngineId, Runner]
-
-    def choose(self, resume: ResumeToken | None) -> Runner:
-        if resume is None:
-            return self.default
-        runner = self.runners.get(resume.engine)
-        if runner is None:
-            raise RuntimeError(f"unknown engine {resume.engine!r} in resume token")
-        return runner
-
-    def extract_resume(self, text: str | None) -> ResumeToken | None:
-        if not text:
-            return None
-        ordered = [self.default] + [
-            runner for runner in self.runners.values() if runner is not self.default
-        ]
-        for runner in ordered:
-            token = runner.extract_resume(text)
-            if token is not None:
-                return token
-        return None
 
 
 @dataclass
@@ -315,7 +288,6 @@ def _parse_bridge_config(
 
     bot = TelegramClient(token)
     runner = CodexRunner(codex_cmd=codex_cmd, extra_args=extra_args)
-    router = RunnerRouter(default=runner, runners={runner.engine: runner})
 
     return BridgeConfig(
         bot=bot,
@@ -324,7 +296,6 @@ def _parse_bridge_config(
         final_notify=final_notify,
         startup_msg=startup_msg,
         max_concurrency=16,
-        router=router,
     )
 
 
@@ -373,21 +344,7 @@ async def handle_message(
         text,
     )
     started_at = clock()
-    try:
-        runner = cfg.router.choose(resume_token) if cfg.router else cfg.runner
-    except Exception as e:
-        progress_renderer = ExecProgressRenderer(max_actions=5)
-        err_body = f"Error:\n{e}"
-        final_md = progress_renderer.render_final(0.0, err_body, status="error")
-        await _send_or_edit_markdown(
-            cfg.bot,
-            chat_id=chat_id,
-            text=final_md,
-            reply_to_message_id=user_msg_id,
-            disable_notification=True,
-            limit=TELEGRAM_MARKDOWN_LIMIT,
-        )
-        return
+    runner = cfg.runner
 
     progress_renderer = ExecProgressRenderer(
         max_actions=5, resume_formatter=runner.format_resume
@@ -684,9 +641,6 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
         max_buffer_size=worker_count * 2
     )
     running_tasks: dict[int, RunningTask] = {}
-    router = cfg.router or RunnerRouter(
-        default=cfg.runner, runners={cfg.runner.engine: cfg.runner}
-    )
 
     async def worker() -> None:
         while True:
@@ -724,7 +678,7 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
                     continue
 
                 r = msg.get("reply_to_message") or {}
-                resume_token = _resolve_resume(router, text, r.get("text"))
+                resume_token = _resolve_resume(cfg.runner, text, r.get("text"))
                 reply_id = r.get("message_id")
                 if resume_token is None and reply_id is not None:
                     running_task = running_tasks.get(int(reply_id))
