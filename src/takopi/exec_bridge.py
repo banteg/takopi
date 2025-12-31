@@ -408,9 +408,15 @@ async def handle_message(
             running_task.resume = progress_renderer.resume_token
             running_task.resume_ready.set()
 
+    edits_scope = anyio.CancelScope()
+
+    async def run_edits() -> None:
+        with edits_scope:
+            await edits.run()
+
     async with anyio.create_task_group() as tg:
         if progress_id is not None:
-            tg.start_soon(edits.run)
+            tg.start_soon(run_edits)
 
         try:
             with exec_scope:
@@ -436,7 +442,7 @@ async def handle_message(
                 resume_token_value = progress_renderer.resume_token
             if not cancelled and error is None:
                 await anyio.sleep(0)
-            tg.cancel_scope.cancel()
+            edits_scope.cancel()
 
     if error is not None:
         elapsed = clock() - started_at
