@@ -1,5 +1,6 @@
 import anyio
 import pytest
+from collections.abc import AsyncGenerator
 from typing import cast
 
 from takopi.model import EngineId, ResumeToken, TakopiEvent
@@ -72,14 +73,17 @@ async def test_runner_releases_lock_when_consumer_closes() -> None:
     gate = anyio.Event()
     runner = ScriptRunner([Wait(gate)], engine=CODEX_ENGINE, resume_value="sid")
 
-    gen = runner.run("hello", None)
+    gen = cast(AsyncGenerator[TakopiEvent, None], runner.run("hello", None))
     try:
         evt = await anext(gen)
         assert evt["type"] == "session.started"
     finally:
         await gen.aclose()
 
-    gen2 = runner.run("again", ResumeToken(engine=CODEX_ENGINE, value="sid"))
+    gen2 = cast(
+        AsyncGenerator[TakopiEvent, None],
+        runner.run("again", ResumeToken(engine=CODEX_ENGINE, value="sid")),
+    )
     try:
         evt2 = await anext(gen2)
         assert evt2["type"] == "session.started"
