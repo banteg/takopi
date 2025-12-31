@@ -13,7 +13,7 @@ from typing import Any
 
 import anyio
 
-from .markdown import TELEGRAM_MARKDOWN_LIMIT, prepare_telegram, render_markdown
+from .markdown import TELEGRAM_MARKDOWN_LIMIT, prepare_telegram
 from .model import ResumeToken, TakopiEvent
 from .render import ExecProgressRenderer
 from .runner import Runner
@@ -88,10 +88,14 @@ async def _send_or_edit_markdown(
     disable_notification: bool = False,
     limit: int = TELEGRAM_MARKDOWN_LIMIT,
     is_resume_line: Callable[[str], bool] | None = None,
+    prepared: tuple[str, list[dict[str, Any]] | None] | None = None,
 ) -> tuple[dict[str, Any] | None, bool]:
-    rendered, entities = prepare_telegram(
-        text, limit=limit, is_resume_line=is_resume_line
-    )
+    if prepared is None:
+        rendered, entities = prepare_telegram(
+            text, limit=limit, is_resume_line=is_resume_line
+        )
+    else:
+        rendered, entities = prepared
     if edit_message_id is not None:
         edited = await bot.edit_message_text(
             chat_id=chat_id,
@@ -461,10 +465,10 @@ async def handle_message(
     progress_renderer.resume_token = resume_token_value
     final_md = progress_renderer.render_final(elapsed, answer, status=status)
     logger.debug("[final] markdown: %s", final_md)
-    final_rendered, final_entities = render_markdown(final_md)
-    can_edit_final = (
-        progress_id is not None and len(final_rendered) <= TELEGRAM_MARKDOWN_LIMIT
+    final_rendered, final_entities = prepare_telegram(
+        final_md, limit=TELEGRAM_MARKDOWN_LIMIT, is_resume_line=is_resume_line
     )
+    can_edit_final = progress_id is not None and final_entities is not None
     edit_message_id = None if cfg.final_notify or not can_edit_final else progress_id
 
     if edit_message_id is None:
@@ -491,6 +495,7 @@ async def handle_message(
         disable_notification=False,
         limit=TELEGRAM_MARKDOWN_LIMIT,
         is_resume_line=is_resume_line,
+        prepared=(final_rendered, final_entities),
     )
     if final_msg is None:
         return
