@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Runner protocol and shared utilities for emitting Takopi events."""
+
+from __future__ import annotations
 
 import inspect
 import logging
@@ -122,6 +122,7 @@ class EventQueue:
             await self._error_event.wait()
         else:
             async with anyio.create_task_group() as tg:
+
                 async def wait_done() -> None:
                     await done.wait()
                     tg.cancel_scope.cancel()

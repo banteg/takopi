@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Telegram bridge orchestration for running a single runner and streaming progress."""
+
+from __future__ import annotations
 
 import logging
 import re
@@ -61,7 +61,6 @@ def _resume_warning_text(engine_hint: str | None, current_engine: str) -> str:
 
 async def _send_resume_warning(
     bot: BotClient,
-    *,
     chat_id: int,
     user_msg_id: int,
     engine_hint: str | None,
@@ -657,6 +656,7 @@ async def _run_main_loop(
 
     try:
         async with anyio.create_task_group() as tg:
+
             def enqueue(
                 chat_id: int,
                 user_msg_id: int,
@@ -697,10 +697,10 @@ async def _run_main_loop(
                         tg.start_soon(
                             _send_resume_warning,
                             cfg.bot,
-                            chat_id=msg["chat"]["id"],
-                            user_msg_id=user_msg_id,
-                            engine_hint=engine_text or engine_reply,
-                            current_engine=str(cfg.runner.engine),
+                            msg["chat"]["id"],
+                            user_msg_id,
+                            engine_text or engine_reply,
+                            str(cfg.runner.engine),
                         )
 
                 enqueue(msg["chat"]["id"], user_msg_id, text, resume_token)

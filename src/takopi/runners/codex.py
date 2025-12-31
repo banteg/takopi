@@ -20,12 +20,13 @@ from ..model import (
     EngineId,
     ErrorEvent,
     LogEvent,
+    LogLevel,
     ResumeToken,
     RunResult,
     SessionStartedEvent,
     TakopiEvent,
 )
-from ..runner import EventQueue, EventSink
+from ..runner import EventQueue, EventSink, Runner
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +56,14 @@ def _session_started_event(token: ResumeToken, *, title: str) -> SessionStartedE
     }
 
 
-def _log_event(level: str, message: str) -> LogEvent:
-    return {
+def _log_event(level: LogLevel, message: str) -> LogEvent:
+    event: LogEvent = {
         "type": "log",
         "engine": ENGINE,
         "level": level,
         "message": message,
     }
+    return event
 
 
 def _error_event(message: str, *, detail: str | None = None) -> ErrorEvent:
@@ -353,7 +355,7 @@ async def manage_subprocess(*args, **kwargs):
                     await proc.wait()
 
 
-class CodexRunner:
+class CodexRunner(Runner):
     engine: EngineId = ENGINE
 
     def __init__(

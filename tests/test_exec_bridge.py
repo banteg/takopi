@@ -1,15 +1,16 @@
 import uuid
-from typing import cast
 
 import anyio
 import pytest
 
 from takopi import engines
 from takopi.markdown import prepare_telegram, truncate_for_telegram
-from takopi.model import ResumeToken, TakopiEvent
+from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
 from tests.factories import action_completed, action_started
+
+CODEX_ENGINE = EngineId("codex")
 
 
 def _patch_config(monkeypatch, config):
@@ -55,7 +56,7 @@ def test_codex_extract_resume_finds_command() -> None:
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
     text = f"`codex resume {uuid}`"
 
-    assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid)
+    assert runner.extract_resume(text) == ResumeToken(engine=CODEX_ENGINE, value=uuid)
 
 
 def test_codex_extract_resume_uses_last_resume_line() -> None:
@@ -64,7 +65,9 @@ def test_codex_extract_resume_uses_last_resume_line() -> None:
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
     text = f"`codex resume {uuid_first}`\n\n`codex resume {uuid_last}`"
 
-    assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid_last)
+    assert runner.extract_resume(text) == ResumeToken(
+        engine=CODEX_ENGINE, value=uuid_last
+    )
 
 
 def test_codex_extract_resume_ignores_malformed_resume_line() -> None:
@@ -79,7 +82,7 @@ def test_codex_extract_resume_accepts_plain_line() -> None:
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
     text = f"codex resume {uuid}"
 
-    assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid)
+    assert runner.extract_resume(text) == ResumeToken(engine=CODEX_ENGINE, value=uuid)
 
 
 def test_codex_extract_resume_accepts_uuid7() -> None:
@@ -89,7 +92,7 @@ def test_codex_extract_resume_accepts_uuid7() -> None:
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
     text = f"`codex resume {token}`"
 
-    assert runner.extract_resume(text) == ResumeToken(engine="codex", value=token)
+    assert runner.extract_resume(text) == ResumeToken(engine=CODEX_ENGINE, value=token)
 
 
 def test_truncate_for_telegram_preserves_resume_line() -> None:
@@ -224,7 +227,7 @@ def _return_runner(
 ) -> ScriptRunner:
     return ScriptRunner(
         [Return(answer=answer)],
-        engine="codex",
+        engine=CODEX_ENGINE,
         resume_value=resume_value,
     )
 
@@ -292,8 +295,8 @@ async def test_progress_edits_are_rate_limited() -> None:
     bot = _FakeBot()
     clock = _FakeClock()
     events: list[TakopiEvent] = [
-        cast(TakopiEvent, action_started("item_0", "command", "echo 1")),
-        cast(TakopiEvent, action_started("item_1", "command", "echo 2")),
+        action_started("item_0", "command", "echo 1"),
+        action_started("item_1", "command", "echo 2"),
     ]
     runner = ScriptRunner(
         [
@@ -302,7 +305,7 @@ async def test_progress_edits_are_rate_limited() -> None:
             Advance(1.0),
             Return(answer="ok"),
         ],
-        engine="codex",
+        engine=CODEX_ENGINE,
         advance=clock.set,
     )
     cfg = BridgeConfig(
@@ -337,8 +340,8 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
     clock = _FakeClock()
     hold = anyio.Event()
     events: list[TakopiEvent] = [
-        cast(TakopiEvent, action_started("item_0", "command", "echo 1")),
-        cast(TakopiEvent, action_started("item_1", "command", "echo 2")),
+        action_started("item_0", "command", "echo 1"),
+        action_started("item_1", "command", "echo 2"),
     ]
     runner = ScriptRunner(
         [
@@ -347,7 +350,7 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
             Wait(hold),
             Return(answer="ok"),
         ],
-        engine="codex",
+        engine=CODEX_ENGINE,
         advance=clock.set,
     )
     cfg = BridgeConfig(
@@ -406,16 +409,13 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
     bot = _FakeBot()
     clock = _FakeClock()
     events: list[TakopiEvent] = [
-        cast(TakopiEvent, action_started("item_0", "command", "echo ok")),
-        cast(
-            TakopiEvent,
-            action_completed(
-                "item_0",
-                "command",
-                "echo ok",
-                ok=True,
-                detail={"exit_code": 0},
-            ),
+        action_started("item_0", "command", "echo ok"),
+        action_completed(
+            "item_0",
+            "command",
+            "echo ok",
+            ok=True,
+            detail={"exit_code": 0},
         ),
     ]
     session_id = "123e4567-e89b-12d3-a456-426614174000"
@@ -425,7 +425,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
             Emit(events[1], at=2.1),
             Return(answer="done"),
         ],
-        engine="codex",
+        engine=CODEX_ENGINE,
         advance=clock.set,
         resume_value=session_id,
     )
@@ -636,7 +636,7 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     hold = anyio.Event()
     runner = ScriptRunner(
         [Wait(hold)],
-        engine="codex",
+        engine=CODEX_ENGINE,
         resume_value=session_id,
     )
     cfg = BridgeConfig(
@@ -686,7 +686,7 @@ async def test_handle_message_error_preserves_resume_token() -> None:
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     runner = ScriptRunner(
         [Raise(RuntimeError("boom"))],
-        engine="codex",
+        engine=CODEX_ENGINE,
         resume_value=session_id,
     )
     cfg = BridgeConfig(
@@ -720,15 +720,14 @@ async def test_send_with_resume_waits_for_token() -> None:
     bot = _FakeBot()
     sent: list[tuple[int, int, str, ResumeToken | None]] = []
 
-    def enqueue(
-        chat_id: int, user_msg_id: int, text: str, resume: ResumeToken
-    ) -> None:
+    def enqueue(chat_id: int, user_msg_id: int, text: str, resume: ResumeToken) -> None:
         sent.append((chat_id, user_msg_id, text, resume))
+
     running_task = RunningTask()
 
     async def trigger_resume() -> None:
         await anyio.sleep(0)
-        running_task.resume = ResumeToken(engine="codex", value="abc123")
+        running_task.resume = ResumeToken(engine=CODEX_ENGINE, value="abc123")
         running_task.resume_ready.set()
 
     async with anyio.create_task_group() as tg:
@@ -743,7 +742,7 @@ async def test_send_with_resume_waits_for_token() -> None:
         )
 
     assert sent == [
-        (123, 10, "hello", ResumeToken(engine="codex", value="abc123"))
+        (123, 10, "hello", ResumeToken(engine=CODEX_ENGINE, value="abc123"))
     ]
 
 
@@ -754,10 +753,9 @@ async def test_send_with_resume_reports_when_missing() -> None:
     bot = _FakeBot()
     sent: list[tuple[int, int, str, ResumeToken | None]] = []
 
-    def enqueue(
-        chat_id: int, user_msg_id: int, text: str, resume: ResumeToken
-    ) -> None:
+    def enqueue(chat_id: int, user_msg_id: int, text: str, resume: ResumeToken) -> None:
         sent.append((chat_id, user_msg_id, text, resume))
+
     running_task = RunningTask()
     running_task.done.set()
 
@@ -815,7 +813,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
     resume_value = "abc123"
     runner = ScriptRunner(
         [Wait(hold), Sleep(0.05), Return(answer="ok")],
-        engine="codex",
+        engine=CODEX_ENGINE,
         resume_value=resume_value,
     )
     cfg = BridgeConfig(
@@ -856,7 +854,9 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
             with anyio.fail_after(2):
                 while len(runner.calls) < 2:
                     await anyio.sleep(0)
-            assert runner.calls[1][1] == ResumeToken(engine="codex", value=resume_value)
+            assert runner.calls[1][1] == ResumeToken(
+                engine=CODEX_ENGINE, value=resume_value
+            )
         finally:
             hold.set()
             stop_polling.set()

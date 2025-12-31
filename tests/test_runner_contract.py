@@ -1,28 +1,34 @@
 import pytest
+from typing import cast
 
-from takopi.model import ResumeToken, TakopiEvent
+from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.runners.mock import Emit, Return, ScriptRunner
 from tests.factories import action_started
+
+CODEX_ENGINE = EngineId("codex")
 
 
 @pytest.mark.anyio
 async def test_runner_contract_session_started_and_order() -> None:
-    raw_completed: TakopiEvent = {
-        "type": "action.completed",
-        "engine": "codex",
-        "action": {
-            "id": "a-1",
-            "kind": "command",
-            "title": "echo ok",
-            "detail": {"exit_code": 0},
+    raw_completed: TakopiEvent = cast(
+        TakopiEvent,
+        {
+            "type": "action.completed",
+            "engine": CODEX_ENGINE,
+            "action": {
+                "id": "a-1",
+                "kind": "command",
+                "title": "echo ok",
+                "detail": {"exit_code": 0},
+            },
         },
-    }
+    )
     script = [
         Emit(action_started("a-1", "command", "echo ok")),
         Emit(raw_completed),
         Return(answer="done"),
     ]
-    runner = ScriptRunner(script, engine="codex", resume_value="abc123")
+    runner = ScriptRunner(script, engine=CODEX_ENGINE, resume_value="abc123")
     seen: list[TakopiEvent] = []
 
     async def on_event(event: TakopiEvent) -> None:
@@ -47,7 +53,9 @@ async def test_runner_contract_session_started_and_order() -> None:
 
 @pytest.mark.anyio
 async def test_runner_contract_resume_matches_session_started() -> None:
-    runner = ScriptRunner([Return(answer="ok")], engine="codex", resume_value="sid")
+    runner = ScriptRunner(
+        [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
+    )
     seen: list[TakopiEvent] = []
 
     async def on_event(event: TakopiEvent) -> None:
@@ -61,7 +69,7 @@ async def test_runner_contract_resume_matches_session_started() -> None:
 
 @pytest.mark.anyio
 async def test_runner_aborts_on_event_error() -> None:
-    runner = ScriptRunner([Return(answer="ok")], engine="codex")
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
 
     async def on_event(_event: TakopiEvent) -> None:
         raise RuntimeError("boom")

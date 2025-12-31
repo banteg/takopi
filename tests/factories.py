@@ -1,76 +1,95 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
-from takopi.model import ResumeToken, TakopiEvent
+from takopi.model import ActionKind, EngineId, LogLevel, ResumeToken, TakopiEvent
 
 
 def session_started(engine: str, value: str, title: str = "Codex") -> TakopiEvent:
-    return {
-        "type": "session.started",
-        "engine": engine,
-        "resume": ResumeToken(engine=engine, value=value),
-        "title": title,
-    }
+    engine_id = EngineId(engine)
+    return cast(
+        TakopiEvent,
+        {
+            "type": "session.started",
+            "engine": engine_id,
+            "resume": ResumeToken(engine=engine_id, value=value),
+            "title": title,
+        },
+    )
 
 
 def action_started(
     action_id: str,
-    kind: str,
+    kind: ActionKind,
     title: str,
     detail: dict[str, Any] | None = None,
     engine: str = "codex",
 ) -> TakopiEvent:
-    return {
-        "type": "action.started",
-        "engine": engine,
-        "action": {
-            "id": action_id,
-            "kind": kind,
-            "title": title,
-            "detail": detail or {},
+    engine_id = EngineId(engine)
+    return cast(
+        TakopiEvent,
+        {
+            "type": "action.started",
+            "engine": engine_id,
+            "action": {
+                "id": action_id,
+                "kind": kind,
+                "title": title,
+                "detail": detail or {},
+            },
         },
-    }
+    )
 
 
 def action_completed(
     action_id: str,
-    kind: str,
+    kind: ActionKind,
     title: str,
     ok: bool,
     detail: dict[str, Any] | None = None,
     engine: str = "codex",
 ) -> TakopiEvent:
-    return {
-        "type": "action.completed",
-        "engine": engine,
-        "action": {
-            "id": action_id,
-            "kind": kind,
-            "title": title,
-            "detail": detail or {},
+    engine_id = EngineId(engine)
+    return cast(
+        TakopiEvent,
+        {
+            "type": "action.completed",
+            "engine": engine_id,
+            "action": {
+                "id": action_id,
+                "kind": kind,
+                "title": title,
+                "detail": detail or {},
+            },
+            "ok": ok,
         },
-        "ok": ok,
-    }
+    )
 
 
-def log_event(message: str, level: str = "info", engine: str = "codex") -> TakopiEvent:
-    return {
-        "type": "log",
-        "engine": engine,
-        "level": level,
-        "message": message,
-    }
+def log_event(
+    message: str, level: LogLevel = "info", engine: str = "codex"
+) -> TakopiEvent:
+    engine_id = EngineId(engine)
+    return cast(
+        TakopiEvent,
+        {
+            "type": "log",
+            "engine": engine_id,
+            "level": level,
+            "message": message,
+        },
+    )
 
 
 def error_event(
     message: str, detail: str | None = None, engine: str = "codex"
 ) -> TakopiEvent:
+    engine_id = EngineId(engine)
     event: dict[str, Any] = {
         "type": "error",
-        "engine": engine,
+        "engine": engine_id,
         "message": message,
     }
     if detail:
         event["detail"] = detail
-    return event
+    return cast(TakopiEvent, event)

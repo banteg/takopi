@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Pure renderers for Takopi events (no engine-native event handling)."""
+
+from __future__ import annotations
 
 import textwrap
 from collections import deque

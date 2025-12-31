@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Takopi domain model types (events, actions, resume tokens, run results)."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Literal, NewType, NotRequired, TypeAlias, TypedDict

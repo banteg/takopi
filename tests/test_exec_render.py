@@ -16,7 +16,7 @@ def _format_resume(token) -> str:
     return f"`codex resume {token.value}`"
 
 
-SAMPLE_EVENTS = [
+SAMPLE_EVENTS: list[TakopiEvent] = [
     session_started("codex", "0199a213-81c0-7800-8aa1-bbab2a035a53", title="Codex"),
     action_started("a-1", "command", "bash -lc ls"),
     action_completed(
@@ -34,7 +34,7 @@ def test_render_event_cli_sample_events() -> None:
     last = None
     out: list[str] = []
     for evt in SAMPLE_EVENTS:
-        last, lines = render_event_cli(cast(TakopiEvent, evt), last)
+        last, lines = render_event_cli(evt, last)
         out.extend(lines)
 
     assert out == [
@@ -46,7 +46,7 @@ def test_render_event_cli_sample_events() -> None:
 
 
 def test_render_event_cli_handles_action_kinds() -> None:
-    events = [
+    events: list[TakopiEvent] = [
         action_completed(
             "c-1", "command", "pytest -q", ok=False, detail={"exit_code": 1}
         ),
@@ -64,7 +64,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
     last = None
     out: list[str] = []
     for evt in events:
-        last, lines = render_event_cli(cast(TakopiEvent, evt), last)
+        last, lines = render_event_cli(evt, last)
         out.extend(lines)
 
     assert any(line.startswith("✗ `pytest -q` (exit 1)") for line in out)
@@ -80,7 +80,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
 def test_progress_renderer_renders_progress_and_final() -> None:
     r = ExecProgressRenderer(max_actions=5, resume_formatter=_format_resume)
     for evt in SAMPLE_EVENTS:
-        r.note_event(cast(TakopiEvent, evt))
+        r.note_event(evt)
 
     progress = r.render_progress(3.0)
     assert progress.startswith("working · 3s · step 2")
@@ -109,7 +109,7 @@ def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
     ]
 
     for evt in events:
-        assert r.note_event(cast(TakopiEvent, evt)) is True
+        assert r.note_event(evt) is True
 
     assert len(r.recent_actions) == 3
     assert "echo 3" in r.recent_actions[0]
@@ -123,15 +123,12 @@ def test_progress_renderer_renders_commands_in_markdown() -> None:
     r = ExecProgressRenderer(max_actions=5, command_width=None)
     for i in (30, 31, 32):
         r.note_event(
-            cast(
-                TakopiEvent,
-                action_completed(
-                    f"item_{i}",
-                    "command",
-                    f"echo {i}",
-                    ok=True,
-                    detail={"exit_code": 0},
-                ),
+            action_completed(
+                f"item_{i}",
+                "command",
+                f"echo {i}",
+                ok=True,
+                detail={"exit_code": 0},
             )
         )
 
@@ -164,7 +161,7 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
     ]
 
     for evt in events:
-        assert r.note_event(cast(TakopiEvent, evt)) is True
+        assert r.note_event(evt) is True
 
     assert len(r.recent_actions) == 4
     assert r.recent_actions[0].startswith("▸ ")
@@ -179,7 +176,7 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
 
 def test_render_event_cli_handles_log_event() -> None:
     event = log_event("warn me", level="warning")
-    _, lines = render_event_cli(cast(TakopiEvent, event))
+    _, lines = render_event_cli(event)
 
     assert any("log[warning]" in line for line in lines)
     assert any("warn me" in line for line in lines)
@@ -200,7 +197,7 @@ def test_progress_renderer_deterministic_output() -> None:
     r2 = ExecProgressRenderer(max_actions=5)
 
     for evt in events:
-        r1.note_event(cast(TakopiEvent, evt))
-        r2.note_event(cast(TakopiEvent, evt))
+        r1.note_event(evt)
+        r2.note_event(evt)
 
     assert r1.render_progress(1.0) == r2.render_progress(1.0)

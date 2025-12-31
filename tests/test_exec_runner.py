@@ -2,9 +2,11 @@ import anyio
 
 import pytest
 
-from takopi.model import ResumeToken, RunResult
+from takopi.model import EngineId, ResumeToken, RunResult
 from takopi.runner import NO_OP_SINK
 from takopi.runners.codex import CodexRunner
+
+CODEX_ENGINE = EngineId("codex")
 
 
 @pytest.mark.anyio
@@ -21,13 +23,13 @@ async def test_run_serializes_same_session() -> None:
         await gate.wait()
         in_flight -= 1
         return RunResult(
-            resume=ResumeToken(engine="codex", value="sid"),
+            resume=ResumeToken(engine=CODEX_ENGINE, value="sid"),
             answer="ok",
         )
 
     runner._run = run_stub  # type: ignore[assignment]
 
-    token = ResumeToken(engine="codex", value="sid")
+    token = ResumeToken(engine=CODEX_ENGINE, value="sid")
     async with anyio.create_task_group() as tg:
         tg.start_soon(runner.run, "a", token, NO_OP_SINK)
         tg.start_soon(runner.run, "b", token, NO_OP_SINK)
@@ -50,7 +52,7 @@ async def test_run_allows_parallel_new_sessions() -> None:
         await gate.wait()
         in_flight -= 1
         return RunResult(
-            resume=ResumeToken(engine="codex", value="sid"),
+            resume=ResumeToken(engine=CODEX_ENGINE, value="sid"),
             answer="ok",
         )
 
@@ -78,14 +80,14 @@ async def test_run_allows_parallel_different_sessions() -> None:
         await gate.wait()
         in_flight -= 1
         return RunResult(
-            resume=ResumeToken(engine="codex", value="sid"),
+            resume=ResumeToken(engine=CODEX_ENGINE, value="sid"),
             answer="ok",
         )
 
     runner._run = run_stub  # type: ignore[assignment]
 
-    token_a = ResumeToken(engine="codex", value="sid-a")
-    token_b = ResumeToken(engine="codex", value="sid-b")
+    token_a = ResumeToken(engine=CODEX_ENGINE, value="sid-a")
+    token_b = ResumeToken(engine=CODEX_ENGINE, value="sid-b")
     async with anyio.create_task_group() as tg:
         tg.start_soon(runner.run, "a", token_a, NO_OP_SINK)
         tg.start_soon(runner.run, "b", token_b, NO_OP_SINK)
@@ -153,7 +155,7 @@ async def test_run_serializes_new_session_after_session_is_known(
     async def run_resume() -> None:
         assert resume_value is not None
         await runner.run(
-            "resume", ResumeToken(engine="codex", value=resume_value), NO_OP_SINK
+            "resume", ResumeToken(engine=CODEX_ENGINE, value=resume_value), NO_OP_SINK
         )
 
     async with anyio.create_task_group() as tg:
@@ -174,7 +176,9 @@ async def test_run_serializes_new_session_after_session_is_known(
 
 
 @pytest.mark.anyio
-async def test_run_serializes_two_new_sessions_same_thread(tmp_path, monkeypatch) -> None:
+async def test_run_serializes_two_new_sessions_same_thread(
+    tmp_path, monkeypatch
+) -> None:
     gate_path = tmp_path / "gate"
     thread_id = "019b73c4-0c3f-7701-a0bb-aac6b4d8a3bc"
 

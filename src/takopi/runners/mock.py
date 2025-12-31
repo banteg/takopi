@@ -4,13 +4,13 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
-from typing import TypeAlias
+from typing import TypeAlias, cast
 from weakref import WeakValueDictionary
 
 import anyio
 
 from ..model import EngineId, ResumeToken, RunResult, SessionStartedEvent, TakopiEvent
-from ..runner import EventQueue, EventSink
+from ..runner import EventQueue, EventSink, Runner
 
 ENGINE: EngineId = EngineId("mock")
 
@@ -66,7 +66,7 @@ def _resume_patterns(
     return line_re, cmd_re, parse_re
 
 
-class MockRunner:
+class MockRunner(Runner):
     engine: EngineId
 
     def __init__(
@@ -160,9 +160,13 @@ class MockRunner:
                 dispatcher.emit(session_evt)
 
                 for event in self._events:
-                    if event.get("type") == "action.completed" and "ok" not in event:
-                        event = {**event, "ok": True}
-                    dispatcher.emit(event)
+                    event_out: TakopiEvent = event
+                    if (
+                        event_out.get("type") == "action.completed"
+                        and "ok" not in event_out
+                    ):
+                        event_out = cast(TakopiEvent, {**event_out, "ok": True})
+                    dispatcher.emit(event_out)
                     await anyio.sleep(0)
 
                 return RunResult(resume=token, answer=self._answer)
@@ -228,10 +232,15 @@ class ScriptRunner(MockRunner):
         lock = self._lock_for(token)
 
         async with lock:
+
             async def emit(event: TakopiEvent) -> None:
-                if event.get("type") == "action.completed" and "ok" not in event:
-                    event = {**event, "ok": True}
-                res = on_event(event)
+                event_out: TakopiEvent = event
+                if (
+                    event_out.get("type") == "action.completed"
+                    and "ok" not in event_out
+                ):
+                    event_out = cast(TakopiEvent, {**event_out, "ok": True})
+                res = on_event(event_out)
                 if res is not None:
                     await res
 
