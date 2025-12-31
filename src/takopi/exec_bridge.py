@@ -440,8 +440,7 @@ async def handle_message(
 
         try:
             with exec_scope:
-                resume_value = resume_token.value if resume_token is not None else None
-                result = await runner.run(text, resume_value, on_event=on_event)
+                result = await runner.run(text, resume_token, on_event=on_event)
                 resume_token_value = result.resume
         except cancel_exc_type:
             cancelled = True

@@ -342,16 +342,6 @@ class CodexRunner:
             self._session_locks[key] = lock
         return lock
 
-    def _parse_resume(self, resume: str | None) -> ResumeToken | None:
-        if not resume:
-            return None
-        token = resume.strip().strip("`")
-        if ":" in token or " " in token:
-            raise RuntimeError("resume token is malformed")
-        if not token:
-            raise RuntimeError("resume token is empty")
-        return ResumeToken(engine=ENGINE, value=token)
-
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
             raise RuntimeError(f"resume token is for engine {token.engine!r}")
@@ -389,10 +379,14 @@ class CodexRunner:
     async def run(
         self,
         prompt: str,
-        resume: str | None,
+        resume: ResumeToken | None,
         on_event: EventSink | None = None,
     ) -> RunResult:
-        resume_token = self._parse_resume(resume)
+        resume_token = resume
+        if resume_token is not None and resume_token.engine != ENGINE:
+            raise RuntimeError(
+                f"resume token is for engine {resume_token.engine!r}, not {ENGINE!r}"
+            )
         if resume_token is None:
             return await self._run(prompt, resume_token, on_event)
         lock = self._lock_for(resume_token)

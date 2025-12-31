@@ -28,8 +28,9 @@ async def test_run_serializes_same_session() -> None:
     runner._run = run_stub  # type: ignore[assignment]
 
     async def run_test() -> None:
-        t1 = asyncio.create_task(runner.run("a", "sid"))
-        t2 = asyncio.create_task(runner.run("b", "sid"))
+        token = ResumeToken(engine="codex", value="sid")
+        t1 = asyncio.create_task(runner.run("a", token))
+        t2 = asyncio.create_task(runner.run("b", token))
         await asyncio.sleep(0)
         gate.set()
         await asyncio.gather(t1, t2)

@@ -69,16 +69,17 @@ class MockRunner:
     async def run(
         self,
         prompt: str,
-        resume: str | None,
+        resume: ResumeToken | None,
         on_event: EventSink | None = None,
     ) -> RunResult:
         _ = prompt
         token_value = None
-        if resume:
-            token = resume.strip().strip("`")
-            if ":" in token or " " in token:
-                raise RuntimeError("resume token is malformed")
-            token_value = token
+        if resume is not None:
+            if resume.engine != ENGINE:
+                raise RuntimeError(
+                    f"resume token is for engine {resume.engine!r}, not {ENGINE!r}"
+                )
+            token_value = resume.value
         token = _resume_token(token_value)
         session_evt: SessionStartedEvent = {
             "type": "session.started",

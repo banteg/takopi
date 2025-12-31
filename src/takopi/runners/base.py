@@ -109,7 +109,7 @@ class Runner(Protocol):
     async def run(
         self,
         prompt: str,
-        resume: str | None,
+        resume: ResumeToken | None,
         on_event: EventSink | None = None,
     ) -> RunResult: ...
 
