@@ -13,13 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Python ${{ matrix.python-version }}
+  checks:
+    name: ${{ matrix.task }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.14"]
+        task: [format, ruff, ty, pytest]
 
     steps:
       - name: Checkout
@@ -28,23 +28,18 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
           enable-cache: true
 
       - name: Install dependencies
         run: uv sync
 
-      - name: Lint (format)
-        run: uv run ruff format --check
-
-      - name: Lint (ruff)
-        run: uv run ruff check .
-
-      - name: Type check
-        run: uv run ty check .
-
-      - name: Tests
-        run: uv run pytest
-
-      - name: Build (wheel + sdist)
-        run: uv build
+      - name: Run check
+        shell: bash
+        run: |
+          case "${{ matrix.task }}" in
+            format) uv run ruff format --check ;;
+            ruff) uv run ruff check . ;;
+            ty) uv run ty check . ;;
+            pytest) uv run pytest ;;
+          esac
