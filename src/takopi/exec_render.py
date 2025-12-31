@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import textwrap
 from collections import deque
-from dataclasses import dataclass
 from typing import Any
 
 from markdown_it import MarkdownIt
@@ -128,13 +127,6 @@ def render_event_cli(
     return last_item, lines
 
 
-@dataclass(slots=True)
-class _RenderedAction:
-    action_id: str
-    line: str
-    status: str
-
-
 class ExecProgressRenderer:
     def __init__(
         self,
@@ -143,7 +135,7 @@ class ExecProgressRenderer:
     ) -> None:
         self.max_actions = max_actions
         self.command_width = command_width
-        self.recent_actions: deque[_RenderedAction] = deque(maxlen=max_actions)
+        self.recent_actions: deque[str] = deque(maxlen=max_actions)
         self.action_count = 0
         self._started_counts: dict[str, int] = {}
         self.resume_token: ResumeToken | None = None
@@ -182,30 +174,16 @@ class ExecProgressRenderer:
         suffix = _action_exit_suffix(action) if completed else ""
         line = f"{status} {title}{suffix}"
 
-        if completed and self._replace_action(action_id, line, status):
-            return True
-
-        self._append_action(action_id, line, status)
+        self._append_action(line)
         return True
 
-    def _append_action(self, action_id: str, line: str, status: str) -> None:
-        self.recent_actions.append(_RenderedAction(action_id, line, status))
-
-    def _replace_action(self, action_id: str, line: str, status: str) -> bool:
-        for i in range(len(self.recent_actions) - 1, -1, -1):
-            entry = self.recent_actions[i]
-            if entry.action_id != action_id:
-                continue
-            if entry.status != STATUS_RUNNING:
-                continue
-            self.recent_actions[i] = _RenderedAction(action_id, line, status)
-            return True
-        return False
+    def _append_action(self, line: str) -> None:
+        self.recent_actions.append(line)
 
     def render_progress(self, elapsed_s: float, label: str = "working") -> str:
         step = self.action_count or None
         header = format_header(elapsed_s, step, label=label)
-        message = self._assemble(header, [a.line for a in self.recent_actions])
+        message = self._assemble(header, list(self.recent_actions))
         return self._append_resume(message)
 
     def render_final(self, elapsed_s: float, answer: str, status: str = "done") -> str:

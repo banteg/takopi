@@ -158,8 +158,8 @@ def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
         assert r.note_event(evt) is True
 
     assert len(r.recent_actions) == 3
-    assert "echo 3" in r.recent_actions[0].line
-    assert "echo 5" in r.recent_actions[-1].line
+    assert "echo 3" in r.recent_actions[0]
+    assert "echo 5" in r.recent_actions[-1]
     assert r.note_event({"type": "mystery", "engine": "codex"}) is False
 
 
@@ -237,6 +237,12 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
     for evt in events:
         assert r.note_event(evt) is True
 
-    assert len(r.recent_actions) == 2
-    assert "echo first" in r.recent_actions[0].line
-    assert "echo second" in r.recent_actions[1].line
+    assert len(r.recent_actions) == 4
+    assert r.recent_actions[0].startswith("▸ ")
+    assert "echo first" in r.recent_actions[0]
+    assert r.recent_actions[1].startswith("✓ ")
+    assert "echo first" in r.recent_actions[1]
+    assert r.recent_actions[2].startswith("▸ ")
+    assert "echo second" in r.recent_actions[2]
+    assert r.recent_actions[3].startswith("✓ ")
+    assert "echo second" in r.recent_actions[3]
