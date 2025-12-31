@@ -102,11 +102,6 @@ def render_event_cli(
         title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
         suffix = _action_exit_suffix(action)
         lines.append(f"{status} {title}{suffix}")
-    elif event["type"] == "log":
-        level = event.get("level", "info")
-        lines.append(f"log[{level}]: {event.get('message', '')}")
-    elif event["type"] == "error":
-        lines.append(f"error: {event.get('message', '')}")
     else:
         return last_item, []
     return last_item, lines

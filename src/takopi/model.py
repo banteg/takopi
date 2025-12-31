@@ -1,9 +1,9 @@
-"""Takopi domain model types (events, actions, resume tokens, run completion)."""
+"""Takopi domain model types (events, actions, resume tokens)."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, NewType, NotRequired, TypeAlias, TypedDict
+from typing import Any, Literal, NewType, TypeAlias, TypedDict
 
 EngineId = NewType("EngineId", str)
 
@@ -19,12 +19,8 @@ TakopiEventType: TypeAlias = Literal[
     "session.started",
     "action.started",
     "action.completed",
-    "log",
-    "error",
     "run.completed",
 ]
-
-LogLevel: TypeAlias = Literal["debug", "info", "warning", "error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,20 +56,6 @@ class ActionCompletedEvent(TypedDict):
     ok: bool
 
 
-class LogEvent(TypedDict):
-    type: Literal["log"]
-    engine: EngineId
-    message: str
-    level: NotRequired[LogLevel]
-
-
-class ErrorEvent(TypedDict):
-    type: Literal["error"]
-    engine: EngineId
-    message: str
-    detail: NotRequired[str]
-
-
 class RunCompletedEvent(TypedDict):
     type: Literal["run.completed"]
     engine: EngineId
@@ -85,7 +67,5 @@ TakopiEvent: TypeAlias = (
     SessionStartedEvent
     | ActionStartedEvent
     | ActionCompletedEvent
-    | LogEvent
-    | ErrorEvent
     | RunCompletedEvent
 )

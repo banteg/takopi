@@ -18,9 +18,6 @@ from ..model import (
     Action,
     ActionKind,
     EngineId,
-    ErrorEvent,
-    LogEvent,
-    LogLevel,
     ResumeToken,
     SessionStartedEvent,
     TakopiEvent,
@@ -50,27 +47,6 @@ def _session_started_event(token: ResumeToken, *, title: str) -> SessionStartedE
         "resume": token,
         "title": title,
     }
-
-
-def _log_event(level: LogLevel, message: str) -> LogEvent:
-    event: LogEvent = {
-        "type": "log",
-        "engine": ENGINE,
-        "level": level,
-        "message": message,
-    }
-    return event
-
-
-def _error_event(message: str, *, detail: str | None = None) -> ErrorEvent:
-    payload: ErrorEvent = {
-        "type": "error",
-        "engine": ENGINE,
-        "message": message,
-    }
-    if detail:
-        payload["detail"] = detail
-    return payload
 
 
 def _run_completed_event(token: ResumeToken, *, answer: str) -> TakopiEvent:
@@ -140,13 +116,22 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
 
     action_id = item.get("id")
     if not isinstance(action_id, str) or not action_id:
-        return [_log_event("error", "missing item id in codex event")]
+        logger.debug("[codex] missing item id in codex event: %r", item)
+        return []
 
     kind = _ACTION_KIND_MAP.get(item_type)
     if kind is None:
         if item_type == "error" and etype == "item.completed":
             message = str(item.get("message") or "codex item error")
-            return [_error_event(message)]
+            return [
+                _action_event(
+                    event_type="action.completed",
+                    action_id=action_id,
+                    kind="note",
+                    title=message,
+                    ok=False,
+                )
+            ]
         return []
 
     if kind == "command":
@@ -256,16 +241,8 @@ def translate_codex_event(event: dict[str, Any], *, title: str) -> list[TakopiEv
         if thread_id:
             token = ResumeToken(engine=ENGINE, value=str(thread_id))
             return [_session_started_event(token, title=title)]
-        return [_log_event("error", "codex thread.started missing thread_id")]
-
-    if etype == "error":
-        message = str(event.get("message") or "codex stream error")
-        return [_error_event(message)]
-
-    if etype == "turn.failed":
-        error = event.get("error") or {}
-        message = str(error.get("message") or "codex turn failed")
-        return [_error_event(message)]
+        logger.debug("[codex] codex thread.started missing thread_id: %r", event)
+        return []
 
     if etype in {"item.started", "item.updated", "item.completed"}:
         item = event.get("item") or {}
@@ -457,7 +434,7 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                         try:
                             evt = json.loads(line)
                         except json.JSONDecodeError:
-                            yield _log_event("error", f"invalid json line: {line}")
+                            logger.debug("[codex] invalid json line: %s", line)
                             continue
 
                         if evt.get("type") == "item.completed":
@@ -471,9 +448,8 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                 if final_answer is None:
                                     final_answer = item["text"]
                                 else:
-                                    yield _log_event(
-                                        "error",
-                                        "codex emitted multiple agent messages; using the last one",
+                                    logger.debug(
+                                        "[codex] emitted multiple agent messages; using the last one"
                                     )
                                     final_answer = item["text"]
 
@@ -489,7 +465,6 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                         message = (
                                             "codex emitted a different session id than expected"
                                         )
-                                        yield _log_event("error", message)
                                         raise RuntimeError(message)
                                     if expected_session is None:
                                         session_lock = self._lock_for(session)
@@ -505,7 +480,6 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                 if rc != 0:
                     stderr_text = "".join(stderr_chunks)
                     message = f"codex exec failed (rc={rc})."
-                    yield _error_event(message, detail=f"stderr tail:\n{stderr_text}")
                     raise RuntimeError(f"{message} stderr tail:\n{stderr_text}")
 
                 if not found_session:

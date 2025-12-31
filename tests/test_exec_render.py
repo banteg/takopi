@@ -6,8 +6,6 @@ from takopi.render import ExecProgressRenderer, render_event_cli
 from tests.factories import (
     action_completed,
     action_started,
-    error_event,
-    log_event,
     session_started,
 )
 
@@ -58,7 +56,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
         ),
         action_completed("t-1", "tool", "github.search_issues", ok=True),
         action_completed("f-1", "file_change", "src/compute_answer.py", ok=True),
-        error_event("stream error"),
+        action_completed("n-1", "note", "stream error", ok=False),
     ]
 
     last = None
@@ -74,7 +72,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
     )
     assert any("tool: github.search_issues" in line for line in out)
     assert any("updated src/compute_answer.py" in line for line in out)
-    assert any(line.startswith("error: stream error") for line in out)
+    assert any(line.startswith("✗ stream error") for line in out)
 
 
 def test_progress_renderer_renders_progress_and_final() -> None:
@@ -168,14 +166,6 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
     assert "echo first" in r.recent_actions[0]
     assert r.recent_actions[1].startswith("✓ ")
     assert "echo second" in r.recent_actions[1]
-
-
-def test_render_event_cli_handles_log_event() -> None:
-    event = log_event("warn me", level="warning")
-    _, lines = render_event_cli(event)
-
-    assert any("log[warning]" in line for line in lines)
-    assert any("warn me" in line for line in lines)
 
 
 def test_progress_renderer_deterministic_output() -> None:
