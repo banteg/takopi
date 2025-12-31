@@ -299,7 +299,9 @@ This prevents:
 The bridge additionally enforces FIFO scheduling per thread to ensure queued prompts do not consume the global **16 active runs** slots (§7.1.1).
 
 **Codex note (non-normative):**
-For Codex, the resume token typically arrives as the first NDJSON event within ~1–2 seconds. If the subprocess exits before a resume token is observed, no `session.started` can be emitted and the bridge reports an error without a resume line.
+Codex emits `thread.started` (with `thread_id`) as the first NDJSON event for both new and resumed runs. The Codex runner translates this into `session.started` and relies on it to learn the thread ID. If the subprocess exits before `thread.started` is observed, no `session.started` can be emitted and the bridge reports an error without a resume line.
+
+Codex also emits exactly one `agent_message`/`assistant_message` per turn; the runner uses that message text as `run.completed.answer`.
 
 ### 6.3 Run completion event (MUST)
 
@@ -534,7 +536,7 @@ To reduce friction adding new runners, v0.2.0 SHOULD treat engine IDs as strings
   - Clarify: 16 concurrent runs limit, indefinite queue per thread
   - Clarify: SIGTERM for cancellation, `/cancel` ignores accompanying text
   - Clarify: truncation preserves head + resume line
-  - Clarify: log level defaults to `info`, callback errors abort run
+  - Clarify: log level defaults to `info`
   - Clarify: crash publishes error with resume if known
 
 ------
