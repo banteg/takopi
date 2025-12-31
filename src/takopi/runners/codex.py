@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 import re
 import signal
+import subprocess
 from collections import deque
 from contextlib import asynccontextmanager
 from typing import Any, cast
 from weakref import WeakValueDictionary
 
+import anyio
+from anyio.abc import ByteReceiveStream, Process
+from anyio.streams.text import TextReceiveStream
 from .base import (
     Action,
     ActionKind,
@@ -255,20 +258,42 @@ def translate_codex_event(event: dict[str, Any]) -> list[TakopiEvent]:
     return []
 
 
-async def _drain_stderr(stderr: asyncio.StreamReader, chunks: deque[str]) -> None:
-    try:
+async def _iter_text_lines(stream: ByteReceiveStream):
+    text_stream = TextReceiveStream(stream, errors="replace")
+    buffer = ""
+    while True:
+        try:
+            chunk = await text_stream.receive()
+        except anyio.EndOfStream:
+            if buffer:
+                yield buffer
+            return
+        buffer += chunk
         while True:
-            line = await stderr.readline()
-            if not line:
-                return
-            decoded = line.decode(errors="replace")
-            logger.debug("[codex][stderr] %s", decoded.rstrip())
-            chunks.append(decoded)
+            split_at = buffer.find("\n")
+            if split_at < 0:
+                break
+            line = buffer[: split_at + 1]
+            buffer = buffer[split_at + 1 :]
+            yield line
+
+
+async def _drain_stderr(stderr: ByteReceiveStream, chunks: deque[str]) -> None:
+    try:
+        async for line in _iter_text_lines(stderr):
+            logger.debug("[codex][stderr] %s", line.rstrip())
+            chunks.append(line)
     except Exception as e:
         logger.debug("[codex][stderr] drain error: %s", e)
 
 
-def _terminate_process(proc: asyncio.subprocess.Process) -> None:
+async def _wait_for_process(proc: Process, timeout: float) -> bool:
+    with anyio.move_on_after(timeout) as scope:
+        await proc.wait()
+    return scope.cancel_called
+
+
+def _terminate_process(proc: Process) -> None:
     if proc.returncode is not None:
         return
     if os.name == "posix" and proc.pid is not None:
@@ -285,7 +310,7 @@ def _terminate_process(proc: asyncio.subprocess.Process) -> None:
         return
 
 
-def _kill_process(proc: asyncio.subprocess.Process) -> None:
+def _kill_process(proc: Process) -> None:
     if proc.returncode is not None:
         return
     if os.name == "posix" and proc.pid is not None:
@@ -306,17 +331,17 @@ def _kill_process(proc: asyncio.subprocess.Process) -> None:
 async def manage_subprocess(*args, **kwargs):
     if os.name == "posix":
         kwargs.setdefault("start_new_session", True)
-    proc = await asyncio.create_subprocess_exec(*args, **kwargs)
+    proc = await anyio.open_process(args, **kwargs)
     try:
         yield proc
     finally:
         if proc.returncode is None:
-            _terminate_process(proc)
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=2.0)
-            except asyncio.TimeoutError:
-                _kill_process(proc)
-                await proc.wait()
+            with anyio.CancelScope(shield=True):
+                _terminate_process(proc)
+                timed_out = await _wait_for_process(proc, timeout=2.0)
+                if timed_out:
+                    _kill_process(proc)
+                    await proc.wait()
 
 
 class CodexRunner:
@@ -330,15 +355,15 @@ class CodexRunner:
     ) -> None:
         self.codex_cmd = codex_cmd
         self.extra_args = extra_args
-        self._session_locks: WeakValueDictionary[str, asyncio.Lock] = (
+        self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
             WeakValueDictionary()
         )
 
-    def _lock_for(self, token: ResumeToken) -> asyncio.Lock:
+    def _lock_for(self, token: ResumeToken) -> anyio.Lock:
         key = f"{token.engine}:{token.value}"
         lock = self._session_locks.get(key)
         if lock is None:
-            lock = asyncio.Lock()
+            lock = anyio.Lock()
             self._session_locks[key] = lock
         return lock
 
@@ -415,103 +440,103 @@ class CodexRunner:
         dispatcher = (
             EventQueue(on_event, label="codex") if on_event is not None else None
         )
+        if dispatcher is not None:
+            await dispatcher.start()
 
-        async with manage_subprocess(
-            *args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        ) as proc:
-            proc_stdin = cast(asyncio.StreamWriter, proc.stdin)
-            proc_stdout = cast(asyncio.StreamReader, proc.stdout)
-            proc_stderr = cast(asyncio.StreamReader, proc.stderr)
-            logger.debug("[codex] spawn pid=%s args=%r", proc.pid, args)
+        cancelled_exc_type = anyio.get_cancelled_exc_class()
+        cancelled_exc: BaseException | None = None
 
-            stderr_chunks: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
-            stderr_task = asyncio.create_task(_drain_stderr(proc_stderr, stderr_chunks))
+        try:
+            async with manage_subprocess(
+                *args,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ) as proc:
+                if proc.stdin is None or proc.stdout is None or proc.stderr is None:
+                    raise RuntimeError("codex exec failed to open subprocess pipes")
+                proc_stdin = proc.stdin
+                proc_stdout = proc.stdout
+                proc_stderr = proc.stderr
+                logger.debug("[codex] spawn pid=%s args=%r", proc.pid, args)
 
-            found_session: ResumeToken | None = resume_token
-            saw_session_started = False
-            last_agent_text: str | None = None
-            saw_agent_message = False
+                stderr_chunks: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
+                rc: int | None = None
 
-            cancelled = False
-            rc: int | None = None
+                found_session: ResumeToken | None = resume_token
+                saw_session_started = False
+                last_agent_text: str | None = None
+                saw_agent_message = False
 
-            try:
-                proc_stdin.write(prompt.encode())
-                await proc_stdin.drain()
-                proc_stdin.close()
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(_drain_stderr, proc_stderr, stderr_chunks)
 
-                if resume_token is not None:
-                    saw_session_started = True
-                    self._emit_event(dispatcher, _session_started_event(resume_token))
-
-                async for raw_line in proc_stdout:
-                    raw = raw_line.decode(errors="replace")
-                    logger.debug("[codex][jsonl] %s", raw.rstrip("\n"))
-                    line = raw.strip()
-                    if not line:
-                        continue
                     try:
-                        evt = json.loads(line)
-                    except json.JSONDecodeError:
-                        self._emit_event(
-                            dispatcher,
-                            _log_event("error", f"invalid json line: {line}"),
-                        )
-                        continue
+                        await proc_stdin.send(prompt.encode())
+                        await proc_stdin.aclose()
 
-                    if evt.get("type") == "item.completed":
-                        item = evt.get("item") or {}
-                        item_type = item.get("type") or item.get("item_type")
-                        if item_type == "assistant_message":
-                            item_type = "agent_message"
-                        if item_type == "agent_message" and isinstance(
-                            item.get("text"), str
-                        ):
-                            last_agent_text = item["text"]
-                            saw_agent_message = True
-
-                    for out_evt in translate_codex_event(evt):
-                        if out_evt["type"] == "session.started":
-                            token = out_evt["resume"]
-                            session = ResumeToken(
-                                engine=token["engine"], value=token["value"]
+                        if resume_token is not None:
+                            saw_session_started = True
+                            self._emit_event(
+                                dispatcher, _session_started_event(resume_token)
                             )
-                            if found_session is None:
-                                found_session = session
-                                saw_session_started = True
-                                self._emit_event(dispatcher, out_evt)
-                            elif session != found_session:
+
+                        async for raw_line in _iter_text_lines(proc_stdout):
+                            raw = raw_line.rstrip("\n")
+                            logger.debug("[codex][jsonl] %s", raw)
+                            line = raw.strip()
+                            if not line:
+                                continue
+                            try:
+                                evt = json.loads(line)
+                            except json.JSONDecodeError:
                                 self._emit_event(
                                     dispatcher,
-                                    _log_event(
-                                        "error",
-                                        "codex emitted a different session id than expected",
-                                    ),
+                                    _log_event("error", f"invalid json line: {line}"),
                                 )
-                            continue
-                        self._emit_event(dispatcher, out_evt)
-            except asyncio.CancelledError:
-                cancelled = True
-            finally:
-                if cancelled:
-                    if not stderr_task.done():
-                        stderr_task.cancel()
-                    task = cast(asyncio.Task, asyncio.current_task())
-                    while task.cancelling():
-                        task.uncancel()
-                if not cancelled:
-                    rc = await proc.wait()
-                await asyncio.gather(stderr_task, return_exceptions=True)
+                                continue
 
-            if cancelled:
-                if dispatcher is not None:
-                    await dispatcher.close()
-                raise asyncio.CancelledError
+                            if evt.get("type") == "item.completed":
+                                item = evt.get("item") or {}
+                                item_type = item.get("type") or item.get("item_type")
+                                if item_type == "assistant_message":
+                                    item_type = "agent_message"
+                                if item_type == "agent_message" and isinstance(
+                                    item.get("text"), str
+                                ):
+                                    last_agent_text = item["text"]
+                                    saw_agent_message = True
 
-            try:
+                            for out_evt in translate_codex_event(evt):
+                                if out_evt["type"] == "session.started":
+                                    token = out_evt["resume"]
+                                    session = ResumeToken(
+                                        engine=token["engine"], value=token["value"]
+                                    )
+                                    if found_session is None:
+                                        found_session = session
+                                        saw_session_started = True
+                                        self._emit_event(dispatcher, out_evt)
+                                    elif session != found_session:
+                                        self._emit_event(
+                                            dispatcher,
+                                            _log_event(
+                                                "error",
+                                                "codex emitted a different session id than expected",
+                                            ),
+                                        )
+                                    continue
+                                self._emit_event(dispatcher, out_evt)
+                    except cancelled_exc_type as exc:
+                        cancelled_exc = exc
+                        tg.cancel_scope.cancel()
+                    finally:
+                        if cancelled_exc is None:
+                            rc = await proc.wait()
+
+                if cancelled_exc is not None:
+                    raise cancelled_exc
+
                 logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
                 if rc != 0:
                     stderr_text = "".join(stderr_chunks)
@@ -540,6 +565,7 @@ class CodexRunner:
                     answer=last_agent_text or "",
                     ok=ok,
                 )
-            finally:
-                if dispatcher is not None:
+        finally:
+            if dispatcher is not None:
+                with anyio.CancelScope(shield=True):
                     await dispatcher.close()

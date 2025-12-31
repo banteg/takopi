@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 import logging
+from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypedDict, TypeAlias
+
+import anyio
+from anyio.abc import TaskGroup
 
 EngineId: TypeAlias = Literal["codex", "mock"]
 
@@ -118,51 +121,75 @@ class EventQueue:
     def __init__(self, on_event: EventSink, *, label: str = "runner") -> None:
         self._on_event = on_event
         self._label = label
-        self._queue: asyncio.Queue[TakopiEvent | None] = asyncio.Queue()
+        self._queue: deque[TakopiEvent] = deque()
+        self._event = anyio.Event()
         self._closed = False
-        self._task = asyncio.create_task(self._drain())
+        self._tg: TaskGroup | None = None
+        self._drain_done: anyio.Event | None = None
 
     def emit(self, event: TakopiEvent) -> None:
         if self._closed:
             return
         try:
-            self._queue.put_nowait(event)
+            self._queue.append(event)
+            self._event.set()
         except Exception as e:  # pragma: no cover - defensive
             logger.info("[%s][on_event] enqueue error: %s", self._label, e)
 
+    async def start(self) -> None:
+        if self._tg is not None:
+            return
+        self._tg = anyio.create_task_group()
+        await self._tg.__aenter__()
+        self._drain_done = anyio.Event()
+        self._tg.start_soon(self._drain_wrapper)
+
     async def close(self) -> None:
         if self._closed:
+            if self._tg is not None:
+                await self._tg.__aexit__(None, None, None)
+                self._tg = None
             return
         self._closed = True
-        self._queue.put_nowait(None)
+        self._event.set()
         try:
-            await self._task
-        except asyncio.CancelledError:
-            raise
+            if self._drain_done is not None:
+                await self._drain_done.wait()
+            if self._tg is not None:
+                await self._tg.__aexit__(None, None, None)
+                self._tg = None
         except Exception as e:  # pragma: no cover - defensive
             logger.info("[%s][on_event] drain error: %s", self._label, e)
 
+    async def _drain_wrapper(self) -> None:
+        try:
+            await self._drain()
+        finally:
+            if self._drain_done is not None:
+                self._drain_done.set()
+
     async def _drain(self) -> None:
         while True:
-            event = await self._queue.get()
-            if event is None:
+            await self._event.wait()
+            self._event = anyio.Event()
+            while self._queue:
+                event = self._queue.popleft()
+                try:
+                    res = self._on_event(event)
+                except Exception as e:
+                    logger.info("[%s][on_event] callback error: %s", self._label, e)
+                    continue
+                if res is None:
+                    continue
+                try:
+                    if inspect.isawaitable(res):
+                        await res
+                    else:
+                        logger.info(
+                            "[%s][on_event] callback returned non-awaitable result",
+                            self._label,
+                        )
+                except Exception as e:  # pragma: no cover - defensive
+                    logger.info("[%s][on_event] callback error: %s", self._label, e)
+            if self._closed and not self._queue:
                 return
-            try:
-                res = self._on_event(event)
-            except Exception as e:
-                logger.info("[%s][on_event] callback error: %s", self._label, e)
-                continue
-            if res is None:
-                continue
-            try:
-                if inspect.isawaitable(res):
-                    await res
-                else:
-                    logger.info(
-                        "[%s][on_event] callback returned non-awaitable result",
-                        self._label,
-                    )
-            except asyncio.CancelledError:
-                return
-            except Exception as e:  # pragma: no cover - defensive
-                logger.info("[%s][on_event] callback error: %s", self._label, e)

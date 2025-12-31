@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 import re
 import uuid
 from collections.abc import Iterable
+
+import anyio
 
 from .base import (
     EngineId,
@@ -87,6 +88,8 @@ class MockRunner:
             "resume": {"engine": ENGINE, "value": token.value},
         }
         dispatcher = EventQueue(on_event, label="mock") if on_event else None
+        if dispatcher is not None:
+            await dispatcher.start()
         try:
             if dispatcher is not None:
                 dispatcher.emit(session_evt)
@@ -94,10 +97,11 @@ class MockRunner:
             for event in self._events:
                 if dispatcher is not None:
                     dispatcher.emit(event)
-                await asyncio.sleep(0)
+                await anyio.sleep(0)
 
             ok = bool(self._answer)
             return RunResult(resume=token, answer=self._answer, ok=ok)
         finally:
             if dispatcher is not None:
-                await dispatcher.close()
+                with anyio.CancelScope(shield=True):
+                    await dispatcher.close()
