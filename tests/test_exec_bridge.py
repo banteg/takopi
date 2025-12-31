@@ -1,3 +1,5 @@
+import uuid
+
 import anyio
 import pytest
 
@@ -66,6 +68,16 @@ def test_codex_extract_resume_accepts_plain_line() -> None:
     text = f"codex resume {uuid}"
 
     assert runner.extract_resume(text) == ResumeToken(engine="codex", value=uuid)
+
+
+def test_codex_extract_resume_accepts_uuid7() -> None:
+    uuid7 = getattr(uuid, "uuid7", None)
+    assert uuid7 is not None
+    token = str(uuid7())
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    text = f"`codex resume {token}`"
+
+    assert runner.extract_resume(text) == ResumeToken(engine="codex", value=token)
 
 
 def test_truncate_for_telegram_preserves_resume_line() -> None:
