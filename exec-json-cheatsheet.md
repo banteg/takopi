@@ -279,3 +279,51 @@ Example block (embedded blob):
 ```json
 {"type":"resource","resource":{"uri":"file:///repo/image.png","blob":"<base64>","mimeType":"image/png"},"annotations":{"audience":["assistant"]}}
 ```
+
+## Consumer considerations (rendering + success/failure)
+
+Use this section to decide what to surface to end users vs. what to treat as
+machine-only metadata.
+
+### What to render for users
+
+- **Final answer:** render `item.completed` where `item.type = "agent_message"` as
+  the main response.
+- **Progress updates (optional):**
+  - `item.completed` with `item.type = "reasoning"` can be shown as brief
+    activity breadcrumbs (only if you want to expose reasoning summaries).
+  - `item.started` / `item.completed` with `item.type = "command_execution"` can
+    be shown as “running command …” status lines without printing full output.
+  - `item.completed` with `item.type = "file_change"` can be rendered as a list
+    of changed paths and kinds (add/update/delete).
+  - `item.*` with `item.type = "todo_list"` can be shown as a progress checklist.
+- **Errors:** render `type = "error"` and `item.type = "error"` as user-visible
+  warnings or failures.
+
+### Fields you can safely skip for UX
+
+- `command_execution.aggregated_output` is often noisy; many consumers omit or
+  truncate it, and rely on `command_execution.status` + `exit_code` instead.
+- `mcp_tool_call.result.content` can be large and tool-specific; consider showing
+  only high-level status unless you know the tool’s schema.
+- `usage` fields (`turn.completed.usage.*`) are typically telemetry-only.
+
+### Success and failure signals
+
+- **Turn success:** `type = "turn.completed"` indicates overall success.
+- **Turn failure:** `type = "turn.failed"` with `error.message` indicates failure.
+- **Item success/failure:** use `item.status` on the item payload:
+  - `command_execution.status`: `completed` = success, `failed` = failure.
+  - `file_change.status`: `completed` = patch applied, `failed` = patch failed.
+  - `mcp_tool_call.status`: `completed` = tool succeeded, `failed` = tool failed.
+- **Fatal stream errors:** `type = "error"` means the JSONL stream itself hit an
+  unrecoverable error.
+
+### Suggested minimal rendering
+
+If you want a compact UI, the following is usually enough:
+- Thread/turn lifecycle: `thread.started`, `turn.started`, `turn.completed` or
+  `turn.failed`
+- Final answer: `item.completed` with `item.type = "agent_message"`
+- Optional progress: `item.started` / `item.completed` for `command_execution`
+  and `file_change`
