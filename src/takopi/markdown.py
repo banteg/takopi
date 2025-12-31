@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Markdown rendering and truncation helpers for Telegram constraints."""
+
 import re
 from typing import Any, Callable
 

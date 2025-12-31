@@ -1,55 +1,32 @@
 from typing import cast
 
 from takopi.markdown import render_markdown
+from takopi.model import TakopiEvent
 from takopi.render import ExecProgressRenderer, render_event_cli
-from takopi.model import ResumeToken, TakopiEvent
+from tests.factories import (
+    action_completed,
+    action_started,
+    error_event,
+    log_event,
+    session_started,
+)
 
 
-def _format_resume(token: ResumeToken) -> str:
+def _format_resume(token) -> str:
     return f"`codex resume {token.value}`"
 
 
 SAMPLE_EVENTS = [
-    {
-        "type": "session.started",
-        "engine": "codex",
-        "resume": ResumeToken(
-            engine="codex", value="0199a213-81c0-7800-8aa1-bbab2a035a53"
-        ),
-        "title": "Codex",
-    },
-    {
-        "type": "action.started",
-        "engine": "codex",
-        "action": {
-            "id": "a-1",
-            "kind": "command",
-            "title": "bash -lc ls",
-            "detail": {},
-        },
-    },
-    {
-        "type": "action.completed",
-        "engine": "codex",
-        "action": {
-            "id": "a-1",
-            "kind": "command",
-            "title": "bash -lc ls",
-            "detail": {"exit_code": 0},
-        },
-        "ok": True,
-    },
-    {
-        "type": "action.completed",
-        "engine": "codex",
-        "action": {
-            "id": "a-2",
-            "kind": "note",
-            "title": "Checking repository root for README",
-            "detail": {},
-        },
-        "ok": True,
-    },
+    session_started("codex", "0199a213-81c0-7800-8aa1-bbab2a035a53", title="Codex"),
+    action_started("a-1", "command", "bash -lc ls"),
+    action_completed(
+        "a-1",
+        "command",
+        "bash -lc ls",
+        ok=True,
+        detail={"exit_code": 0},
+    ),
+    action_completed("a-2", "note", "Checking repository root for README", ok=True),
 ]
 
 
@@ -70,55 +47,18 @@ def test_render_event_cli_sample_events() -> None:
 
 def test_render_event_cli_handles_action_kinds() -> None:
     events = [
-        {
-            "type": "action.completed",
-            "engine": "codex",
-            "action": {
-                "id": "c-1",
-                "kind": "command",
-                "title": "pytest -q",
-                "detail": {"exit_code": 1},
-            },
-            "ok": False,
-        },
-        {
-            "type": "action.completed",
-            "engine": "codex",
-            "action": {
-                "id": "s-1",
-                "kind": "web_search",
-                "title": "python jsonlines parser handle unknown fields",
-                "detail": {},
-            },
-            "ok": True,
-        },
-        {
-            "type": "action.completed",
-            "engine": "codex",
-            "action": {
-                "id": "t-1",
-                "kind": "tool",
-                "title": "github.search_issues",
-                "detail": {},
-            },
-            "ok": True,
-        },
-        {
-            "type": "action.completed",
-            "engine": "codex",
-            "action": {
-                "id": "f-1",
-                "kind": "file_change",
-                "title": "src/compute_answer.py",
-                "detail": {},
-            },
-            "ok": True,
-        },
-        {
-            "type": "error",
-            "engine": "codex",
-            "message": "stream error",
-        },
+        action_completed(
+            "c-1", "command", "pytest -q", ok=False, detail={"exit_code": 1}
+        ),
+        action_completed(
+            "s-1",
+            "web_search",
+            "python jsonlines parser handle unknown fields",
+            ok=True,
+        ),
+        action_completed("t-1", "tool", "github.search_issues", ok=True),
+        action_completed("f-1", "file_change", "src/compute_answer.py", ok=True),
+        error_event("stream error"),
     ]
 
     last = None
@@ -158,17 +98,13 @@ def test_progress_renderer_renders_progress_and_final() -> None:
 def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
     r = ExecProgressRenderer(max_actions=3, command_width=20)
     events = [
-        {
-            "type": "action.completed",
-            "engine": "codex",
-            "action": {
-                "id": f"item_{i}",
-                "kind": "command",
-                "title": f"echo {i}",
-                "detail": {"exit_code": 0},
-            },
-            "ok": True,
-        }
+        action_completed(
+            f"item_{i}",
+            "command",
+            f"echo {i}",
+            ok=True,
+            detail={"exit_code": 0},
+        )
         for i in range(6)
     ]
 
@@ -186,18 +122,18 @@ def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
 def test_progress_renderer_renders_commands_in_markdown() -> None:
     r = ExecProgressRenderer(max_actions=5, command_width=None)
     for i in (30, 31, 32):
-        evt = {
-            "type": "action.completed",
-            "engine": "codex",
-            "action": {
-                "id": f"item_{i}",
-                "kind": "command",
-                "title": f"echo {i}",
-                "detail": {"exit_code": 0},
-            },
-            "ok": True,
-        }
-        r.note_event(cast(TakopiEvent, evt))
+        r.note_event(
+            cast(
+                TakopiEvent,
+                action_completed(
+                    f"item_{i}",
+                    "command",
+                    f"echo {i}",
+                    ok=True,
+                    detail={"exit_code": 0},
+                ),
+            )
+        )
 
     md = r.render_progress(0.0)
     text, _ = render_markdown(md)
@@ -209,48 +145,22 @@ def test_progress_renderer_renders_commands_in_markdown() -> None:
 def test_progress_renderer_handles_duplicate_action_ids() -> None:
     r = ExecProgressRenderer(max_actions=5)
     events = [
-        {
-            "type": "action.started",
-            "engine": "codex",
-            "action": {
-                "id": "dup",
-                "kind": "command",
-                "title": "echo first",
-                "detail": {},
-            },
-        },
-        {
-            "type": "action.completed",
-            "engine": "codex",
-            "action": {
-                "id": "dup",
-                "kind": "command",
-                "title": "echo first",
-                "detail": {"exit_code": 0},
-            },
-            "ok": True,
-        },
-        {
-            "type": "action.started",
-            "engine": "codex",
-            "action": {
-                "id": "dup",
-                "kind": "command",
-                "title": "echo second",
-                "detail": {},
-            },
-        },
-        {
-            "type": "action.completed",
-            "engine": "codex",
-            "action": {
-                "id": "dup",
-                "kind": "command",
-                "title": "echo second",
-                "detail": {"exit_code": 0},
-            },
-            "ok": True,
-        },
+        action_started("dup", "command", "echo first"),
+        action_completed(
+            "dup",
+            "command",
+            "echo first",
+            ok=True,
+            detail={"exit_code": 0},
+        ),
+        action_started("dup", "command", "echo second"),
+        action_completed(
+            "dup",
+            "command",
+            "echo second",
+            ok=True,
+            detail={"exit_code": 0},
+        ),
     ]
 
     for evt in events:
@@ -265,3 +175,32 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
     assert "echo second" in r.recent_actions[2]
     assert r.recent_actions[3].startswith("✓ ")
     assert "echo second" in r.recent_actions[3]
+
+
+def test_render_event_cli_handles_log_event() -> None:
+    event = log_event("warn me", level="warning")
+    _, lines = render_event_cli(cast(TakopiEvent, event))
+
+    assert any("log[warning]" in line for line in lines)
+    assert any("warn me" in line for line in lines)
+
+
+def test_progress_renderer_deterministic_output() -> None:
+    events = [
+        action_started("a-1", "command", "echo ok"),
+        action_completed(
+            "a-1",
+            "command",
+            "echo ok",
+            ok=True,
+            detail={"exit_code": 0},
+        ),
+    ]
+    r1 = ExecProgressRenderer(max_actions=5)
+    r2 = ExecProgressRenderer(max_actions=5)
+
+    for evt in events:
+        r1.note_event(cast(TakopiEvent, evt))
+        r2.note_event(cast(TakopiEvent, evt))
+
+    assert r1.render_progress(1.0) == r2.render_progress(1.0)

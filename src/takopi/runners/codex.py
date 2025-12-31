@@ -337,6 +337,7 @@ def _kill_process(proc: Process) -> None:
 
 @asynccontextmanager
 async def manage_subprocess(*args, **kwargs):
+    """Ensure subprocesses receive SIGTERM, then SIGKILL after a 2s timeout."""
     if os.name == "posix":
         kwargs.setdefault("start_new_session", True)
     proc = await anyio.open_process(args, **kwargs)

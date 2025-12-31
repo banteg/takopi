@@ -9,6 +9,7 @@ from takopi.markdown import prepare_telegram, truncate_for_telegram
 from takopi.model import ResumeToken, TakopiEvent
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
+from tests.factories import action_completed, action_started
 
 
 def _patch_config(monkeypatch, config):
@@ -299,32 +300,8 @@ async def test_progress_edits_are_rate_limited() -> None:
     bot = _FakeBot()
     clock = _FakeClock()
     events: list[TakopiEvent] = [
-        cast(
-            TakopiEvent,
-            {
-                "type": "action.started",
-                "engine": "codex",
-                "action": {
-                    "id": "item_0",
-                    "kind": "command",
-                    "title": "echo 1",
-                    "detail": {},
-                },
-            },
-        ),
-        cast(
-            TakopiEvent,
-            {
-                "type": "action.started",
-                "engine": "codex",
-                "action": {
-                    "id": "item_1",
-                    "kind": "command",
-                    "title": "echo 2",
-                    "detail": {},
-                },
-            },
-        ),
+        cast(TakopiEvent, action_started("item_0", "command", "echo 1")),
+        cast(TakopiEvent, action_started("item_1", "command", "echo 2")),
     ]
     runner = ScriptRunner(
         [
@@ -368,32 +345,8 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
     clock = _FakeClock()
     hold = anyio.Event()
     events: list[TakopiEvent] = [
-        cast(
-            TakopiEvent,
-            {
-                "type": "action.started",
-                "engine": "codex",
-                "action": {
-                    "id": "item_0",
-                    "kind": "command",
-                    "title": "echo 1",
-                    "detail": {},
-                },
-            },
-        ),
-        cast(
-            TakopiEvent,
-            {
-                "type": "action.started",
-                "engine": "codex",
-                "action": {
-                    "id": "item_1",
-                    "kind": "command",
-                    "title": "echo 2",
-                    "detail": {},
-                },
-            },
-        ),
+        cast(TakopiEvent, action_started("item_0", "command", "echo 1")),
+        cast(TakopiEvent, action_started("item_1", "command", "echo 2")),
     ]
     runner = ScriptRunner(
         [
@@ -461,32 +414,16 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
     bot = _FakeBot()
     clock = _FakeClock()
     events: list[TakopiEvent] = [
+        cast(TakopiEvent, action_started("item_0", "command", "echo ok")),
         cast(
             TakopiEvent,
-            {
-                "type": "action.started",
-                "engine": "codex",
-                "action": {
-                    "id": "item_0",
-                    "kind": "command",
-                    "title": "echo ok",
-                    "detail": {},
-                },
-            },
-        ),
-        cast(
-            TakopiEvent,
-            {
-                "type": "action.completed",
-                "engine": "codex",
-                "action": {
-                    "id": "item_0",
-                    "kind": "command",
-                    "title": "echo ok",
-                    "detail": {"exit_code": 0},
-                },
-                "ok": True,
-            },
+            action_completed(
+                "item_0",
+                "command",
+                "echo ok",
+                ok=True,
+                detail={"exit_code": 0},
+            ),
         ),
     ]
     session_id = "123e4567-e89b-12d3-a456-426614174000"

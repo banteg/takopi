@@ -69,18 +69,18 @@ Legend:
 ### 7. Implement pre-emit locking for new sessions (§6.2)
 🔴 Critical behavioral change
 
-- [ ] 7.1 In `CodexRunner._run()`: parse `thread_id` from stream
-- [ ] 7.2 Acquire lock for new token **before** emitting `session.started`
-- [ ] 7.3 Hold lock for remainder of run
-- [ ] 7.4 Add test: two concurrent `resume=None` runs that get same thread_id must serialize
-- [ ] 7.5 Add test: verify `session.started` not emitted until lock acquired
+- [x] 7.1 In `CodexRunner._run()`: parse `thread_id` from stream
+- [x] 7.2 Acquire lock for new token **before** emitting `session.started`
+- [x] 7.3 Hold lock for remainder of run
+- [x] 7.4 Add test: two concurrent `resume=None` runs that get same thread_id must serialize
+- [x] 7.5 Add test: verify `session.started` not emitted until lock acquired
 
 ### 8. Callback errors must abort run (§6.4)
 🔴 Behavioral change
 
 - [x] 8.1 Update `EventQueue._drain()`: re-raise exceptions instead of logging and continuing
 - [x] 8.2 Ensure runner catches the exception and terminates subprocess
-- [ ] 8.3 Add test: callback that raises → run aborts with error status
+- [x] 8.3 Add test: callback that raises → run aborts with error status
 - [ ] 8.4 Document migration: callbacks must not raise (or run fails)
 
 ---
@@ -146,7 +146,7 @@ Legend:
 ### 15. Document SIGTERM → SIGKILL escalation (§7.4)
 🟢 Documentation only (code already correct)
 
-- [ ] 15.1 Add docstring to `manage_subprocess()` explaining 2s timeout before SIGKILL
+- [x] 15.1 Add docstring to `manage_subprocess()` explaining 2s timeout before SIGKILL
 - [ ] 15.2 Update spec §7.4 to document escalation (or add §7.4.1)
 
 ### 16. Ensure `/cancel` ignores accompanying text (§7.4)
@@ -165,8 +165,8 @@ Legend:
 ### 18. Crash handling: include resume line in error (§6.5)
 🟡 Verify/implement
 
-- [ ] 18.1 Verify that on subprocess crash, if `session.started` was received, error message includes resume line
-- [ ] 18.2 Add test: runner crashes after emitting session.started → error includes resume line
+- [x] 18.1 Verify that on subprocess crash, if `session.started` was received, error message includes resume line
+- [x] 18.2 Add test: runner crashes after emitting session.started → error includes resume line
 
 ---
 
@@ -192,51 +192,51 @@ Legend:
 ### 21. Add event factories for test readability (§10.2)
 🟢 Test infrastructure
 
-- [ ] 21.1 Create `tests/factories.py`
-- [ ] 21.2 Add `session_started(engine, value, title)` factory
-- [ ] 21.3 Add `action_started(id, kind, title, detail)` factory
-- [ ] 21.4 Add `action_completed(id, kind, title, ok, detail)` factory
-- [ ] 21.5 Add `log_event(message, level)` factory
-- [ ] 21.6 Add `error_event(message, detail)` factory
-- [ ] 21.7 Refactor existing tests to use factories
+- [x] 21.1 Create `tests/factories.py`
+- [x] 21.2 Add `session_started(engine, value, title)` factory
+- [x] 21.3 Add `action_started(id, kind, title, detail)` factory
+- [x] 21.4 Add `action_completed(id, kind, title, ok, detail)` factory
+- [x] 21.5 Add `log_event(message, level)` factory
+- [x] 21.6 Add `error_event(message, detail)` factory
+- [x] 21.7 Refactor existing tests to use factories
 
 ### 22. Runner contract tests (§10.1.1)
 🟡 New test category
 
-- [ ] 22.1 Test: runner emits exactly one `session.started`
-- [ ] 22.2 Test: all actions have `id`, `kind`, `title`
-- [ ] 22.3 Test: `RunResult.resume` matches `session.started` token
-- [ ] 22.4 Test: events delivered in order
-- [ ] 22.5 Test: `action.completed` always has `ok` field
+- [x] 22.1 Test: runner emits exactly one `session.started`
+- [x] 22.2 Test: all actions have `id`, `kind`, `title`
+- [x] 22.3 Test: `RunResult.resume` matches `session.started` token
+- [x] 22.4 Test: events delivered in order
+- [x] 22.5 Test: `action.completed` always has `ok` field
 
 ### 23. Per-thread serialization test (§10.1.2) — critical
 🟡 New test
 
-- [ ] 23.1 Test: new session blocks, second run with same token waits
-- [ ] 23.2 Test: first run completes, second run proceeds
-- [ ] 23.3 Test: parallel runs with different tokens execute concurrently
+- [x] 23.1 Test: new session blocks, second run with same token waits
+- [x] 23.2 Test: first run completes, second run proceeds
+- [x] 23.3 Test: parallel runs with different tokens execute concurrently
 
 ### 24. Bridge progress throttling tests (§10.1.3)
 🟢 May already exist, verify coverage
 
-- [ ] 24.1 Test: edits no more frequent than `progress_edit_every`
-- [ ] 24.2 Test: no edit if content unchanged
-- [ ] 24.3 Test: truncation preserves resume line
+- [x] 24.1 Test: edits no more frequent than `progress_edit_every`
+- [x] 24.2 Test: no edit if content unchanged
+- [x] 24.3 Test: truncation preserves resume line
 
 ### 25. Cancellation tests (§10.1.4)
 🟢 May already exist, verify coverage
 
-- [ ] 25.1 Test: `/cancel` terminates run
-- [ ] 25.2 Test: cancelled status message sent
-- [ ] 25.3 Test: resume line included if known
+- [x] 25.1 Test: `/cancel` terminates run
+- [x] 25.2 Test: cancelled status message sent
+- [x] 25.3 Test: resume line included if known
 
 ### 26. Renderer formatting tests (§10.1.5)
 🟢 May already exist, verify coverage
 
-- [ ] 26.1 Test: action rendering (started/completed)
-- [ ] 26.2 Test: error rendering
-- [ ] 26.3 Test: log rendering
-- [ ] 26.4 Test: stable output under repeated event sequences
+- [x] 26.1 Test: action rendering (started/completed)
+- [x] 26.2 Test: error rendering
+- [x] 26.3 Test: log rendering
+- [x] 26.4 Test: stable output under repeated event sequences
 
 ---
 
@@ -255,11 +255,11 @@ Legend:
 ### 28. Update module docstrings
 🟢 Documentation
 
-- [ ] 28.1 Add docstring to `model.py` explaining domain types
-- [ ] 28.2 Add docstring to `runner.py` explaining protocol
-- [ ] 28.3 Add docstring to `bridge.py` explaining orchestration
-- [ ] 28.4 Add docstring to `render.py` explaining purity constraints
-- [ ] 28.5 Add docstring to `markdown.py` explaining Telegram constraints
+- [x] 28.1 Add docstring to `model.py` explaining domain types
+- [x] 28.2 Add docstring to `runner.py` explaining protocol
+- [x] 28.3 Add docstring to `bridge.py` explaining orchestration
+- [x] 28.4 Add docstring to `render.py` explaining purity constraints
+- [x] 28.5 Add docstring to `markdown.py` explaining Telegram constraints
 
 ### 29. Update README/developing.md
 🟢 Documentation

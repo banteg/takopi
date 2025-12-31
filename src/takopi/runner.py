@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Runner protocol and shared utilities for emitting Takopi events."""
+
 import inspect
 import logging
 from collections import deque

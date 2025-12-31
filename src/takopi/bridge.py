@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Telegram bridge orchestration for running a single runner and streaming progress."""
+
 import logging
 import re
 import time
