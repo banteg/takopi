@@ -4,22 +4,28 @@
 
 ### changes
 
-- refactor runner with takopi event normalization and protocol contract #8
-- migrate async runtime from asyncio to anyio #6
+- introduce runner protocol for multi-engine support #8
+  - normalized event model (`started`, `action`, `completed`)
+  - actions with stable ids, lifecycle phases, and structured details
+  - engine-agnostic bridge and renderer
 - add `/cancel` command with progress message targeting #4
+- migrate async runtime from asyncio to anyio #6
 - stream runner events via async iterators (natural backpressure)
+- per-thread job queues with serialization for same-thread runs
+- emit `completed` as terminal event (carries resume + final answer)
 - render resume as `` `codex resume <token>` `` command lines
-- per-thread backlog management for same-thread serialization
-- emit `completed` as the terminal event (resume + final answer)
-- remove `--profile` flag; configure via `[codex].profile` only
+
+### breaking
+
 - require python 3.14+
+- remove `--profile` flag; configure via `[codex].profile` only
 
 ### fixes
 
+- serialize new sessions once resume token is known
 - preserve resume tokens in error renders #3
 - preserve file-change paths in action events #2
 - terminate codex process groups on cancel (POSIX)
-- serialize new sessions once resume token is known
 - correct resume command matching in bridge
 
 ## v0.1.0 (2025-12-29)
