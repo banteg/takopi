@@ -4,7 +4,6 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Awaitable, Iterable
-from typing import cast
 
 from .base import EngineId, EventSink, ResumeToken, SessionStartedEvent, TakopiEvent
 
