@@ -4,6 +4,11 @@
 
 ### changes
 
+- align codebase to v0.2.0 spec (domain model, runner protocol, module split)
+- normalize event schema (session titles, action `ok`, error `detail`, log levels)
+- enforce per-thread serialization for new sessions and abort on event callback errors
+- bridge queueing caps active runs at 16 while keeping per-thread backlogs out of the limit
+- add runner contract, serialization, and renderer/bridge coverage
 - remove `--profile`; configure Codex profiles via `[codex].profile` only
 - `RunResult` now carries only `resume` and `answer`
 
@@ -15,7 +20,7 @@
 - resume command lines: `` `codex resume <token>` ``
 - `/cancel` support via progress message id + AnyIO cancel scopes
 - ordered event sink delivery via a single drain task (no per-event tasks)
-- run results are semantic (`RunResult.ok`) and routing is ready for multi-engine support
+- run results carry `resume` + `answer`, keeping routing ready for multi-engine support
 
 ### fixes
 

@@ -9,7 +9,7 @@ A Telegram bot that bridges messages to [Codex](https://github.com/openai/codex)
 - **Stateless Resume**: No database required—sessions are resumed via `` `codex resume <token>` `` lines embedded in messages
 - **Progress Updates**: Real-time progress edits showing commands, tools, and elapsed time
 - **Markdown Rendering**: Full Telegram-compatible markdown with entity support
-- **Concurrency**: Handles multiple conversations with per-session serialization
+- **Concurrency**: Parallel runs across threads with per-session serialization (16 active runs max)
 
 ## Quick Start
 
@@ -107,6 +107,7 @@ Reply to a progress message with `/cancel` to stop the running execution.
 
 - **Startup**: Pending updates are drained (ignored) on startup
 - **Progress**: Updates are throttled to ~1s intervals, sent silently
+- **Queueing**: Messages for the same thread queue behind the active run without consuming extra concurrency slots
 - **Filtering**: Only accepts messages where chat ID equals sender ID and matches `chat_id`
 - **Single instance**: Run exactly one instance per bot token—multiple instances will race for updates
 
