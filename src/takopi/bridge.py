@@ -13,7 +13,7 @@ from weakref import WeakValueDictionary
 import anyio
 
 from .markdown import TELEGRAM_MARKDOWN_LIMIT, prepare_telegram, render_markdown
-from .model import ResumeToken, RunResult, TakopiEvent
+from .model import ResumeToken, TakopiEvent
 from .render import ExecProgressRenderer
 from .runner import Runner
 from .telegram import BotClient
@@ -318,23 +318,11 @@ async def handle_message(
     cancelled = False
     error: Exception | None = None
     resume_token_value: ResumeToken | None = None
-    result: RunResult | None = None
+    answer: str | None = None
     running_task: RunningTask | None = None
     if running_tasks is not None and progress_id is not None:
         running_task = RunningTask()
         running_tasks[progress_id] = running_task
-
-    async def on_event(evt: TakopiEvent) -> None:
-        if evt["type"] == "session.started" and acquire_lock is not None:
-            await acquire_lock(evt["resume"])
-        await edits.on_event(evt)
-        if (
-            running_task is not None
-            and running_task.resume is None
-            and progress_renderer.resume_token is not None
-        ):
-            running_task.resume = progress_renderer.resume_token
-            running_task.resume_ready.set()
 
     edits_scope = anyio.CancelScope()
 
@@ -350,19 +338,31 @@ async def handle_message(
         if progress_id is not None:
             tg.start_soon(run_edits)
 
-        async def run_exec() -> RunResult | None:
+        async def run_exec() -> tuple[ResumeToken, str] | None:
             nonlocal cancelled
-            exec_result: RunResult | None = None
             cancel_flag = False
+            completed: tuple[ResumeToken, str] | None = None
 
             async with anyio.create_task_group() as exec_tg:
 
                 async def run_runner() -> None:
-                    nonlocal exec_result
+                    nonlocal resume_token_value, completed
                     try:
-                        exec_result = await runner.run(
-                            text, resume_token, on_event=on_event
-                        )
+                        async for evt in runner.run(text, resume_token):
+                            if evt["type"] == "session.started":
+                                resume_token_value = evt["resume"]
+                                if acquire_lock is not None:
+                                    await acquire_lock(resume_token_value)
+                                if (
+                                    running_task is not None
+                                    and running_task.resume is None
+                                ):
+                                    running_task.resume = resume_token_value
+                                    running_task.resume_ready.set()
+                            elif evt["type"] == "run.completed":
+                                resume_token_value = evt["resume"]
+                                completed = (evt["resume"], evt["answer"])
+                            await edits.on_event(evt)
                     finally:
                         exec_tg.cancel_scope.cancel()
 
@@ -380,12 +380,12 @@ async def handle_message(
 
             if cancel_flag:
                 cancelled = True
-            return exec_result
+            return completed
 
         try:
-            result = await run_exec()
-            if result is not None:
-                resume_token_value = result.resume
+            completed = await run_exec()
+            if completed is not None:
+                resume_token_value, answer = completed
         except Exception as e:
             error = e
         finally:
@@ -443,11 +443,9 @@ async def handle_message(
         )
         return
 
-    if result is None:
-        raise RuntimeError("codex exec finished without a result")
+    if answer is None or resume_token_value is None:
+        raise RuntimeError("runner finished without a run.completed event")
 
-    resume_token_value = result.resume
-    answer = result.answer
     status = "done" if answer.strip() else "error"
     progress_renderer.resume_token = resume_token_value
     final_md = progress_renderer.render_final(elapsed, answer, status=status)

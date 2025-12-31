@@ -1,8 +1,9 @@
+import anyio
 import pytest
 from typing import cast
 
 from takopi.model import EngineId, ResumeToken, TakopiEvent
-from takopi.runners.mock import Emit, Return, ScriptRunner
+from takopi.runners.mock import Emit, Return, ScriptRunner, Wait
 from tests.factories import action_started
 
 CODEX_ENGINE = EngineId("codex")
@@ -29,20 +30,23 @@ async def test_runner_contract_session_started_and_order() -> None:
         Return(answer="done"),
     ]
     runner = ScriptRunner(script, engine=CODEX_ENGINE, resume_value="abc123")
-    seen: list[TakopiEvent] = []
-
-    async def on_event(event: TakopiEvent) -> None:
-        seen.append(event)
-
-    result = await runner.run("hi", None, on_event)
+    seen = [evt async for evt in runner.run("hi", None)]
 
     session_events = [evt for evt in seen if evt["type"] == "session.started"]
     assert len(session_events) == 1
     assert seen[0]["type"] == "session.started"
-    assert result.resume == session_events[0]["resume"]
-    assert [evt["type"] for evt in seen[1:]] == ["action.started", "action.completed"]
 
-    completed_event = seen[-1]
+    completed_events = [evt for evt in seen if evt["type"] == "run.completed"]
+    assert len(completed_events) == 1
+    assert completed_events[0]["resume"] == session_events[0]["resume"]
+    assert completed_events[0]["answer"] == "done"
+
+    assert [evt["type"] for evt in seen[1:-1]] == [
+        "action.started",
+        "action.completed",
+    ]
+
+    completed_event = next(evt for evt in seen if evt["type"] == "action.completed")
     assert completed_event["type"] == "action.completed"
     assert completed_event.get("ok") is True
     action = completed_event["action"]
@@ -56,23 +60,28 @@ async def test_runner_contract_resume_matches_session_started() -> None:
     runner = ScriptRunner(
         [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
     )
-    seen: list[TakopiEvent] = []
-
-    async def on_event(event: TakopiEvent) -> None:
-        seen.append(event)
-
-    result = await runner.run("hello", None, on_event)
+    seen = [evt async for evt in runner.run("hello", None)]
     session = next(evt for evt in seen if evt["type"] == "session.started")
-    assert result.resume == session["resume"]
-    assert isinstance(result.resume, ResumeToken)
+    completed = next(evt for evt in seen if evt["type"] == "run.completed")
+    assert completed["resume"] == session["resume"]
+    assert isinstance(completed["resume"], ResumeToken)
 
 
 @pytest.mark.anyio
-async def test_runner_aborts_on_event_error() -> None:
-    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+async def test_runner_releases_lock_when_consumer_closes() -> None:
+    gate = anyio.Event()
+    runner = ScriptRunner([Wait(gate)], engine=CODEX_ENGINE, resume_value="sid")
 
-    async def on_event(_event: TakopiEvent) -> None:
-        raise RuntimeError("boom")
+    gen = runner.run("hello", None)
+    try:
+        evt = await anext(gen)
+        assert evt["type"] == "session.started"
+    finally:
+        await gen.aclose()
 
-    with pytest.raises(RuntimeError, match="boom"):
-        await runner.run("hello", None, on_event)
+    gen2 = runner.run("again", ResumeToken(engine=CODEX_ENGINE, value="sid"))
+    try:
+        evt2 = await anext(gen2)
+        assert evt2["type"] == "session.started"
+    finally:
+        await gen2.aclose()

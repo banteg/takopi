@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import TypeAlias, cast
 from weakref import WeakValueDictionary
 
 import anyio
 
-from ..model import EngineId, ResumeToken, RunResult, SessionStartedEvent, TakopiEvent
-from ..runner import EventQueue, EventSink, Runner
+from ..model import EngineId, ResumeToken, SessionStartedEvent, TakopiEvent
+from ..runner import Runner
 
 ENGINE: EngineId = EngineId("mock")
 
@@ -129,12 +129,7 @@ class MockRunner(Runner):
             return m.group("token")
         return None
 
-    async def run(
-        self,
-        prompt: str,
-        resume: ResumeToken | None,
-        on_event: EventSink,
-    ) -> RunResult:
+    async def run(self, prompt: str, resume: ResumeToken | None) -> AsyncIterator[TakopiEvent]:
         _ = prompt
         token_value = None
         if resume is not None:
@@ -154,24 +149,21 @@ class MockRunner(Runner):
         }
         lock = self._lock_for(token)
         async with lock:
-            dispatcher = EventQueue(on_event, label=str(self.engine))
-            await dispatcher.start()
-            try:
-                dispatcher.emit(session_evt)
+            yield session_evt
 
-                for event in self._events:
-                    event_out: TakopiEvent = event
-                    if (
-                        event_out.get("type") == "action.completed"
-                        and "ok" not in event_out
-                    ):
-                        event_out = cast(TakopiEvent, {**event_out, "ok": True})
-                    dispatcher.emit(event_out)
-                    await anyio.sleep(0)
+            for event in self._events:
+                event_out: TakopiEvent = event
+                if event_out.get("type") == "action.completed" and "ok" not in event_out:
+                    event_out = cast(TakopiEvent, {**event_out, "ok": True})
+                yield event_out
+                await anyio.sleep(0)
 
-                return RunResult(resume=token, answer=self._answer)
-            finally:
-                await dispatcher.close()
+            yield {
+                "type": "run.completed",
+                "engine": self.engine,
+                "resume": token,
+                "answer": self._answer,
+            }
 
 
 class ScriptRunner(MockRunner):
@@ -205,12 +197,7 @@ class ScriptRunner(MockRunner):
             raise RuntimeError("ScriptRunner advance callback is not configured.")
         self._advance(now)
 
-    async def run(
-        self,
-        prompt: str,
-        resume: ResumeToken | None,
-        on_event: EventSink,
-    ) -> RunResult:
+    async def run(self, prompt: str, resume: ResumeToken | None) -> AsyncIterator[TakopiEvent]:
         self.calls.append((prompt, resume))
         _ = prompt
         token_value = None
@@ -232,27 +219,18 @@ class ScriptRunner(MockRunner):
         lock = self._lock_for(token)
 
         async with lock:
-
-            async def emit(event: TakopiEvent) -> None:
-                event_out: TakopiEvent = event
-                if (
-                    event_out.get("type") == "action.completed"
-                    and "ok" not in event_out
-                ):
-                    event_out = cast(TakopiEvent, {**event_out, "ok": True})
-                res = on_event(event_out)
-                if res is not None:
-                    await res
-
             if self._emit_session_start:
-                await emit(session_evt)
+                yield session_evt
                 await anyio.sleep(0)
 
             for step in self._script:
                 if isinstance(step, Emit):
                     if step.at is not None:
                         self._advance_to(step.at)
-                    await emit(step.event)
+                    event_out: TakopiEvent = step.event
+                    if event_out.get("type") == "action.completed" and "ok" not in event_out:
+                        event_out = cast(TakopiEvent, {**event_out, "ok": True})
+                    yield event_out
                     await anyio.sleep(0)
                     continue
                 if isinstance(step, Advance):
@@ -267,7 +245,18 @@ class ScriptRunner(MockRunner):
                 if isinstance(step, Raise):
                     raise step.error
                 if isinstance(step, Return):
-                    return RunResult(resume=token, answer=step.answer)
+                    yield {
+                        "type": "run.completed",
+                        "engine": self.engine,
+                        "resume": token,
+                        "answer": step.answer,
+                    }
+                    return
                 raise RuntimeError(f"Unhandled script step: {step!r}")
 
-            return RunResult(resume=token, answer=self._answer)
+            yield {
+                "type": "run.completed",
+                "engine": self.engine,
+                "resume": token,
+                "answer": self._answer,
+            }

@@ -2,8 +2,9 @@ import anyio
 
 import pytest
 
-from takopi.model import EngineId, ResumeToken, RunResult
-from takopi.runner import NO_OP_SINK
+from collections.abc import AsyncIterator
+
+from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.runners.codex import CodexRunner
 
 CODEX_ENGINE = EngineId("codex")
@@ -16,23 +17,31 @@ async def test_run_serializes_same_session() -> None:
     in_flight = 0
     max_in_flight = 0
 
-    async def run_stub(*_args, **_kwargs):
+    async def run_stub(*_args, **_kwargs) -> AsyncIterator[TakopiEvent]:
         nonlocal in_flight, max_in_flight
         in_flight += 1
         max_in_flight = max(max_in_flight, in_flight)
-        await gate.wait()
-        in_flight -= 1
-        return RunResult(
-            resume=ResumeToken(engine=CODEX_ENGINE, value="sid"),
-            answer="ok",
-        )
+        try:
+            await gate.wait()
+            yield {
+                "type": "run.completed",
+                "engine": CODEX_ENGINE,
+                "resume": ResumeToken(engine=CODEX_ENGINE, value="sid"),
+                "answer": "ok",
+            }
+        finally:
+            in_flight -= 1
 
     runner._run = run_stub  # type: ignore[assignment]
 
+    async def drain(prompt: str, resume: ResumeToken | None) -> None:
+        async for _event in runner.run(prompt, resume):
+            pass
+
     token = ResumeToken(engine=CODEX_ENGINE, value="sid")
     async with anyio.create_task_group() as tg:
-        tg.start_soon(runner.run, "a", token, NO_OP_SINK)
-        tg.start_soon(runner.run, "b", token, NO_OP_SINK)
+        tg.start_soon(drain, "a", token)
+        tg.start_soon(drain, "b", token)
         await anyio.sleep(0)
         gate.set()
     assert max_in_flight == 1
@@ -45,22 +54,30 @@ async def test_run_allows_parallel_new_sessions() -> None:
     in_flight = 0
     max_in_flight = 0
 
-    async def run_stub(*_args, **_kwargs):
+    async def run_stub(*_args, **_kwargs) -> AsyncIterator[TakopiEvent]:
         nonlocal in_flight, max_in_flight
         in_flight += 1
         max_in_flight = max(max_in_flight, in_flight)
-        await gate.wait()
-        in_flight -= 1
-        return RunResult(
-            resume=ResumeToken(engine=CODEX_ENGINE, value="sid"),
-            answer="ok",
-        )
+        try:
+            await gate.wait()
+            yield {
+                "type": "run.completed",
+                "engine": CODEX_ENGINE,
+                "resume": ResumeToken(engine=CODEX_ENGINE, value="sid"),
+                "answer": "ok",
+            }
+        finally:
+            in_flight -= 1
 
     runner._run = run_stub  # type: ignore[assignment]
 
+    async def drain(prompt: str, resume: ResumeToken | None) -> None:
+        async for _event in runner.run(prompt, resume):
+            pass
+
     async with anyio.create_task_group() as tg:
-        tg.start_soon(runner.run, "a", None, NO_OP_SINK)
-        tg.start_soon(runner.run, "b", None, NO_OP_SINK)
+        tg.start_soon(drain, "a", None)
+        tg.start_soon(drain, "b", None)
         await anyio.sleep(0)
         gate.set()
     assert max_in_flight == 2
@@ -73,24 +90,32 @@ async def test_run_allows_parallel_different_sessions() -> None:
     in_flight = 0
     max_in_flight = 0
 
-    async def run_stub(*_args, **_kwargs):
+    async def run_stub(*_args, **_kwargs) -> AsyncIterator[TakopiEvent]:
         nonlocal in_flight, max_in_flight
         in_flight += 1
         max_in_flight = max(max_in_flight, in_flight)
-        await gate.wait()
-        in_flight -= 1
-        return RunResult(
-            resume=ResumeToken(engine=CODEX_ENGINE, value="sid"),
-            answer="ok",
-        )
+        try:
+            await gate.wait()
+            yield {
+                "type": "run.completed",
+                "engine": CODEX_ENGINE,
+                "resume": ResumeToken(engine=CODEX_ENGINE, value="sid"),
+                "answer": "ok",
+            }
+        finally:
+            in_flight -= 1
 
     runner._run = run_stub  # type: ignore[assignment]
+
+    async def drain(prompt: str, resume: ResumeToken | None) -> None:
+        async for _event in runner.run(prompt, resume):
+            pass
 
     token_a = ResumeToken(engine=CODEX_ENGINE, value="sid-a")
     token_b = ResumeToken(engine=CODEX_ENGINE, value="sid-b")
     async with anyio.create_task_group() as tg:
-        tg.start_soon(runner.run, "a", token_a, NO_OP_SINK)
-        tg.start_soon(runner.run, "b", token_b, NO_OP_SINK)
+        tg.start_soon(drain, "a", token_a)
+        tg.start_soon(drain, "b", token_b)
         await anyio.sleep(0)
         gate.set()
     assert max_in_flight == 2
@@ -140,23 +165,22 @@ async def test_run_serializes_new_session_after_session_is_known(
     session_started = anyio.Event()
     resume_value: str | None = None
 
-    async def on_event(event) -> None:
-        nonlocal resume_value
-        if event.get("type") == "session.started":
-            resume_value = event["resume"].value
-            session_started.set()
-
     new_done = anyio.Event()
 
     async def run_new() -> None:
-        await runner.run("hello", None, on_event)
+        nonlocal resume_value
+        async for event in runner.run("hello", None):
+            if event["type"] == "session.started":
+                resume_value = event["resume"].value
+                session_started.set()
         new_done.set()
 
     async def run_resume() -> None:
         assert resume_value is not None
-        await runner.run(
-            "resume", ResumeToken(engine=CODEX_ENGINE, value=resume_value), NO_OP_SINK
-        )
+        async for _event in runner.run(
+            "resume", ResumeToken(engine=CODEX_ENGINE, value=resume_value)
+        ):
+            pass
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_new)
@@ -209,19 +233,15 @@ async def test_run_serializes_two_new_sessions_same_thread(
     started_first = anyio.Event()
     started_second = anyio.Event()
 
-    async def on_event_first(event) -> None:
-        if event.get("type") == "session.started":
-            started_first.set()
-
-    async def on_event_second(event) -> None:
-        if event.get("type") == "session.started":
-            started_second.set()
-
     async def run_first() -> None:
-        await runner.run("one", None, on_event_first)
+        async for event in runner.run("one", None):
+            if event["type"] == "session.started":
+                started_first.set()
 
     async def run_second() -> None:
-        await runner.run("two", None, on_event_second)
+        async for event in runner.run("two", None):
+            if event["type"] == "session.started":
+                started_second.set()
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(run_first)

@@ -7,6 +7,7 @@ import re
 import signal
 import subprocess
 from collections import deque
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, cast
 from weakref import WeakValueDictionary
@@ -22,11 +23,10 @@ from ..model import (
     LogEvent,
     LogLevel,
     ResumeToken,
-    RunResult,
     SessionStartedEvent,
     TakopiEvent,
 )
-from ..runner import EventQueue, EventSink, Runner
+from ..runner import Runner
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +75,16 @@ def _error_event(message: str, *, detail: str | None = None) -> ErrorEvent:
     if detail:
         payload["detail"] = detail
     return payload
+
+
+def _run_completed_event(token: ResumeToken, *, answer: str) -> TakopiEvent:
+    payload = {
+        "type": "run.completed",
+        "engine": ENGINE,
+        "resume": token,
+        "answer": answer,
+    }
+    return cast(TakopiEvent, payload)
 
 
 def _action_event(
@@ -409,32 +419,26 @@ class CodexRunner(Runner):
             return m.group("token")
         return None
 
-    def _emit_event(self, dispatcher: EventQueue, event: TakopiEvent) -> None:
-        dispatcher.emit(event)
-
-    async def run(
-        self,
-        prompt: str,
-        resume: ResumeToken | None,
-        on_event: EventSink,
-    ) -> RunResult:
+    async def run(self, prompt: str, resume: ResumeToken | None) -> AsyncIterator[TakopiEvent]:
         resume_token = resume
         if resume_token is not None and resume_token.engine != ENGINE:
             raise RuntimeError(
                 f"resume token is for engine {resume_token.engine!r}, not {ENGINE!r}"
             )
         if resume_token is None:
-            return await self._run(prompt, resume_token, on_event)
+            async for evt in self._run(prompt, resume_token):
+                yield evt
+            return
         lock = self._lock_for(resume_token)
         async with lock:
-            return await self._run(prompt, resume_token, on_event)
+            async for evt in self._run(prompt, resume_token):
+                yield evt
 
-    async def _run(
+    async def _run(  # noqa: C901
         self,
         prompt: str,
         resume_token: ResumeToken | None,
-        on_event: EventSink,
-    ) -> RunResult:
+    ) -> AsyncIterator[TakopiEvent]:
         logger.info(
             "[codex] start run resume=%r", resume_token.value if resume_token else None
         )
@@ -447,12 +451,6 @@ class CodexRunner(Runner):
             args.extend(["resume", resume_token.value, "-"])
         else:
             args.append("-")
-
-        dispatcher = EventQueue(on_event, label="codex")
-        await dispatcher.start()
-
-        cancelled_exc_type = anyio.get_cancelled_exc_class()
-        cancelled_exc: BaseException | None = None
         session_lock: anyio.Lock | None = None
         session_lock_acquired = False
 
@@ -478,93 +476,64 @@ class CodexRunner(Runner):
                 last_agent_text: str | None = None
 
                 async with anyio.create_task_group() as tg:
-                    done = anyio.Event()
                     tg.start_soon(_drain_stderr, proc_stderr, stderr_chunks)
-                    tg.start_soon(dispatcher.wait_error, done)
+                    await proc_stdin.send(prompt.encode())
+                    await proc_stdin.aclose()
 
-                    try:
-                        await proc_stdin.send(prompt.encode())
-                        await proc_stdin.aclose()
+                    if resume_token is not None:
+                        saw_session_started = True
+                        yield _session_started_event(resume_token, title=self.session_title)
 
-                        if resume_token is not None:
-                            saw_session_started = True
-                            self._emit_event(
-                                dispatcher,
-                                _session_started_event(
-                                    resume_token, title=self.session_title
-                                ),
-                            )
+                    async for raw_line in _iter_text_lines(proc_stdout):
+                        raw = raw_line.rstrip("\n")
+                        logger.debug("[codex][jsonl] %s", raw)
+                        line = raw.strip()
+                        if not line:
+                            continue
+                        try:
+                            evt = json.loads(line)
+                        except json.JSONDecodeError:
+                            yield _log_event("error", f"invalid json line: {line}")
+                            continue
 
-                        async for raw_line in _iter_text_lines(proc_stdout):
-                            raw = raw_line.rstrip("\n")
-                            logger.debug("[codex][jsonl] %s", raw)
-                            line = raw.strip()
-                            if not line:
-                                continue
-                            try:
-                                evt = json.loads(line)
-                            except json.JSONDecodeError:
-                                self._emit_event(
-                                    dispatcher,
-                                    _log_event("error", f"invalid json line: {line}"),
-                                )
-                                continue
-
-                            if evt.get("type") == "item.completed":
-                                item = evt.get("item") or {}
-                                item_type = item.get("type") or item.get("item_type")
-                                if item_type == "assistant_message":
-                                    item_type = "agent_message"
-                                if item_type == "agent_message" and isinstance(
-                                    item.get("text"), str
-                                ):
-                                    last_agent_text = item["text"]
-
-                            for out_evt in translate_codex_event(
-                                evt, title=self.session_title
+                        if evt.get("type") == "item.completed":
+                            item = evt.get("item") or {}
+                            item_type = item.get("type") or item.get("item_type")
+                            if item_type == "assistant_message":
+                                item_type = "agent_message"
+                            if item_type == "agent_message" and isinstance(
+                                item.get("text"), str
                             ):
-                                if out_evt["type"] == "session.started":
-                                    session = out_evt["resume"]
-                                    if found_session is None:
-                                        if session.engine != ENGINE:
-                                            raise RuntimeError(
-                                                f"codex emitted session token for engine {session.engine!r}"
-                                            )
-                                        session_lock = self._lock_for(session)
-                                        await session_lock.acquire()
-                                        session_lock_acquired = True
-                                        found_session = session
-                                        saw_session_started = True
-                                        self._emit_event(dispatcher, out_evt)
-                                    elif session != found_session:
-                                        self._emit_event(
-                                            dispatcher,
-                                            _log_event(
-                                                "error",
-                                                "codex emitted a different session id than expected",
-                                            ),
-                                        )
-                                    continue
-                                self._emit_event(dispatcher, out_evt)
-                    except cancelled_exc_type as exc:
-                        cancelled_exc = exc
-                        tg.cancel_scope.cancel()
-                    finally:
-                        if cancelled_exc is None:
-                            rc = await proc.wait()
-                        done.set()
+                                last_agent_text = item["text"]
 
-                if cancelled_exc is not None:
-                    raise cancelled_exc
+                        for out_evt in translate_codex_event(evt, title=self.session_title):
+                            if out_evt["type"] == "session.started":
+                                session = out_evt["resume"]
+                                if found_session is None:
+                                    if session.engine != ENGINE:
+                                        raise RuntimeError(
+                                            f"codex emitted session token for engine {session.engine!r}"
+                                        )
+                                    session_lock = self._lock_for(session)
+                                    await session_lock.acquire()
+                                    session_lock_acquired = True
+                                    found_session = session
+                                    saw_session_started = True
+                                    yield out_evt
+                                elif session != found_session:
+                                    yield _log_event(
+                                        "error",
+                                        "codex emitted a different session id than expected",
+                                    )
+                                continue
+                            yield out_evt
+                    rc = await proc.wait()
 
                 logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
                 if rc != 0:
                     stderr_text = "".join(stderr_chunks)
                     message = f"codex exec failed (rc={rc})."
-                    self._emit_event(
-                        dispatcher,
-                        _error_event(message, detail=f"stderr tail:\n{stderr_text}"),
-                    )
+                    yield _error_event(message, detail=f"stderr tail:\n{stderr_text}")
                     raise RuntimeError(f"{message} stderr tail:\n{stderr_text}")
 
                 if not saw_session_started or not found_session:
@@ -573,11 +542,7 @@ class CodexRunner(Runner):
                     )
 
                 logger.info("[codex] done run session=%s", found_session.value)
-                return RunResult(
-                    resume=found_session,
-                    answer=last_agent_text or "",
-                )
+                yield _run_completed_event(found_session, answer=last_agent_text or "")
         finally:
             if session_lock is not None and session_lock_acquired:
                 session_lock.release()
-            await dispatcher.close()
