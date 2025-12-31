@@ -89,10 +89,10 @@ async def _send_or_edit_markdown(
     limit: int = TELEGRAM_MARKDOWN_LIMIT,
     is_resume_line: Callable[[str], bool] | None = None,
 ) -> tuple[dict[str, Any] | None, bool]:
+    rendered, entities = prepare_telegram(
+        text, limit=limit, is_resume_line=is_resume_line
+    )
     if edit_message_id is not None:
-        rendered, entities = prepare_telegram(
-            text, limit=limit, is_resume_line=is_resume_line
-        )
         edited = await bot.edit_message_text(
             chat_id=chat_id,
             message_id=edit_message_id,
@@ -102,9 +102,6 @@ async def _send_or_edit_markdown(
         if edited is not None:
             return (edited, True)
 
-    rendered, entities = prepare_telegram(
-        text, limit=limit, is_resume_line=is_resume_line
-    )
     return (
         await bot.send_message(
             chat_id=chat_id,
@@ -412,7 +409,7 @@ async def handle_message(
         err_body = f"Error:\n{error}"
         final_md = progress_renderer.render_final(elapsed, err_body, status="error")
         logger.debug("[error] markdown: %s", final_md)
-        await _send_or_edit_markdown(
+        final_msg, edited = await _send_or_edit_markdown(
             cfg.bot,
             chat_id=chat_id,
             text=final_md,
@@ -422,6 +419,11 @@ async def handle_message(
             limit=TELEGRAM_MARKDOWN_LIMIT,
             is_resume_line=is_resume_line,
         )
+        if final_msg is None:
+            return
+        if progress_id is not None and not edited:
+            logger.debug("[error] delete progress message_id=%s", progress_id)
+            await cfg.bot.delete_message(chat_id=chat_id, message_id=progress_id)
         return
 
     elapsed = clock() - started_at
@@ -435,7 +437,7 @@ async def handle_message(
         )
         progress_renderer.resume_token = resume_token_value
         final_md = progress_renderer.render_progress(elapsed, label="`cancelled`")
-        await _send_or_edit_markdown(
+        final_msg, edited = await _send_or_edit_markdown(
             cfg.bot,
             chat_id=chat_id,
             text=final_md,
@@ -445,6 +447,11 @@ async def handle_message(
             limit=TELEGRAM_MARKDOWN_LIMIT,
             is_resume_line=is_resume_line,
         )
+        if final_msg is None:
+            return
+        if progress_id is not None and not edited:
+            logger.debug("[cancel] delete progress message_id=%s", progress_id)
+            await cfg.bot.delete_message(chat_id=chat_id, message_id=progress_id)
         return
 
     if answer is None or resume_token_value is None:
