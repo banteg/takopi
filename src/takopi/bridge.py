@@ -487,7 +487,9 @@ async def handle_message(
         else:
             final_answer = f"Error:\n{run_error}"
 
-    status = "error" if run_ok is False else ("done" if final_answer.strip() else "error")
+    status = (
+        "error" if run_ok is False else ("done" if final_answer.strip() else "error")
+    )
     if resume_token_value is None:
         resume_token_value = progress_renderer.resume_token
     progress_renderer.resume_token = resume_token_value

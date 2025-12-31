@@ -73,8 +73,4 @@ class CompletedEvent:
     usage: dict[str, Any] | None = None
 
 
-TakopiEvent: TypeAlias = (
-    StartedEvent
-    | ActionEvent
-    | CompletedEvent
-)
+TakopiEvent: TypeAlias = StartedEvent | ActionEvent | CompletedEvent

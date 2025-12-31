@@ -512,7 +512,9 @@ class CodexRunner(ResumeRunnerMixin, Runner):
             self._session_locks[key] = lock
         return lock
 
-    async def run(self, prompt: str, resume: ResumeToken | None) -> AsyncIterator[TakopiEvent]:
+    async def run(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
         resume_token = resume
         if resume_token is not None and resume_token.engine != ENGINE:
             raise RuntimeError(
@@ -685,7 +687,9 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                     )
                                     final_answer = item["text"]
 
-                        for out_evt in translate_codex_event(evt, title=self.session_title):
+                        for out_evt in translate_codex_event(
+                            evt, title=self.session_title
+                        ):
                             if out_evt.type == "started":
                                 session = out_evt.resume
                                 if found_session is None:
@@ -693,10 +697,11 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                         raise RuntimeError(
                                             f"codex emitted session token for engine {session.engine!r}"
                                         )
-                                    if expected_session is not None and session != expected_session:
-                                        message = (
-                                            "codex emitted a different session id than expected"
-                                        )
+                                    if (
+                                        expected_session is not None
+                                        and session != expected_session
+                                    ):
+                                        message = "codex emitted a different session id than expected"
                                         raise RuntimeError(message)
                                     if expected_session is None:
                                         session_lock = self._lock_for(session)

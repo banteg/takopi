@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from takopi.model import Action, ActionEvent, ActionKind, EngineId, ResumeToken, StartedEvent, TakopiEvent
+from takopi.model import (
+    Action,
+    ActionEvent,
+    ActionKind,
+    EngineId,
+    ResumeToken,
+    StartedEvent,
+    TakopiEvent,
+)
 
 
 def session_started(engine: str, value: str, title: str = "Codex") -> TakopiEvent:

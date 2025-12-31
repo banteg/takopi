@@ -8,7 +8,14 @@ from weakref import WeakValueDictionary
 
 import anyio
 
-from ..model import ActionEvent, CompletedEvent, EngineId, ResumeToken, StartedEvent, TakopiEvent
+from ..model import (
+    ActionEvent,
+    CompletedEvent,
+    EngineId,
+    ResumeToken,
+    StartedEvent,
+    TakopiEvent,
+)
 from ..runner import ResumeRunnerMixin, Runner, compile_resume_pattern
 
 ENGINE: EngineId = EngineId("mock")
@@ -82,7 +89,9 @@ class MockRunner(ResumeRunnerMixin, Runner):
             self._session_locks[key] = lock
         return lock
 
-    async def run(self, prompt: str, resume: ResumeToken | None) -> AsyncIterator[TakopiEvent]:
+    async def run(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
         _ = prompt
         token_value = None
         if resume is not None:
@@ -105,7 +114,10 @@ class MockRunner(ResumeRunnerMixin, Runner):
 
             for event in self._events:
                 event_out: TakopiEvent = event
-                if isinstance(event_out, ActionEvent) and event_out.phase == "completed":
+                if (
+                    isinstance(event_out, ActionEvent)
+                    and event_out.phase == "completed"
+                ):
                     if event_out.ok is None:
                         event_out = replace(event_out, ok=True)
                 yield event_out
@@ -150,7 +162,9 @@ class ScriptRunner(MockRunner):
             raise RuntimeError("ScriptRunner advance callback is not configured.")
         self._advance(now)
 
-    async def run(self, prompt: str, resume: ResumeToken | None) -> AsyncIterator[TakopiEvent]:
+    async def run(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
         self.calls.append((prompt, resume))
         _ = prompt
         token_value = None
@@ -180,7 +194,10 @@ class ScriptRunner(MockRunner):
                     if step.at is not None:
                         self._advance_to(step.at)
                     event_out: TakopiEvent = step.event
-                    if isinstance(event_out, ActionEvent) and event_out.phase == "completed":
+                    if (
+                        isinstance(event_out, ActionEvent)
+                        and event_out.phase == "completed"
+                    ):
                         if event_out.ok is None:
                             event_out = replace(event_out, ok=True)
                     yield event_out

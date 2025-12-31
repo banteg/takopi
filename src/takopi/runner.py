@@ -11,9 +11,7 @@ from .model import EngineId, ResumeToken, TakopiEvent
 
 def compile_resume_pattern(engine: EngineId) -> re.Pattern[str]:
     name = re.escape(str(engine))
-    return re.compile(
-        rf"(?im)^\s*`?{name}\s+resume\s+(?P<token>[^`\s]+)`?\s*$"
-    )
+    return re.compile(rf"(?im)^\s*`?{name}\s+resume\s+(?P<token>[^`\s]+)`?\s*$")
 
 
 class ResumeRunnerMixin:
