@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import uuid
 from collections.abc import Awaitable, Iterable
 from typing import cast
 
-from .base import EngineId, EventSink, ResumeToken, TakopiEvent
+from .base import EngineId, EventSink, ResumeToken, SessionStartedEvent, TakopiEvent
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +15,10 @@ ENGINE: EngineId = "mock"
 
 def _resume_token(value: str | None) -> ResumeToken:
     return ResumeToken(engine=ENGINE, value=value or uuid.uuid4().hex)
+
+
+async def _await_event(awaitable: Awaitable[None]) -> None:
+    await awaitable
 
 
 class MockRunner:
@@ -35,18 +38,20 @@ class MockRunner:
         except Exception as e:
             logger.info("[mock][on_event] callback error: %s", e)
             return
-        if inspect.isawaitable(res):
-            task = asyncio.create_task(cast(Awaitable[None], res))
+        if res is None:
+            return
+        awaitable = res
+        task = asyncio.create_task(_await_event(awaitable))
 
-            def _done(t: asyncio.Task[None]) -> None:
-                try:
-                    t.result()
-                except asyncio.CancelledError:
-                    return
-                except Exception as e:  # pragma: no cover - defensive
-                    logger.info("[mock][on_event] callback error: %s", e)
+        def _done(t: asyncio.Task[None]) -> None:
+            try:
+                t.result()
+            except asyncio.CancelledError:
+                return
+            except Exception as e:  # pragma: no cover - defensive
+                logger.info("[mock][on_event] callback error: %s", e)
 
-            task.add_done_callback(_done)
+        task.add_done_callback(_done)
 
     async def run(
         self,
@@ -68,7 +73,7 @@ class MockRunner:
             else:
                 token_value = token
         token = _resume_token(token_value)
-        session_evt: TakopiEvent = {
+        session_evt: SessionStartedEvent = {
             "type": "session.started",
             "engine": ENGINE,
             "resume": {"engine": ENGINE, "value": token.value},

@@ -1,4 +1,7 @@
+from typing import cast
+
 from takopi.exec_render import ExecProgressRenderer, render_event_cli, render_markdown
+from takopi.runners.base import TakopiEvent
 
 
 SAMPLE_EVENTS = [
@@ -45,7 +48,7 @@ def test_render_event_cli_sample_events() -> None:
     last = None
     out: list[str] = []
     for evt in SAMPLE_EVENTS:
-        last, lines = render_event_cli(evt, last)
+        last, lines = render_event_cli(cast(TakopiEvent, evt), last)
         out.extend(lines)
 
     assert out == [
@@ -109,7 +112,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
     last = None
     out: list[str] = []
     for evt in events:
-        last, lines = render_event_cli(evt, last)
+        last, lines = render_event_cli(cast(TakopiEvent, evt), last)
         out.extend(lines)
 
     assert any(line.startswith("✗ `pytest -q` (exit 1)") for line in out)
@@ -125,7 +128,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
 def test_progress_renderer_renders_progress_and_final() -> None:
     r = ExecProgressRenderer(max_actions=5)
     for evt in SAMPLE_EVENTS:
-        r.note_event(evt)
+        r.note_event(cast(TakopiEvent, evt))
 
     progress = r.render_progress(3.0)
     assert progress.startswith("working · 3s · step 2")
@@ -158,30 +161,31 @@ def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
     ]
 
     for evt in events:
-        assert r.note_event(evt) is True
+        assert r.note_event(cast(TakopiEvent, evt)) is True
 
     assert len(r.recent_actions) == 3
     assert "echo 3" in r.recent_actions[0]
     assert "echo 5" in r.recent_actions[-1]
-    assert r.note_event({"type": "mystery", "engine": "codex"}) is False
+    assert (
+        r.note_event(cast(TakopiEvent, {"type": "mystery", "engine": "codex"})) is False
+    )
 
 
 def test_progress_renderer_renders_commands_in_markdown() -> None:
     r = ExecProgressRenderer(max_actions=5, command_width=None)
     for i in (30, 31, 32):
-        r.note_event(
-            {
-                "type": "action.completed",
-                "engine": "codex",
-                "action": {
-                    "id": f"item_{i}",
-                    "kind": "command",
-                    "title": f"echo {i}",
-                    "detail": {"exit_code": 0},
-                    "ok": True,
-                },
-            }
-        )
+        evt = {
+            "type": "action.completed",
+            "engine": "codex",
+            "action": {
+                "id": f"item_{i}",
+                "kind": "command",
+                "title": f"echo {i}",
+                "detail": {"exit_code": 0},
+                "ok": True,
+            },
+        }
+        r.note_event(cast(TakopiEvent, evt))
 
     md = r.render_progress(0.0)
     text, _ = render_markdown(md)
@@ -238,7 +242,7 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
     ]
 
     for evt in events:
-        assert r.note_event(evt) is True
+        assert r.note_event(cast(TakopiEvent, evt)) is True
 
     assert len(r.recent_actions) == 4
     assert r.recent_actions[0].startswith("▸ ")

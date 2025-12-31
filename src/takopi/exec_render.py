@@ -8,7 +8,7 @@ from typing import Any
 from markdown_it import MarkdownIt
 from sulguk import transform_html
 
-from .runners.base import ResumeToken, TakopiEvent
+from .runners.base import Action, ResumeToken, TakopiEvent
 
 STATUS_RUNNING = "▸"
 STATUS_DONE = "✓"
@@ -57,7 +57,7 @@ def _shorten(text: str, width: int | None) -> str:
     return textwrap.shorten(text, width=width, placeholder="…")
 
 
-def _action_status_symbol(action: dict[str, Any], *, completed: bool) -> str:
+def _action_status_symbol(action: Action, *, completed: bool) -> str:
     if not completed:
         return STATUS_RUNNING
     ok = action.get("ok")
@@ -70,7 +70,7 @@ def _action_status_symbol(action: dict[str, Any], *, completed: bool) -> str:
     return STATUS_DONE
 
 
-def _action_exit_suffix(action: dict[str, Any]) -> str:
+def _action_exit_suffix(action: Action) -> str:
     detail = action.get("detail") or {}
     exit_code = detail.get("exit_code")
     if isinstance(exit_code, int) and exit_code != 0:
@@ -78,7 +78,7 @@ def _action_exit_suffix(action: dict[str, Any]) -> str:
     return ""
 
 
-def _format_action_title(action: dict[str, Any], *, command_width: int | None) -> str:
+def _format_action_title(action: Action, *, command_width: int | None) -> str:
     title = str(action.get("title") or "")
     kind = action.get("kind")
     if kind == "command":
@@ -103,27 +103,25 @@ def render_event_cli(
     event: TakopiEvent, last_item: int | None = None
 ) -> tuple[int | None, list[str]]:
     lines: list[str] = []
-    etype = event["type"]
-    match etype:
-        case "session.started":
-            lines.append(event.get("engine", "engine"))
-        case "action.started":
-            action = event["action"]
-            title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
-            lines.append(f"{STATUS_RUNNING} {title}")
-        case "action.completed":
-            action = event["action"]
-            status = _action_status_symbol(action, completed=True)
-            title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
-            suffix = _action_exit_suffix(action)
-            lines.append(f"{status} {title}{suffix}")
-        case "log":
-            level = event.get("level", "info")
-            lines.append(f"log[{level}]: {event.get('message', '')}")
-        case "error":
-            lines.append(f"error: {event.get('message', '')}")
-        case _:
-            return last_item, []
+    if event["type"] == "session.started":
+        lines.append(event.get("engine", "engine"))
+    elif event["type"] == "action.started":
+        action = event["action"]
+        title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
+        lines.append(f"{STATUS_RUNNING} {title}")
+    elif event["type"] == "action.completed":
+        action = event["action"]
+        status = _action_status_symbol(action, completed=True)
+        title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
+        suffix = _action_exit_suffix(action)
+        lines.append(f"{status} {title}{suffix}")
+    elif event["type"] == "log":
+        level = event.get("level", "info")
+        lines.append(f"log[{level}]: {event.get('message', '')}")
+    elif event["type"] == "error":
+        lines.append(f"error: {event.get('message', '')}")
+    else:
+        return last_item, []
     return last_item, lines
 
 
@@ -148,15 +146,18 @@ class ExecProgressRenderer:
             )
             return True
 
-        if event["type"] not in {"action.started", "action.completed"}:
+        if event["type"] == "action.started":
+            action = event["action"]
+            completed = False
+        elif event["type"] == "action.completed":
+            action = event["action"]
+            completed = True
+        else:
             return False
-
-        action = event["action"]
         action_id = str(action.get("id") or "")
         if not action_id:
             return False
 
-        completed = event["type"] == "action.completed"
         if not completed:
             self._started_counts[action_id] = self._started_counts.get(action_id, 0) + 1
             self.action_count += 1

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 from collections.abc import Awaitable
@@ -84,6 +83,10 @@ def _action_event(
         action["ok"] = ok
     payload: dict[str, Any] = {"type": event_type, "engine": ENGINE, "action": action}
     return cast(TakopiEvent, payload)
+
+
+async def _await_event(awaitable: Awaitable[None]) -> None:
+    await awaitable
 
 
 def _short_tool_name(item: dict[str, Any]) -> str:
@@ -318,18 +321,20 @@ class CodexRunner:
         except Exception as e:
             logger.info("[codex][on_event] callback error: %s", e)
             return
-        if inspect.isawaitable(res):
-            task = asyncio.create_task(cast(Awaitable[None], res))
+        if res is None:
+            return
+        awaitable = res
+        task = asyncio.create_task(_await_event(awaitable))
 
-            def _done(t: asyncio.Task[None]) -> None:
-                try:
-                    t.result()
-                except asyncio.CancelledError:
-                    return
-                except Exception as e:  # pragma: no cover - defensive
-                    logger.info("[codex][on_event] callback error: %s", e)
+        def _done(t: asyncio.Task[None]) -> None:
+            try:
+                t.result()
+            except asyncio.CancelledError:
+                return
+            except Exception as e:  # pragma: no cover - defensive
+                logger.info("[codex][on_event] callback error: %s", e)
 
-            task.add_done_callback(_done)
+        task.add_done_callback(_done)
 
     async def run(
         self,
