@@ -24,7 +24,7 @@ from .runners.codex import CodexRunner
 
 logger = logging.getLogger(__name__)
 RESUME_LINE = re.compile(
-    r"^\s*(?:resume\s*:\s*)?`?(?:codex\s+resume|claude\s+--resume|mock\s+resume)\b[^`]*`?\s*$",
+    r"^\s*`?(?:codex\s+resume|claude\s+--resume|mock\s+resume)\b[^`]*`?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 

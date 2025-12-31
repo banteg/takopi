@@ -28,8 +28,8 @@ async def test_run_serializes_same_session() -> None:
     runner._run = run_stub  # type: ignore[assignment]
 
     async def run_test() -> None:
-        t1 = asyncio.create_task(runner.run("a", "codex:sid"))
-        t2 = asyncio.create_task(runner.run("b", "codex:sid"))
+        t1 = asyncio.create_task(runner.run("a", "sid"))
+        t2 = asyncio.create_task(runner.run("b", "sid"))
         await asyncio.sleep(0)
         gate.set()
         await asyncio.gather(t1, t2)

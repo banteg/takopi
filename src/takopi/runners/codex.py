@@ -40,7 +40,7 @@ _ACTION_KIND_MAP: dict[str, ActionKind] = {
 }
 
 _RESUME_LINE = re.compile(
-    r"^\s*(?:resume\s*:\s*)?`?(?P<cmd>(?:codex\s+resume\s+[^`\s]+|codex:[^`\s]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))`?\s*$",
+    r"^\s*`?(?P<cmd>codex\s+resume\s+[^`\s]+)`?\s*$",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -346,15 +346,11 @@ class CodexRunner:
         if not resume:
             return None
         token = resume.strip().strip("`")
-        if ":" in token:
-            engine, value = token.split(":", 1)
-        else:
-            engine, value = ENGINE, token
-        if engine != ENGINE:
-            raise RuntimeError(f"resume token is for engine {engine!r}, not {ENGINE!r}")
-        if not value:
+        if ":" in token or " " in token:
+            raise RuntimeError("resume token is malformed")
+        if not token:
             raise RuntimeError("resume token is empty")
-        return ResumeToken(engine=ENGINE, value=value)
+        return ResumeToken(engine=ENGINE, value=token)
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
@@ -380,11 +376,6 @@ class CodexRunner:
         m = re.match(r"^codex\s+resume\s+(?P<token>\S+)$", cmd, flags=re.IGNORECASE)
         if m:
             return m.group("token")
-        m = re.match(r"^codex:(?P<token>\S+)$", cmd, flags=re.IGNORECASE)
-        if m:
-            return m.group("token")
-        if " " not in cmd:
-            return cmd
         return None
 
     def _emit_event(self, dispatcher: EventQueue | None, event: TakopiEvent) -> None:

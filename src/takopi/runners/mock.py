@@ -41,7 +41,7 @@ class MockRunner:
             return None
         found: str | None = None
         for match in re.finditer(
-            r"^\s*(?:resume\s*:\s*)?`?(?P<cmd>(?:mock\s+resume\s+[^`\s]+|mock:[^`\s]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))`?\s*$",
+            r"^\s*`?(?P<cmd>mock\s+resume\s+[^`\s]+)`?\s*$",
             text,
             flags=re.IGNORECASE | re.MULTILINE,
         ):
@@ -59,11 +59,6 @@ class MockRunner:
         m = re.match(r"^mock\s+resume\s+(?P<token>\S+)$", cmd, flags=re.IGNORECASE)
         if m:
             return m.group("token")
-        m = re.match(r"^mock:(?P<token>\S+)$", cmd, flags=re.IGNORECASE)
-        if m:
-            return m.group("token")
-        if " " not in cmd:
-            return cmd
         return None
 
     async def run(
@@ -76,15 +71,9 @@ class MockRunner:
         token_value = None
         if resume:
             token = resume.strip().strip("`")
-            if ":" in token:
-                engine, value = token.split(":", 1)
-                if engine != ENGINE:
-                    raise RuntimeError(
-                        f"resume token is for engine {engine!r}, not {ENGINE!r}"
-                    )
-                token_value = value or None
-            else:
-                token_value = token
+            if ":" in token or " " in token:
+                raise RuntimeError("resume token is malformed")
+            token_value = token
         token = _resume_token(token_value)
         session_evt: SessionStartedEvent = {
             "type": "session.started",
