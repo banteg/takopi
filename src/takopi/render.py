@@ -19,6 +19,8 @@ MAX_PROGRESS_CMD_LEN = 300
 MAX_QUERY_LEN = 60
 MAX_FILE_CHANGES_INLINE = 3
 
+_FILE_CHANGE_PREFIX = {"add": "+", "delete": "-", "update": "~"}
+
 
 def format_elapsed(elapsed_s: float) -> str:
     total = max(0, int(elapsed_s))
@@ -67,6 +69,35 @@ def _action_exit_suffix(action: Action) -> str:
     return ""
 
 
+def _format_file_change_title(action: Action, *, command_width: int | None) -> str:
+    title = str(action.title or "")
+    detail = action.detail or {}
+
+    changes = detail.get("changes")
+    if isinstance(changes, list) and changes:
+        rendered: list[str] = []
+        for raw in changes:
+            if not isinstance(raw, dict):
+                continue
+            path = raw.get("path")
+            if not isinstance(path, str) or not path:
+                continue
+            kind = raw.get("kind")
+            prefix = (
+                _FILE_CHANGE_PREFIX.get(kind, "~") if isinstance(kind, str) else "~"
+            )
+            rendered.append(f"{prefix}{path}")
+
+        if rendered:
+            if len(rendered) > MAX_FILE_CHANGES_INLINE:
+                remaining = len(rendered) - MAX_FILE_CHANGES_INLINE
+                rendered = rendered[:MAX_FILE_CHANGES_INLINE] + [f"…(+{remaining})"]
+            inline = _shorten(", ".join(rendered), command_width)
+            return f"files: {inline}"
+
+    return f"files: {_shorten(title, command_width)}"
+
+
 def _format_action_title(action: Action, *, command_width: int | None) -> str:
     title = str(action.title or "")
     kind = action.kind
@@ -80,51 +111,34 @@ def _format_action_title(action: Action, *, command_width: int | None) -> str:
         title = _shorten(title, MAX_QUERY_LEN)
         return f"searched: {title}"
     if kind == "file_change":
-        detail = action.detail or {}
-        changes = detail.get("changes")
-        if isinstance(changes, list) and changes:
-            rendered: list[str] = []
-            for raw_change in changes:
-                if not isinstance(raw_change, dict):
-                    continue
-                path = raw_change.get("path")
-                if not path:
-                    continue
-                kind = raw_change.get("kind")
-                prefix = {"add": "+", "delete": "-", "update": "~"}.get(kind, "~")
-                rendered.append(f"{prefix}{path}")
-            if rendered:
-                if len(rendered) > MAX_FILE_CHANGES_INLINE:
-                    remaining = len(rendered) - MAX_FILE_CHANGES_INLINE
-                    rendered = rendered[:MAX_FILE_CHANGES_INLINE]
-                    rendered.append(f"…(+{remaining})")
-                title = ", ".join(rendered)
-                title = _shorten(title, command_width)
-                return f"files: {title}"
-        title = _shorten(title, command_width)
-        return f"files: {title}"
-    if kind == "note":
-        title = _shorten(title, MAX_QUERY_LEN)
-        return title
-    if kind == "warning":
-        title = _shorten(title, MAX_QUERY_LEN)
-        return title
+        return _format_file_change_title(action, command_width=command_width)
+    if kind in {"note", "warning"}:
+        return _shorten(title, MAX_QUERY_LEN)
     return _shorten(title, command_width)
+
+
+def _phase_status_and_suffix(event: ActionEvent) -> tuple[str, str]:
+    action = event.action
+    match event.phase:
+        case "completed":
+            status = _action_status_symbol(action, completed=True, ok=event.ok)
+            suffix = _action_exit_suffix(action)
+            return status, suffix
+        case "updated":
+            return STATUS_UPDATE, ""
+        case _:
+            return STATUS_RUNNING, ""
 
 
 def render_event_cli(event: TakopiEvent) -> list[str]:
     match event:
         case StartedEvent(engine=engine):
             return [str(engine)]
-        case ActionEvent(action=action, phase=phase, ok=ok):
+        case ActionEvent() as action_event:
+            action = action_event.action
             if action.kind == "turn":
                 return []
-            if phase == "completed":
-                status = _action_status_symbol(action, completed=True, ok=ok)
-                suffix = _action_exit_suffix(action)
-            else:
-                status = STATUS_UPDATE if phase == "updated" else STATUS_RUNNING
-                suffix = ""
+            status, suffix = _phase_status_and_suffix(action_event)
             title = _format_action_title(action, command_width=MAX_PROGRESS_CMD_LEN)
             return [f"{status} {title}{suffix}"]
         case _:
