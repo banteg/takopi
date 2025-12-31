@@ -172,6 +172,14 @@ class _FakeBot:
         return True
 
 
+class _SendStream:
+    def __init__(self) -> None:
+        self.sent: list[tuple[int, int, str, str | None]] = []
+
+    async def send(self, item: tuple[int, int, str, str | None]) -> None:
+        self.sent.append(item)
+
+
 class _FakeRunner:
     engine = "codex"
 
@@ -795,3 +803,53 @@ async def test_handle_message_error_preserves_resume_token() -> None:
     assert "error" in last_edit.lower()
     assert session_id in last_edit
     assert "resume:" in last_edit.lower()
+
+
+@pytest.mark.anyio
+async def test_send_with_resume_waits_for_token() -> None:
+    from takopi.exec_bridge import RunningTask, _send_with_resume
+
+    bot = _FakeBot()
+    send_stream = _SendStream()
+    running_task = RunningTask(scope=anyio.CancelScope())
+
+    async def trigger_resume() -> None:
+        await anyio.sleep(0)
+        running_task.resume = ResumeToken(engine="codex", value="abc123")
+        running_task.resume_ready.set()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(trigger_resume)
+        await _send_with_resume(
+            bot,  # type: ignore[arg-type]
+            send_stream,  # type: ignore[arg-type]
+            running_task,
+            123,
+            10,
+            "hello",
+        )
+
+    assert send_stream.sent == [(123, 10, "hello", "codex:abc123")]
+
+
+@pytest.mark.anyio
+async def test_send_with_resume_reports_when_missing() -> None:
+    from takopi.exec_bridge import RunningTask, _send_with_resume
+
+    bot = _FakeBot()
+    send_stream = _SendStream()
+    running_task = RunningTask(scope=anyio.CancelScope())
+    running_task.done.set()
+
+    await _send_with_resume(
+        bot,  # type: ignore[arg-type]
+        send_stream,  # type: ignore[arg-type]
+        running_task,
+        123,
+        10,
+        "hello",
+    )
+
+    assert send_stream.sent == []
+    assert bot.send_calls
+    assert "resume token" in bot.send_calls[-1]["text"].lower()

@@ -6,7 +6,7 @@ import re
 import shutil
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import anyio
@@ -253,6 +253,9 @@ class RunnerRouter:
 @dataclass
 class RunningTask:
     scope: anyio.CancelScope
+    resume: ResumeToken | None = None
+    resume_ready: anyio.Event = field(default_factory=anyio.Event)
+    done: anyio.Event = field(default_factory=anyio.Event)
 
 
 def _parse_bridge_config(
@@ -450,6 +453,13 @@ async def handle_message(
 
     async def on_event(evt: TakopiEvent) -> None:
         await edits.on_event(evt)
+        if (
+            running_task is not None
+            and running_task.resume is None
+            and progress_renderer.resume_token is not None
+        ):
+            running_task.resume = progress_renderer.resume_token
+            running_task.resume_ready.set()
 
     async with anyio.create_task_group() as tg:
         if progress_id is not None:
@@ -470,6 +480,7 @@ async def handle_message(
                 and running_tasks is not None
                 and progress_id is not None
             ):
+                running_task.done.set()
                 running_tasks.pop(progress_id, None)
             if exec_scope.cancelled_caught and not cancelled and error is None:
                 cancelled = True
@@ -626,6 +637,50 @@ async def _handle_cancel(
     running_task.scope.cancel()
 
 
+async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
+    if running_task.resume is not None:
+        return running_task.resume
+    resume: ResumeToken | None = None
+
+    async with anyio.create_task_group() as tg:
+
+        async def wait_resume() -> None:
+            nonlocal resume
+            await running_task.resume_ready.wait()
+            resume = running_task.resume
+            tg.cancel_scope.cancel()
+
+        async def wait_done() -> None:
+            await running_task.done.wait()
+            tg.cancel_scope.cancel()
+
+        tg.start_soon(wait_resume)
+        tg.start_soon(wait_done)
+
+    return resume
+
+
+async def _send_with_resume(
+    bot: TelegramClient,
+    send_stream: Any,
+    running_task: RunningTask,
+    chat_id: int,
+    user_msg_id: int,
+    text: str,
+) -> None:
+    resume = await _wait_for_resume(running_task)
+    if resume is None:
+        await bot.send_message(
+            chat_id=chat_id,
+            text="resume token not ready yet; try replying to the final message.",
+            reply_to_message_id=user_msg_id,
+            disable_notification=True,
+        )
+        return
+    resume_token = f"{resume.engine}:{resume.value}"
+    await send_stream.send((chat_id, user_msg_id, text, resume_token))
+
+
 async def _run_main_loop(cfg: BridgeConfig) -> None:
     worker_count = max(1, min(cfg.max_concurrency, 16))
     send_stream, receive_stream = anyio.create_memory_object_stream(
@@ -670,6 +725,20 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
 
                 r = msg.get("reply_to_message") or {}
                 resume_token = resolve_resume_token(text, r.get("text"))
+                reply_id = r.get("message_id")
+                if resume_token is None and reply_id is not None:
+                    running_task = running_tasks.get(int(reply_id))
+                    if running_task is not None:
+                        tg.start_soon(
+                            _send_with_resume,
+                            cfg.bot,
+                            send_stream,
+                            running_task,
+                            msg["chat"]["id"],
+                            user_msg_id,
+                            text,
+                        )
+                        continue
 
                 await send_stream.send(
                     (msg["chat"]["id"], user_msg_id, text, resume_token)
