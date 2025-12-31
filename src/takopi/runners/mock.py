@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-import logging
 import uuid
 from collections.abc import Iterable
 
 from .base import (
     EngineId,
+    EventQueue,
     EventSink,
     ResumeToken,
     RunResult,
     SessionStartedEvent,
     TakopiEvent,
 )
-
-logger = logging.getLogger(__name__)
 
 ENGINE: EngineId = "mock"
 
@@ -32,24 +29,6 @@ class MockRunner:
     ) -> None:
         self._events = list(events or [])
         self._answer = answer
-
-    async def _emit_event(self, on_event: EventSink | None, event: TakopiEvent) -> None:
-        if on_event is None:
-            return
-        try:
-            res = on_event(event)
-        except Exception as e:
-            logger.info("[mock][on_event] callback error: %s", e)
-            return
-        if res is None:
-            return
-        try:
-            if inspect.isawaitable(res):
-                await res
-            else:
-                logger.info("[mock][on_event] callback returned non-awaitable result")
-        except Exception as e:  # pragma: no cover - defensive
-            logger.info("[mock][on_event] callback error: %s", e)
 
     async def run(
         self,
@@ -76,11 +55,18 @@ class MockRunner:
             "engine": ENGINE,
             "resume": {"engine": ENGINE, "value": token.value},
         }
-        await self._emit_event(on_event, session_evt)
+        dispatcher = EventQueue(on_event, label="mock") if on_event else None
+        try:
+            if dispatcher is not None:
+                dispatcher.emit(session_evt)
 
-        for event in self._events:
-            await self._emit_event(on_event, event)
-            await asyncio.sleep(0)
+            for event in self._events:
+                if dispatcher is not None:
+                    dispatcher.emit(event)
+                await asyncio.sleep(0)
 
-        ok = bool(self._answer)
-        return RunResult(resume=token, answer=self._answer, ok=ok)
+            ok = bool(self._answer)
+            return RunResult(resume=token, answer=self._answer, ok=ok)
+        finally:
+            if dispatcher is not None:
+                await dispatcher.close()

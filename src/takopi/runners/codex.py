@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import os
@@ -15,6 +14,7 @@ from .base import (
     Action,
     ActionKind,
     EngineId,
+    EventQueue,
     ErrorEvent,
     EventSink,
     LogEvent,
@@ -249,58 +249,6 @@ def translate_codex_event(event: dict[str, Any]) -> list[TakopiEvent]:
     return []
 
 
-class _EventDispatcher:
-    def __init__(self, on_event: EventSink) -> None:
-        self._on_event = on_event
-        self._queue: asyncio.Queue[TakopiEvent | None] = asyncio.Queue()
-        self._closed = False
-        self._task = asyncio.create_task(self._drain())
-
-    def emit(self, event: TakopiEvent) -> None:
-        if self._closed:
-            return
-        try:
-            self._queue.put_nowait(event)
-        except Exception as e:  # pragma: no cover - defensive
-            logger.info("[codex][on_event] enqueue error: %s", e)
-
-    async def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        self._queue.put_nowait(None)
-        try:
-            await self._task
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # pragma: no cover - defensive
-            logger.info("[codex][on_event] drain error: %s", e)
-
-    async def _drain(self) -> None:
-        while True:
-            event = await self._queue.get()
-            if event is None:
-                return
-            try:
-                res = self._on_event(event)
-            except Exception as e:
-                logger.info("[codex][on_event] callback error: %s", e)
-                continue
-            if res is None:
-                continue
-            try:
-                if inspect.isawaitable(res):
-                    await res
-                else:
-                    logger.info(
-                        "[codex][on_event] callback returned non-awaitable result"
-                    )
-            except asyncio.CancelledError:
-                return
-            except Exception as e:  # pragma: no cover - defensive
-                logger.info("[codex][on_event] callback error: %s", e)
-
-
 async def _drain_stderr(stderr: asyncio.StreamReader, chunks: deque[str]) -> None:
     try:
         while True:
@@ -402,9 +350,7 @@ class CodexRunner:
             raise RuntimeError("resume token is empty")
         return ResumeToken(engine=ENGINE, value=value)
 
-    def _emit_event(
-        self, dispatcher: _EventDispatcher | None, event: TakopiEvent
-    ) -> None:
+    def _emit_event(self, dispatcher: EventQueue | None, event: TakopiEvent) -> None:
         if dispatcher is None:
             return
         dispatcher.emit(event)
@@ -441,7 +387,9 @@ class CodexRunner:
         else:
             args.append("-")
 
-        dispatcher = _EventDispatcher(on_event) if on_event is not None else None
+        dispatcher = (
+            EventQueue(on_event, label="codex") if on_event is not None else None
+        )
 
         async with manage_subprocess(
             *args,
