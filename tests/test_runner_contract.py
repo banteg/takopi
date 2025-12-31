@@ -35,14 +35,18 @@ async def test_runner_contract_session_started_and_order() -> None:
 
     session_events = [evt for evt in seen if evt["type"] == "session.started"]
     assert len(session_events) == 1
-    assert seen[0]["type"] == "session.started"
 
     completed_events = [evt for evt in seen if evt["type"] == "run.completed"]
     assert len(completed_events) == 1
+    assert seen[-1]["type"] == "run.completed"
+
+    session_idx = seen.index(session_events[0])
+    completed_idx = seen.index(completed_events[0])
+    assert session_idx < completed_idx
     assert completed_events[0]["resume"] == session_events[0]["resume"]
     assert completed_events[0]["answer"] == "done"
 
-    assert [evt["type"] for evt in seen[1:-1]] == [
+    assert [evt["type"] for evt in seen if evt["type"] not in {"session.started", "run.completed"}] == [
         "action.started",
         "action.completed",
     ]
@@ -75,8 +79,10 @@ async def test_runner_releases_lock_when_consumer_closes() -> None:
 
     gen = cast(AsyncGenerator[TakopiEvent, None], runner.run("hello", None))
     try:
-        evt = await anext(gen)
-        assert evt["type"] == "session.started"
+        while True:
+            evt = await anext(gen)
+            if evt["type"] == "session.started":
+                break
     finally:
         await gen.aclose()
 
@@ -85,7 +91,9 @@ async def test_runner_releases_lock_when_consumer_closes() -> None:
         runner.run("again", ResumeToken(engine=CODEX_ENGINE, value="sid")),
     )
     try:
-        evt2 = await anext(gen2)
-        assert evt2["type"] == "session.started"
+        while True:
+            evt2 = await anext(gen2)
+            if evt2["type"] == "session.started":
+                break
     finally:
         await gen2.aclose()

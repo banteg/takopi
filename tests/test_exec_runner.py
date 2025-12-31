@@ -201,6 +201,41 @@ async def test_run_serializes_new_session_after_session_is_known(
 
 
 @pytest.mark.anyio
+async def test_codex_runner_preserves_warning_order(tmp_path) -> None:
+    thread_id = "019b73c4-0c3f-7701-a0bb-aac6b4d8a3bc"
+
+    codex_path = tmp_path / "codex"
+    codex_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "\n"
+        "sys.stdin.read()\n"
+        "print(json.dumps({'type': 'error', 'message': 'warning one', 'fatal': False}), flush=True)\n"
+        f"print(json.dumps({{'type': 'thread.started', 'thread_id': '{thread_id}'}}), flush=True)\n"
+        "print(json.dumps({'type': 'item.completed', 'item': {'id': 'item_0', 'type': 'agent_message', 'text': 'ok'}}), flush=True)\n",
+        encoding="utf-8",
+    )
+    codex_path.chmod(0o755)
+
+    runner = CodexRunner(codex_cmd=str(codex_path), extra_args=[])
+    seen = [evt async for evt in runner.run("hi", None)]
+
+    assert len(seen) == 3
+    assert seen[0]["type"] == "action.completed"
+    assert seen[0]["ok"] is False
+    assert seen[0]["action"]["kind"] == "note"
+    assert seen[0]["action"]["title"] == "warning one"
+
+    assert seen[1]["type"] == "session.started"
+    assert seen[1]["resume"].value == thread_id
+
+    assert seen[2]["type"] == "run.completed"
+    assert seen[2]["resume"] == seen[1]["resume"]
+    assert seen[2]["answer"] == "ok"
+
+
+@pytest.mark.anyio
 async def test_run_serializes_two_new_sessions_same_thread(
     tmp_path, monkeypatch
 ) -> None:

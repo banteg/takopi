@@ -517,7 +517,6 @@ class CodexRunner(ResumeRunnerMixin, Runner):
 
                 expected_session: ResumeToken | None = resume_token
                 found_session: ResumeToken | None = None
-                pending_events: list[TakopiEvent] = []
                 final_answer: str | None = None
                 fatal_message: str | None = None
                 note_seq = 0
@@ -548,10 +547,7 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                 ok=False,
                                 detail={"line": line},
                             )
-                            if found_session is None:
-                                pending_events.append(note)
-                            else:
-                                yield note
+                            yield note
                             continue
 
                         etype = evt.get("type")
@@ -565,10 +561,7 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                     "fatal": evt.get("fatal"),
                                 },
                             )
-                            if found_session is None:
-                                pending_events.append(note)
-                            else:
-                                yield note
+                            yield note
                             if evt.get("fatal") is True:
                                 fatal_message = str(evt.get("message") or "codex error")
                             continue
@@ -576,10 +569,7 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                             error = evt.get("error") or {}
                             fatal_message = str(error.get("message") or "codex turn failed")
                             note = _note_completed(next_note_id(), fatal_message, ok=False)
-                            if found_session is None:
-                                pending_events.append(note)
-                            else:
-                                yield note
+                            yield note
                             continue
                         if etype == "turn.rate_limited":
                             retry_ms = evt.get("retry_after_ms")
@@ -587,10 +577,7 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                             if isinstance(retry_ms, int):
                                 message = f"rate limited (retry after {retry_ms}ms)"
                             note = _note_completed(next_note_id(), message, ok=False)
-                            if found_session is None:
-                                pending_events.append(note)
-                            else:
-                                yield note
+                            yield note
                             continue
 
                         if evt.get("type") == "item.completed":
@@ -628,15 +615,8 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                                         session_lock_acquired = True
                                     found_session = session
                                     yield out_evt
-                                    if pending_events:
-                                        for pending in pending_events:
-                                            yield pending
-                                        pending_events.clear()
                                 continue
-                            if found_session is None:
-                                pending_events.append(out_evt)
-                            else:
-                                yield out_evt
+                            yield out_evt
                     rc = await proc.wait()
 
                 logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
