@@ -8,6 +8,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
+from weakref import WeakValueDictionary
 
 import anyio
 
@@ -205,6 +206,7 @@ class BridgeConfig:
     final_notify: bool
     startup_msg: str
     max_concurrency: int
+    progress_edit_every: float = PROGRESS_EDIT_EVERY_S
 
 
 @dataclass
@@ -248,6 +250,7 @@ async def handle_message(
     text: str,
     resume_token: ResumeToken | None,
     running_tasks: dict[int, RunningTask] | None = None,
+    acquire_lock: Callable[[ResumeToken], Awaitable[None]] | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
@@ -323,6 +326,8 @@ async def handle_message(
         running_tasks[progress_id] = running_task
 
     async def on_event(evt: TakopiEvent) -> None:
+        if evt["type"] == "session.started" and acquire_lock is not None:
+            await acquire_lock(evt["resume"])
         await edits.on_event(evt)
         if (
             running_task is not None
@@ -575,7 +580,7 @@ async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
 
 async def _send_with_resume(
     bot: BotClient,
-    send_stream: Any,
+    enqueue: Callable[[int, int, str, ResumeToken], None],
     running_task: RunningTask,
     chat_id: int,
     user_msg_id: int,
@@ -590,7 +595,7 @@ async def _send_with_resume(
             disable_notification=True,
         )
         return
-    await send_stream.send((chat_id, user_msg_id, text, resume))
+    enqueue(chat_id, user_msg_id, text, resume)
 
 
 async def _run_main_loop(
@@ -598,22 +603,39 @@ async def _run_main_loop(
     poller: Callable[[BridgeConfig], AsyncIterator[dict[str, Any]]] = poll_updates,
 ) -> None:
     worker_count = max(1, min(cfg.max_concurrency, 16))
-    send_stream, receive_stream = anyio.create_memory_object_stream(
-        max_buffer_size=worker_count * 2
-    )
+    limiter = anyio.Semaphore(worker_count)
     running_tasks: dict[int, RunningTask] = {}
+    session_locks: WeakValueDictionary[str, anyio.Semaphore] = WeakValueDictionary()
 
-    async def worker() -> None:
-        while True:
-            try:
-                (
-                    chat_id,
-                    user_msg_id,
-                    text,
-                    resume_token,
-                ) = await receive_stream.receive()
-            except anyio.EndOfStream:
+    def _lock_for(resume_token: ResumeToken) -> anyio.Semaphore:
+        key = f"{resume_token.engine}:{resume_token.value}"
+        lock = session_locks.get(key)
+        if lock is None:
+            lock = anyio.Semaphore(1)
+            session_locks[key] = lock
+        return lock
+
+    async def _run_message(
+        chat_id: int,
+        user_msg_id: int,
+        text: str,
+        resume_token: ResumeToken | None,
+    ) -> None:
+        lock: anyio.Semaphore | None = None
+        lock_acquired = False
+
+        async def acquire_lock(token: ResumeToken) -> None:
+            nonlocal lock, lock_acquired
+            if lock_acquired:
                 return
+            lock = _lock_for(token)
+            await lock.acquire()
+            lock_acquired = True
+
+        try:
+            if resume_token is not None:
+                await acquire_lock(resume_token)
+            await limiter.acquire()
             try:
                 await handle_message(
                     cfg,
@@ -622,14 +644,27 @@ async def _run_main_loop(
                     text=text,
                     resume_token=resume_token,
                     running_tasks=running_tasks,
+                    acquire_lock=acquire_lock,
+                    progress_edit_every=cfg.progress_edit_every,
                 )
-            except Exception:
-                logger.exception("[handle] worker failed")
+            finally:
+                limiter.release()
+        except Exception:
+            logger.exception("[handle] worker failed")
+        finally:
+            if lock is not None and lock_acquired:
+                lock.release()
 
     try:
         async with anyio.create_task_group() as tg:
-            for _ in range(worker_count):
-                tg.start_soon(worker)
+            def enqueue(
+                chat_id: int,
+                user_msg_id: int,
+                text: str,
+                resume_token: ResumeToken | None,
+            ) -> None:
+                tg.start_soon(_run_message, chat_id, user_msg_id, text, resume_token)
+
             async for msg in poller(cfg):
                 text = msg["text"]
                 user_msg_id = msg["message_id"]
@@ -647,7 +682,7 @@ async def _run_main_loop(
                         tg.start_soon(
                             _send_with_resume,
                             cfg.bot,
-                            send_stream,
+                            enqueue,
                             running_task,
                             msg["chat"]["id"],
                             user_msg_id,
@@ -668,10 +703,6 @@ async def _run_main_loop(
                             current_engine=str(cfg.runner.engine),
                         )
 
-                await send_stream.send(
-                    (msg["chat"]["id"], user_msg_id, text, resume_token)
-                )
+                enqueue(msg["chat"]["id"], user_msg_id, text, resume_token)
     finally:
-        await send_stream.aclose()
-        await receive_stream.aclose()
         await cfg.bot.close()

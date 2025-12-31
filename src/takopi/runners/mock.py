@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from typing import TypeAlias
+from weakref import WeakValueDictionary
 
 import anyio
 
@@ -82,11 +83,22 @@ class MockRunner:
         self._answer = answer
         self._resume_value = resume_value
         self.title = title or str(engine).title()
+        self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
+            WeakValueDictionary()
+        )
         (
             self._resume_line_re,
             self._resume_cmd_re,
             self._resume_parse_re,
         ) = _resume_patterns(engine)
+
+    def _lock_for(self, token: ResumeToken) -> anyio.Lock:
+        key = f"{token.engine}:{token.value}"
+        lock = self._session_locks.get(key)
+        if lock is None:
+            lock = anyio.Lock()
+            self._session_locks[key] = lock
+        return lock
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != self.engine:
@@ -140,20 +152,22 @@ class MockRunner:
             "resume": token,
             "title": self.title,
         }
-        dispatcher = EventQueue(on_event, label=str(self.engine))
-        await dispatcher.start()
-        try:
-            dispatcher.emit(session_evt)
+        lock = self._lock_for(token)
+        async with lock:
+            dispatcher = EventQueue(on_event, label=str(self.engine))
+            await dispatcher.start()
+            try:
+                dispatcher.emit(session_evt)
 
-            for event in self._events:
-                if event.get("type") == "action.completed" and "ok" not in event:
-                    event = {**event, "ok": True}
-                dispatcher.emit(event)
-                await anyio.sleep(0)
+                for event in self._events:
+                    if event.get("type") == "action.completed" and "ok" not in event:
+                        event = {**event, "ok": True}
+                    dispatcher.emit(event)
+                    await anyio.sleep(0)
 
-            return RunResult(resume=token, answer=self._answer)
-        finally:
-            await dispatcher.close()
+                return RunResult(resume=token, answer=self._answer)
+            finally:
+                await dispatcher.close()
 
 
 class ScriptRunner(MockRunner):
@@ -211,38 +225,40 @@ class ScriptRunner(MockRunner):
             "resume": token,
             "title": self.title,
         }
+        lock = self._lock_for(token)
 
-        async def emit(event: TakopiEvent) -> None:
-            if event.get("type") == "action.completed" and "ok" not in event:
-                event = {**event, "ok": True}
-            res = on_event(event)
-            if res is not None:
-                await res
+        async with lock:
+            async def emit(event: TakopiEvent) -> None:
+                if event.get("type") == "action.completed" and "ok" not in event:
+                    event = {**event, "ok": True}
+                res = on_event(event)
+                if res is not None:
+                    await res
 
-        if self._emit_session_start:
-            await emit(session_evt)
-            await anyio.sleep(0)
-
-        for step in self._script:
-            if isinstance(step, Emit):
-                if step.at is not None:
-                    self._advance_to(step.at)
-                await emit(step.event)
+            if self._emit_session_start:
+                await emit(session_evt)
                 await anyio.sleep(0)
-                continue
-            if isinstance(step, Advance):
-                self._advance_to(step.now)
-                continue
-            if isinstance(step, Sleep):
-                await self._sleep(step.seconds)
-                continue
-            if isinstance(step, Wait):
-                await step.event.wait()
-                continue
-            if isinstance(step, Raise):
-                raise step.error
-            if isinstance(step, Return):
-                return RunResult(resume=token, answer=step.answer)
-            raise RuntimeError(f"Unhandled script step: {step!r}")
 
-        return RunResult(resume=token, answer=self._answer)
+            for step in self._script:
+                if isinstance(step, Emit):
+                    if step.at is not None:
+                        self._advance_to(step.at)
+                    await emit(step.event)
+                    await anyio.sleep(0)
+                    continue
+                if isinstance(step, Advance):
+                    self._advance_to(step.now)
+                    continue
+                if isinstance(step, Sleep):
+                    await self._sleep(step.seconds)
+                    continue
+                if isinstance(step, Wait):
+                    await step.event.wait()
+                    continue
+                if isinstance(step, Raise):
+                    raise step.error
+                if isinstance(step, Return):
+                    return RunResult(resume=token, answer=step.answer)
+                raise RuntimeError(f"Unhandled script step: {step!r}")
+
+            return RunResult(resume=token, answer=self._answer)

@@ -190,14 +190,6 @@ class _FakeBot:
         return None
 
 
-class _SendStream:
-    def __init__(self) -> None:
-        self.sent: list[tuple[int, int, str, ResumeToken | None]] = []
-
-    async def send(self, item: tuple[int, int, str, ResumeToken | None]) -> None:
-        self.sent.append(item)
-
-
 class _FakeClock:
     def __init__(self, start: float = 0.0) -> None:
         self._now = start
@@ -726,7 +718,12 @@ async def test_send_with_resume_waits_for_token() -> None:
     from takopi.bridge import RunningTask, _send_with_resume
 
     bot = _FakeBot()
-    send_stream = _SendStream()
+    sent: list[tuple[int, int, str, ResumeToken | None]] = []
+
+    def enqueue(
+        chat_id: int, user_msg_id: int, text: str, resume: ResumeToken
+    ) -> None:
+        sent.append((chat_id, user_msg_id, text, resume))
     running_task = RunningTask()
 
     async def trigger_resume() -> None:
@@ -738,14 +735,14 @@ async def test_send_with_resume_waits_for_token() -> None:
         tg.start_soon(trigger_resume)
         await _send_with_resume(
             bot,
-            send_stream,
+            enqueue,
             running_task,
             123,
             10,
             "hello",
         )
 
-    assert send_stream.sent == [
+    assert sent == [
         (123, 10, "hello", ResumeToken(engine="codex", value="abc123"))
     ]
 
@@ -755,20 +752,25 @@ async def test_send_with_resume_reports_when_missing() -> None:
     from takopi.bridge import RunningTask, _send_with_resume
 
     bot = _FakeBot()
-    send_stream = _SendStream()
+    sent: list[tuple[int, int, str, ResumeToken | None]] = []
+
+    def enqueue(
+        chat_id: int, user_msg_id: int, text: str, resume: ResumeToken
+    ) -> None:
+        sent.append((chat_id, user_msg_id, text, resume))
     running_task = RunningTask()
     running_task.done.set()
 
     await _send_with_resume(
         bot,
-        send_stream,
+        enqueue,
         running_task,
         123,
         10,
         "hello",
     )
 
-    assert send_stream.sent == []
+    assert sent == []
     assert bot.send_calls
     assert "resume token" in bot.send_calls[-1]["text"].lower()
 

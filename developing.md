@@ -43,7 +43,7 @@ The orchestrator module containing:
 | `truncate_for_telegram()` | Moved to `markdown.py` |
 
 **Key patterns:**
-- Worker pool with an AnyIO memory stream limits concurrency (default: 16 workers)
+- Global semaphore caps active runs at 16; per-thread locks prevent queued resumes from consuming slots
 - `/cancel` routes by reply-to progress message id (accepts extra text)
 - Progress edits are throttled to ~1s intervals and only run when new events arrive
 - Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``)
