@@ -60,7 +60,7 @@ This is a normative spec using **MUST / SHOULD / MAY** language. Sections labele
 **Runner Implementations (engine-owned logic)**
 
 - Codex runner translates engine-specific stream into Takopi events.
-- Runner implementations SHOULD be stateless with respect to cross-run scheduling.
+- Each runner enforces per-thread serialization (MUST, §6.2).
 
 **Renderers (Takopi-owned)**
 
@@ -285,18 +285,21 @@ class Runner(Protocol):
 
 - Parallel runs are allowed only if they target **different** threads.
 - Runs targeting the same thread MUST be queued and executed sequentially.
-- Queued runs MUST NOT count toward the global **16 active runs** limit.
+- This invariant MUST be enforced by the runner implementation (even if used outside the bridge).
 
-**Decision: Bridge-owned scheduling**
+**Critical requirement for new sessions:**
+If `resume is None`, the runner MUST acquire the per-thread lock **as soon as the new thread's ResumeToken becomes known**, and MUST do so **before emitting `session.started`** to downstream consumers.
 
-The bridge MUST be the single source of truth for per-thread scheduling:
+This prevents:
 
-- The bridge MUST implement a FIFO queue per thread key (`engine:value`).
-- The bridge MUST run at most one job from a given thread queue at a time.
-- The bridge MUST acquire the global concurrency limiter only when a job is dequeued and is about to start (i.e., queued jobs do not consume the limiter).
-- The bridge SHOULD avoid spawning one task per queued job that blocks on a lock; queued jobs SHOULD be represented as data in a queue.
+- a second run resuming the thread while the original "new session" run is still active
+- history corruption due to concurrent engine operations
 
-Runner implementations SHOULD NOT maintain their own per-thread lock maps. Takopi correctness and concurrency accounting MUST NOT depend on runner-level locking.
+**Bridge note (non-normative):**
+The bridge additionally enforces FIFO scheduling per thread to ensure queued prompts do not consume the global **16 active runs** slots (§7.1.1).
+
+**Codex note (non-normative):**
+For Codex, the resume token typically arrives as the first NDJSON event within ~1–2 seconds. If the subprocess exits before a resume token is observed, no `session.started` can be emitted and the bridge reports an error without a resume line.
 
 ### 6.3 Run completion event (MUST)
 
@@ -359,6 +362,7 @@ The bridge MUST implement per-thread FIFO scheduling in a way that does not requ
 **Required behavior:**
 
 - For `resume != None`, the bridge MUST enqueue the job into `pending_by_thread[ThreadKey]` and ensure exactly one worker drains that queue sequentially.
+- If a run starts with `resume == None` but later emits `session.started(resume=token)`, the bridge MUST treat that run as the in-flight job for `ThreadKey(token)` for scheduling purposes until it completes.
 - A worker MUST acquire the global concurrency limiter only when it has dequeued a job and is about to start runner execution (and send the initial progress message).
 - A worker MUST release the global concurrency limiter when the job completes (success, error, or cancellation) and then proceed to the next queued job.
 - A thread worker MUST exit when its queue is empty; the bridge SHOULD avoid retaining per-thread state for inactive threads.
@@ -469,19 +473,22 @@ The architecture SHOULD keep this future change localized to a `RunnerRegistry` 
    - `run.completed.resume` matches session started token
    - Event ordering is preserved
    - `ok` semantics match intended behavior
-2. **Per-thread serialization test (critical)**
+2. **Runner serialization tests (critical)**
+   - Serializes concurrent runs for the same `ResumeToken`
+   - For `resume=None`, acquires per-thread lock once the token is known (before emitting `session.started`)
+3. **Bridge per-thread scheduling tests (critical)**
    - Enqueue two prompts for the same `ResumeToken`
    - Assert the bridge does not start the second run until the first completes
    - Assert queued prompts do not consume the global **16 active runs** slots
-3. **Bridge progress throttling tests**
+4. **Bridge progress throttling tests**
    - Edits no more frequently than configured interval
    - No edits without changes
    - Truncation preserves resume line
-4. **Cancellation tests**
+5. **Cancellation tests**
    - `/cancel` terminates run
    - “cancelled” status produced
    - resume line included if known
-5. **Renderer formatting tests**
+6. **Renderer formatting tests**
    - Correct rendering of actions, errors, logs
    - Stable formatting under event sequences
 
