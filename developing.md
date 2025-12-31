@@ -1,6 +1,7 @@
 # takopi - Developer Guide
 
 This document describes the internal architecture and module responsibilities.
+See `specification.md` for the authoritative behavior spec.
 
 ## Development Setup
 
@@ -27,26 +28,41 @@ make check
 
 ## Module Responsibilities
 
-### `exec_bridge.py` - Telegram bridge loop
+### `bridge.py` - Telegram bridge loop
 
 The orchestrator module containing:
 
 | Component | Purpose |
 |-----------|---------|
-| `main()` / `run()` | CLI entry point via Typer |
 | `BridgeConfig` | Frozen dataclass holding runtime config |
 | `poll_updates()` | Async generator that drains backlog, long-polls updates, filters messages |
 | `_run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
 | `handle_message()` | Per-message handler with progress updates and final render |
 | `ProgressEdits` | Throttled progress edit worker |
-| `truncate_for_telegram()` | Smart truncation preserving resume lines |
+| `_handle_cancel()` | `/cancel` routing |
+| `truncate_for_telegram()` | Moved to `markdown.py` |
 
 **Key patterns:**
 - Worker pool with an AnyIO memory stream limits concurrency (default: 16 workers)
-- `/cancel` maps progress message ids to an AnyIO CancelScope for immediate cancellation
+- `/cancel` routes by reply-to progress message id (accepts extra text)
 - Progress edits are throttled to ~1s intervals and only run when new events arrive
 - Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``)
 - Resume parsing is delegated to the active runner (no cross-engine fallback)
+
+### `cli.py` - CLI entry point
+
+| Component | Purpose |
+|-----------|---------|
+| `run()` / `main()` | Typer CLI entry points |
+| `_parse_bridge_config()` | Reads config + builds `BridgeConfig` |
+
+### `markdown.py` - Telegram markdown helpers
+
+| Function | Purpose |
+|----------|---------|
+| `render_markdown()` | Markdown → Telegram text + entities |
+| `prepare_telegram()` | Render + truncate for Telegram limits |
+| `truncate_for_telegram()` | Smart truncation preserving resume lines |
 
 ### `runners/codex.py` - Codex runner
 
@@ -60,8 +76,9 @@ The orchestrator module containing:
 - Per-resume locks (WeakValueDictionary) prevent concurrent resumes of the same session
 - Event delivery uses a single internal queue to preserve order without per-event tasks
 - Stderr is drained into a bounded tail (debug logging only)
+- Event callbacks must not raise; callback errors abort the run
 
-### `exec_render.py` - Takopi event rendering
+### `render.py` - Takopi event rendering
 
 Transforms takopi events into human-readable text:
 
@@ -70,20 +87,27 @@ Transforms takopi events into human-readable text:
 | `ExecProgressRenderer` | Stateful renderer tracking recent actions for progress display |
 | `render_event_cli()` | Format a takopi event for CLI logs |
 | `format_elapsed()` | Formats seconds as `Xh Ym`, `Xm Ys`, or `Xs` |
-| `render_markdown()` | Markdown to Telegram text + entities (markdown-it-py + sulguk) |
+| `render_markdown()` | Moved to `markdown.py` |
 
 **Supported event types:**
 - `session.started`
 - `action.started`, `action.completed`
 - `log`, `error`
 
-### `runners/` - Runner protocol & engines
+### `model.py` / `runner.py` - Core domain types
+
+| File | Purpose |
+|------|---------|
+| `model.py` | Domain types: resume tokens, actions, events, run result |
+| `runner.py` | Runner protocol + event queue utilities |
+
+### `runners/` - Runner implementations
 
 | File | Purpose |
 |------|---------|
 | `engines.py` | Engine backend registry (setup checks + runner construction) |
-| `runners/base.py` | Runner protocol + takopi event types |
-| `runners/codex.py` | Codex runner (JSONL to takopi events) + per-resume locks |
+| `runners/base.py` | Re-export shim for legacy imports |
+| `runners/codex.py` | Codex runner (JSONL → takopi events) + per-resume locks |
 | `runners/mock.py` | Mock runner for tests/demos |
 
 ### `config.py` - Configuration loading
@@ -112,6 +136,15 @@ def check_setup(backend: EngineBackend) -> SetupResult:
 def render_setup_guide(result: SetupResult):
     # Displays rich panel with setup instructions
 ```
+
+## Adding a Runner
+
+1. Implement the `Runner` protocol in `src/takopi/runners/<engine>.py`.
+2. Emit Takopi events from `takopi.model` and implement resume helpers
+   (`format_resume`, `extract_resume`, `is_resume_line`).
+3. Register an `EngineBackend` in `src/takopi/engines.py` with setup checks
+   and runner construction.
+4. Extend tests (runner contract + any engine-specific translation tests).
 
 ## Data Flow
 
@@ -155,8 +188,7 @@ Same as above, but:
 
 | Scenario | Behavior |
 |----------|----------|
-| `codex exec` fails (rc != 0) before any agent message | Raises `RuntimeError` with stderr tail |
-| `codex exec` fails (rc != 0) after agent message | Emits a `log` event and returns last answer |
+| `codex exec` fails (rc != 0) | Emits an `error` event and raises `RuntimeError` with stderr tail |
 | Telegram API error | Logged, edit skipped (progress continues) |
 | Cancellation | Cancel scope terminates the process group (POSIX) and renders `cancelled` |
 | Errors in handler | Final render uses `status=error` and preserves resume tokens when known |

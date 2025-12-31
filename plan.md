@@ -36,7 +36,7 @@ Legend:
 - [x] 3.2 Update `CodexRunner` to emit `title` (use profile name or "Codex")
 - [x] 3.3 Update `MockRunner` to emit `title`
 - [x] 3.4 Update `ScriptRunner` to emit `title`
-- [ ] 3.5 Update renderer to display session title if desired
+- [x] 3.5 Update renderer to display session title if desired
 
 ### 4. Make `ok` required on `action.completed` (§5.3.3)
 🔴 Schema tightening
@@ -81,7 +81,7 @@ Legend:
 - [x] 8.1 Update `EventQueue._drain()`: re-raise exceptions instead of logging and continuing
 - [x] 8.2 Ensure runner catches the exception and terminates subprocess
 - [x] 8.3 Add test: callback that raises → run aborts with error status
-- [ ] 8.4 Document migration: callbacks must not raise (or run fails)
+- [x] 8.4 Document migration: callbacks must not raise (or run fails)
 
 ---
 
@@ -264,9 +264,9 @@ Legend:
 ### 29. Update README/developing.md
 🟢 Documentation
 
-- [ ] 29.1 Document new module structure
-- [ ] 29.2 Document how to add a new runner
-- [ ] 29.3 Reference spec for authoritative behavior
+- [x] 29.1 Document new module structure
+- [x] 29.2 Document how to add a new runner
+- [x] 29.3 Reference spec for authoritative behavior
 
 ---
 
