@@ -594,7 +594,12 @@ async def _run_main_loop(cfg: BridgeConfig) -> None:
     async def worker() -> None:
         while True:
             try:
-                chat_id, user_msg_id, text, resume_token = await receive_stream.receive()
+                (
+                    chat_id,
+                    user_msg_id,
+                    text,
+                    resume_token,
+                ) = await receive_stream.receive()
             except anyio.EndOfStream:
                 return
             try:
