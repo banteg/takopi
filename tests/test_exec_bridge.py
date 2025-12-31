@@ -5,7 +5,7 @@ import pytest
 
 from takopi import engines
 from takopi.exec_bridge import prepare_telegram, truncate_for_telegram
-from takopi.runners.base import ResumeToken, RunResult
+from takopi.runners.base import EngineId, EventSink, ResumeToken, RunResult, Runner
 from takopi.runners.codex import CodexRunner
 
 
@@ -172,6 +172,20 @@ class _FakeBot:
         self.delete_calls.append({"chat_id": chat_id, "message_id": message_id})
         return True
 
+    async def get_updates(
+        self,
+        offset: int | None,
+        timeout_s: int = 50,
+        allowed_updates: list[str] | None = None,
+    ) -> list[dict] | None:
+        _ = offset
+        _ = timeout_s
+        _ = allowed_updates
+        return []
+
+    async def close(self) -> None:
+        return None
+
 
 class _SendStream:
     def __init__(self) -> None:
@@ -181,8 +195,8 @@ class _SendStream:
         self.sent.append(item)
 
 
-class _FakeRunner:
-    engine = "codex"
+class _FakeRunner(Runner):
+    engine: EngineId = "codex"
 
     def __init__(self, *, answer: str, ok: bool = True) -> None:
         self._answer = answer
@@ -194,10 +208,19 @@ class _FakeRunner:
     def is_resume_line(self, line: str) -> bool:
         return "codex resume" in line
 
-    def extract_resume(self, _text: str | None) -> ResumeToken | None:
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        _ = text
         return None
 
-    async def run(self, *_args, **_kwargs) -> RunResult:
+    async def run(
+        self,
+        prompt: str,
+        resume: ResumeToken | None,
+        on_event: EventSink | None = None,
+    ) -> RunResult:
+        _ = prompt
+        _ = resume
+        _ = on_event
         return RunResult(
             resume=ResumeToken(
                 engine="codex",
@@ -237,8 +260,8 @@ class _FakeClock:
         await self._sleep_event.wait()
 
 
-class _FakeRunnerWithEvents:
-    engine = "codex"
+class _FakeRunnerWithEvents(Runner):
+    engine: EngineId = "codex"
 
     def __init__(
         self,
@@ -265,15 +288,24 @@ class _FakeRunnerWithEvents:
     def is_resume_line(self, line: str) -> bool:
         return "codex resume" in line
 
-    def extract_resume(self, _text: str | None) -> ResumeToken | None:
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        _ = text
         return None
 
-    async def run(self, *_args, **kwargs) -> RunResult:
-        on_event = kwargs.get("on_event")
+    async def run(
+        self,
+        prompt: str,
+        resume: ResumeToken | None,
+        on_event: EventSink | None = None,
+    ) -> RunResult:
+        _ = prompt
+        _ = resume
         if on_event is not None:
             for when, event in zip(self._times, self._events, strict=False):
                 self._clock.set(when)
-                await on_event(event)
+                res = on_event(event)
+                if res is not None:
+                    await res
                 await anyio.sleep(0)
             if self._advance_after is not None:
                 self._clock.set(self._advance_after)
@@ -294,8 +326,8 @@ async def test_final_notify_sends_loud_final_message() -> None:
     bot = _FakeBot()
     runner = _FakeRunner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -322,8 +354,8 @@ async def test_new_final_message_forces_notification_when_too_long_to_edit() -> 
     bot = _FakeBot()
     runner = _FakeRunner(answer="x" * 10_000)
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=False,
         startup_msg="",
@@ -378,8 +410,8 @@ async def test_progress_edits_are_rate_limited() -> None:
         advance_after=1.0,
     )
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -438,8 +470,8 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
         hold=hold,
     )
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -524,8 +556,8 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
         session_id=session_id,
     )
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -558,8 +590,8 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
     bot = _FakeBot()
     runner = _FakeRunner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -581,8 +613,8 @@ async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> 
     bot = _FakeBot()
     runner = _FakeRunner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -608,8 +640,8 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
     bot = _FakeBot()
     runner = _FakeRunner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -636,8 +668,8 @@ async def test_handle_cancel_cancels_running_task() -> None:
     bot = _FakeBot()
     runner = _FakeRunner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -680,8 +712,8 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     bot = _FakeBot()
     runner = _FakeRunner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -707,8 +739,8 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     assert len(bot.send_calls) == 0
 
 
-class _FakeRunnerCancellable:
-    engine = "codex"
+class _FakeRunnerCancellable(Runner):
+    engine: EngineId = "codex"
 
     def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
         self._session_id = session_id
@@ -719,11 +751,18 @@ class _FakeRunnerCancellable:
     def is_resume_line(self, line: str) -> bool:
         return "codex resume" in line
 
-    def extract_resume(self, _text: str | None) -> ResumeToken | None:
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        _ = text
         return None
 
-    async def run(self, *_args, **kwargs) -> RunResult:
-        on_event = kwargs.get("on_event")
+    async def run(
+        self,
+        prompt: str,
+        resume: ResumeToken | None,
+        on_event: EventSink | None = None,
+    ) -> RunResult:
+        _ = prompt
+        _ = resume
         if on_event:
             await on_event(
                 {
@@ -740,8 +779,8 @@ class _FakeRunnerCancellable:
         )
 
 
-class _FakeRunnerError:
-    engine = "codex"
+class _FakeRunnerError(Runner):
+    engine: EngineId = "codex"
 
     def __init__(self, session_id: str = "019b66fc-64c2-7a71-81cd-081c504cfeb2"):
         self._session_id = session_id
@@ -752,11 +791,18 @@ class _FakeRunnerError:
     def is_resume_line(self, line: str) -> bool:
         return "codex resume" in line
 
-    def extract_resume(self, _text: str | None) -> ResumeToken | None:
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        _ = text
         return None
 
-    async def run(self, *_args, **kwargs) -> RunResult:
-        on_event = kwargs.get("on_event")
+    async def run(
+        self,
+        prompt: str,
+        resume: ResumeToken | None,
+        on_event: EventSink | None = None,
+    ) -> RunResult:
+        _ = prompt
+        _ = resume
         if on_event:
             await on_event(
                 {
@@ -776,8 +822,8 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     runner = _FakeRunnerCancellable(session_id=session_id)
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -819,8 +865,8 @@ async def test_handle_message_error_preserves_resume_token() -> None:
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     runner = _FakeRunnerError(session_id=session_id)
     cfg = BridgeConfig(
-        bot=bot,  # type: ignore[arg-type]
-        runner=runner,  # type: ignore[arg-type]
+        bot=bot,
+        runner=runner,
         chat_id=123,
         final_notify=True,
         startup_msg="",
@@ -858,8 +904,8 @@ async def test_send_with_resume_waits_for_token() -> None:
     async with anyio.create_task_group() as tg:
         tg.start_soon(trigger_resume)
         await _send_with_resume(
-            bot,  # type: ignore[arg-type]
-            send_stream,  # type: ignore[arg-type]
+            bot,
+            send_stream,
             running_task,
             123,
             10,
@@ -881,8 +927,8 @@ async def test_send_with_resume_reports_when_missing() -> None:
     running_task.done.set()
 
     await _send_with_resume(
-        bot,  # type: ignore[arg-type]
-        send_stream,  # type: ignore[arg-type]
+        bot,
+        send_stream,
         running_task,
         123,
         10,

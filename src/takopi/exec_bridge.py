@@ -22,7 +22,7 @@ from .engines import (
     parse_engine_overrides,
 )
 from .onboarding import check_setup, render_setup_guide
-from .telegram import TelegramClient
+from .telegram import BotClient, TelegramClient
 from .runners.base import ResumeToken, RunResult, Runner, TakopiEvent
 
 
@@ -110,7 +110,7 @@ def prepare_telegram(
 
 
 async def _send_or_edit_markdown(
-    bot: TelegramClient,
+    bot: BotClient,
     *,
     chat_id: int,
     text: str,
@@ -152,7 +152,7 @@ class ProgressEdits:
     def __init__(
         self,
         *,
-        bot: TelegramClient,
+        bot: BotClient,
         chat_id: int,
         progress_id: int | None,
         renderer: ExecProgressRenderer,
@@ -231,7 +231,7 @@ class ProgressEdits:
 
 @dataclass(frozen=True)
 class BridgeConfig:
-    bot: TelegramClient
+    bot: BotClient
     runner: Runner
     chat_id: int
     final_notify: bool
@@ -611,7 +611,7 @@ async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
 
 
 async def _send_with_resume(
-    bot: TelegramClient,
+    bot: BotClient,
     send_stream: Any,
     running_task: RunningTask,
     chat_id: int,
