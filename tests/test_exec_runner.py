@@ -183,6 +183,7 @@ async def test_run_serializes_two_new_sessions_same_thread(tmp_path, monkeypatch
         "#!/usr/bin/env python3\n"
         "import json\n"
         "import os\n"
+        "import sys\n"
         "import time\n"
         "\n"
         "gate = os.environ['CODEX_TEST_GATE']\n"
