@@ -16,6 +16,7 @@ A Telegram bot that bridges messages to [Codex](https://github.com/openai/codex)
 ### Prerequisites
 
 - [uv](https://github.com/astral-sh/uv) package manager
+- Python 3.14+
 - Codex CLI on PATH
 
 ### Installation
