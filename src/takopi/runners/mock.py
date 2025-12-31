@@ -161,8 +161,7 @@ class MockRunner:
             return RunResult(resume=token, answer=self._answer, ok=ok)
         finally:
             if dispatcher is not None:
-                with anyio.CancelScope(shield=True):
-                    await dispatcher.close()
+                await dispatcher.close()
 
 
 class ScriptRunner(MockRunner):

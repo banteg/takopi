@@ -567,5 +567,4 @@ class CodexRunner:
                 )
         finally:
             if dispatcher is not None:
-                with anyio.CancelScope(shield=True):
-                    await dispatcher.close()
+                await dispatcher.close()
