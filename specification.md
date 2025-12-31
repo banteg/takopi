@@ -148,8 +148,6 @@ Given a user message `text` and optional reply-to message `reply_text`:
 1. The bridge MUST attempt `runner.extract_resume(text)`.
 2. If not found, the bridge MUST attempt `runner.extract_resume(reply_text)` if present.
 3. If still not found, run starts as a **new thread** (`resume=None`).
-4. If the user clearly attempted to resume (e.g., contains a “resume-like” line but cannot be parsed), the bridge SHOULD respond with a warning like:
-   “I couldn’t resume this thread with the current engine. Make sure the resume command matches the selected runner.”
 
 **Future note (non-normative):**
 For multi-runner auto-selection, the bridge MAY attempt extraction across all registered runners. This is not required for v0.2.0.
@@ -237,6 +235,9 @@ class Action:
     detail: dict[str, Any]  # required, structured details
 ```
 
+**Definition (v0.2.0):**
+“Stable” means **stable within a single run**: the same underlying action MUST keep the same `Action.id` across all events in that run, and `Action.id` values MUST be unique within the run. Takopi does not require action IDs to remain stable across different runs/resumes.
+
 Action kinds SHOULD be from a stable set (extensible):
 
 - `command`
@@ -285,6 +286,9 @@ This prevents:
 - a second run resuming the thread while the original "new session" run is still active
 - history corruption due to concurrent engine operations
 
+**Codex note (non-normative):**
+For Codex, the resume token typically arrives as the first NDJSON event within ~1–2 seconds. If the subprocess exits before a resume token is observed, no `session.started` can be emitted and the bridge reports an error without a resume line.
+
 ### 6.3 RunResult (MUST)
 
 ```python
@@ -318,7 +322,7 @@ If the runner subprocess crashes or exits uncleanly:
 The bridge MUST:
 
 - Poll Telegram updates.
-- Route each message to a worker (bounded concurrency: **16 concurrent runs**).
+- Execute at most **16 active runs** concurrently across all threads.
 - Resolve resume token (from message text or reply target).
 - Start runner execution with appropriate cancellation support.
 - Maintain progress rendering and Telegram edits (rate-limited).
@@ -328,6 +332,7 @@ The bridge MUST:
 **Queuing behavior:**
 
 - Multiple prompts to the same thread are queued and executed sequentially.
+- Prompts queued behind an in-flight run MUST NOT count toward the **16 active runs** limit.
 - There is no queue depth limit; all prompts are accepted.
 
 The bridge MUST NOT:
@@ -413,7 +418,7 @@ Final output MUST include:
 
 - A single runner/engine is selected at startup via config/CLI (default: Codex).
 - Resume extraction uses only the selected runner’s parser.
-- If the user attempts to resume a thread created by a different engine, resume extraction will fail and the bot SHOULD warn.
+- If the user attempts to resume a thread created by a different engine, resume extraction will fail and the bot treats it as a new thread.
 
 ### 9.2 Future behavior (non-normative)
 
@@ -518,4 +523,3 @@ To reduce friction adding new runners, v0.2.0 SHOULD treat engine IDs as strings
    - “done”
    - final answer
    - resume line ``codex resume <uuid>``
-
