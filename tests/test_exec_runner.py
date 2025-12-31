@@ -61,7 +61,7 @@ async def test_run_allows_parallel_new_sessions() -> None:
     async with anyio.create_task_group() as tg:
         tg.start_soon(runner.run, "a", None, NO_OP_SINK)
         tg.start_soon(runner.run, "b", None, NO_OP_SINK)
-        await anyio.sleep(0.01)
+        await anyio.sleep(0)
         gate.set()
     assert max_in_flight == 2
 
@@ -125,7 +125,7 @@ async def test_run_serializes_new_session_after_session_is_known(
         "\n"
         "print(json.dumps({'type': 'thread.started', 'thread_id': thread_id}), flush=True)\n"
         "while not os.path.exists(gate):\n"
-        "    time.sleep(0.01)\n"
+        "    time.sleep(0.001)\n"
         "sys.exit(0)\n",
         encoding="utf-8",
     )
@@ -163,7 +163,7 @@ async def test_run_serializes_new_session_after_session_is_known(
         await session_started.wait()
 
         tg.start_soon(run_resume)
-        await anyio.sleep(0.05)
+        await anyio.sleep(0.01)
 
         assert not resume_marker.exists()
 
@@ -172,7 +172,7 @@ async def test_run_serializes_new_session_after_session_is_known(
 
         with anyio.fail_after(2):
             while not resume_marker.exists():
-                await anyio.sleep(0.01)
+                await anyio.sleep(0.001)
 
 
 @pytest.mark.anyio
@@ -195,7 +195,7 @@ async def test_run_serializes_two_new_sessions_same_thread(
         "\n"
         "print(json.dumps({'type': 'thread.started', 'thread_id': thread_id}), flush=True)\n"
         "while not os.path.exists(gate):\n"
-        "    time.sleep(0.01)\n"
+        "    time.sleep(0.001)\n"
         "sys.exit(0)\n",
         encoding="utf-8",
     )
@@ -229,7 +229,7 @@ async def test_run_serializes_two_new_sessions_same_thread(
 
         with anyio.fail_after(2):
             while not (started_first.is_set() or started_second.is_set()):
-                await anyio.sleep(0.01)
+                await anyio.sleep(0.001)
 
         assert not (started_first.is_set() and started_second.is_set())
 
