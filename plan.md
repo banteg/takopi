@@ -1,0 +1,320 @@
+# Spec Alignment Checklist
+
+Checklist for aligning takopi codebase with Specification v0.2.0.
+
+Legend:
+- 🔴 Breaking change
+- 🟡 New requirement  
+- 🟢 Refactor only
+- ⚠️ Needs decision
+
+---
+
+## Phase 1: Domain Model (§5)
+
+### 1. Create `model.py` with domain types
+🟢 Extract from `runners/base.py` → new `takopi/model.py`
+
+- [ ] 1.1 Move `ResumeToken` to `model.py`
+- [ ] 1.2 Move `RunResult` to `model.py`
+- [ ] 1.3 Move `Action` TypedDict to `model.py`
+- [ ] 1.4 Move all `TakopiEvent` types to `model.py`
+- [ ] 1.5 Move `ActionKind` type alias to `model.py`
+- [ ] 1.6 Move `TakopiEventType` type alias to `model.py`
+- [ ] 1.7 Add re-exports in `runners/base.py` for backwards compatibility
+
+### 2. Update `EngineId` typing (§11.2)
+🟢 Loosen type from closed Literal to open string
+
+- [ ] 2.1 Change `EngineId: TypeAlias = Literal["codex", "mock"]` → `EngineId = NewType("EngineId", str)`
+- [ ] 2.2 Update all type annotations that use `EngineId`
+
+### 3. Add required `title` field to `session.started` (§5.3.1)
+🟡 New required field
+
+- [ ] 3.1 Update `SessionStartedEvent` TypedDict to include `title: str`
+- [ ] 3.2 Update `CodexRunner` to emit `title` (use profile name or "Codex")
+- [ ] 3.3 Update `MockRunner` to emit `title`
+- [ ] 3.4 Update `ScriptRunner` to emit `title`
+- [ ] 3.5 Update renderer to display session title if desired
+
+### 4. Make `ok` required on `action.completed` (§5.3.3)
+🔴 Schema tightening
+
+- [ ] 4.1 Update `ActionCompletedEvent` to require `ok: bool` at top level (not inside Action)
+- [ ] 4.2 Update `CodexRunner._translate_item_event()` to always compute `ok` (default `True` if unknown)
+- [ ] 4.3 Update `MockRunner` event emission
+- [ ] 4.4 Update renderer to read `ok` from event, not from `action.detail`
+
+### 5. Add optional `detail` to `error` event (§5.3.5)
+🟢 Already compatible, document behavior
+
+- [ ] 5.1 Update `ErrorEvent` TypedDict to include `detail: str` (optional)
+- [ ] 5.2 Update `CodexRunner` to populate `detail` with stderr tail on crash
+
+---
+
+## Phase 2: Runner Protocol (§6)
+
+### 6. Make `on_event` parameter non-optional (§6.1)
+🔴 Signature change
+
+- [ ] 6.1 Update `Runner` Protocol: `on_event: EventSink` (remove `| None`)
+- [ ] 6.2 Update `CodexRunner.run()` signature
+- [ ] 6.3 Update `MockRunner.run()` signature
+- [ ] 6.4 Update `ScriptRunner.run()` signature
+- [ ] 6.5 Create `NO_OP_SINK: EventSink = lambda _: None` helper for tests
+- [ ] 6.6 Update all test call sites to pass `on_event=NO_OP_SINK` or a real sink
+
+### 7. Implement pre-emit locking for new sessions (§6.2)
+🔴 Critical behavioral change
+
+- [ ] 7.1 In `CodexRunner._run()`: parse `thread_id` from stream
+- [ ] 7.2 Acquire lock for new token **before** emitting `session.started`
+- [ ] 7.3 Hold lock for remainder of run
+- [ ] 7.4 Add test: two concurrent `resume=None` runs that get same thread_id must serialize
+- [ ] 7.5 Add test: verify `session.started` not emitted until lock acquired
+
+### 8. Callback errors must abort run (§6.4)
+🔴 Behavioral change
+
+- [ ] 8.1 Update `EventQueue._drain()`: re-raise exceptions instead of logging and continuing
+- [ ] 8.2 Ensure runner catches the exception and terminates subprocess
+- [ ] 8.3 Add test: callback that raises → run aborts with error status
+- [ ] 8.4 Document migration: callbacks must not raise (or run fails)
+
+---
+
+## Phase 3: Module Restructuring (§3.2)
+
+### 9. Create `runner.py` with protocol and utilities
+🟢 File rename/reorganize
+
+- [ ] 9.1 Create `takopi/runner.py`
+- [ ] 9.2 Move `Runner` Protocol from `runners/base.py` → `runner.py`
+- [ ] 9.3 Move `EventQueue` from `runners/base.py` → `runner.py`
+- [ ] 9.4 Move `EventSink` type alias → `runner.py`
+- [ ] 9.5 Keep `runners/base.py` as re-export shim for compatibility
+
+### 10. Create `render.py` from `exec_render.py`
+🟢 File rename
+
+- [ ] 10.1 Rename `exec_render.py` → `render.py`
+- [ ] 10.2 Update all imports
+
+### 11. Create `bridge.py` from `exec_bridge.py` orchestration logic
+🟢 Extract and rename
+
+- [ ] 11.1 Create `takopi/bridge.py`
+- [ ] 11.2 Move `BridgeConfig` → `bridge.py`
+- [ ] 11.3 Move `ProgressEdits` → `bridge.py`
+- [ ] 11.4 Move `handle_message()` → `bridge.py`
+- [ ] 11.5 Move `poll_updates()` → `bridge.py`
+- [ ] 11.6 Move `_run_main_loop()` → `bridge.py`
+- [ ] 11.7 Move cancel/resume helpers → `bridge.py`
+
+### 12. Create `cli.py` with entry points
+🟢 Extract from exec_bridge
+
+- [ ] 12.1 Create `takopi/cli.py`
+- [ ] 12.2 Move `run()` typer command → `cli.py`
+- [ ] 12.3 Move `main()` → `cli.py`
+- [ ] 12.4 Move `_version_callback()` → `cli.py`
+- [ ] 12.5 Move config parsing (`_parse_bridge_config`) → `cli.py`
+- [ ] 12.6 Update `pyproject.toml` entry point: `takopi = "takopi.cli:main"`
+
+### 13. Create `markdown.py` for Telegram formatting
+🟢 Extract from exec_bridge
+
+- [ ] 13.1 Create `takopi/markdown.py`
+- [ ] 13.2 Move `truncate_for_telegram()` → `markdown.py`
+- [ ] 13.3 Move `prepare_telegram()` → `markdown.py`
+- [ ] 13.4 Move `render_markdown()` from `exec_render.py` → `markdown.py`
+- [ ] 13.5 Move `TELEGRAM_MARKDOWN_LIMIT` constant → `markdown.py`
+
+### 14. Delete `exec_bridge.py` after extraction
+🟢 Cleanup
+
+- [ ] 14.1 Verify all code moved to `bridge.py`, `cli.py`, `markdown.py`
+- [ ] 14.2 Delete `exec_bridge.py`
+- [ ] 14.3 Update any remaining imports
+
+---
+
+## Phase 4: Bridge Behavior (§7)
+
+### 15. Document SIGTERM → SIGKILL escalation (§7.4)
+🟢 Documentation only (code already correct)
+
+- [ ] 15.1 Add docstring to `manage_subprocess()` explaining 2s timeout before SIGKILL
+- [ ] 15.2 Update spec §7.4 to document escalation (or add §7.4.1)
+
+### 16. Ensure `/cancel` ignores accompanying text (§7.4)
+🟢 Verify existing behavior
+
+- [ ] 16.1 Add test: `/cancel some extra text` still cancels
+- [ ] 16.2 Verify current code uses `text == "/cancel"` or `text.startswith("/cancel")`
+
+### 17. Add warning for unparseable resume attempts (§4.4)
+🟡 New user-facing behavior
+
+- [ ] 17.1 Define heuristic for "looks like resume attempt" (e.g., contains "resume" keyword)
+- [ ] 17.2 If `extract_resume()` returns `None` but text looks like resume → send warning
+- [ ] 17.3 Add test for warning message
+
+### 18. Crash handling: include resume line in error (§6.5)
+🟡 Verify/implement
+
+- [ ] 18.1 Verify that on subprocess crash, if `session.started` was received, error message includes resume line
+- [ ] 18.2 Add test: runner crashes after emitting session.started → error includes resume line
+
+---
+
+## Phase 5: Renderer Updates (§8)
+
+### 19. Renderer must not depend on engine-native events (§8.1)
+🟢 Verify existing compliance
+
+- [ ] 19.1 Audit `ExecProgressRenderer` — confirm it only consumes `TakopiEvent`, not raw codex JSON
+- [ ] 19.2 Document this constraint in renderer docstring
+
+### 20. Renderer state: add session title (§8.2)
+🟡 New feature
+
+- [ ] 20.1 Add `session_title: str | None` to `ExecProgressRenderer`
+- [ ] 20.2 Update `note_event()` to capture title from `session.started`
+- [ ] 20.3 Optionally display title in progress header
+
+---
+
+## Phase 6: Testing Requirements (§10)
+
+### 21. Add event factories for test readability (§10.2)
+🟢 Test infrastructure
+
+- [ ] 21.1 Create `tests/factories.py`
+- [ ] 21.2 Add `session_started(engine, value, title)` factory
+- [ ] 21.3 Add `action_started(id, kind, title, detail)` factory
+- [ ] 21.4 Add `action_completed(id, kind, title, ok, detail)` factory
+- [ ] 21.5 Add `log_event(message, level)` factory
+- [ ] 21.6 Add `error_event(message, detail)` factory
+- [ ] 21.7 Refactor existing tests to use factories
+
+### 22. Runner contract tests (§10.1.1)
+🟡 New test category
+
+- [ ] 22.1 Test: runner emits exactly one `session.started`
+- [ ] 22.2 Test: all actions have `id`, `kind`, `title`
+- [ ] 22.3 Test: `RunResult.resume` matches `session.started` token
+- [ ] 22.4 Test: events delivered in order
+- [ ] 22.5 Test: `action.completed` always has `ok` field
+
+### 23. Per-thread serialization test (§10.1.2) — critical
+🟡 New test
+
+- [ ] 23.1 Test: new session blocks, second run with same token waits
+- [ ] 23.2 Test: first run completes, second run proceeds
+- [ ] 23.3 Test: parallel runs with different tokens execute concurrently
+
+### 24. Bridge progress throttling tests (§10.1.3)
+🟢 May already exist, verify coverage
+
+- [ ] 24.1 Test: edits no more frequent than `progress_edit_every`
+- [ ] 24.2 Test: no edit if content unchanged
+- [ ] 24.3 Test: truncation preserves resume line
+
+### 25. Cancellation tests (§10.1.4)
+🟢 May already exist, verify coverage
+
+- [ ] 25.1 Test: `/cancel` terminates run
+- [ ] 25.2 Test: cancelled status message sent
+- [ ] 25.3 Test: resume line included if known
+
+### 26. Renderer formatting tests (§10.1.5)
+🟢 May already exist, verify coverage
+
+- [ ] 26.1 Test: action rendering (started/completed)
+- [ ] 26.2 Test: error rendering
+- [ ] 26.3 Test: log rendering
+- [ ] 26.4 Test: stable output under repeated event sequences
+
+---
+
+## Phase 7: Configuration (§9)
+
+### 27. Warn on cross-engine resume attempt (§9.1)
+🟡 New behavior
+
+- [ ] 27.1 If resume extraction fails but message contains another engine's pattern → warn user
+- [ ] 27.2 Add test: message contains `claude resume <id>` with codex engine → warning
+
+---
+
+## Phase 8: Documentation
+
+### 28. Update module docstrings
+🟢 Documentation
+
+- [ ] 28.1 Add docstring to `model.py` explaining domain types
+- [ ] 28.2 Add docstring to `runner.py` explaining protocol
+- [ ] 28.3 Add docstring to `bridge.py` explaining orchestration
+- [ ] 28.4 Add docstring to `render.py` explaining purity constraints
+- [ ] 28.5 Add docstring to `markdown.py` explaining Telegram constraints
+
+### 29. Update README/developing.md
+🟢 Documentation
+
+- [ ] 29.1 Document new module structure
+- [ ] 29.2 Document how to add a new runner
+- [ ] 29.3 Reference spec for authoritative behavior
+
+---
+
+## Suggested Execution Order
+
+**Week 1: Foundation (non-breaking)**
+1. Items 1-2 (model.py, EngineId)
+2. Items 9-14 (module restructuring)
+3. Item 21 (event factories)
+
+**Week 2: Schema updates (minor breaking)**
+4. Items 3-5 (event schema: title, ok, detail)
+5. Items 19-20 (renderer updates)
+6. Items 22, 26 (contract + renderer tests)
+
+**Week 3: Protocol changes (breaking)**
+7. Items 6-8 (on_event required, locking, callback abort)
+8. Items 23-25 (serialization + cancellation tests)
+
+**Week 4: Behavior polish**
+9. Items 15-18 (bridge behavior)
+10. Item 27 (cross-engine warning)
+11. Items 28-29 (documentation)
+
+---
+
+## Decision Points Needed
+
+| Item | Question | Options |
+|------|----------|---------|
+| 3.2 | Where does session `title` come from? | Profile name / Model name / Config / Hardcode "Codex" |
+| 4.2 | Default `ok` value when unknown? | `True` / `None` (violates spec) |
+| 8.1 | Callback abort: immediate or next event? | Immediate re-raise / Set flag and abort after drain |
+| 17.1 | Heuristic for "looks like resume"? | Contains "resume" keyword / Regex for any `<word> resume <id>` pattern |
+
+---
+
+## Summary
+
+| Phase | Items | Breaking | Effort |
+|-------|-------|----------|--------|
+| 1. Domain Model | 1-5 | Minor | Low |
+| 2. Runner Protocol | 6-8 | **Yes** | Medium |
+| 3. Module Restructure | 9-14 | No | Medium |
+| 4. Bridge Behavior | 15-18 | Minor | Low |
+| 5. Renderer | 19-20 | No | Low |
+| 6. Testing | 21-26 | No | Medium |
+| 7. Configuration | 27 | No | Low |
+| 8. Documentation | 28-29 | No | Low |
+
+**Total: 29 top-level items, ~85 sub-tasks**
