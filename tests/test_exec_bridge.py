@@ -669,6 +669,35 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     assert len(bot.send_calls) == 0
 
 
+def test_cancel_command_accepts_extra_text() -> None:
+    from takopi.bridge import _is_cancel_command
+
+    assert _is_cancel_command("/cancel now") is True
+    assert _is_cancel_command("/cancel@takopi please") is True
+    assert _is_cancel_command("/cancelled") is False
+
+
+def test_resume_warning_for_unparseable_resume() -> None:
+    from takopi.bridge import _resume_attempt, _resume_warning_text
+
+    attempt, engine = _resume_attempt("resume abc123")
+    assert attempt is True
+    assert engine is None
+    warning = _resume_warning_text(engine, "codex")
+    assert "resume command" in warning.lower()
+
+
+def test_resume_warning_for_other_engine() -> None:
+    from takopi.bridge import _resume_attempt, _resume_warning_text
+
+    attempt, engine = _resume_attempt("claude resume abc123")
+    assert attempt is True
+    assert engine == "claude"
+    warning = _resume_warning_text(engine, "codex")
+    assert "claude" in warning.lower()
+    assert "codex" in warning.lower()
+
+
 @pytest.mark.anyio
 async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     from takopi.bridge import BridgeConfig, handle_message

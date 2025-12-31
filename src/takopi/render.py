@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Pure renderers for Takopi events (no engine-native event handling)."""
+
 import textwrap
 from collections import deque
 from typing import Callable
@@ -116,6 +118,7 @@ class ExecProgressRenderer:
         max_actions: int = 5,
         command_width: int | None = MAX_PROGRESS_CMD_LEN,
         resume_formatter: Callable[[ResumeToken], str] | None = None,
+        show_title: bool = False,
     ) -> None:
         self.max_actions = max_actions
         self.command_width = command_width
@@ -123,11 +126,14 @@ class ExecProgressRenderer:
         self.action_count = 0
         self._started_counts: dict[str, int] = {}
         self.resume_token: ResumeToken | None = None
+        self.session_title: str | None = None
         self._resume_formatter = resume_formatter
+        self.show_title = show_title
 
     def note_event(self, event: TakopiEvent) -> bool:
         if event["type"] == "session.started":
             self.resume_token = event["resume"]
+            self.session_title = event.get("title")
             return True
 
         if event["type"] == "action.started":
@@ -169,16 +175,21 @@ class ExecProgressRenderer:
 
     def render_progress(self, elapsed_s: float, label: str = "working") -> str:
         step = self.action_count or None
-        header = format_header(elapsed_s, step, label=label)
+        header = format_header(elapsed_s, step, label=self._label_with_title(label))
         message = self._assemble(header, list(self.recent_actions))
         return self._append_resume(message)
 
     def render_final(self, elapsed_s: float, answer: str, status: str = "done") -> str:
         step = self.action_count or None
-        header = format_header(elapsed_s, step, label=status)
+        header = format_header(elapsed_s, step, label=self._label_with_title(status))
         answer = (answer or "").strip()
         message = header + ("\n\n" + answer if answer else "")
         return self._append_resume(message)
+
+    def _label_with_title(self, label: str) -> str:
+        if self.show_title and self.session_title:
+            return f"{label} ({self.session_title})"
+        return label
 
     def _append_resume(self, message: str) -> str:
         if not self.resume_token or self._resume_formatter is None:

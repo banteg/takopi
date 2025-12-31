@@ -152,15 +152,15 @@ Legend:
 ### 16. Ensure `/cancel` ignores accompanying text (§7.4)
 🟢 Verify existing behavior
 
-- [ ] 16.1 Add test: `/cancel some extra text` still cancels
-- [ ] 16.2 Verify current code uses `text == "/cancel"` or `text.startswith("/cancel")`
+- [x] 16.1 Add test: `/cancel some extra text` still cancels
+- [x] 16.2 Verify current code uses `text == "/cancel"` or `text.startswith("/cancel")`
 
 ### 17. Add warning for unparseable resume attempts (§4.4)
 🟡 New user-facing behavior
 
-- [ ] 17.1 Define heuristic for "looks like resume attempt" (e.g., contains "resume" keyword)
-- [ ] 17.2 If `extract_resume()` returns `None` but text looks like resume → send warning
-- [ ] 17.3 Add test for warning message
+- [x] 17.1 Define heuristic for "looks like resume attempt" (e.g., contains "resume" keyword)
+- [x] 17.2 If `extract_resume()` returns `None` but text looks like resume → send warning
+- [x] 17.3 Add test for warning message
 
 ### 18. Crash handling: include resume line in error (§6.5)
 🟡 Verify/implement
@@ -175,15 +175,15 @@ Legend:
 ### 19. Renderer must not depend on engine-native events (§8.1)
 🟢 Verify existing compliance
 
-- [ ] 19.1 Audit `ExecProgressRenderer` — confirm it only consumes `TakopiEvent`, not raw codex JSON
-- [ ] 19.2 Document this constraint in renderer docstring
+- [x] 19.1 Audit `ExecProgressRenderer` — confirm it only consumes `TakopiEvent`, not raw codex JSON
+- [x] 19.2 Document this constraint in renderer docstring
 
 ### 20. Renderer state: add session title (§8.2)
 🟡 New feature
 
-- [ ] 20.1 Add `session_title: str | None` to `ExecProgressRenderer`
-- [ ] 20.2 Update `note_event()` to capture title from `session.started`
-- [ ] 20.3 Optionally display title in progress header
+- [x] 20.1 Add `session_title: str | None` to `ExecProgressRenderer`
+- [x] 20.2 Update `note_event()` to capture title from `session.started`
+- [x] 20.3 Optionally display title in progress header
 
 ---
 
@@ -245,8 +245,8 @@ Legend:
 ### 27. Warn on cross-engine resume attempt (§9.1)
 🟡 New behavior
 
-- [ ] 27.1 If resume extraction fails but message contains another engine's pattern → warn user
-- [ ] 27.2 Add test: message contains `claude resume <id>` with codex engine → warning
+- [x] 27.1 If resume extraction fails but message contains another engine's pattern → warn user
+- [x] 27.2 Add test: message contains `claude resume <id>` with codex engine → warning
 
 ---
 

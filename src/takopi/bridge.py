@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -22,6 +23,53 @@ def _resolve_resume(
     runner: Runner, text: str | None, reply_text: str | None
 ) -> ResumeToken | None:
     return runner.extract_resume(text) or runner.extract_resume(reply_text)
+
+
+def _is_cancel_command(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    command = stripped.split(maxsplit=1)[0]
+    return command == "/cancel" or command.startswith("/cancel@")
+
+
+_RESUME_COMMAND_RE = re.compile(r"(?i)\\b(?P<engine>[a-z0-9_-]+)\\s+resume\\s+\\S+")
+
+
+def _resume_attempt(text: str | None) -> tuple[bool, str | None]:
+    if not text:
+        return False, None
+    match = _RESUME_COMMAND_RE.search(text)
+    if match:
+        return True, match.group("engine").lower()
+    if "resume" in text.lower():
+        return True, None
+    return False, None
+
+
+def _resume_warning_text(engine_hint: str | None, current_engine: str) -> str:
+    if engine_hint and engine_hint.lower() != current_engine.lower():
+        return (
+            f"That looks like a {engine_hint} resume command, but this bot is running "
+            f"{current_engine}. Starting a new thread."
+        )
+    return "Couldn't parse a resume command; starting a new thread."
+
+
+async def _send_resume_warning(
+    bot: BotClient,
+    *,
+    chat_id: int,
+    user_msg_id: int,
+    engine_hint: str | None,
+    current_engine: str,
+) -> None:
+    await bot.send_message(
+        chat_id=chat_id,
+        text=_resume_warning_text(engine_hint, current_engine),
+        reply_to_message_id=user_msg_id,
+        disable_notification=True,
+    )
 
 
 PROGRESS_EDIT_EVERY_S = 1.0
@@ -584,7 +632,7 @@ async def _run_main_loop(
                 text = msg["text"]
                 user_msg_id = msg["message_id"]
 
-                if text == "/cancel":
+                if _is_cancel_command(text):
                     tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
                     continue
 
@@ -604,6 +652,19 @@ async def _run_main_loop(
                             text,
                         )
                         continue
+                if resume_token is None:
+                    attempt_text, engine_text = _resume_attempt(text)
+                    attempt_reply, engine_reply = _resume_attempt(r.get("text"))
+                    attempt = attempt_text or attempt_reply
+                    if attempt:
+                        tg.start_soon(
+                            _send_resume_warning,
+                            cfg.bot,
+                            chat_id=msg["chat"]["id"],
+                            user_msg_id=user_msg_id,
+                            engine_hint=engine_text or engine_reply,
+                            current_engine=str(cfg.runner.engine),
+                        )
 
                 await send_stream.send(
                     (msg["chat"]["id"], user_msg_id, text, resume_token)
