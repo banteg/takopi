@@ -415,6 +415,8 @@ async def handle_message(
         try:
             with exec_scope:
                 result = await runner.run(text, resume_token, on_event=on_event)
+                if exec_scope.cancel_called:
+                    await anyio.sleep(0)
                 resume_token_value = result.resume
         except cancel_exc_type:
             cancelled = True
