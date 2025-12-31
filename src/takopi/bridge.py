@@ -1,42 +1,21 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 import anyio
-import typer
 
-from . import __version__
-from .config import ConfigError, load_telegram_config
-from .exec_render import ExecProgressRenderer, render_markdown
-from .logging import setup_logging
-from .engines import (
-    EngineBackend,
-    get_backend,
-    get_engine_config,
-    list_backend_ids,
-    parse_engine_overrides,
-)
-from .onboarding import check_setup, render_setup_guide
-from .telegram import BotClient, TelegramClient
-from .runners.base import ResumeToken, RunResult, Runner, TakopiEvent
+from .markdown import TELEGRAM_MARKDOWN_LIMIT, prepare_telegram, render_markdown
+from .model import ResumeToken, RunResult, TakopiEvent
+from .render import ExecProgressRenderer
+from .runner import Runner
+from .telegram import BotClient
 
 
 logger = logging.getLogger(__name__)
-
-
-def _print_version_and_exit() -> None:
-    typer.echo(__version__)
-    raise typer.Exit()
-
-
-def _version_callback(value: bool) -> None:
-    if value:
-        _print_version_and_exit()
 
 
 def _resolve_resume(
@@ -45,68 +24,7 @@ def _resolve_resume(
     return runner.extract_resume(text) or runner.extract_resume(reply_text)
 
 
-TELEGRAM_MARKDOWN_LIMIT = 3500
 PROGRESS_EDIT_EVERY_S = 1.0
-
-
-def truncate_for_telegram(
-    text: str, limit: int, *, is_resume_line: Callable[[str], bool]
-) -> str:
-    """
-    Truncate text to fit Telegram limits while preserving the trailing resume command
-    line (if present), otherwise preserving the last non-empty line.
-    """
-    if len(text) <= limit:
-        return text
-
-    lines = text.splitlines()
-
-    tail_lines: list[str] | None = None
-    is_resume_tail = False
-    for i in range(len(lines) - 1, -1, -1):
-        line = lines[i]
-        if is_resume_line(line):
-            tail_lines = lines[i:]
-            is_resume_tail = True
-            break
-
-    if tail_lines is None:
-        for i in range(len(lines) - 1, -1, -1):
-            if lines[i].strip():
-                tail_lines = [lines[i]]
-                break
-
-    tail = "\n".join(tail_lines or []).strip("\n")
-    sep = "\n…\n"
-
-    max_tail = limit if is_resume_tail else (limit // 4)
-    tail = tail[-max_tail:] if max_tail > 0 else ""
-
-    head_budget = limit - len(sep) - len(tail)
-    if head_budget <= 0:
-        return tail[-limit:] if tail else text[:limit]
-
-    head = text[:head_budget].rstrip()
-    return (head + sep + tail)[:limit]
-
-
-def prepare_telegram(
-    md: str,
-    *,
-    limit: int,
-    is_resume_line: Callable[[str], bool] | None = None,
-) -> tuple[str, list[dict[str, Any]] | None]:
-    rendered, entities = render_markdown(md)
-    if len(rendered) > limit:
-        if is_resume_line is None:
-
-            def _never_resume_line(_line: str) -> bool:
-                return False
-
-            is_resume_line = _never_resume_line
-        rendered = truncate_for_telegram(rendered, limit, is_resume_line=is_resume_line)
-        return rendered, None
-    return rendered, entities
 
 
 async def _send_or_edit_markdown(
@@ -245,49 +163,6 @@ class RunningTask:
     resume_ready: anyio.Event = field(default_factory=anyio.Event)
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
     done: anyio.Event = field(default_factory=anyio.Event)
-
-
-def _parse_bridge_config(
-    *,
-    final_notify: bool,
-    backend: EngineBackend,
-    engine_overrides: dict[str, Any],
-) -> BridgeConfig:
-    startup_pwd = os.getcwd()
-
-    config, config_path = load_telegram_config()
-    try:
-        token = config["bot_token"]
-    except KeyError:
-        raise ConfigError(f"Missing key `bot_token` in {config_path}.") from None
-    if not isinstance(token, str) or not token.strip():
-        raise ConfigError(
-            f"Invalid `bot_token` in {config_path}; expected a non-empty string."
-        ) from None
-    try:
-        chat_id_value = config["chat_id"]
-    except KeyError:
-        raise ConfigError(f"Missing key `chat_id` in {config_path}.") from None
-    if isinstance(chat_id_value, bool) or not isinstance(chat_id_value, int):
-        raise ConfigError(
-            f"Invalid `chat_id` in {config_path}; expected an integer."
-        ) from None
-    chat_id = chat_id_value
-
-    engine_cfg = get_engine_config(config, backend.id, config_path)
-    startup_msg = backend.startup_message(startup_pwd)
-
-    bot = TelegramClient(token)
-    runner = backend.build_runner(engine_cfg, engine_overrides, config_path)
-
-    return BridgeConfig(
-        bot=bot,
-        runner=runner,
-        chat_id=chat_id,
-        final_notify=final_notify,
-        startup_msg=startup_msg,
-        max_concurrency=16,
-    )
 
 
 async def _send_startup(cfg: BridgeConfig) -> None:
@@ -737,68 +612,3 @@ async def _run_main_loop(
         await send_stream.aclose()
         await receive_stream.aclose()
         await cfg.bot.close()
-
-
-def run(
-    version: bool = typer.Option(
-        False,
-        "--version",
-        help="Show the version and exit.",
-        callback=_version_callback,
-        is_eager=True,
-    ),
-    final_notify: bool = typer.Option(
-        True,
-        "--final-notify/--no-final-notify",
-        help="Send the final response as a new message (not an edit).",
-    ),
-    engine: str = typer.Option(
-        "codex",
-        "--engine",
-        help=f"Engine backend id ({', '.join(list_backend_ids())}).",
-    ),
-    debug: bool = typer.Option(
-        False,
-        "--debug/--no-debug",
-        help="Log engine JSONL, Telegram requests, and rendered messages.",
-    ),
-    engine_option: list[str] = typer.Option(
-        [],
-        "--engine-option",
-        "-E",
-        help="Engine-specific override in KEY=VALUE form (repeatable).",
-    ),
-) -> None:
-    setup_logging(debug=debug)
-    try:
-        backend = get_backend(engine)
-    except ConfigError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(code=1)
-    try:
-        overrides = parse_engine_overrides(engine_option)
-    except ConfigError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(code=1)
-    setup = check_setup(backend)
-    if not setup.ok:
-        render_setup_guide(setup)
-        raise typer.Exit(code=1)
-    try:
-        cfg = _parse_bridge_config(
-            final_notify=final_notify,
-            backend=backend,
-            engine_overrides=overrides,
-        )
-    except ConfigError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(code=1)
-    anyio.run(_run_main_loop, cfg)
-
-
-def main() -> None:
-    typer.run(run)
-
-
-if __name__ == "__main__":
-    main()

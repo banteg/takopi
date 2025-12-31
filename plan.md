@@ -90,54 +90,54 @@ Legend:
 ### 9. Create `runner.py` with protocol and utilities
 🟢 File rename/reorganize
 
-- [ ] 9.1 Create `takopi/runner.py`
-- [ ] 9.2 Move `Runner` Protocol from `runners/base.py` → `runner.py`
-- [ ] 9.3 Move `EventQueue` from `runners/base.py` → `runner.py`
-- [ ] 9.4 Move `EventSink` type alias → `runner.py`
-- [ ] 9.5 Keep `runners/base.py` as re-export shim for compatibility
+- [x] 9.1 Create `takopi/runner.py`
+- [x] 9.2 Move `Runner` Protocol from `runners/base.py` → `runner.py`
+- [x] 9.3 Move `EventQueue` from `runners/base.py` → `runner.py`
+- [x] 9.4 Move `EventSink` type alias → `runner.py`
+- [x] 9.5 Keep `runners/base.py` as re-export shim for compatibility
 
 ### 10. Create `render.py` from `exec_render.py`
 🟢 File rename
 
-- [ ] 10.1 Rename `exec_render.py` → `render.py`
-- [ ] 10.2 Update all imports
+- [x] 10.1 Rename `exec_render.py` → `render.py`
+- [x] 10.2 Update all imports
 
 ### 11. Create `bridge.py` from `exec_bridge.py` orchestration logic
 🟢 Extract and rename
 
-- [ ] 11.1 Create `takopi/bridge.py`
-- [ ] 11.2 Move `BridgeConfig` → `bridge.py`
-- [ ] 11.3 Move `ProgressEdits` → `bridge.py`
-- [ ] 11.4 Move `handle_message()` → `bridge.py`
-- [ ] 11.5 Move `poll_updates()` → `bridge.py`
-- [ ] 11.6 Move `_run_main_loop()` → `bridge.py`
-- [ ] 11.7 Move cancel/resume helpers → `bridge.py`
+- [x] 11.1 Create `takopi/bridge.py`
+- [x] 11.2 Move `BridgeConfig` → `bridge.py`
+- [x] 11.3 Move `ProgressEdits` → `bridge.py`
+- [x] 11.4 Move `handle_message()` → `bridge.py`
+- [x] 11.5 Move `poll_updates()` → `bridge.py`
+- [x] 11.6 Move `_run_main_loop()` → `bridge.py`
+- [x] 11.7 Move cancel/resume helpers → `bridge.py`
 
 ### 12. Create `cli.py` with entry points
 🟢 Extract from exec_bridge
 
-- [ ] 12.1 Create `takopi/cli.py`
-- [ ] 12.2 Move `run()` typer command → `cli.py`
-- [ ] 12.3 Move `main()` → `cli.py`
-- [ ] 12.4 Move `_version_callback()` → `cli.py`
-- [ ] 12.5 Move config parsing (`_parse_bridge_config`) → `cli.py`
-- [ ] 12.6 Update `pyproject.toml` entry point: `takopi = "takopi.cli:main"`
+- [x] 12.1 Create `takopi/cli.py`
+- [x] 12.2 Move `run()` typer command → `cli.py`
+- [x] 12.3 Move `main()` → `cli.py`
+- [x] 12.4 Move `_version_callback()` → `cli.py`
+- [x] 12.5 Move config parsing (`_parse_bridge_config`) → `cli.py`
+- [x] 12.6 Update `pyproject.toml` entry point: `takopi = "takopi.cli:main"`
 
 ### 13. Create `markdown.py` for Telegram formatting
 🟢 Extract from exec_bridge
 
-- [ ] 13.1 Create `takopi/markdown.py`
-- [ ] 13.2 Move `truncate_for_telegram()` → `markdown.py`
-- [ ] 13.3 Move `prepare_telegram()` → `markdown.py`
-- [ ] 13.4 Move `render_markdown()` from `exec_render.py` → `markdown.py`
-- [ ] 13.5 Move `TELEGRAM_MARKDOWN_LIMIT` constant → `markdown.py`
+- [x] 13.1 Create `takopi/markdown.py`
+- [x] 13.2 Move `truncate_for_telegram()` → `markdown.py`
+- [x] 13.3 Move `prepare_telegram()` → `markdown.py`
+- [x] 13.4 Move `render_markdown()` from `exec_render.py` → `markdown.py`
+- [x] 13.5 Move `TELEGRAM_MARKDOWN_LIMIT` constant → `markdown.py`
 
 ### 14. Delete `exec_bridge.py` after extraction
 🟢 Cleanup
 
-- [ ] 14.1 Verify all code moved to `bridge.py`, `cli.py`, `markdown.py`
-- [ ] 14.2 Delete `exec_bridge.py`
-- [ ] 14.3 Update any remaining imports
+- [x] 14.1 Verify all code moved to `bridge.py`, `cli.py`, `markdown.py`
+- [x] 14.2 Delete `exec_bridge.py`
+- [x] 14.3 Update any remaining imports
 
 ---
 

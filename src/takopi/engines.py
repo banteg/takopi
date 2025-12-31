@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .config import ConfigError
-from .runners.base import Runner
+from .runner import Runner
 from .runners.codex import CodexRunner
 
 EngineConfig = dict[str, Any]

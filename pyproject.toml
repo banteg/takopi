@@ -28,7 +28,7 @@ Repository = "https://github.com/banteg/takopi"
 Issues = "https://github.com/banteg/takopi/issues"
 
 [project.scripts]
-takopi = "takopi.exec_bridge:main"
+takopi = "takopi.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]

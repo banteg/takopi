@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import re
 import textwrap
 from collections import deque
-from typing import Any, Callable
-
-from markdown_it import MarkdownIt
-from sulguk import transform_html
+from typing import Callable
 
 from .model import Action, ResumeToken, TakopiEvent
 
@@ -18,18 +14,6 @@ HARD_BREAK = "  \n"
 
 MAX_PROGRESS_CMD_LEN = 300
 MAX_QUERY_LEN = 60
-
-_md = MarkdownIt("commonmark", {"html": False})
-
-
-def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
-    html = _md.render(md or "")
-    rendered = transform_html(html)
-
-    text = re.sub(r"(?m)^(\s*)•", r"\1-", rendered.text)
-
-    entities = [dict(e) for e in rendered.entities]
-    return text, entities
 
 
 def format_elapsed(elapsed_s: float) -> str:

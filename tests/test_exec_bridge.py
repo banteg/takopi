@@ -5,7 +5,7 @@ import anyio
 import pytest
 
 from takopi import engines
-from takopi.exec_bridge import prepare_telegram, truncate_for_telegram
+from takopi.markdown import prepare_telegram, truncate_for_telegram
 from takopi.model import ResumeToken, TakopiEvent
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
@@ -14,22 +14,22 @@ from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Slee
 def _patch_config(monkeypatch, config):
     from pathlib import Path
 
-    from takopi import exec_bridge
+    from takopi import cli
 
     monkeypatch.setattr(
-        exec_bridge,
+        cli,
         "load_telegram_config",
         lambda: (config, Path("takopi.toml")),
     )
 
 
 def test_parse_bridge_config_rejects_empty_token(monkeypatch) -> None:
-    from takopi import exec_bridge
+    from takopi import cli
 
     _patch_config(monkeypatch, {"bot_token": "   ", "chat_id": 123})
 
-    with pytest.raises(exec_bridge.ConfigError, match="bot_token"):
-        exec_bridge._parse_bridge_config(
+    with pytest.raises(cli.ConfigError, match="bot_token"):
+        cli._parse_bridge_config(
             final_notify=True,
             backend=engines.get_backend("codex"),
             engine_overrides={},
@@ -37,12 +37,12 @@ def test_parse_bridge_config_rejects_empty_token(monkeypatch) -> None:
 
 
 def test_parse_bridge_config_rejects_string_chat_id(monkeypatch) -> None:
-    from takopi import exec_bridge
+    from takopi import cli
 
     _patch_config(monkeypatch, {"bot_token": "token", "chat_id": "123"})
 
-    with pytest.raises(exec_bridge.ConfigError, match="chat_id"):
-        exec_bridge._parse_bridge_config(
+    with pytest.raises(cli.ConfigError, match="chat_id"):
+        cli._parse_bridge_config(
             final_notify=True,
             backend=engines.get_backend("codex"),
             engine_overrides={},
@@ -238,7 +238,7 @@ def _return_runner(
 
 @pytest.mark.anyio
 async def test_final_notify_sends_loud_final_message() -> None:
-    from takopi.exec_bridge import BridgeConfig, handle_message
+    from takopi.bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
@@ -266,7 +266,7 @@ async def test_final_notify_sends_loud_final_message() -> None:
 
 @pytest.mark.anyio
 async def test_new_final_message_forces_notification_when_too_long_to_edit() -> None:
-    from takopi.exec_bridge import BridgeConfig, handle_message
+    from takopi.bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     runner = _return_runner(answer="x" * 10_000)
@@ -294,7 +294,7 @@ async def test_new_final_message_forces_notification_when_too_long_to_edit() -> 
 
 @pytest.mark.anyio
 async def test_progress_edits_are_rate_limited() -> None:
-    from takopi.exec_bridge import BridgeConfig, handle_message
+    from takopi.bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     clock = _FakeClock()
@@ -362,7 +362,7 @@ async def test_progress_edits_are_rate_limited() -> None:
 
 @pytest.mark.anyio
 async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
-    from takopi.exec_bridge import BridgeConfig, handle_message
+    from takopi.bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     clock = _FakeClock()
@@ -456,7 +456,7 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
 
 @pytest.mark.anyio
 async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
-    from takopi.exec_bridge import BridgeConfig, handle_message
+    from takopi.bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     clock = _FakeClock()
@@ -530,7 +530,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
 
 @pytest.mark.anyio
 async def test_handle_cancel_without_reply_prompts_user() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+    from takopi.bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
@@ -553,7 +553,7 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
 
 @pytest.mark.anyio
 async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+    from takopi.bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
@@ -580,7 +580,7 @@ async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> 
 
 @pytest.mark.anyio
 async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+    from takopi.bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
@@ -608,7 +608,7 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
 
 @pytest.mark.anyio
 async def test_handle_cancel_cancels_running_task() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+    from takopi.bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
@@ -627,7 +627,7 @@ async def test_handle_cancel_cancels_running_task() -> None:
         "reply_to_message": {"message_id": progress_id},
     }
 
-    from takopi.exec_bridge import RunningTask
+    from takopi.bridge import RunningTask
 
     running_task = RunningTask()
     running_tasks = {progress_id: running_task}
@@ -639,7 +639,7 @@ async def test_handle_cancel_cancels_running_task() -> None:
 
 @pytest.mark.anyio
 async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
-    from takopi.exec_bridge import BridgeConfig, _handle_cancel
+    from takopi.bridge import BridgeConfig, _handle_cancel
 
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
@@ -651,7 +651,7 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
         startup_msg="",
         max_concurrency=1,
     )
-    from takopi.exec_bridge import RunningTask
+    from takopi.bridge import RunningTask
 
     task_first = RunningTask()
     task_second = RunningTask()
@@ -671,7 +671,7 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
 
 @pytest.mark.anyio
 async def test_handle_message_cancelled_renders_cancelled_state() -> None:
-    from takopi.exec_bridge import BridgeConfig, handle_message
+    from takopi.bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
@@ -722,7 +722,7 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
 
 @pytest.mark.anyio
 async def test_handle_message_error_preserves_resume_token() -> None:
-    from takopi.exec_bridge import BridgeConfig, handle_message
+    from takopi.bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
@@ -757,7 +757,7 @@ async def test_handle_message_error_preserves_resume_token() -> None:
 
 @pytest.mark.anyio
 async def test_send_with_resume_waits_for_token() -> None:
-    from takopi.exec_bridge import RunningTask, _send_with_resume
+    from takopi.bridge import RunningTask, _send_with_resume
 
     bot = _FakeBot()
     send_stream = _SendStream()
@@ -786,7 +786,7 @@ async def test_send_with_resume_waits_for_token() -> None:
 
 @pytest.mark.anyio
 async def test_send_with_resume_reports_when_missing() -> None:
-    from takopi.exec_bridge import RunningTask, _send_with_resume
+    from takopi.bridge import RunningTask, _send_with_resume
 
     bot = _FakeBot()
     send_stream = _SendStream()
@@ -809,7 +809,7 @@ async def test_send_with_resume_reports_when_missing() -> None:
 
 @pytest.mark.anyio
 async def test_run_main_loop_routes_reply_to_running_resume() -> None:
-    from takopi.exec_bridge import BridgeConfig, _run_main_loop
+    from takopi.bridge import BridgeConfig, _run_main_loop
 
     progress_ready = anyio.Event()
     stop_polling = anyio.Event()
