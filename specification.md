@@ -298,7 +298,7 @@ class CompletedEvent:
     type: Literal["completed"]
     engine: EngineId
     ok: bool                 # success/failure of the run
-    resume: ResumeToken      # final resume token for the run (new or existing, if known)
+    resume: ResumeToken | None = None  # final resume token for the run (new or existing, if known)
     answer: str              # final assistant response text (may be empty)
 ```
 
