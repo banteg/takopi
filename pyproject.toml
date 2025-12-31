@@ -1,7 +1,7 @@
 [project]
 name = "takopi"
 authors = [{name = "banteg"}]
-version = "0.2.0"
+version = "0.3.0.dev0"
 description = "Run OpenAI Codex CLI with Telegram as the human-in-the-loop interface."
 readme = "readme.md"
 license = { file = "LICENSE" }
