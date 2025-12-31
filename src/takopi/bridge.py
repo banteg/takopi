@@ -35,7 +35,7 @@ def _is_cancel_command(text: str) -> bool:
     return command == "/cancel" or command.startswith("/cancel@")
 
 
-_RESUME_COMMAND_RE = re.compile(r"(?i)\\b(?P<engine>[a-z0-9_-]+)\\s+resume\\s+\\S+")
+_RESUME_COMMAND_RE = re.compile(r"(?i)\b(?P<engine>[a-z0-9_-]+)\s+resume\s+\S+")
 
 
 def _resume_attempt(text: str | None) -> tuple[bool, str | None]:
