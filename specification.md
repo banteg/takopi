@@ -49,7 +49,7 @@ This is a normative spec using **MUST / SHOULD / MAY** language. Sections labele
 
 **Domain Model (Takopi-owned)**
 
-- Defines: `ResumeToken`, `RunResult`, `TakopiEvent`, `Action`.
+- Defines: `ResumeToken`, `TakopiEvent`, `Action` (including the terminal `completed` event).
 - No Telegram, no subprocess, no engine JSON.
 
 **Runner Interface (Takopi-owned)**
@@ -80,9 +80,9 @@ This is a normative spec using **MUST / SHOULD / MAY** language. Sections labele
 Recommended module layout (single-word filenames, clean layering):
 
 - `takopi/model.py`
-  Domain types: events, actions, resume token, run result.
+  Domain types: events, actions, resume token.
 - `takopi/runner.py`
-  Runner protocol + shared runner utilities (e.g., `EventQueue` if retained).
+  Runner protocol.
 - `takopi/runners/codex.py`
   Codex runner implementation.
 - `takopi/runners/mock.py`
@@ -164,63 +164,54 @@ Runners are responsible for producing well-formed Takopi events. Downstream cons
 
 Takopi MUST support the following event types:
 
-1. `session.started`
-2. `action.started`
-3. `action.completed`
-4. `log`
-5. `error`
+1. `started`
+2. `action`
+3. `completed`
 
 ### 5.3 Required fields by event type
 
-#### 5.3.1 `session.started`
+#### 5.3.1 `started`
 
 Required:
 
-- `type: "session.started"`
+- `type: "started"`
 - `engine: EngineId`
 - `resume: ResumeToken`
+
+Optional:
+
 - `title: str` (human-readable session/agent label)
+- `meta: dict` (debug/diagnostic payloads)
 
-#### 5.3.2 `action.started`
+#### 5.3.2 `action`
 
 Required:
 
-- `type: "action.started"`
+- `type: "action"`
 - `engine: EngineId`
 - `action: Action`
-
-#### 5.3.3 `action.completed`
-
-Required:
-
-- `type: "action.completed"`
-- `engine: EngineId`
-- `action: Action`
-- `ok: bool` (success/failure of the action)
-
-#### 5.3.4 `log`
-
-Required:
-
-- `type: "log"`
-- `engine: EngineId`
-- `message: str`
+- `phase: "started" | "updated" | "completed"`
 
 Optional:
 
-- `level: "debug" | "info" | "warning" | "error"` (default: `"info"`)
+- `ok: bool` (typically present when `phase="completed"`)
+- `message: str` (freeform status/warning text)
+- `level: "debug" | "info" | "warning" | "error"`
 
-#### 5.3.5 `error`
+#### 5.3.3 `completed`
 
 Required:
 
-- `type: "error"`
+- `type: "completed"`
 - `engine: EngineId`
-- `message: str`
+- `ok: bool` (success/failure of the run)
+- `answer: str` (final assistant response text; may be empty)
 
 Optional:
 
-- `detail: str` (stack trace / stderr tail)
+- `resume: ResumeToken` (final resume token for the run; new or existing, if known)
+- `error: str | None` (fatal error message, if any)
+- `usage: dict` (engine usage/telemetry, if provided)
 
 ### 5.4 Action schema (MUST, per your Decision #4)
 
@@ -245,12 +236,18 @@ Action kinds SHOULD be from a stable set (extensible):
 - `file_change`
 - `web_search`
 - `note`
+- `turn`
+- `warning`
+- `telemetry`
+- `note`
 
 Runners MAY include additional kinds, but renderers MAY treat unknown kinds as `note`.
 
 The `detail` dict is **freeform per runner**; no per-kind schema is enforced. Renderers SHOULD handle missing or unexpected fields gracefully.
 
 The `ok` field semantics are **runner-defined**. For example, a runner MAY treat `grep` exit code 1 (no match) as `ok=True` if contextually appropriate.
+
+**User-visible warnings and errors:** runners SHOULD surface these as `action` events with `phase="completed"` (typically `kind="warning"` or `kind="note"`) and `ok=False`, rather than introducing additional event types.
 
 ------
 
@@ -262,12 +259,11 @@ The `ok` field semantics are **runner-defined**. For example, a runner MAY treat
 class Runner(Protocol):
     engine: str
 
-    async def run(
+    def run(
         self,
         prompt: str,
         resume: ResumeToken | None,
-        on_event: Callable[[TakopiEvent], None | Awaitable[None]],
-    ) -> RunResult: ...
+    ) -> AsyncIterator[TakopiEvent]: ...
 ```
 
 ### 6.2 Per-thread serialization (MUST; core invariant)
@@ -276,42 +272,52 @@ class Runner(Protocol):
 
 - Parallel runs are allowed only if they target **different** threads.
 - Runs targeting the same thread MUST be queued and executed sequentially.
-- If a run attempts to acquire the per-thread lock while another run holds it, the run MUST **queue indefinitely** until the lock is released.
+- This invariant MUST be enforced by the runner implementation (even if used outside the bridge).
 
 **Critical requirement for new sessions:**
-If `resume is None`, the runner MUST acquire the per-thread lock **as soon as the new thread's ResumeToken becomes known**, and MUST do so **before emitting `session.started`** to downstream consumers.
+If `resume is None`, the runner MUST acquire the per-thread lock **as soon as the new thread's ResumeToken becomes known**, and MUST do so **before emitting `started`** to downstream consumers.
 
 This prevents:
 
 - a second run resuming the thread while the original "new session" run is still active
 - history corruption due to concurrent engine operations
 
-**Codex note (non-normative):**
-For Codex, the resume token typically arrives as the first NDJSON event within ~1–2 seconds. If the subprocess exits before a resume token is observed, no `session.started` can be emitted and the bridge reports an error without a resume line.
+**Bridge note (non-normative):**
+The bridge may enforce FIFO scheduling per thread to avoid emitting multiple progress messages for the same thread while a run is already in-flight.
 
-### 6.3 RunResult (MUST)
+**Codex note (non-normative):**
+Codex emits `thread.started` (with `thread_id`) before any `turn.*` / `item.*` events for both new and resumed runs. Codex MAY emit top-level warning `error` lines (e.g., config warnings) before `thread.started`; the Codex runner translates these warnings into `action` events with `phase="completed"` and yields them in the same order as received (so `started` is not guaranteed to be the first yielded event). If the subprocess exits before `thread.started` is observed, no `started` can be emitted and the bridge reports an error without a resume line.
+
+Codex also emits exactly one `agent_message`/`assistant_message` per turn; the runner uses that message text as `completed.answer`.
+
+### 6.3 Run completion event (MUST)
 
 ```python
 @dataclass(frozen=True, slots=True)
-class RunResult:
-    resume: ResumeToken      # final resume token for the run (new or existing)
-    answer: str              # final assistant response text (may be empty on failure)
+class CompletedEvent:
+    type: Literal["completed"]
+    engine: EngineId
+    ok: bool                 # success/failure of the run
+    resume: ResumeToken | None = None  # final resume token for the run (new or existing, if known)
+    answer: str              # final assistant response text (may be empty)
 ```
+
+`completed` MUST be the final event of a successful run.
 
 ### 6.4 Event delivery semantics (MUST)
 
 Event ordering is significant. The system MUST ensure:
 
-- Events are delivered to `on_event` in the same order they are produced by the runner.
+- Events are yielded to the consumer in the same order they are produced by the runner.
 - Event delivery MUST NOT spawn unbounded background tasks per event.
-- If `on_event` raises an exception, the runner MUST abort the run.
+- If the consumer stops iteration early (break/cancel/exception), the runner MUST abort the run (best-effort) and release any held resources.
 
 ### 6.5 Crash and error handling
 
 If the runner subprocess crashes or exits uncleanly:
 
 - The bridge MUST publish an error status message.
-- If `session.started` was received, the bridge MUST include the resume line in the error message.
+- If `started` was received, the bridge MUST include the resume line in the error message.
 
 ------
 
@@ -322,7 +328,6 @@ If the runner subprocess crashes or exits uncleanly:
 The bridge MUST:
 
 - Poll Telegram updates.
-- Execute at most **16 active runs** concurrently across all threads.
 - Resolve resume token (from message text or reply target).
 - Start runner execution with appropriate cancellation support.
 - Maintain progress rendering and Telegram edits (rate-limited).
@@ -332,8 +337,22 @@ The bridge MUST:
 **Queuing behavior:**
 
 - Multiple prompts to the same thread are queued and executed sequentially.
-- Prompts queued behind an in-flight run MUST NOT count toward the **16 active runs** limit.
 - There is no queue depth limit; all prompts are accepted.
+
+### 7.1.1 Scheduling algorithm (MUST)
+
+The bridge MUST implement per-thread FIFO scheduling in a way that does not require spawning one task per queued job.
+
+**Definitions:**
+
+- `ThreadKey := f"{resume.engine}:{resume.value}"`
+- `Job := (chat_id, user_msg_id, text, resume: ResumeToken | None)`
+
+**Required behavior:**
+
+- For `resume != None`, the bridge MUST enqueue the job into `pending_by_thread[ThreadKey]` and ensure exactly one worker drains that queue sequentially.
+- If a run starts with `resume == None` but later emits `started(resume=token)`, the bridge MUST treat that run as the in-flight job for `ThreadKey(token)` for scheduling purposes until it completes.
+- A thread worker MUST exit when its queue is empty; the bridge SHOULD avoid retaining per-thread state for inactive threads.
 
 The bridge MUST NOT:
 
@@ -350,10 +369,10 @@ The bridge MUST NOT:
 
 The progress renderer and/or final message MUST include the canonical resume line once known:
 
-- If `session.started` has been received, the progress view SHOULD include the resume line.
+- If `started` has been received, the progress view SHOULD include the resume line.
 - The final message MUST include the resume line.
 
-**Important:** because the resume line may appear during progress updates, runner-level locking for new sessions (§6.2) is REQUIRED.
+**Important:** because the resume line may appear during progress updates, the bridge MUST treat `started` as the point at which the thread key becomes known for scheduling and cancellation routing.
 
 ### 7.4 Cancellation `/cancel`
 
@@ -399,8 +418,9 @@ The progress renderer SHOULD maintain:
 - session title
 - current running actions and their latest summaries
 - completed actions and status
-- latest log/error lines (bounded tail)
 - resume token if known
+
+If the runner emits multiple `action` events for the same `Action.id` while it is still running (e.g., repeated `phase="started"` or `phase="updated"`), the progress renderer SHOULD treat these as updates and collapse them into a single line (replacing the prior running line rather than appending a new one).
 
 ### 8.3 Final rendering
 
@@ -436,25 +456,27 @@ The architecture SHOULD keep this future change localized to a `RunnerRegistry` 
 ### 10.1 Test categories (MUST)
 
 1. **Runner contract tests**
-   - Emits exactly one `session.started`
+   - Emits exactly one `started`
    - All actions have required fields and stable IDs
-   - `RunResult.resume` matches session started token
+   - `completed.resume` matches started token (when present)
    - Event ordering is preserved
    - `ok` semantics match intended behavior
-2. **Per-thread serialization test (critical)**
-   - Start new session run (resume=None) that emits `session.started` then blocks
-   - Attempt second run using that resume token before first completes
-   - Assert second run does not enter execution until first finishes
-3. **Bridge progress throttling tests**
+2. **Runner serialization tests (critical)**
+   - Serializes concurrent runs for the same `ResumeToken`
+   - For `resume=None`, acquires per-thread lock once the token is known (before emitting `started`)
+3. **Bridge per-thread scheduling tests (critical)**
+   - Enqueue two prompts for the same `ResumeToken`
+   - Assert the bridge does not start the second run until the first completes
+4. **Bridge progress throttling tests**
    - Edits no more frequently than configured interval
    - No edits without changes
    - Truncation preserves resume line
-4. **Cancellation tests**
+5. **Cancellation tests**
    - `/cancel` terminates run
    - “cancelled” status produced
    - resume line included if known
-5. **Renderer formatting tests**
-   - Correct rendering of actions, errors, logs
+6. **Renderer formatting tests**
+   - Correct rendering of actions
    - Stable formatting under event sequences
 
 ### 10.2 Test tooling guidelines (SHOULD)
@@ -496,10 +518,9 @@ To reduce friction adding new runners, v0.2.0 SHOULD treat engine IDs as strings
   - Telegram-only bridge with progress edits + cancellation
   - Recommended module split into one-word modules
   - Clarify: `ok` semantics are runner-defined, `detail` is freeform
-  - Clarify: 16 concurrent runs limit, indefinite queue per thread
+  - Clarify: bridge queues per thread (FIFO)
   - Clarify: SIGTERM for cancellation, `/cancel` ignores accompanying text
   - Clarify: truncation preserves head + resume line
-  - Clarify: log level defaults to `info`, callback errors abort run
   - Clarify: crash publishes error with resume if known
 
 ------
@@ -511,14 +532,14 @@ To reduce friction adding new runners, v0.2.0 SHOULD treat engine IDs as strings
    - none in message, none in reply → `resume=None`
 3. Bridge sends a progress message: “Running…”
 4. Runner starts and emits:
-   - `session.started(engine="codex", resume={engine:"codex", value:"<uuid>"})`
-   - `action.started(id="1", kind="command", title="pytest", detail={...})`
-   - `action.completed(id="1", ok=True, ...)`
-   - `log("All tests passed")`
+   - `started(engine="codex", resume={engine:"codex", value:"<uuid>"})`
+   - `action(id="1", kind="command", title="pytest", detail={...}, phase="started")`
+   - `action(id="1", ok=True, phase="completed", ...)`
+   - `completed(resume=..., ok=True, answer="...")`
 5. Progress renderer now includes resume line:
    - ``codex resume <uuid>``
 6. User replies to progress message with follow-up prompt.
-7. Bridge extracts resume via runner, chooses same thread, runner queues it behind the in-flight run if still active.
+7. Bridge extracts resume via runner, chooses same thread, and queues it behind the in-flight run if still active.
 8. Final message includes:
    - “done”
    - final answer

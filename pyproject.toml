@@ -1,11 +1,11 @@
 [project]
 name = "takopi"
 authors = [{name = "banteg"}]
-version = "0.1.0"
+version = "0.2.0"
 description = "Run OpenAI Codex CLI with Telegram as the human-in-the-loop interface."
 readme = "readme.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
   "anyio>=4.12.0",
   "httpx>=0.28.1",
@@ -17,8 +17,6 @@ dependencies = [
 classifiers = [
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: 3 :: Only",
   "Operating System :: OS Independent",
@@ -30,7 +28,7 @@ Repository = "https://github.com/banteg/takopi"
 Issues = "https://github.com/banteg/takopi/issues"
 
 [project.scripts]
-takopi = "takopi.exec_bridge:main"
+takopi = "takopi.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]

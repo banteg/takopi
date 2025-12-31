@@ -1,6 +1,7 @@
-# takopi — Developer Guide
+# takopi - Developer Guide
 
 This document describes the internal architecture and module responsibilities.
+See `specification.md` for the authoritative behavior spec.
 
 ## Development Setup
 
@@ -27,71 +28,95 @@ make check
 
 ## Module Responsibilities
 
-### `exec_bridge.py` — Main Entry Point
+### `bridge.py` - Telegram bridge loop
 
 The orchestrator module containing:
 
 | Component | Purpose |
 |-----------|---------|
-| `main()` / `run()` | CLI entry point via Typer |
 | `BridgeConfig` | Frozen dataclass holding runtime config |
-| `CodexExecRunner` | Spawns `codex exec`, streams JSONL, handles cancellation |
 | `poll_updates()` | Async generator that drains backlog, long-polls updates, filters messages |
 | `_run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
-| `handle_message()` | Per-message handler with progress updates |
-| `extract_session_id()` | Parses `resume: <uuid>` from message text |
-| `truncate_for_telegram()` | Smart truncation preserving resume lines |
+| `handle_message()` | Per-message handler with progress updates and final render |
+| `ProgressEdits` | Throttled progress edit worker |
+| `_handle_cancel()` | `/cancel` routing |
+| `truncate_for_telegram()` | Moved to `markdown.py` |
 
 **Key patterns:**
-- Per-session locks prevent concurrent resumes to the same `session_id`
-- Worker pool with an AnyIO memory stream limits concurrency (default: 16 workers)
-- AnyIO task groups manage worker tasks
-- Progress edits are throttled to ~2s intervals
-- Subprocess stderr is drained to a bounded deque for error reporting
-- `poll_updates()` uses Telegram `getUpdates` long-polling with a single server-side updates
-  queue per bot token; updates are confirmed when a client requests a higher `offset`, so
-  multiple instances with the same token will race (duplicates and/or missed updates)
+- Bridge schedules runs FIFO per thread to avoid concurrent progress messages; runner locks enforce per-thread serialization
+- `/cancel` routes by reply-to progress message id (accepts extra text)
+- Progress edits are throttled to ~1s intervals and only run when new events arrive
+- Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``)
+- Resume parsing is delegated to the active runner (no cross-engine fallback)
 
-### `telegram.py` — Telegram Bot API
+### `cli.py` - CLI entry point
 
-Minimal async client wrapping the Bot API:
+| Component | Purpose |
+|-----------|---------|
+| `run()` / `main()` | Typer CLI entry points |
+| `_parse_bridge_config()` | Reads config + builds `BridgeConfig` |
 
-```python
-class TelegramClient:
-    async def get_updates(...)   # Long-polling
-    async def send_message(...)  # With entities support
-    async def edit_message_text(...)
-    async def delete_message(...)
-```
+### `markdown.py` - Telegram markdown helpers
 
-**Features:**
-- Automatic retry on 429 (rate limit) with `retry_after`
-- Raises `TelegramAPIError` with payload details on failure
+| Function | Purpose |
+|----------|---------|
+| `render_markdown()` | Markdown → Telegram text + entities |
+| `prepare_telegram()` | Render + truncate for Telegram limits |
+| `truncate_for_telegram()` | Smart truncation preserving resume lines |
 
-### `exec_render.py` — JSONL Event Rendering
+### `runners/codex.py` - Codex runner
 
-Transforms Codex JSONL events into human-readable text:
+| Component | Purpose |
+|-----------|---------|
+| `CodexRunner` | Spawns `codex exec --json`, streams JSONL, emits takopi events |
+| `translate_codex_event()` | Normalizes Codex JSONL into the takopi event schema |
+| `manage_subprocess()` | Starts a new process group and kills it on cancellation (POSIX) |
+
+**Key patterns:**
+- Per-resume locks (WeakValueDictionary) prevent concurrent resumes of the same session
+- Event delivery uses a single internal queue to preserve order without per-event tasks
+- Stderr is drained into a bounded tail (debug logging only)
+- Event callbacks must not raise; callback errors abort the run
+
+### `render.py` - Takopi event rendering
+
+Transforms takopi events into human-readable text:
 
 | Function/Class | Purpose |
 |----------------|---------|
-| `format_event()` | Core dispatcher returning `(item_num, cli_lines, progress_line, prefix)` |
-| `render_event_cli()` | Simplified wrapper for console logging |
 | `ExecProgressRenderer` | Stateful renderer tracking recent actions for progress display |
+| `render_event_cli()` | Format a takopi event for CLI logs |
 | `format_elapsed()` | Formats seconds as `Xh Ym`, `Xm Ys`, or `Xs` |
-| `render_markdown()` | Markdown → Telegram text + entities (markdown-it-py + sulguk) |
+| `render_markdown()` | Moved to `markdown.py` |
 
 **Supported event types:**
-- `thread.started`, `turn.started/completed/failed`
-- `item.started/completed` for: `agent_message`, `reasoning`, `command_execution`, `mcp_tool_call`, `web_search`, `file_change`, `error`
+- `started`
+- `action`
+- `completed`
 
-### `config.py` — Configuration Loading
+### `model.py` / `runner.py` - Core domain types
+
+| File | Purpose |
+|------|---------|
+| `model.py` | Domain types: resume tokens, actions, events, run result |
+| `runner.py` | Runner protocol + event queue utilities |
+
+### `runners/` - Runner implementations
+
+| File | Purpose |
+|------|---------|
+| `engines.py` | Engine backend registry (setup checks + runner construction) |
+| `runners/codex.py` | Codex runner (JSONL → takopi events) + per-resume locks |
+| `runners/mock.py` | Mock runner for tests/demos |
+
+### `config.py` - Configuration loading
 
 ```python
 def load_telegram_config() -> tuple[dict, Path]:
-    # Loads ./.codex/takopi.toml, then ~/.codex/takopi.toml
+    # Loads ./.takopi/takopi.toml, then ~/.takopi/takopi.toml
 ```
 
-### `logging.py` — Secure Logging Setup
+### `logging.py` - Secure logging setup
 
 ```python
 class RedactTokenFilter:
@@ -101,15 +126,24 @@ def setup_logging(*, debug: bool):
     # Configures root logger with redaction filter
 ```
 
-### `onboarding.py` — Setup Validation
+### `onboarding.py` - Setup validation
 
 ```python
-def check_setup() -> SetupResult:
-    # Validates codex CLI on PATH and config file
+def check_setup(backend: EngineBackend) -> SetupResult:
+    # Validates engine CLI on PATH and config file
 
 def render_setup_guide(result: SetupResult):
     # Displays rich panel with setup instructions
 ```
+
+## Adding a Runner
+
+1. Implement the `Runner` protocol in `src/takopi/runners/<engine>.py`.
+2. Emit Takopi events from `takopi.model` and implement resume helpers
+   (`format_resume`, `extract_resume`, `is_resume_line`).
+3. Register an `EngineBackend` in `src/takopi/engines.py` with setup checks
+   and runner construction.
+4. Extend tests (runner contract + any engine-specific translation tests).
 
 ## Data Flow
 
@@ -126,17 +160,18 @@ handle_message() spawned as task
     ↓
 Send initial progress message (silent)
     ↓
-CodexExecRunner.run_serialized()
+CodexRunner.run()
     ├── Spawns: codex exec --json ... -
     ├── Streams JSONL from stdout
-    ├── Calls on_event() for each event
+    ├── Normalizes JSONL -> takopi events
+    ├── Yields Takopi events (async iterator)
     │       ↓
     │   ExecProgressRenderer.note_event()
     │       ↓
-    │   Throttled edit_message_text()
-    └── Returns (session_id, answer, saw_agent_message)
+    │   ProgressEdits throttled edit_message_text()
+    └── Ends with completed(resume, ok, answer)
     ↓
-render_final() with resume line
+render_final() with resume line (runner-formatted)
     ↓
 Send/edit final message
 ```
@@ -144,15 +179,16 @@ Send/edit final message
 ### Resume Flow
 
 Same as above, but:
-- `extract_session_id()` finds UUID in message or reply
-- Command becomes: `codex exec --json resume <session_id> -`
-- Per-session lock serializes concurrent resumes
+- Runners parse resume lines (e.g. `` `codex resume <token>` ``)
+- Command becomes: `codex exec --json resume <token> -`
+- Per-token lock serializes concurrent resumes
 
 ## Error Handling
 
 | Scenario | Behavior |
 |----------|----------|
-| `codex exec` fails (rc≠0) | Shows stderr tail in error message |
+| `codex exec` fails (rc != 0) | Emits a warning `action` plus `completed(ok=false, error=...)` |
 | Telegram API error | Logged, edit skipped (progress continues) |
-| Cancellation | Cancel scope triggers terminate; cancellation is detected via `cancelled_caught` |
-| No agent_message | Final shows "error" status |
+| Cancellation | Cancel scope terminates the process group (POSIX) and renders `cancelled` |
+| Errors in handler | Final render uses `status=error` and preserves resume tokens when known |
+| No agent_message (empty answer) | Final shows `error` status |

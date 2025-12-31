@@ -6,17 +6,17 @@ A Telegram bot that bridges messages to [Codex](https://github.com/openai/codex)
 
 ## Features
 
-- **Stateless Resume**: No database required—sessions are resumed via `resume: <uuid>` lines embedded in messages
+- **Stateless Resume**: No database required—sessions are resumed via `` `codex resume <token>` `` lines embedded in messages
 - **Progress Updates**: Real-time progress edits showing commands, tools, and elapsed time
 - **Markdown Rendering**: Full Telegram-compatible markdown with entity support
-- **Concurrency**: Handles multiple conversations with per-session serialization
-- **Token Redaction**: Automatically redacts Telegram tokens from logs
+- **Concurrency**: Parallel runs across threads with per-session serialization
 
 ## Quick Start
 
 ### Prerequisites
 
 - [uv](https://github.com/astral-sh/uv) package manager
+- Python 3.14+
 - Codex CLI on PATH
 
 ### Installation
@@ -37,12 +37,20 @@ uvx takopi
 
 ### Configuration
 
-Create `~/.codex/takopi.toml` (or `.codex/takopi.toml` for a repo-local config):
+Create `~/.takopi/takopi.toml` (or `.takopi/takopi.toml` for a repo-local config):
 
 ```toml
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
+
+[codex]
+# Optional: Codex profile name (defined in ~/.codex/config.toml)
+profile = "takopi"
+# Optional: extra args passed before `codex exec`
+extra_args = ["-c", "notify=[]"]
 ```
+
+Engine-specific settings live under a table named after the engine id (e.g. `[codex]`).
 
 | Key | Description |
 |-----|-------------|
@@ -60,11 +68,7 @@ Create a Codex profile in `~/.codex/config.toml`:
 model = "gpt-5.2-codex"
 ```
 
-Then run takopi with:
-
-```bash
-takopi --profile takopi
-```
+Then set `profile = "takopi"` under `[codex]` in `~/.takopi/takopi.toml`.
 
 ### Options
 
@@ -72,7 +76,8 @@ takopi --profile takopi
 |------|---------|-------------|
 | `--final-notify` / `--no-final-notify` | `--final-notify` | Send final response as new message (vs. edit) |
 | `--debug` / `--no-debug` | `--no-debug` | Enable verbose logging |
-| `--profile NAME` | (codex default) | Codex profile name |
+| `--engine ID` | `codex` | Engine backend id |
+| `--engine-option KEY=VALUE` |  | Engine-specific override (repeatable) |
 | `--version` |  | Show the version and exit |
 
 ## Usage
@@ -83,15 +88,15 @@ Send any message to your bot. The bridge will:
 
 1. Send a silent progress message
 2. Stream events from `codex exec`
-3. Update progress every ~2 seconds
-4. Send final response with session ID
+3. Update progress every ~1 second
+4. Send final response with a resume token line
 
 ### Resume a Session
 
-Reply to a bot message (containing `resume: <uuid>`), or include the resume line in your message:
+Reply to a bot message (containing `` `codex resume <token>` ``), or include the resume line in your message:
 
 ```
-resume: `019b66fc-64c2-7a71-81cd-081c504cfeb2`
+`codex resume 019b66fc-64c2-7a71-81cd-081c504cfeb2`
 ```
 
 ### Cancel a Run
@@ -101,13 +106,14 @@ Reply to a progress message with `/cancel` to stop the running execution.
 ## Notes
 
 - **Startup**: Pending updates are drained (ignored) on startup
-- **Progress**: Updates are throttled to ~2s intervals, sent silently
+- **Progress**: Updates are throttled to ~1s intervals, sent silently
+- **Queueing**: Messages for the same thread queue behind the active run without consuming extra concurrency slots
 - **Filtering**: Only accepts messages where chat ID equals sender ID and matches `chat_id`
 - **Single instance**: Run exactly one instance per bot token—multiple instances will race for updates
 
 ## Development
 
-See [`developing.md`](developing.md).
+See [`developing.md`](developing.md) and `specification.md` for architecture and behavior details.
 
 ## License
 

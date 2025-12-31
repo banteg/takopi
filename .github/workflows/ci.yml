@@ -3,23 +3,41 @@ name: CI
 on:
   push:
     branches:
-      - "**"
-    tags-ignore:
-      - "v*"
+      - "master"
   pull_request:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Python ${{ matrix.python-version }}
+  checks:
+    name: ${{ matrix.task }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
+        include:
+          - task: format
+            do_sync: true
+            command: uv run --no-sync ruff format --check --diff
+            sync_args: --no-install-project
+          - task: ruff
+            do_sync: true
+            command: uv run --no-sync ruff check . --output-format=github
+            sync_args: --no-install-project
+          - task: ty
+            do_sync: true
+            command: uv run --no-sync ty check .
+            sync_args: --no-install-project
+          - task: pytest
+            do_sync: true
+            command: uv run --no-sync pytest
+            sync_args: ""
+          - task: build
+            do_sync: false
+            command: uv build
+            sync_args: ""
 
     steps:
       - name: Checkout
@@ -28,23 +46,21 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync
+        if: matrix.do_sync
+        run: uv sync --frozen ${{ matrix.sync_args }}
 
-      - name: Lint (format)
-        run: uv run ruff format --check
+      - name: Run check
+        run: ${{ matrix.command }}
 
-      - name: Lint (ruff)
-        run: uv run ruff check .
-
-      - name: Type check
-        run: uv run ty check .
-
-      - name: Tests
-        run: uv run pytest
-
-      - name: Build (wheel + sdist)
-        run: uv build
+      - name: Add coverage to summary
+        if: ${{ always() && matrix.task == 'pytest' }}
+        run: |
+          {
+            echo "## Coverage"
+            echo ""
+            uv run --no-sync python -m coverage report || true
+          } >> "$GITHUB_STEP_SUMMARY"

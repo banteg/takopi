@@ -1,4 +1,4 @@
-from takopi.exec_render import render_markdown
+from takopi.markdown import render_markdown
 
 
 def test_render_markdown_basic_entities() -> None:

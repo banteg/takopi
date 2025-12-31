@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 
@@ -9,6 +9,38 @@ from .logging import RedactTokenFilter
 
 logger = logging.getLogger(__name__)
 logger.addFilter(RedactTokenFilter())
+
+
+class BotClient(Protocol):
+    async def close(self) -> None: ...
+
+    async def get_updates(
+        self,
+        offset: int | None,
+        timeout_s: int = 50,
+        allowed_updates: list[str] | None = None,
+    ) -> list[dict] | None: ...
+
+    async def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        reply_to_message_id: int | None = None,
+        disable_notification: bool | None = False,
+        entities: list[dict] | None = None,
+        parse_mode: str | None = None,
+    ) -> dict | None: ...
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        entities: list[dict] | None = None,
+        parse_mode: str | None = None,
+    ) -> dict | None: ...
+
+    async def delete_message(self, chat_id: int, message_id: int) -> bool: ...
 
 
 class TelegramClient:
