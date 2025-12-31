@@ -1,4 +1,4 @@
-import asyncio
+import anyio
 
 import pytest
 
@@ -9,7 +9,7 @@ from takopi.runners.codex import CodexRunner
 @pytest.mark.anyio
 async def test_run_serializes_same_session() -> None:
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
-    gate = asyncio.Event()
+    gate = anyio.Event()
     in_flight = 0
     max_in_flight = 0
 
@@ -27,22 +27,19 @@ async def test_run_serializes_same_session() -> None:
 
     runner._run = run_stub  # type: ignore[assignment]
 
-    async def run_test() -> None:
-        token = ResumeToken(engine="codex", value="sid")
-        t1 = asyncio.create_task(runner.run("a", token))
-        t2 = asyncio.create_task(runner.run("b", token))
-        await asyncio.sleep(0)
+    token = ResumeToken(engine="codex", value="sid")
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(runner.run, "a", token)
+        tg.start_soon(runner.run, "b", token)
+        await anyio.sleep(0)
         gate.set()
-        await asyncio.gather(t1, t2)
-
-    await run_test()
     assert max_in_flight == 1
 
 
 @pytest.mark.anyio
 async def test_run_allows_parallel_new_sessions() -> None:
     runner = CodexRunner(codex_cmd="codex", extra_args=[])
-    gate = asyncio.Event()
+    gate = anyio.Event()
     in_flight = 0
     max_in_flight = 0
 
@@ -60,12 +57,9 @@ async def test_run_allows_parallel_new_sessions() -> None:
 
     runner._run = run_stub  # type: ignore[assignment]
 
-    async def run_test() -> None:
-        t1 = asyncio.create_task(runner.run("a", None))
-        t2 = asyncio.create_task(runner.run("b", None))
-        await asyncio.sleep(0.01)
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(runner.run, "a", None)
+        tg.start_soon(runner.run, "b", None)
+        await anyio.sleep(0.01)
         gate.set()
-        await asyncio.gather(t1, t2)
-
-    await run_test()
     assert max_in_flight == 2

@@ -1,4 +1,3 @@
-import asyncio
 import sys
 
 import pytest
@@ -10,14 +9,11 @@ from takopi.runners import codex
 async def test_manage_subprocess_kills_when_terminate_times_out(
     monkeypatch,
 ) -> None:
-    async def fake_wait_for(awaitable, *args, **kwargs):
-        if hasattr(awaitable, "close"):
-            awaitable.close()
-        elif hasattr(awaitable, "cancel"):
-            awaitable.cancel()
-        raise asyncio.TimeoutError
+    async def fake_wait_for_process(_proc, timeout: float) -> bool:
+        _ = timeout
+        return True
 
-    monkeypatch.setattr(asyncio, "wait_for", fake_wait_for)
+    monkeypatch.setattr(codex, "_wait_for_process", fake_wait_for_process)
 
     async with codex.manage_subprocess(
         sys.executable,
