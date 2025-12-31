@@ -164,12 +164,12 @@ CodexRunner.run()
     ├── Spawns: codex exec --json ... -
     ├── Streams JSONL from stdout
     ├── Normalizes JSONL -> takopi events
-    ├── Pushes events into ordered sink queue
+    ├── Yields Takopi events (async iterator)
     │       ↓
     │   ExecProgressRenderer.note_event()
     │       ↓
     │   ProgressEdits throttled edit_message_text()
-    └── Returns RunResult(resume, answer)
+    └── Ends with run.completed(resume, answer)
     ↓
 render_final() with resume line (runner-formatted)
     ↓
