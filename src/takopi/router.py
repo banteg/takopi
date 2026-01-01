@@ -54,12 +54,17 @@ class AutoRouter:
     def default_entry(self) -> RunnerEntry:
         return self._by_engine[self.default_engine]
 
-    def entry_for(self, resume: ResumeToken | None) -> RunnerEntry:
-        engine = self.default_engine if resume is None else resume.engine
+    def entry_for_engine(self, engine: EngineId | None) -> RunnerEntry:
+        engine = self.default_engine if engine is None else engine
         entry = self._by_engine.get(engine)
         if entry is None:
             raise RunnerUnavailableError(engine, "engine not configured")
         return entry
+
+    def entry_for(self, resume: ResumeToken | None) -> RunnerEntry:
+        if resume is None:
+            return self.entry_for_engine(None)
+        return self.entry_for_engine(resume.engine)
 
     def runner_for(self, resume: ResumeToken | None) -> Runner:
         entry = self.entry_for(resume)

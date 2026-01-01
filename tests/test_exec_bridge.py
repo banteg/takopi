@@ -3,6 +3,7 @@ import uuid
 import anyio
 import pytest
 
+from takopi.bridge import _strip_engine_command
 from takopi.markdown import prepare_telegram, truncate_for_telegram
 from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.router import AutoRouter, RunnerEntry
@@ -119,6 +120,40 @@ def test_truncate_for_telegram_keeps_last_non_empty_line() -> None:
 
     assert len(out) <= 120
     assert out.rstrip().endswith("last line")
+
+
+def test_strip_engine_command_inline() -> None:
+    text, engine = _strip_engine_command("/claude do it", engine_ids=("codex", "claude"))
+    assert engine == "claude"
+    assert text == "do it"
+
+
+def test_strip_engine_command_newline() -> None:
+    text, engine = _strip_engine_command("/codex\nhello", engine_ids=("codex", "claude"))
+    assert engine == "codex"
+    assert text == "hello"
+
+
+def test_strip_engine_command_ignores_unknown() -> None:
+    text, engine = _strip_engine_command("/unknown hi", engine_ids=("codex", "claude"))
+    assert engine is None
+    assert text == "/unknown hi"
+
+
+def test_strip_engine_command_bot_suffix() -> None:
+    text, engine = _strip_engine_command(
+        "/claude@bunny_agent_bot hi", engine_ids=("claude",)
+    )
+    assert engine == "claude"
+    assert text == "hi"
+
+
+def test_strip_engine_command_only_first_non_empty_line() -> None:
+    text, engine = _strip_engine_command(
+        "hello\n/claude hi", engine_ids=("codex", "claude")
+    )
+    assert engine is None
+    assert text == "hello\n/claude hi"
 
 
 def test_prepare_telegram_drops_entities_on_truncate() -> None:
