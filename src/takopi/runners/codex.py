@@ -22,7 +22,12 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..runner import ResumeRunnerMixin, Runner, SessionLockMixin, compile_resume_pattern
+from ..runner import (
+    ResumeTokenMixin,
+    Runner,
+    SessionLockMixin,
+    compile_resume_pattern,
+)
 from ..utils.streams import drain_stderr, iter_text_lines
 from ..utils.subprocess import manage_subprocess
 
@@ -403,7 +408,7 @@ def translate_codex_event(event: dict[str, Any], *, title: str) -> list[TakopiEv
     return []
 
 
-class CodexRunner(SessionLockMixin, ResumeRunnerMixin, Runner):
+class CodexRunner(SessionLockMixin, ResumeTokenMixin, Runner):
     engine: EngineId = ENGINE
     resume_re = _RESUME_RE
 

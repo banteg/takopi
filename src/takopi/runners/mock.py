@@ -16,7 +16,7 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..runner import ResumeRunnerMixin, Runner, SessionLockMixin, compile_resume_pattern
+from ..runner import ResumeTokenMixin, Runner, SessionLockMixin, compile_resume_pattern
 
 ENGINE: EngineId = EngineId("mock")
 
@@ -59,7 +59,7 @@ def _resume_token(engine: EngineId, value: str | None) -> ResumeToken:
     return ResumeToken(engine=engine, value=value or uuid.uuid4().hex)
 
 
-class MockRunner(SessionLockMixin, ResumeRunnerMixin, Runner):
+class MockRunner(SessionLockMixin, ResumeTokenMixin, Runner):
     engine: EngineId
 
     def __init__(

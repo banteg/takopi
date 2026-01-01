@@ -17,7 +17,7 @@ def compile_resume_pattern(engine: EngineId) -> re.Pattern[str]:
     return re.compile(rf"(?im)^\s*`?{name}\s+resume\s+(?P<token>[^`\s]+)`?\s*$")
 
 
-class ResumeRunnerMixin:
+class ResumeTokenMixin:
     engine: EngineId
     resume_re: re.Pattern[str]
 

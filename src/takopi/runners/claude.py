@@ -23,7 +23,7 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..runner import ResumeRunnerMixin, Runner, SessionLockMixin
+from ..runner import ResumeTokenMixin, Runner, SessionLockMixin
 from ..utils.paths import relativize_path
 from ..utils.streams import drain_stderr, iter_text_lines
 from ..utils.subprocess import manage_subprocess
@@ -100,12 +100,6 @@ def _normalize_tool_result(content: Any) -> str:
     if isinstance(content, str):
         return content
     return str(content)
-
-
-def _truncate(text: str, limit: int = 200) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: limit - 1] + "…"
 
 
 def _coerce_comma_list(value: Any) -> str | None:
@@ -212,7 +206,7 @@ def _tool_result_event(
     is_error = content.get("is_error") is True
     raw_result = content.get("content")
     normalized = _normalize_tool_result(raw_result)
-    preview = _truncate(normalized.strip())
+    preview = normalized
 
     detail = dict(action.detail)
     detail.update(
@@ -430,7 +424,7 @@ def translate_claude_event(
 
 
 @dataclass
-class ClaudeRunner(SessionLockMixin, ResumeRunnerMixin, Runner):
+class ClaudeRunner(SessionLockMixin, ResumeTokenMixin, Runner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE
 
@@ -542,7 +536,7 @@ class ClaudeRunner(SessionLockMixin, ResumeRunnerMixin, Runner):
                                 next_note_id(),
                                 "invalid JSON from claude; ignoring line",
                                 ok=False,
-                                detail={"line": _truncate(line, 400)},
+                                detail={"line": raw},
                             )
                             continue
 
