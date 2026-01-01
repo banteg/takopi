@@ -80,8 +80,8 @@ if you prefer no notifications, `--no-final-notify` edits the progress message i
 ## notes
 
 * private chat only: the bot only responds to the configured `chat_id`
-* one active process per bot token: run a single takopi instance to avoid
-  concurrent edits and out-of-order updates
+* one active process per bot token: per-thread locks are in-process only, so
+  multiple instances can race the same resume thread and corrupt history
 
 ## development
 
