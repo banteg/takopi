@@ -117,7 +117,7 @@ def render_engine_choice(backends: Sequence[EngineBackend]) -> None:
             description = "use claude code"
         else:
             description = f"use {backend.display_name.lower()}"
-        parts.append(f"   {description}")
+        parts.append(f"   [dim]{description}[/]")
         parts.append("")
 
     panel = Panel(
