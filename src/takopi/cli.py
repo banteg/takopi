@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 import anyio
 import typer
@@ -8,7 +9,7 @@ import typer
 from . import __version__
 from .bridge import BridgeConfig, _run_main_loop
 from .config import ConfigError, load_telegram_config
-from .engines import EngineBackend, get_backend, get_engine_config, list_backend_ids
+from .engines import EngineBackend, get_backend, get_engine_config
 from .logging import setup_logging
 from .onboarding import check_setup, render_setup_guide
 from .telegram import TelegramClient
@@ -65,30 +66,7 @@ def _parse_bridge_config(
     )
 
 
-def run(
-    version: bool = typer.Option(
-        False,
-        "--version",
-        help="Show the version and exit.",
-        callback=_version_callback,
-        is_eager=True,
-    ),
-    final_notify: bool = typer.Option(
-        True,
-        "--final-notify/--no-final-notify",
-        help="Send the final response as a new message (not an edit).",
-    ),
-    engine: str = typer.Option(
-        "codex",
-        "--engine",
-        help=f"Engine backend id ({', '.join(list_backend_ids())}).",
-    ),
-    debug: bool = typer.Option(
-        False,
-        "--debug/--no-debug",
-        help="Log engine JSONL, Telegram requests, and rendered messages.",
-    ),
-) -> None:
+def _run_engine(*, engine: str, final_notify: bool, debug: bool) -> None:
     setup_logging(debug=debug)
     try:
         backend = get_backend(engine)
@@ -110,8 +88,61 @@ def run(
     anyio.run(_run_main_loop, cfg)
 
 
+app = typer.Typer(add_completion=False)
+
+
+@app.callback()
+def app_main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show the version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Takopi CLI."""
+
+
+@app.command()
+def codex(
+    final_notify: bool = typer.Option(
+        True,
+        "--final-notify/--no-final-notify",
+        help="Send the final response as a new message (not an edit).",
+    ),
+    debug: bool = typer.Option(
+        False,
+        "--debug/--no-debug",
+        help="Log engine JSONL, Telegram requests, and rendered messages.",
+    ),
+) -> None:
+    _run_engine(engine="codex", final_notify=final_notify, debug=debug)
+
+
+@app.command()
+def claude(
+    final_notify: bool = typer.Option(
+        True,
+        "--final-notify/--no-final-notify",
+        help="Send the final response as a new message (not an edit).",
+    ),
+    debug: bool = typer.Option(
+        False,
+        "--debug/--no-debug",
+        help="Log engine JSONL, Telegram requests, and rendered messages.",
+    ),
+) -> None:
+    _run_engine(engine="claude", final_notify=final_notify, debug=debug)
+
+
 def main() -> None:
-    typer.run(run)
+    args = sys.argv[1:]
+    has_subcommand = any(arg in {"codex", "claude"} for arg in args)
+    wants_help = any(arg in {"-h", "--help"} for arg in args)
+    if not has_subcommand and not wants_help:
+        sys.argv.insert(1, "codex")
+    app()
 
 
 if __name__ == "__main__":
