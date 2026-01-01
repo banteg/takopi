@@ -169,6 +169,17 @@ Takopi MUST support the following event types:
 2. `action`
 3. `completed`
 
+**Minimal runner mode (supported):**
+
+Runners MAY emit only:
+
+- exactly one `started`
+- exactly one `completed`
+
+`action` events are optional. If emitted, a runner MAY emit only
+`phase="completed"` action events (no requirement to emit `started` / `updated`
+phases or track pending action state).
+
 ### 5.3 Required fields by event type
 
 #### 5.3.1 `started`
@@ -198,6 +209,10 @@ Optional:
 - `ok: bool` (typically present when `phase="completed"`)
 - `message: str` (freeform status/warning text)
 - `level: "debug" | "info" | "warning" | "error"`
+
+Notes:
+
+- `phase="completed"` alone is valid; `started` / `updated` are optional.
 
 #### 5.3.3 `completed`
 
@@ -424,6 +439,9 @@ The progress renderer SHOULD maintain:
 - completed actions and status
 - resume token if known
 
+The progress renderer MUST tolerate “completed-only” actions (no prior
+`started` / `updated`) and treat them as standalone steps.
+
 If the runner emits multiple `action` events for the same `Action.id` while it is still running (e.g., repeated `phase="started"` or `phase="updated"`), the progress renderer SHOULD treat these as updates and collapse them into a single line (replacing the prior running line rather than appending a new one).
 
 ### 8.3 Final rendering
@@ -462,7 +480,7 @@ The architecture SHOULD keep this future change localized to a `RunnerRegistry` 
 
 1. **Runner contract tests**
    - Emits exactly one `started`
-   - All actions have required fields and stable IDs
+   - All actions (if any) have required fields and stable IDs
    - `completed.resume` matches started token (when present)
    - Event ordering is preserved
    - `ok` semantics match intended behavior

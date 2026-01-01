@@ -112,6 +112,10 @@ Key implementation notes:
   be passed via argv instead of stdin).
 - If you don’t use `JsonlSubprocessRunner`, use `iter_jsonl(...)` +
   `drain_stderr(...)` from `takopi.utils.streams`.
+- **Minimal mode is supported:** start with exactly one `StartedEvent` and one
+  `CompletedEvent`. `ActionEvent`s are optional and can be added later. If you
+  do emit actions, you can emit only `phase="completed"` notes without tracking
+  pending state.
 - **Do not truncate** tool outputs in the runner; pass full strings into events.
   Truncation belongs in renderers.
 
