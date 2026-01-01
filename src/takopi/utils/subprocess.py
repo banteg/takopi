@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 import os
 import signal
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from typing import Any
 
 import anyio
 from anyio.abc import Process
@@ -52,11 +54,13 @@ def kill_process(proc: Process) -> None:
 
 
 @asynccontextmanager
-async def manage_subprocess(*args, **kwargs):
+async def manage_subprocess(
+    cmd: Sequence[str], **kwargs: Any
+) -> AsyncIterator[Process]:
     """Ensure subprocesses receive SIGTERM, then SIGKILL after a 2s timeout."""
     if os.name == "posix":
         kwargs.setdefault("start_new_session", True)
-    proc = await anyio.open_process(args, **kwargs)
+    proc = await anyio.open_process(cmd, **kwargs)
     try:
         yield proc
     finally:

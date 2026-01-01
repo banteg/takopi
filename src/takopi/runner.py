@@ -302,12 +302,12 @@ class JsonlSubprocessRunner(BaseRunner):
 
         tag = self.tag()
         logger = self.get_logger()
-        args = [self.command(), *self.build_args(prompt, resume, state=state)]
+        cmd = [self.command(), *self.build_args(prompt, resume, state=state)]
         payload = self.stdin_payload(prompt, resume, state=state)
         env = self.env(state=state)
 
         async with manage_subprocess(
-            *args,
+            cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -318,7 +318,7 @@ class JsonlSubprocessRunner(BaseRunner):
             if payload is not None and proc.stdin is None:
                 raise RuntimeError(self.pipes_error_message())
 
-            logger.debug("[%s] spawn pid=%s args=%r", tag, proc.pid, args)
+            logger.debug("[%s] spawn pid=%s args=%r", tag, proc.pid, cmd)
 
             if payload is not None:
                 assert proc.stdin is not None
