@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from .model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
+from .paths import relativize_path
 
 STATUS_RUNNING = "▸"
 STATUS_UPDATE = "↻"
@@ -21,24 +22,7 @@ MAX_FILE_CHANGES_INLINE = 3
 
 
 def format_changed_file_path(path: str, *, base_dir: Path | None = None) -> str:
-    raw = path.strip()
-    if raw.startswith("./"):
-        raw = raw[2:]
-
-    base = Path.cwd() if base_dir is None else base_dir
-    try:
-        raw_path = Path(raw)
-    except Exception:
-        return f"`{raw}`"
-
-    if raw_path.is_absolute():
-        try:
-            raw_path = raw_path.relative_to(base)
-            raw = raw_path.as_posix()
-        except Exception:
-            pass
-
-    return f"`{raw}`"
+    return f"`{relativize_path(path, base_dir=base_dir)}`"
 
 
 def format_elapsed(elapsed_s: float) -> str:

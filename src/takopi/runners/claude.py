@@ -24,6 +24,7 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
+from ..paths import relativize_path
 from ..runner import ResumeRunnerMixin, Runner
 from . import codex
 
@@ -146,11 +147,13 @@ def _tool_kind_and_title(name: str, tool_input: dict[str, Any]) -> tuple[ActionK
         return "command", str(command or name)
     if name in {"Edit", "Write", "NotebookEdit", "MultiEdit"}:
         path = _tool_input_path(tool_input)
-        return "file_change", str(path or name)
+        if path:
+            return "file_change", relativize_path(str(path))
+        return "file_change", str(name)
     if name == "Read":
         path = _tool_input_path(tool_input)
         if path:
-            return "tool", f"read: {path}"
+            return "tool", f"read: `{relativize_path(str(path))}`"
         return "tool", "read"
     if name == "Glob":
         pattern = tool_input.get("pattern")
