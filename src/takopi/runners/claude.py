@@ -386,9 +386,9 @@ def translate_claude_event(
             if not isinstance(denial, dict):
                 continue
             tool_name = denial.get("tool_name")
-            title = "permission denied"
+            denial_title = "permission denied"
             if isinstance(tool_name, str) and tool_name:
-                title = f"permission denied: {tool_name}"
+                denial_title = f"permission denied: {tool_name}"
             tool_use_id = denial.get("tool_use_id")
             action_id = (
                 f"claude.permission.{tool_use_id}"
@@ -401,7 +401,7 @@ def translate_claude_event(
                     action=Action(
                         id=action_id,
                         kind="warning",
-                        title=title,
+                        title=denial_title,
                         detail=denial,
                     ),
                     ok=False,
