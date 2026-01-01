@@ -52,7 +52,11 @@ def _parse_bridge_config(
     chat_id = chat_id_value
 
     engine_cfg = get_engine_config(config, backend.id, config_path)
-    startup_msg = f"takopi is ready ({backend.id})\nworking in: {startup_pwd}"
+    startup_msg = (
+        f"\N{OCTOPUS} **takopi is ready**\n"
+        f"agent: {backend.id}\n"
+        f"working in: {startup_pwd}"
+    )
 
     bot = TelegramClient(token)
     runner = backend.build_runner(engine_cfg, config_path)
