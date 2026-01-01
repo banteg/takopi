@@ -24,10 +24,11 @@ Add a new engine backend **`claude`** so Takopi can:
 
 ### Engine selection
 
-* Existing: `takopi --engine codex`
-* New: `takopi --engine claude`
+* Existing: `takopi codex`
+* New: `takopi claude`
 
-No new CLI flags required beyond existing `--engine` unless you want convenience overrides (optional).
+Takopi requires an explicit engine subcommand; `takopi` alone prints the engine
+selection panel and exits.
 
 ### Resume UX (canonical line)
 

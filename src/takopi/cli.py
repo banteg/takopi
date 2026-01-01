@@ -87,7 +87,11 @@ def _run_engine(*, engine: str, final_notify: bool, debug: bool) -> None:
     anyio.run(_run_main_loop, cfg)
 
 
-app = typer.Typer(add_completion=False, invoke_without_command=True)
+app = typer.Typer(
+    add_completion=False,
+    invoke_without_command=True,
+    help="Run takopi with an explicit engine subcommand.",
+)
 
 
 @app.callback()
@@ -107,7 +111,7 @@ def app_main(
         raise typer.Exit(code=1)
 
 
-@app.command()
+@app.command(help="Run with the Codex engine.")
 def codex(
     final_notify: bool = typer.Option(
         True,
@@ -123,7 +127,7 @@ def codex(
     _run_engine(engine="codex", final_notify=final_notify, debug=debug)
 
 
-@app.command()
+@app.command(help="Run with the Claude engine.")
 def claude(
     final_notify: bool = typer.Option(
         True,
