@@ -111,6 +111,27 @@ def _truncate(text: str, limit: int = 200) -> str:
     return text[: limit - 1] + "…"
 
 
+def _coerce_comma_list(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, set)):
+        parts = [str(item) for item in value if item is not None]
+        joined = ",".join(part for part in parts if part)
+        return joined or None
+    text = str(value)
+    return text or None
+
+
+def _coerce_multi_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        items = [str(item) for item in value if item is not None]
+    else:
+        items = [str(value)]
+    return [item for item in items if item]
+
+
 def _tool_input_path(tool_input: dict[str, Any]) -> str | None:
     for key in ("file_path", "path"):
         value = tool_input.get(key)
@@ -502,37 +523,38 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
         args: list[str] = ["-p", "--output-format", "stream-json", "--verbose"]
         if resume is not None:
             args.extend(["--resume", resume.value])
-        if self.model:
-            args.extend(["--model", self.model])
-        if self.system_prompt:
-            args.extend(["--system-prompt", self.system_prompt])
-        if self.append_system_prompt:
-            args.extend(["--append-system-prompt", self.append_system_prompt])
-        if self.permission_mode:
-            args.extend(["--permission-mode", self.permission_mode])
-        if self.output_style:
-            args.extend(["--output-style", self.output_style])
-        if self.allowed_tools:
-            args.extend(["--allowedTools", ",".join(self.allowed_tools)])
-        if self.disallowed_tools:
-            args.extend(["--disallowedTools", ",".join(self.disallowed_tools)])
-        if self.tools:
-            args.extend(["--tools", ",".join(self.tools)])
+        if self.model is not None:
+            args.extend(["--model", str(self.model)])
+        if self.system_prompt is not None:
+            args.extend(["--system-prompt", str(self.system_prompt)])
+        if self.append_system_prompt is not None:
+            args.extend(["--append-system-prompt", str(self.append_system_prompt)])
+        if self.permission_mode is not None:
+            args.extend(["--permission-mode", str(self.permission_mode)])
+        if self.output_style is not None:
+            args.extend(["--output-style", str(self.output_style)])
+        allowed_tools = _coerce_comma_list(self.allowed_tools)
+        if allowed_tools is not None:
+            args.extend(["--allowedTools", allowed_tools])
+        disallowed_tools = _coerce_comma_list(self.disallowed_tools)
+        if disallowed_tools is not None:
+            args.extend(["--disallowedTools", disallowed_tools])
+        tools = _coerce_comma_list(self.tools)
+        if tools is not None:
+            args.extend(["--tools", tools])
         if self.max_turns is not None:
             args.extend(["--max-turns", str(self.max_turns)])
         if self.max_budget_usd is not None:
             args.extend(["--max-budget-usd", str(self.max_budget_usd)])
-        if self.include_partial_messages:
+        if self.include_partial_messages is True:
             args.append("--include-partial-messages")
-        if self.dangerously_skip_permissions:
+        if self.dangerously_skip_permissions is True:
             args.append("--dangerously-skip-permissions")
-        if self.mcp_config:
-            for cfg in self.mcp_config:
-                args.extend(["--mcp-config", cfg])
-        if self.add_dirs:
-            for directory in self.add_dirs:
-                args.extend(["--add-dir", directory])
-        args.extend(self.extra_args)
+        for cfg in _coerce_multi_values(self.mcp_config):
+            args.extend(["--mcp-config", cfg])
+        for directory in _coerce_multi_values(self.add_dirs):
+            args.extend(["--add-dir", directory])
+        args.extend(_coerce_multi_values(self.extra_args))
         args.append("--")
         args.append(prompt)
         return args
