@@ -85,6 +85,8 @@ max_turns = 40                       # optional safety bound
 max_budget_usd = 2.50                # optional safety bound
 append_system_prompt = ""            # optional
 include_partial_messages = false     # optional
+dangerously_skip_permissions = false # optional (high risk; prefer sandbox use only)
+allow_dangerously_skip_permissions = false # optional (enables bypass option without enabling)
 extra_args = []                      # optional: escape hatch
 idle_timeout_s = 300                 # optional watchdog for hung processes
 ```
