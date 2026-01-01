@@ -283,14 +283,22 @@ class JsonlSubprocessRunner(BaseRunner):
         found_session: ResumeToken | None,
     ) -> tuple[ResumeToken | None, bool]:
         if event.engine != self.engine:
-            raise RuntimeError(f"{self.tag()} emitted session token for wrong engine")
+            raise RuntimeError(
+                f"{self.tag()} emitted session token for engine {event.engine!r}"
+            )
         if expected_session is not None and event.resume != expected_session:
-            message = f"{self.tag()} emitted a different session id than expected"
+            message = (
+                f"{self.tag()} emitted session id {event.resume.value} "
+                f"but expected {expected_session.value}"
+            )
             raise RuntimeError(message)
         if found_session is None:
             return event.resume, True
         if event.resume != found_session:
-            message = f"{self.tag()} emitted a different session id than expected"
+            message = (
+                f"{self.tag()} emitted session id {event.resume.value} "
+                f"but expected {found_session.value}"
+            )
             raise RuntimeError(message)
         return found_session, False
 

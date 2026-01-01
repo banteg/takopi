@@ -472,12 +472,18 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                 f"codex emitted session token for engine {event.engine!r}"
             )
         if expected_session is not None and event.resume != expected_session:
-            message = "codex emitted a different session id than expected"
+            message = (
+                f"codex emitted session id {event.resume.value} "
+                f"but expected {expected_session.value}"
+            )
             raise RuntimeError(message)
         if found_session is None:
             return event.resume, True
         if event.resume != found_session:
-            message = "codex emitted a different session id than expected"
+            message = (
+                f"codex emitted session id {event.resume.value} "
+                f"but expected {found_session.value}"
+            )
             raise RuntimeError(message)
         return found_session, False
 

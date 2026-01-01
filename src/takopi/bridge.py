@@ -50,6 +50,32 @@ def _strip_resume_lines(text: str, *, is_resume_line: Callable[[str], bool]) -> 
     return prompt or "continue"
 
 
+def _flatten_exception_group(error: BaseException) -> list[BaseException]:
+    if isinstance(error, BaseExceptionGroup):
+        flattened: list[BaseException] = []
+        for exc in error.exceptions:
+            flattened.extend(_flatten_exception_group(exc))
+        return flattened
+    return [error]
+
+
+def _format_error(error: Exception) -> str:
+    cancel_exc = anyio.get_cancelled_exc_class()
+    flattened = [
+        exc for exc in _flatten_exception_group(error) if not isinstance(exc, cancel_exc)
+    ]
+    if len(flattened) == 1:
+        return str(flattened[0]) or flattened[0].__class__.__name__
+    if not flattened:
+        return str(error) or error.__class__.__name__
+    messages = [str(exc) for exc in flattened if str(exc)]
+    if not messages:
+        return str(error) or error.__class__.__name__
+    if len(messages) == 1:
+        return messages[0]
+    return "\n".join(messages)
+
+
 PROGRESS_EDIT_EVERY_S = 2.0
 
 
@@ -461,6 +487,7 @@ async def handle_message(
             )
         except Exception as e:
             error = e
+            logger.exception("[handle] runner failed")
         finally:
             if (
                 running_task is not None
@@ -478,7 +505,7 @@ async def handle_message(
 
     if error is not None:
         sync_resume_token(progress_renderer, outcome.resume)
-        err_body = str(error)
+        err_body = _format_error(error)
         final_md = progress_renderer.render_final(elapsed, err_body, status="error")
         logger.debug("[error] markdown: %s", final_md)
         await send_result_message(
