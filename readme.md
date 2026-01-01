@@ -80,8 +80,8 @@ if you prefer no notifications, `--no-final-notify` edits the progress message i
 ## notes
 
 * private chat only: the bot only responds to the configured `chat_id`
-* one active process per bot token: per-thread locks are in-process only, so
-  multiple instances can race the same resume thread and corrupt history
+* one active process per bot token: Telegram `getUpdates` is not a shared queue;
+  multiple instances will race offsets and cause missed or duplicated updates
 
 ## development
 
