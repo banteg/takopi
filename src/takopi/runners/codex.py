@@ -636,9 +636,7 @@ class CodexRunner(BaseRunner):
             )
 
 
-INSTALL_CMDS = ("npm install -g @openai/codex",)
-
-check_setup = which_issue("codex", INSTALL_CMDS)
+check_setup = which_issue("codex", "npm install -g @openai/codex")
 
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
@@ -678,5 +676,5 @@ BACKEND = EngineBackend(
     check_setup=check_setup,
     build_runner=build_runner,
     startup_message=startup_message,
-    install_cmds=INSTALL_CMDS,
+    install_cmd="npm install -g @openai/codex",
 )

@@ -596,9 +596,7 @@ class ClaudeRunner(BaseRunner):
             )
 
 
-INSTALL_CMDS = ("npm install -g @anthropic-ai/claude-code",)
-
-check_setup = which_issue("claude", INSTALL_CMDS)
+check_setup = which_issue("claude", "npm install -g @anthropic-ai/claude-code")
 
 
 def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
@@ -629,5 +627,5 @@ BACKEND = EngineBackend(
     check_setup=check_setup,
     build_runner=build_runner,
     startup_message=startup_message,
-    install_cmds=INSTALL_CMDS,
+    install_cmd="npm install -g @anthropic-ai/claude-code",
 )

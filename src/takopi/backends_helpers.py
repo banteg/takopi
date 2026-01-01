@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable
 
 from .backends import EngineConfig, SetupIssue
 
 
 def which_issue(
-    cmd: str, install_cmds: Sequence[str]
+    cmd: str, install_cmd: str
 ) -> Callable[[EngineConfig, Path], list[SetupIssue]]:
-    issue = install_issue(cmd, install_cmds)
+    issue = install_issue(cmd, install_cmd)
 
     def _check(_cfg: EngineConfig, _path: Path) -> list[SetupIssue]:
         return [] if shutil.which(cmd) else [issue]
@@ -18,6 +18,8 @@ def which_issue(
     return _check
 
 
-def install_issue(cmd: str, install_cmds: Sequence[str]) -> SetupIssue:
-    lines = tuple(f"   [dim]$[/] {line}" for line in install_cmds)
-    return SetupIssue(f"install {cmd}", lines)
+def install_issue(cmd: str, install_cmd: str) -> SetupIssue:
+    return SetupIssue(
+        f"install {cmd}",
+        (f"   [dim]$[/] {install_cmd}",),
+    )
