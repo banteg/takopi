@@ -27,12 +27,6 @@ def _resolve_resume(
     return runner.extract_resume(text) or runner.extract_resume(reply_text)
 
 
-def _summarize_error(error: str | None) -> str:
-    if not error:
-        return "error"
-    return error
-
-
 def _log_runner_event(evt: TakopiEvent) -> None:
     for line in render_event_cli(evt):
         logger.info("[runner] %s", line)
@@ -40,7 +34,7 @@ def _log_runner_event(evt: TakopiEvent) -> None:
         if evt.ok:
             logger.info("[runner] done")
         else:
-            logger.info("[runner] error: %s", _summarize_error(evt.error))
+            logger.info("[runner] error: %s", evt.error or "error")
 
 
 def _is_cancel_command(text: str) -> bool:
