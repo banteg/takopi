@@ -3,14 +3,9 @@ from __future__ import annotations
 import logging
 import os
 import re
-import subprocess
-from collections import deque
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
-
-import anyio
 
 from ..backends import EngineBackend, EngineConfig
 from ..model import (
@@ -23,10 +18,8 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..runner import BaseRunner, Runner
+from ..runner import JsonlSubprocessRunner, Runner
 from ..utils.paths import relativize_command, relativize_path
-from ..utils.streams import drain_stderr, iter_jsonl
-from ..utils.subprocess import manage_subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +35,7 @@ _RESUME_RE = re.compile(
 class ClaudeStreamState:
     pending_actions: dict[str, Action] = field(default_factory=dict)
     last_assistant_text: str | None = None
+    note_seq: int = 0
 
 
 def _action_event(
@@ -59,27 +53,6 @@ def _action_event(
         ok=ok,
         message=message,
         level=level,
-    )
-
-
-def _note_completed(
-    action_id: str,
-    message: str,
-    *,
-    ok: bool = False,
-    detail: dict[str, Any] | None = None,
-) -> ActionEvent:
-    return _action_event(
-        phase="completed",
-        action=Action(
-            id=action_id,
-            kind="warning",
-            title=message,
-            detail=detail or {},
-        ),
-        ok=ok,
-        message=message,
-        level="warning" if not ok else "info",
     )
 
 
@@ -424,7 +397,7 @@ def translate_claude_event(
 
 
 @dataclass
-class ClaudeRunner(BaseRunner):
+class ClaudeRunner(JsonlSubprocessRunner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE
 
@@ -434,6 +407,8 @@ class ClaudeRunner(BaseRunner):
     dangerously_skip_permissions: bool = False
     use_api_billing: bool = False
     session_title: str = "claude"
+    stderr_tail_lines = STDERR_TAIL_LINES
+    logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
@@ -455,145 +430,140 @@ class ClaudeRunner(BaseRunner):
         args.append(prompt)
         return args
 
-    async def run_impl(  # noqa: C901
+    def command(self) -> str:
+        return self.claude_cmd
+
+    def build_args(
         self,
         prompt: str,
         resume: ResumeToken | None,
-    ) -> AsyncIterator[TakopiEvent]:
+        *,
+        state: Any,
+    ) -> list[str]:
+        _ = state
+        return self._build_args(prompt, resume)
+
+    def stdin_payload(
+        self,
+        prompt: str,
+        resume: ResumeToken | None,
+        *,
+        state: Any,
+    ) -> bytes | None:
+        _ = prompt, resume, state
+        return None
+
+    def env(self, *, state: Any) -> dict[str, str] | None:
+        _ = state
+        if self.use_api_billing is not True:
+            env = dict(os.environ)
+            env.pop("ANTHROPIC_API_KEY", None)
+            return env
+        return None
+
+    def new_state(self, prompt: str, resume: ResumeToken | None) -> ClaudeStreamState:
+        _ = prompt, resume
+        return ClaudeStreamState()
+
+    def start_run(
+        self,
+        prompt: str,
+        resume: ResumeToken | None,
+        *,
+        state: ClaudeStreamState,
+    ) -> None:
+        _ = state
         logger.info(
             "[claude] start run resume=%r",
             resume.value if resume else None,
         )
         logger.debug("[claude] prompt: %s", prompt)
-        args = [self.claude_cmd]
-        args.extend(self._build_args(prompt, resume))
 
-        did_emit_completed = False
-        note_seq = 0
-        state = ClaudeStreamState()
-        expected_session = resume
-        found_session: ResumeToken | None = None
+    def invalid_json_events(
+        self,
+        *,
+        raw: str,
+        line: str,
+        state: ClaudeStreamState,
+    ) -> list[TakopiEvent]:
+        _ = line
+        message = "invalid JSON from claude; ignoring line"
+        return [self.note_event(message, state=state, detail={"line": raw})]
 
-        def next_note_id() -> str:
-            nonlocal note_seq
-            note_seq += 1
-            return f"claude.note.{note_seq}"
+    def translate(
+        self,
+        data: dict[str, Any],
+        *,
+        state: ClaudeStreamState,
+        resume: ResumeToken | None,
+        found_session: ResumeToken | None,
+    ) -> list[TakopiEvent]:
+        _ = resume, found_session
+        return translate_claude_event(
+            data,
+            title=self.session_title,
+            state=state,
+        )
 
-        env: dict[str, str] | None = None
-        if self.use_api_billing is not True:
-            env = dict(os.environ)
-            env.pop("ANTHROPIC_API_KEY", None)
-        async with manage_subprocess(
-            *args,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-        ) as proc:
-            if proc.stdout is None or proc.stderr is None:
-                raise RuntimeError("claude failed to open subprocess pipes")
-            proc_stdout = proc.stdout
-            proc_stderr = proc.stderr
-            if proc.stdin is not None:
-                await proc.stdin.aclose()
+    def process_error_events(
+        self,
+        rc: int,
+        *,
+        resume: ResumeToken | None,
+        found_session: ResumeToken | None,
+        stderr_tail: str,
+        state: ClaudeStreamState,
+    ) -> list[TakopiEvent]:
+        message = f"claude failed (rc={rc})."
+        resume_for_completed = found_session or resume
+        return [
+            self.note_event(
+                message,
+                state=state,
+                ok=False,
+                detail={"stderr_tail": stderr_tail},
+            ),
+            CompletedEvent(
+                engine=ENGINE,
+                ok=False,
+                answer="",
+                resume=resume_for_completed,
+                error=message,
+            ),
+        ]
 
-            stderr_chunks: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
-            rc: int | None = None
-
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(
-                    drain_stderr,
-                    proc_stderr,
-                    stderr_chunks,
-                    logger,
-                    "claude",
-                )
-                async for json_line in iter_jsonl(
-                    proc_stdout, logger=logger, tag="claude"
-                ):
-                    if did_emit_completed:
-                        continue
-                    if json_line.data is None:
-                        yield _note_completed(
-                            next_note_id(),
-                            "invalid JSON from claude; ignoring line",
-                            ok=False,
-                            detail={"line": json_line.raw},
-                        )
-                        continue
-                    evt = json_line.data
-
-                    for out_evt in translate_claude_event(
-                        evt,
-                        title=self.session_title,
-                        state=state,
-                    ):
-                        if isinstance(out_evt, StartedEvent):
-                            session = out_evt.resume
-                            if session.engine != ENGINE:
-                                raise RuntimeError(
-                                    "claude emitted session token for wrong engine"
-                                )
-                            if (
-                                expected_session is not None
-                                and session != expected_session
-                            ):
-                                raise RuntimeError(
-                                    "claude emitted a different session id than expected"
-                                )
-                            found_session = session
-                            yield out_evt
-                            continue
-                        yield out_evt
-                        if isinstance(out_evt, CompletedEvent):
-                            did_emit_completed = True
-                            break
-                rc = await proc.wait()
-
-            logger.debug("[claude] process exit pid=%s rc=%s", proc.pid, rc)
-            if did_emit_completed:
-                return
-
-            if rc != 0:
-                stderr_text = "".join(stderr_chunks)
-                message = f"claude failed (rc={rc})."
-                yield _note_completed(
-                    next_note_id(),
-                    message,
-                    ok=False,
-                    detail={"stderr_tail": stderr_text},
-                )
-                resume_for_completed = found_session or resume
-                yield CompletedEvent(
+    def stream_end_events(
+        self,
+        *,
+        resume: ResumeToken | None,
+        found_session: ResumeToken | None,
+        stderr_tail: str,
+        state: ClaudeStreamState,
+    ) -> list[TakopiEvent]:
+        _ = stderr_tail
+        if not found_session:
+            message = "claude finished but no session_id was captured"
+            resume_for_completed = resume
+            return [
+                CompletedEvent(
                     engine=ENGINE,
                     ok=False,
                     answer="",
                     resume=resume_for_completed,
                     error=message,
                 )
-                return
+            ]
 
-            if not found_session:
-                message = "claude finished but no session_id was captured"
-                resume_for_completed = resume
-                yield CompletedEvent(
-                    engine=ENGINE,
-                    ok=False,
-                    answer="",
-                    resume=resume_for_completed,
-                    error=message,
-                )
-                return
-
-            message = "claude finished without a result event"
-            yield CompletedEvent(
+        message = "claude finished without a result event"
+        return [
+            CompletedEvent(
                 engine=ENGINE,
                 ok=False,
                 answer=state.last_assistant_text or "",
                 resume=found_session,
                 error=message,
             )
-
+        ]
 
 
 def build_runner(config: EngineConfig, _config_path: Path) -> Runner:

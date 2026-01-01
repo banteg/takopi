@@ -68,7 +68,11 @@ Key implementation notes:
 - Use `BaseRunner` for resume parsing + per-session serialization.
 - Set `resume_re` only if your engine uses a non-standard resume format
   (otherwise `BaseRunner` uses `compile_resume_pattern(...)` automatically).
-- Use `iter_jsonl(...)` + `drain_stderr(...)` from `takopi.utils.streams`.
+- For JSONL CLIs, prefer `JsonlSubprocessRunner` and implement `command`,
+  `build_args`, and `translate` (override `stdin_payload` if the prompt should
+  be passed via argv instead of stdin).
+- If you don’t use `JsonlSubprocessRunner`, use `iter_jsonl(...)` +
+  `drain_stderr(...)` from `takopi.utils.streams`.
 - **Do not truncate** tool outputs in the runner; pass full strings into events.
   Truncation belongs in renderers.
 
