@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from .model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
-from .paths import relativize_path
+from .utils.paths import relativize_path
 
 STATUS_RUNNING = "▸"
 STATUS_UPDATE = "↻"

@@ -14,7 +14,6 @@ from weakref import WeakValueDictionary
 
 import anyio
 from anyio.abc import ByteReceiveStream, Process
-from anyio.streams.text import TextReceiveStream
 from ..model import (
     Action,
     ActionEvent,
@@ -28,6 +27,7 @@ from ..model import (
     TakopiEvent,
 )
 from ..runner import ResumeRunnerMixin, Runner, compile_resume_pattern
+from ..utils.streams import iter_text_lines
 
 logger = logging.getLogger(__name__)
 
@@ -406,29 +406,9 @@ def translate_codex_event(event: dict[str, Any], *, title: str) -> list[TakopiEv
     return []
 
 
-async def _iter_text_lines(stream: ByteReceiveStream):
-    text_stream = TextReceiveStream(stream, errors="replace")
-    buffer = ""
-    while True:
-        try:
-            chunk = await text_stream.receive()
-        except anyio.EndOfStream:
-            if buffer:
-                yield buffer
-            return
-        buffer += chunk
-        while True:
-            split_at = buffer.find("\n")
-            if split_at < 0:
-                break
-            line = buffer[: split_at + 1]
-            buffer = buffer[split_at + 1 :]
-            yield line
-
-
 async def _drain_stderr(stderr: ByteReceiveStream, chunks: deque[str]) -> None:
     try:
-        async for line in _iter_text_lines(stderr):
+        async for line in iter_text_lines(stderr):
             logger.debug("[codex][stderr] %s", line.rstrip())
             chunks.append(line)
     except Exception as e:
@@ -590,7 +570,7 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                     await proc_stdin.send(prompt.encode())
                     await proc_stdin.aclose()
 
-                    async for raw_line in _iter_text_lines(proc_stdout):
+                    async for raw_line in iter_text_lines(proc_stdout):
                         raw = raw_line.rstrip("\n")
                         logger.debug("[codex][jsonl] %s", raw)
                         line = raw.strip()

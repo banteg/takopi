@@ -6,14 +6,13 @@ import os
 import re
 import subprocess
 from collections import deque
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 from weakref import WeakValueDictionary
 
 import anyio
 from anyio.abc import ByteReceiveStream
-from anyio.streams.text import TextReceiveStream
 
 from ..model import (
     Action,
@@ -25,8 +24,9 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..paths import relativize_command, relativize_path
 from ..runner import ResumeRunnerMixin, Runner
+from ..utils.paths import relativize_path
+from ..utils.streams import iter_text_lines
 from . import codex
 
 logger = logging.getLogger(__name__)
@@ -43,10 +43,6 @@ _RESUME_RE = re.compile(
 class ClaudeStreamState:
     pending_actions: dict[str, Action] = field(default_factory=dict)
     last_assistant_text: str | None = None
-
-
-class _IdleTimeout(Exception):
-    pass
 
 
 def _action_event(
@@ -147,7 +143,7 @@ def _tool_kind_and_title(
 ) -> tuple[ActionKind, str]:
     if name in {"Bash", "Shell", "KillShell"}:
         command = tool_input.get("command")
-        display = relativize_command(str(command or name))
+        display = relativize_path(str(command or name))
         return "command", display
     if name in {"Edit", "Write", "NotebookEdit", "MultiEdit"}:
         path = _tool_input_path(tool_input)
@@ -444,40 +440,9 @@ def translate_claude_event(
     return []
 
 
-async def _iter_text_lines(
-    stream: ByteReceiveStream,
-    *,
-    idle_timeout_s: float | None,
-    idle_armed: Callable[[], bool],
-):
-    text_stream = TextReceiveStream(stream, errors="replace")
-    buffer = ""
-    while True:
-        try:
-            if idle_timeout_s is not None and idle_armed():
-                with anyio.fail_after(idle_timeout_s):
-                    chunk = await text_stream.receive()
-            else:
-                chunk = await text_stream.receive()
-        except TimeoutError as exc:
-            raise _IdleTimeout from exc
-        except anyio.EndOfStream:
-            if buffer:
-                yield buffer
-            return
-        buffer += chunk
-        while True:
-            split_at = buffer.find("\n")
-            if split_at < 0:
-                break
-            line = buffer[: split_at + 1]
-            buffer = buffer[split_at + 1 :]
-            yield line
-
-
 async def _drain_stderr(stderr: ByteReceiveStream, chunks: deque[str]) -> None:
     try:
-        async for line in codex._iter_text_lines(stderr):
+        async for line in iter_text_lines(stderr):
             logger.debug("[claude][stderr] %s", line.rstrip())
             chunks.append(line)
     except Exception as e:
@@ -506,7 +471,6 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
     mcp_config: list[str] | None = None
     add_dirs: list[str] | None = None
     extra_args: list[str] = field(default_factory=list)
-    idle_timeout_s: float | None = None
     session_title: str = "claude"
 
     def __post_init__(self) -> None:
@@ -610,9 +574,6 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
             note_seq += 1
             return f"claude.note.{note_seq}"
 
-        def idle_armed() -> bool:
-            return found_session is not None
-
         try:
             env: dict[str, str] | None = None
             if self.use_api_billing is not True:
@@ -637,73 +598,55 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
 
                 async with anyio.create_task_group() as tg:
                     tg.start_soon(_drain_stderr, proc_stderr, stderr_chunks)
-                    try:
-                        async for raw_line in _iter_text_lines(
-                            proc_stdout,
-                            idle_timeout_s=self.idle_timeout_s,
-                            idle_armed=idle_armed,
-                        ):
-                            raw = raw_line.rstrip("\n")
-                            logger.debug("[claude][jsonl] %s", raw)
-                            line = raw.strip()
-                            if not line:
-                                continue
-                            if did_emit_completed:
-                                continue
-                            try:
-                                evt = json.loads(line)
-                            except json.JSONDecodeError:
-                                logger.debug("[claude] invalid json line: %s", line)
-                                yield _note_completed(
-                                    next_note_id(),
-                                    "invalid JSON from claude; ignoring line",
-                                    ok=False,
-                                    detail={"line": _truncate(line, 400)},
-                                )
-                                continue
+                    async for raw_line in iter_text_lines(proc_stdout):
+                        raw = raw_line.rstrip("\n")
+                        logger.debug("[claude][jsonl] %s", raw)
+                        line = raw.strip()
+                        if not line:
+                            continue
+                        if did_emit_completed:
+                            continue
+                        try:
+                            evt = json.loads(line)
+                        except json.JSONDecodeError:
+                            logger.debug("[claude] invalid json line: %s", line)
+                            yield _note_completed(
+                                next_note_id(),
+                                "invalid JSON from claude; ignoring line",
+                                ok=False,
+                                detail={"line": _truncate(line, 400)},
+                            )
+                            continue
 
-                            for out_evt in translate_claude_event(
-                                evt,
-                                title=self.session_title,
-                                state=state,
-                            ):
-                                if isinstance(out_evt, StartedEvent):
-                                    session = out_evt.resume
-                                    if session.engine != ENGINE:
-                                        raise RuntimeError(
-                                            "claude emitted session token for wrong engine"
-                                        )
-                                    if (
-                                        expected_session is not None
-                                        and session != expected_session
-                                    ):
-                                        raise RuntimeError(
-                                            "claude emitted a different session id than expected"
-                                        )
-                                    if expected_session is None:
-                                        session_lock = self._lock_for(session)
-                                        await session_lock.acquire()
-                                        session_lock_acquired = True
-                                    found_session = session
-                                    yield out_evt
-                                    continue
+                        for out_evt in translate_claude_event(
+                            evt,
+                            title=self.session_title,
+                            state=state,
+                        ):
+                            if isinstance(out_evt, StartedEvent):
+                                session = out_evt.resume
+                                if session.engine != ENGINE:
+                                    raise RuntimeError(
+                                        "claude emitted session token for wrong engine"
+                                    )
+                                if (
+                                    expected_session is not None
+                                    and session != expected_session
+                                ):
+                                    raise RuntimeError(
+                                        "claude emitted a different session id than expected"
+                                    )
+                                if expected_session is None:
+                                    session_lock = self._lock_for(session)
+                                    await session_lock.acquire()
+                                    session_lock_acquired = True
+                                found_session = session
                                 yield out_evt
-                                if isinstance(out_evt, CompletedEvent):
-                                    did_emit_completed = True
-                                    break
-                    except _IdleTimeout:
-                        message = "claude stream idle timeout"
-                        yield _note_completed(next_note_id(), message, ok=False)
-                        resume_for_completed = found_session or resume_token
-                        yield CompletedEvent(
-                            engine=ENGINE,
-                            ok=False,
-                            answer="",
-                            resume=resume_for_completed,
-                            error=message,
-                        )
-                        did_emit_completed = True
-                        return
+                                continue
+                            yield out_evt
+                            if isinstance(out_evt, CompletedEvent):
+                                did_emit_completed = True
+                                break
                     rc = await proc.wait()
 
                 logger.debug("[claude] process exit pid=%s rc=%s", proc.pid, rc)
