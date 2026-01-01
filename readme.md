@@ -2,17 +2,17 @@
 
 🐙 *he just wants to help-pi*
 
-telegram bot for codex and claude code. runs the engine cli, streams progress, and supports resumable sessions.
+telegram bridge for codex and claude code. runs the agent cli, streams progress, and supports resumable sessions.
 
 ## features
 
-stateless resume via `codex resume <token>` lines in chat.
+stateless resume, continue a thread in the chat or pick up in the terminal.
 
-edits a single progress message while codex runs (commands, tools, notes, file changes, elapsed time).
+edits a single progress message while agent runs (commands, tools, notes, file changes, elapsed time).
 
 renders markdown to telegram entities.
 
-runs in parallel across threads and queues per thread to keep codex history sane.
+runs in parallel across threads and queues per thread to keep agent history sane.
 
 ## requirements
 
@@ -31,7 +31,7 @@ runs in parallel across threads and queues per thread to keep codex history sane
 1. get `bot_token` from [@BotFather](https://t.me/BotFather)
 2. get `chat_id` from [@myidbot](https://t.me/myidbot)
 3. send `/start` to the bot (telegram won't let it message you first)
-4. run `codex` once interactively in the repo to trust the directory
+4. run your agent cli once interactively in the repo to trust the directory
 
 ## config
 
