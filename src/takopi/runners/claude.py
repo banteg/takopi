@@ -120,16 +120,6 @@ def _coerce_comma_list(value: Any) -> str | None:
     return text or None
 
 
-def _coerce_multi_values(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, (list, tuple, set)):
-        items = [str(item) for item in value if item is not None]
-    else:
-        items = [str(value)]
-    return [item for item in items if item]
-
-
 def _tool_input_path(tool_input: dict[str, Any]) -> str | None:
     for key in ("file_path", "path"):
         value = tool_input.get(key)
@@ -456,21 +446,9 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
 
     claude_cmd: str = "claude"
     model: str | None = None
-    system_prompt: str | None = None
-    append_system_prompt: str | None = None
-    permission_mode: str | None = None
-    output_style: str | None = None
     allowed_tools: list[str] | None = None
-    disallowed_tools: list[str] | None = None
-    tools: list[str] | None = None
-    max_turns: int | None = None
-    max_budget_usd: float | None = None
-    include_partial_messages: bool = False
     dangerously_skip_permissions: bool = False
     use_api_billing: bool = False
-    mcp_config: list[str] | None = None
-    add_dirs: list[str] | None = None
-    extra_args: list[str] = field(default_factory=list)
     session_title: str = "claude"
     _session_locks: WeakValueDictionary[str, anyio.Lock] = field(
         default_factory=WeakValueDictionary, init=False, repr=False
@@ -495,36 +473,11 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
             args.extend(["--resume", resume.value])
         if self.model is not None:
             args.extend(["--model", str(self.model)])
-        if self.system_prompt is not None:
-            args.extend(["--system-prompt", str(self.system_prompt)])
-        if self.append_system_prompt is not None:
-            args.extend(["--append-system-prompt", str(self.append_system_prompt)])
-        if self.permission_mode is not None:
-            args.extend(["--permission-mode", str(self.permission_mode)])
-        if self.output_style is not None:
-            args.extend(["--output-style", str(self.output_style)])
         allowed_tools = _coerce_comma_list(self.allowed_tools)
         if allowed_tools is not None:
             args.extend(["--allowedTools", allowed_tools])
-        disallowed_tools = _coerce_comma_list(self.disallowed_tools)
-        if disallowed_tools is not None:
-            args.extend(["--disallowedTools", disallowed_tools])
-        tools = _coerce_comma_list(self.tools)
-        if tools is not None:
-            args.extend(["--tools", tools])
-        if self.max_turns is not None:
-            args.extend(["--max-turns", str(self.max_turns)])
-        if self.max_budget_usd is not None:
-            args.extend(["--max-budget-usd", str(self.max_budget_usd)])
-        if self.include_partial_messages is True:
-            args.append("--include-partial-messages")
         if self.dangerously_skip_permissions is True:
             args.append("--dangerously-skip-permissions")
-        for cfg in _coerce_multi_values(self.mcp_config):
-            args.extend(["--mcp-config", cfg])
-        for directory in _coerce_multi_values(self.add_dirs):
-            args.extend(["--add-dir", directory])
-        args.extend(_coerce_multi_values(self.extra_args))
         args.append("--")
         args.append(prompt)
         return args
