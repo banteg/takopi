@@ -78,8 +78,10 @@ to continue a thread, reply to a bot message containing a resume line.
 you can also copy it to resume an interactive session in your terminal.
 
 to stop a run, reply to the progress message with `/cancel`.
-
-takopi syncs the bot command menu on startup (cancel + engine commands).
+commands:
+- `/cancel` — cancel the current run (reply to the progress message)
+- `/codex` — start a new codex thread
+- `/claude` — start a new claude thread
 
 default: progress is silent, final answer is sent as a new message so you receive a notification, progress message is deleted.
 
