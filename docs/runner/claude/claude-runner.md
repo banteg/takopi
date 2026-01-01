@@ -9,7 +9,7 @@ Below is a concrete implementation spec for adding **Anthropic Claude Code (“c
 Add a new engine backend **`claude`** so Takopi can:
 
 * Run Claude Code non-interactively via the **Agent SDK CLI** (`claude -p`). ([Claude Code][1])
-* Stream progress in Telegram by parsing **`--output-format stream-json --verbose`** (newline-delimited JSON). ([Claude Code][1])
+* Stream progress in Telegram by parsing **`--output-format stream-json --verbose`** (newline-delimited JSON). Note: `--output-format` only works with `-p/--print`. ([Claude Code][1])
 * Support resumable sessions via **`--resume <session_id>`** (Takopi emits a canonical resume line the user can reply with). ([Claude Code][1])
 
 ### Non-goals (v1)
@@ -139,6 +139,7 @@ Use Agent SDK CLI non-interactively:
 Core invocation:
 
 * `claude -p --output-format stream-json --verbose` ([Claude Code][1])
+  * `--verbose` overrides config and is required for full stream-json output.
 
 Resume:
 
@@ -147,6 +148,8 @@ Resume:
 Permissions:
 
 * add `--allowedTools "<rules>"` if configured. ([Claude Code][1])
+* optionally support `--tools` to explicitly set the available tool set (only works with `-p`).
+* optionally support `--dangerously-skip-permissions` / `--allow-dangerously-skip-permissions` (high risk; document clearly if exposed).
 
 Prompt passing:
 
@@ -155,6 +158,9 @@ Prompt passing:
 Other flags:
 
 * `--permission-mode`, `--model`, `--output-style`, `--max-turns`, `--max-budget`, `--append-system-prompt`, etc. are in Claude CLI reference.
+* `--include-partial-messages` only works with `-p` and `--output-format stream-json`.
+* `--input-format stream-json` / `--replay-user-messages` are available but out-of-scope unless we implement streaming input.
+* `--continue`, `--fork-session`, `--no-session-persistence`, and `--session-id` exist; treat as optional passthroughs via `extra_args` if needed.
 
 #### Stream parsing
 
