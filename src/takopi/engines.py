@@ -95,14 +95,7 @@ def _claude_check_setup(_config: EngineConfig, _config_path: Path) -> list[Setup
 
 
 def _claude_build_runner(config: EngineConfig, _config_path: Path) -> Runner:
-    claude_cmd = shutil.which("claude")
-    if not claude_cmd:
-        raise ConfigError(
-            "claude not found on PATH. Install Claude Code with:\n"
-            "  npm install -g @anthropic-ai/claude-code\n"
-            "  # or run\n"
-            "  claude install"
-        )
+    claude_cmd = "claude"
 
     model = config.get("model")
     allowed_tools = config.get("allowed_tools")
