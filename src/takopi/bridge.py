@@ -563,7 +563,10 @@ async def handle_message(
         final_parts = progress_renderer.render_final_parts(
             elapsed, err_body, status="error"
         )
-        logger.debug("[error] markdown: %s", assemble_markdown_parts(final_parts))
+        logger.debug(
+            "[error] markdown: %s",
+            assemble_markdown_parts(final_parts),
+        )
         await send_result_message(
             cfg,
             chat_id=chat_id,
@@ -619,7 +622,10 @@ async def handle_message(
     final_parts = progress_renderer.render_final_parts(
         elapsed, final_answer, status=status
     )
-    logger.debug("[final] markdown: %s", assemble_markdown_parts(final_parts))
+    logger.debug(
+        "[final] markdown: %s",
+        assemble_markdown_parts(final_parts),
+    )
 
     final_rendered, final_entities = prepare_telegram(final_parts)
     can_edit_final = progress_id is not None
