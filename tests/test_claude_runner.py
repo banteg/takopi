@@ -88,6 +88,45 @@ def test_translate_error_fixture_permission_denials() -> None:
     assert completed.resume == started.resume
 
 
+def test_tool_results_pop_pending_actions() -> None:
+    state = ClaudeStreamState()
+
+    tool_use_event = {
+        "type": "assistant",
+        "message": {
+            "id": "msg_1",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "Bash",
+                    "input": {"command": "echo hi"},
+                }
+            ],
+        },
+    }
+    tool_result_event = {
+        "type": "user",
+        "message": {
+            "id": "msg_2",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "toolu_1",
+                    "content": "ok",
+                    "is_error": False,
+                }
+            ],
+        },
+    }
+
+    translate_claude_event(tool_use_event, title="claude", state=state)
+    assert "toolu_1" in state.pending_actions
+
+    translate_claude_event(tool_result_event, title="claude", state=state)
+    assert not state.pending_actions
+
+
 @pytest.mark.anyio
 async def test_run_serializes_same_session() -> None:
     runner = ClaudeRunner(claude_cmd="claude")
