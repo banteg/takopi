@@ -47,9 +47,11 @@ The orchestrator module containing:
 **Key patterns:**
 - Bridge schedules runs FIFO per thread to avoid concurrent progress messages; runner locks enforce per-thread serialization
 - `/cancel` routes by reply-to progress message id (accepts extra text)
+- `/{engine}` on the first line selects the engine for new threads
 - Progress edits are throttled to 2s intervals and only run when new events arrive
 - Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``)
 - Resume parsing polls all runners via `AutoRouter.resolve_resume()` and routes to the first match
+- Bot command menu is synced on startup (`cancel` + engine commands)
 
 ### `cli.py` - CLI entry point
 

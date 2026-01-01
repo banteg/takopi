@@ -79,6 +79,8 @@ you can also copy it to resume an interactive session in your terminal.
 
 to stop a run, reply to the progress message with `/cancel`.
 
+takopi syncs the bot command menu on startup (cancel + engine commands).
+
 default: progress is silent, final answer is sent as a new message so you receive a notification, progress message is deleted.
 
 if you prefer no notifications, `--no-final-notify` edits the progress message into the final answer.

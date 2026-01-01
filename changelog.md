@@ -3,6 +3,7 @@
 ## unreleased
 
 - add auto-router runner selection with configurable default engine
+- add `/cancel` + `/{engine}` command menu sync on startup
 
 ## v0.3.0 (2026-01-01)
 
