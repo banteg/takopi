@@ -199,3 +199,37 @@ async def test_run_serializes_new_session_after_session_is_known(
         with anyio.fail_after(2):
             while not resume_marker.exists():
                 await anyio.sleep(0.001)
+
+
+@pytest.mark.anyio
+async def test_run_strips_anthropic_api_key_by_default(tmp_path, monkeypatch) -> None:
+    claude_path = tmp_path / "claude"
+    claude_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import os\n"
+        "\n"
+        "session_id = 'session_01'\n"
+        "status = 'set' if os.environ.get('ANTHROPIC_API_KEY') else 'unset'\n"
+        "print(json.dumps({'type': 'system', 'subtype': 'init', 'session_id': session_id}), flush=True)\n"
+        "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': f'api={status}', 'session_id': session_id}), flush=True)\n"
+        "raise SystemExit(0)\n",
+        encoding="utf-8",
+    )
+    claude_path.chmod(0o755)
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
+
+    runner = ClaudeRunner(claude_cmd=str(claude_path))
+    answer: str | None = None
+    async for event in runner.run("hello", None):
+        if isinstance(event, CompletedEvent):
+            answer = event.answer
+    assert answer == "api=unset"
+
+    runner_api = ClaudeRunner(claude_cmd=str(claude_path), use_api_billing=True)
+    answer = None
+    async for event in runner_api.run("hello", None):
+        if isinstance(event, CompletedEvent):
+            answer = event.answer
+    assert answer == "api=set"

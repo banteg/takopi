@@ -107,6 +107,7 @@ def _claude_build_runner(config: EngineConfig, _config_path: Path) -> Runner:
     model = config.get("model")
     allowed_tools = config.get("allowed_tools")
     dangerously_skip_permissions = config.get("dangerously_skip_permissions")
+    use_api_billing = config.get("use_api_billing")
     title = str(model) if model is not None else "claude"
 
     return ClaudeRunner(
@@ -114,6 +115,7 @@ def _claude_build_runner(config: EngineConfig, _config_path: Path) -> Runner:
         model=model,
         allowed_tools=allowed_tools,
         dangerously_skip_permissions=dangerously_skip_permissions,
+        use_api_billing=use_api_billing,
         session_title=title,
     )
 

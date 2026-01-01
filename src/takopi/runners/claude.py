@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 from collections import deque
@@ -499,6 +500,7 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
     max_budget_usd: float | None = None
     include_partial_messages: bool = False
     dangerously_skip_permissions: bool = False
+    use_api_billing: bool = False
     mcp_config: list[str] | None = None
     add_dirs: list[str] | None = None
     extra_args: list[str] = field(default_factory=list)
@@ -610,11 +612,16 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
             return found_session is not None
 
         try:
+            env: dict[str, str] | None = None
+            if self.use_api_billing is not True:
+                env = dict(os.environ)
+                env.pop("ANTHROPIC_API_KEY", None)
             async with codex.manage_subprocess(
                 *args,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                env=env,
             ) as proc:
                 if proc.stdout is None or proc.stderr is None:
                     raise RuntimeError("claude failed to open subprocess pipes")
