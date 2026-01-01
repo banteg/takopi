@@ -65,7 +65,7 @@ start takopi in the repo you want to work on:
 cd ~/dev/your-repo
 takopi
 # or override the default engine for new threads:
-takopi codex
+takopi claude
 ```
 
 resume lines always route to the matching engine; subcommands only override the default for new threads.
