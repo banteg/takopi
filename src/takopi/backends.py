@@ -21,3 +21,4 @@ class EngineBackend:
     check_setup: Callable[[EngineConfig, Path], list[SetupIssue]]
     build_runner: Callable[[EngineConfig, Path], Runner]
     startup_message: Callable[[str], str]
+    install_cmds: tuple[str, ...] | None = None

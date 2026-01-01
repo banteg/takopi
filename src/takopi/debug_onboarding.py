@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import importlib
-
 import typer
 
 from .backends import SetupIssue
+from .backends_helpers import install_issue
 from .config import ConfigError
 from .engines import get_backend, list_backend_ids
 from .onboarding import SetupResult, check_setup, config_issue, render_setup_guide
@@ -19,18 +18,6 @@ def _dedupe_issues(issues: list[SetupIssue]) -> list[SetupIssue]:
         seen.add(issue)
         deduped.append(issue)
     return deduped
-
-
-def _install_issue(backend) -> SetupIssue | None:
-    module_name = backend.build_runner.__module__
-    try:
-        mod = importlib.import_module(module_name)
-    except Exception:
-        return None
-    issue = getattr(mod, "INSTALL_ISSUE", None)
-    if isinstance(issue, SetupIssue):
-        return issue
-    return None
 
 
 def run(
@@ -53,9 +40,8 @@ def run(
     setup = check_setup(backend)
     if force:
         forced_issues = [config_issue(setup.config_path)]
-        install_issue = _install_issue(backend)
-        if install_issue is not None:
-            forced_issues.insert(0, install_issue)
+        if backend.install_cmds:
+            forced_issues.insert(0, install_issue(backend.id, backend.install_cmds))
         setup = SetupResult(
             issues=_dedupe_issues([*setup.issues, *forced_issues]),
             config_path=setup.config_path,

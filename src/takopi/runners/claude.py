@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 import anyio
 
-from ..backends import EngineBackend, EngineConfig, SetupIssue
+from ..backends import EngineBackend, EngineConfig
 from ..backends_helpers import which_issue
 from ..model import (
     Action,
@@ -596,12 +596,9 @@ class ClaudeRunner(BaseRunner):
             )
 
 
-INSTALL_ISSUE = SetupIssue(
-    "install the claude code cli",
-    ("   [dim]$[/] npm install -g @anthropic-ai/claude-code",),
-)
+INSTALL_CMDS = ("npm install -g @anthropic-ai/claude-code",)
 
-check_setup = which_issue("claude", INSTALL_ISSUE)
+check_setup = which_issue("claude", INSTALL_CMDS)
 
 
 def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
@@ -632,4 +629,5 @@ BACKEND = EngineBackend(
     check_setup=check_setup,
     build_runner=build_runner,
     startup_message=startup_message,
+    install_cmds=INSTALL_CMDS,
 )
