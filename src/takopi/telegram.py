@@ -60,16 +60,6 @@ class TelegramClient:
         if self._owns_client:
             await self._client.aclose()
 
-    def _response_body(self, resp: httpx.Response) -> str:
-        try:
-            return resp.text
-        except Exception:
-            content = resp.content
-            try:
-                return content.decode("utf-8", errors="replace")
-            except Exception:
-                return repr(content)
-
     async def _post(self, method: str, json_data: dict[str, Any]) -> Any | None:
         logger.debug("[telegram] request %s: %s", method, json_data)
         try:
@@ -84,7 +74,7 @@ class TelegramClient:
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
-            body = self._response_body(resp)
+            body = resp.text
             logger.error(
                 "[telegram] http error method=%s status=%s url=%s: %s body=%r",
                 method,
@@ -98,7 +88,7 @@ class TelegramClient:
         try:
             payload = resp.json()
         except Exception as e:
-            body = self._response_body(resp)
+            body = resp.text
             logger.error(
                 "[telegram] bad response method=%s status=%s url=%s: %s body=%r",
                 method,
