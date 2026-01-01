@@ -22,3 +22,13 @@ def relativize_path(path: str, *, base_dir: Path | None = None) -> str:
             pass
 
     return raw
+
+
+def relativize_command(command: str, *, base_dir: Path | None = None) -> str:
+    if not command:
+        return command
+    base = Path.cwd() if base_dir is None else base_dir
+    base_str = str(base)
+    if not base_str:
+        return command
+    return command.replace(base_str, ".")

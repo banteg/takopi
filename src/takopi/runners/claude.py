@@ -24,7 +24,7 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..paths import relativize_path
+from ..paths import relativize_command, relativize_path
 from ..runner import ResumeRunnerMixin, Runner
 from . import codex
 
@@ -144,7 +144,8 @@ def _tool_input_path(tool_input: dict[str, Any]) -> str | None:
 def _tool_kind_and_title(name: str, tool_input: dict[str, Any]) -> tuple[ActionKind, str]:
     if name in {"Bash", "Shell", "KillShell"}:
         command = tool_input.get("command")
-        return "command", str(command or name)
+        display = relativize_command(str(command or name))
+        return "command", display
     if name in {"Edit", "Write", "NotebookEdit", "MultiEdit"}:
         path = _tool_input_path(tool_input)
         if path:
@@ -158,7 +159,7 @@ def _tool_kind_and_title(name: str, tool_input: dict[str, Any]) -> tuple[ActionK
     if name == "Glob":
         pattern = tool_input.get("pattern")
         if pattern:
-            return "tool", f"glob: {pattern}"
+            return "tool", f"glob: `{pattern}`"
         return "tool", "glob"
     if name == "Grep":
         pattern = tool_input.get("pattern")
