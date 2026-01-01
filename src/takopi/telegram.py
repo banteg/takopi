@@ -42,6 +42,14 @@ class BotClient(Protocol):
 
     async def delete_message(self, chat_id: int, message_id: int) -> bool: ...
 
+    async def set_my_commands(
+        self,
+        commands: list[dict[str, Any]],
+        *,
+        scope: dict[str, Any] | None = None,
+        language_code: str | None = None,
+    ) -> bool: ...
+
 
 class TelegramClient:
     def __init__(
@@ -183,4 +191,19 @@ class TelegramClient:
                 "message_id": message_id,
             },
         )
+        return bool(res)
+
+    async def set_my_commands(
+        self,
+        commands: list[dict[str, Any]],
+        *,
+        scope: dict[str, Any] | None = None,
+        language_code: str | None = None,
+    ) -> bool:
+        params: dict[str, Any] = {"commands": commands}
+        if scope is not None:
+            params["scope"] = scope
+        if language_code is not None:
+            params["language_code"] = language_code
+        res = await self._post("setMyCommands", params)
         return bool(res)

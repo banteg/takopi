@@ -351,6 +351,19 @@ Decision (v0.4.0):
   * The bridge MUST strip that directive from the prompt before invoking the runner.
   * If a ResumeToken is resolved from the message or reply, it MUST take precedence and the `/{engine}` directive MUST be ignored.
 
+### 8.1 Command menu (Telegram)
+
+Takopi SHOULD keep the bot’s slash-command menu in sync at startup (or deploy) by
+calling `setMyCommands` with the canonical list of supported commands.
+
+* Command names MUST be `1–32` chars of lowercase letters, digits, or underscores
+  (no leading `/`).
+* The command list MUST include:
+  * `cancel` — cancel the current run
+  * one entry per configured engine that has a valid command name
+* The command list MUST NOT include commands the bot does not support.
+* `scope` and `language_code` MAY be provided; defaults are acceptable.
+
 ## 9. Testing requirements (MUST)
 
 Tests MUST cover:

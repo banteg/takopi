@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -73,6 +74,47 @@ def _strip_engine_command(
     else:
         lines.pop(idx)
     return "\n".join(lines).strip(), engine
+
+
+_COMMAND_RE = re.compile(r"^[a-z0-9_]{1,32}$")
+
+
+def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
+    commands: list[dict[str, str]] = [
+        {"command": "cancel", "description": "Cancel the current run"}
+    ]
+    seen = {"cancel"}
+    for engine in router.engine_ids:
+        cmd = engine.lower()
+        if cmd in seen:
+            continue
+        if not _COMMAND_RE.match(cmd):
+            logger.info(
+                "[startup] skip command for engine=%r (invalid telegram command)",
+                engine,
+            )
+            continue
+        commands.append({"command": cmd, "description": f"Start a new {engine} thread"})
+        seen.add(cmd)
+    return commands
+
+
+async def _set_command_menu(cfg: BridgeConfig) -> None:
+    commands = _build_bot_commands(cfg.router)
+    if not commands:
+        return
+    try:
+        ok = await cfg.bot.set_my_commands(commands)
+    except Exception as exc:
+        logger.info("[startup] command menu update failed: %s", exc)
+        return
+    if not ok:
+        logger.info("[startup] command menu update rejected")
+        return
+    logger.info(
+        "[startup] command menu updated commands=%s",
+        ", ".join(cmd["command"] for cmd in commands),
+    )
 
 
 def _strip_resume_lines(text: str, *, is_resume_line: Callable[[str], bool]) -> str:
@@ -775,6 +817,7 @@ async def run_main_loop(
     running_tasks: dict[int, RunningTask] = {}
 
     try:
+        await _set_command_menu(cfg)
         async with anyio.create_task_group() as tg:
             scheduler_lock = anyio.Lock()
 

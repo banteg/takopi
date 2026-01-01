@@ -3,7 +3,7 @@ import uuid
 import anyio
 import pytest
 
-from takopi.bridge import _strip_engine_command
+from takopi.bridge import _build_bot_commands, _strip_engine_command
 from takopi.markdown import prepare_telegram, truncate_for_telegram
 from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.router import AutoRouter, RunnerEntry
@@ -160,6 +160,38 @@ def test_strip_engine_command_only_first_non_empty_line() -> None:
     assert text == "hello\n/claude hi"
 
 
+def test_build_bot_commands_includes_cancel_and_engine() -> None:
+    runner = ScriptRunner(
+        [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
+    )
+    router = _make_router(runner)
+    commands = _build_bot_commands(router)
+
+    assert {"command": "cancel", "description": "Cancel the current run"} in commands
+    assert any(cmd["command"] == "codex" for cmd in commands)
+
+
+def test_build_bot_commands_skips_invalid_engine_ids() -> None:
+    invalid_engine = EngineId("my-engine")
+    runner = ScriptRunner(
+        [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
+    )
+    bad_runner = ScriptRunner(
+        [Return(answer="ok")], engine=invalid_engine, resume_value="sid"
+    )
+    router = AutoRouter(
+        entries=[
+            RunnerEntry(engine=CODEX_ENGINE, runner=runner),
+            RunnerEntry(engine=invalid_engine, runner=bad_runner),
+        ],
+        default_engine=CODEX_ENGINE,
+    )
+    commands = _build_bot_commands(router)
+
+    assert any(cmd["command"] == "codex" for cmd in commands)
+    assert not any(cmd["command"] == "my-engine" for cmd in commands)
+
+
 def test_prepare_telegram_drops_entities_on_truncate() -> None:
     md = ("**bold** " * 200).strip()
 
@@ -172,6 +204,7 @@ def test_prepare_telegram_drops_entities_on_truncate() -> None:
 class _FakeBot:
     def __init__(self) -> None:
         self._next_id = 1
+        self.command_calls: list[dict] = []
         self.send_calls: list[dict] = []
         self.edit_calls: list[dict] = []
         self.delete_calls: list[dict] = []
@@ -220,6 +253,22 @@ class _FakeBot:
 
     async def delete_message(self, chat_id: int, message_id: int) -> bool:
         self.delete_calls.append({"chat_id": chat_id, "message_id": message_id})
+        return True
+
+    async def set_my_commands(
+        self,
+        commands: list[dict],
+        *,
+        scope: dict | None = None,
+        language_code: str | None = None,
+    ) -> bool:
+        self.command_calls.append(
+            {
+                "commands": commands,
+                "scope": scope,
+                "language_code": language_code,
+            }
+        )
         return True
 
     async def get_updates(
