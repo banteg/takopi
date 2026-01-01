@@ -8,9 +8,7 @@ from takopi.utils.paths import relativize_command
 def test_relativize_command_rewrites_cwd_paths(tmp_path: Path) -> None:
     base = tmp_path / "repo"
     base.mkdir()
-    command = (
-        f'find {base}/tests -type f -name "*.py" | head -20'
-    )
+    command = f'find {base}/tests -type f -name "*.py" | head -20'
     expected = 'find tests -type f -name "*.py" | head -20'
     assert relativize_command(command, base_dir=base) == expected
 
