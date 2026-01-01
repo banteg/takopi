@@ -46,13 +46,10 @@ chat_id = 123456789
 profile = "takopi"
 
 [claude]
-# optional: model override
 model = "sonnet"
-# optional: auto-approve tools
 allowed_tools = ["Bash", "Read", "Write", "WebSearch"]
-# optional: bypass permission checks (high risk; prefer sandbox use only)
 dangerously_skip_permissions = false
-# optional: keep ANTHROPIC_API_KEY for API billing
+# uses subscription by default, override to use api billing
 use_api_billing = false
 ```
 
@@ -72,15 +69,6 @@ send a message to the bot.
 to continue a thread, reply to a bot message containing a resume line.
 
 to stop a run, reply to the progress message with `/cancel`.
-
-## cli
-
-pick the engine explicitly (no default):
-
-```sh
-takopi codex
-takopi claude
-```
 
 default: progress is silent, final answer is sent as a new message (notification), progress message is deleted.
 
