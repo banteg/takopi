@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+from collections.abc import Mapping
+from functools import cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from .backends import EngineBackend, EngineConfig
 from .config import ConfigError
-
-_BACKENDS: dict[str, EngineBackend] | None = None
 
 
 def _discover_backends() -> dict[str, EngineBackend]:
@@ -33,34 +34,30 @@ def _discover_backends() -> dict[str, EngineBackend]:
     return backends
 
 
-def _ensure_loaded() -> None:
-    global _BACKENDS
-    if _BACKENDS is None:
-        _BACKENDS = _discover_backends()
+@cache
+def _backends() -> Mapping[str, EngineBackend]:
+    backends = _discover_backends()
+    return MappingProxyType(backends)
 
 
 def get_backend(engine_id: str) -> EngineBackend:
-    _ensure_loaded()
-    assert _BACKENDS is not None
+    backends = _backends()
     try:
-        return _BACKENDS[engine_id]
+        return backends[engine_id]
     except KeyError as exc:
-        available = ", ".join(sorted(_BACKENDS))
+        available = ", ".join(sorted(backends))
         raise ConfigError(
             f"Unknown engine {engine_id!r}. Available: {available}."
         ) from exc
 
 
 def list_backends() -> list[EngineBackend]:
-    _ensure_loaded()
-    assert _BACKENDS is not None
-    return [_BACKENDS[key] for key in sorted(_BACKENDS)]
+    backends = _backends()
+    return [backends[key] for key in sorted(backends)]
 
 
 def list_backend_ids() -> list[str]:
-    _ensure_loaded()
-    assert _BACKENDS is not None
-    return sorted(_BACKENDS)
+    return sorted(_backends())
 
 
 def get_engine_config(
