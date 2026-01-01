@@ -24,7 +24,7 @@ from ..model import (
     TakopiEvent,
 )
 from ..runner import ResumeTokenMixin, Runner, SessionLockMixin
-from ..utils.paths import relativize_path
+from ..utils.paths import relativize_command, relativize_path
 from ..utils.streams import drain_stderr, iter_jsonl
 from ..utils.subprocess import manage_subprocess
 
@@ -126,7 +126,7 @@ def _tool_kind_and_title(
 ) -> tuple[ActionKind, str]:
     if name in {"Bash", "Shell", "KillShell"}:
         command = tool_input.get("command")
-        display = relativize_path(str(command or name))
+        display = relativize_command(str(command or name))
         return "command", display
     if name in {"Edit", "Write", "NotebookEdit", "MultiEdit"}:
         path = _tool_input_path(tool_input)

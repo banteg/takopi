@@ -28,6 +28,7 @@ from ..runner import (
     SessionLockMixin,
     compile_resume_pattern,
 )
+from ..utils.paths import relativize_command
 from ..utils.streams import drain_stderr, iter_jsonl
 from ..utils.subprocess import manage_subprocess
 
@@ -232,7 +233,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
         return []
 
     if kind == "command":
-        title = str(item.get("command") or "")
+        title = relativize_command(str(item.get("command") or ""))
         if phase in {"started", "updated"}:
             return [
                 _action_event(
