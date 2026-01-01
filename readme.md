@@ -8,11 +8,13 @@ telegram bridge for codex and claude code. runs the agent cli, streams progress,
 
 stateless resume, continue a thread in the chat or pick up in the terminal.
 
-edits a single progress message while agent runs (commands, tools, notes, file changes, elapsed time).
+progress updates while agent runs (commands, tools, notes, file changes, elapsed time).
 
-renders markdown to telegram entities.
+robust markdown rendering of output with a lot of quality of life tweaks.
 
-runs in parallel across threads and queues per thread to keep agent history sane.
+parallel runs across threads, per thread queue support.
+
+`/cancel` a running task.
 
 ## requirements
 
@@ -35,7 +37,7 @@ runs in parallel across threads and queues per thread to keep agent history sane
 
 ## config
 
-takopi reads `.takopi/takopi.toml` in the current repo, otherwise `~/.takopi/takopi.toml`.
+global config `~/.takopi/takopi.toml`, repo-level config `.takopi/takopi.toml`
 
 ```toml
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
@@ -67,14 +69,13 @@ takopi claude
 send a message to the bot.
 
 to continue a thread, reply to a bot message containing a resume line.
+you can also copy it to resume an interactive session in your terminal.
 
 to stop a run, reply to the progress message with `/cancel`.
 
-default: progress is silent, final answer is sent as a new message (notification), progress message is deleted.
+default: progress is silent, final answer is sent as a new message so you receive a notification, progress message is deleted.
 
-`--no-final-notify` edits the progress message into the final answer (no new notification).
-
-`--debug` enables verbose logs.
+if you prefer no notifications, `--no-final-notify` edits the progress message into the final answer.
 
 ## notes
 
