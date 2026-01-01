@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-import inspect
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -605,7 +604,7 @@ async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
 
 async def _send_with_resume(
     bot: BotClient,
-    enqueue: Callable[[int, int, str, ResumeToken], Awaitable[None] | None],
+    enqueue: Callable[[int, int, str, ResumeToken], Awaitable[None]],
     running_task: RunningTask,
     chat_id: int,
     user_msg_id: int,
@@ -620,9 +619,7 @@ async def _send_with_resume(
             disable_notification=True,
         )
         return
-    result = enqueue(chat_id, user_msg_id, text, resume)
-    if inspect.isawaitable(result):
-        await result
+    await enqueue(chat_id, user_msg_id, text, resume)
 
 
 async def _run_main_loop(

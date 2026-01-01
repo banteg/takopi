@@ -715,7 +715,9 @@ async def test_send_with_resume_waits_for_token() -> None:
     bot = _FakeBot()
     sent: list[tuple[int, int, str, ResumeToken | None]] = []
 
-    def enqueue(chat_id: int, user_msg_id: int, text: str, resume: ResumeToken) -> None:
+    async def enqueue(
+        chat_id: int, user_msg_id: int, text: str, resume: ResumeToken
+    ) -> None:
         sent.append((chat_id, user_msg_id, text, resume))
 
     running_task = RunningTask()
@@ -748,7 +750,9 @@ async def test_send_with_resume_reports_when_missing() -> None:
     bot = _FakeBot()
     sent: list[tuple[int, int, str, ResumeToken | None]] = []
 
-    def enqueue(chat_id: int, user_msg_id: int, text: str, resume: ResumeToken) -> None:
+    async def enqueue(
+        chat_id: int, user_msg_id: int, text: str, resume: ResumeToken
+    ) -> None:
         sent.append((chat_id, user_msg_id, text, resume))
 
     running_task = RunningTask()
