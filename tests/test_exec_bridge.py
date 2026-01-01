@@ -167,7 +167,7 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
     router = _make_router(runner)
     commands = _build_bot_commands(router)
 
-    assert {"command": "cancel", "description": "Cancel the current run"} in commands
+    assert {"command": "cancel", "description": "cancel run"} in commands
     assert any(cmd["command"] == "codex" for cmd in commands)
 
 

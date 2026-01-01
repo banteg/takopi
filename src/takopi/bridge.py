@@ -81,7 +81,7 @@ _COMMAND_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 
 def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = [
-        {"command": "cancel", "description": "Cancel the current run"}
+        {"command": "cancel", "description": "cancel run"}
     ]
     seen = {"cancel"}
     for engine in router.engine_ids:
@@ -94,7 +94,7 @@ def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
                 engine,
             )
             continue
-        commands.append({"command": cmd, "description": f"Start a new {engine} thread"})
+        commands.append({"command": cmd, "description": f"start {cmd}"})
         seen.add(cmd)
     return commands
 

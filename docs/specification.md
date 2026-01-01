@@ -360,6 +360,7 @@ Takopi SHOULD keep the bot’s slash-command menu in sync at startup by calling
   * `cancel` — cancel the current run
   * one entry per configured engine that can be exposed as a slash command
 * The command list MUST NOT include commands the bot does not support.
+* Command descriptions SHOULD be terse and lowercase.
 
 ## 9. Testing requirements (MUST)
 
