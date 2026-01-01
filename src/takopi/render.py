@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import re
 import textwrap
-from dataclasses import dataclass
 from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+from markdown_it import MarkdownIt
+from sulguk import transform_html
 
 from .model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
 from .utils.paths import relativize_path
@@ -20,6 +25,9 @@ HARD_BREAK = "  \n"
 
 MAX_PROGRESS_CMD_LEN = 300
 MAX_FILE_CHANGES_INLINE = 3
+TELEGRAM_MARKDOWN_LIMIT = 3500
+
+_md = MarkdownIt("commonmark", {"html": False})
 
 
 @dataclass(frozen=True)
@@ -36,6 +44,48 @@ def assemble_markdown_parts(parts: MarkdownParts) -> str:
     if parts.footer:
         chunks.append(parts.footer)
     return "\n\n".join(chunks)
+
+
+def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
+    html = _md.render(md or "")
+    rendered = transform_html(html)
+
+    text = re.sub(r"(?m)^(\s*)•", r"\1-", rendered.text)
+
+    entities = [dict(e) for e in rendered.entities]
+    return text, entities
+
+
+def trim_body(body: str, budget: int) -> str:
+    if budget <= 0:
+        return ""
+    if len(body) <= budget:
+        return body
+    if budget == 1:
+        return "…"
+    return body[: budget - 1] + "…"
+
+
+def trim_markdown_parts(parts: MarkdownParts) -> MarkdownParts:
+    header = parts.header or ""
+    body = parts.body or ""
+    footer = parts.footer or ""
+
+    trimmed_body = trim_body(body, TELEGRAM_MARKDOWN_LIMIT) if body else ""
+    if not trimmed_body.strip():
+        trimmed_body = ""
+
+    return MarkdownParts(
+        header=header,
+        body=trimmed_body or None,
+        footer=footer or None,
+    )
+
+
+def prepare_telegram(parts: MarkdownParts) -> tuple[str, list[dict[str, Any]]]:
+    trimmed = trim_markdown_parts(parts)
+    md = assemble_markdown_parts(trimmed)
+    return render_markdown(md)
 
 
 def format_changed_file_path(path: str, *, base_dir: Path | None = None) -> str:
