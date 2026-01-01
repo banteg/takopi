@@ -86,6 +86,8 @@ Claude emits a system init event early in the stream:
 
 **Mapping:**
 - Emit a Takopi `started` event as soon as `session_id` is known.
+- Assume only one `system.init` per run; if more appear, ignore the subsequent
+  ones to avoid re-locking.
 - Optional: emit a `note` action summarizing tools/MCP servers (debug-only).
 
 ### 4.2 `assistant` / `user` message events
@@ -145,6 +147,8 @@ The terminal event looks like:
 - `error = event.error` (if present)
 - `resume = ResumeToken(engine="claude", value=event.session_id)`
 - `usage = event.usage` (pass through)
+- Emit exactly one `completed` event; ignore any trailing JSON lines afterward.
+  No idle-timeout completion is used.
 
 #### Permission denials
 `result.permission_denials` may contain tool calls that were blocked. Emit a

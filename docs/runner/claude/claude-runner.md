@@ -244,6 +244,10 @@ This mirrors CodexRunner’s “started → completed” item tracking and rende
 
     * `total_cost_usd`, `usage`, `modelUsage`, `duration_ms`, `duration_api_ms`, `num_turns` ([Claude Code][3])
   * Always include `resume` (same session_id).
+* Emit exactly one completed event per run. After emitting it, ignore any
+  trailing JSON lines (do not emit a second completion).
+* We do not use an idle-timeout completion; completion is driven by Claude’s
+  `result` event or process exit handling.
 
 **Permission denials**
 Because result includes `permission_denials`, optionally emit warning ActionEvent(s) *before* CompletedEvent (CompletedEvent must be final):
@@ -265,11 +269,13 @@ Must match Takopi runner contract:
   * you don’t know session_id until `system/init`, so:
 
     * spawn process,
-    * wait until `system/init`,
+    * wait until the **first** `system/init`,
     * acquire lock for that session id **before** yielding StartedEvent,
     * then continue yielding.
 
 This mirrors CodexRunner’s correct behavior and ensures “new run + resume run” serialize once the session is known.
+Assumption: Claude emits a single `system/init` per run. If multiple `init`
+events arrive, ignore the subsequent ones (do not attempt to re-lock).
 
 #### Cancellation / termination
 
