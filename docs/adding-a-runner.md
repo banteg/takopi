@@ -36,7 +36,7 @@ ENGINE: EngineId = "pi"
 _RESUME_RE = re.compile(r"(?im)^\s*`?pi\s+--resume\s+(?P<token>[^`\\s]+)`?\\s*$")
 
 @dataclass
-class PiRunner(SessionLockMixin, ResumeTokenMixin, Runner):
+class PiRunner(BaseRunner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE
 
@@ -56,17 +56,17 @@ class PiRunner(SessionLockMixin, ResumeTokenMixin, Runner):
         args.append(prompt)
         return args
 
-    async def run(
+    async def run_impl(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
-        async for evt in self.run_with_resume_lock(prompt, resume, self._run):
-            yield evt
+        ...
 ```
 
 Key implementation notes:
 
-- Use `SessionLockMixin` to enforce per-session serialization.
-- Use `ResumeTokenMixin` for `format_resume` / `extract_resume` / `is_resume_line`.
+- Use `BaseRunner` for resume parsing + per-session serialization.
+- Set `resume_re` only if your engine uses a non-standard resume format
+  (otherwise `BaseRunner` uses `compile_resume_pattern(...)` automatically).
 - Use `iter_jsonl(...)` + `drain_stderr(...)` from `takopi.utils.streams`.
 - **Do not truncate** tool outputs in the runner; pass full strings into events.
   Truncation belongs in renderers.

@@ -9,7 +9,7 @@ from weakref import WeakValueDictionary
 
 import anyio
 
-from .model import EngineId, ResumeToken, TakopiEvent
+from .model import EngineId, ResumeToken, StartedEvent, TakopiEvent
 
 
 def compile_resume_pattern(engine: EngineId) -> re.Pattern[str]:
@@ -77,6 +77,60 @@ class SessionLockMixin:
         async with lock:
             async for evt in run_fn(prompt, resume_token):
                 yield evt
+
+
+class BaseRunner(SessionLockMixin, ResumeTokenMixin):
+    engine: EngineId
+
+    def ensure_resume_re(self) -> re.Pattern[str]:
+        resume_re = getattr(self, "resume_re", None)
+        if resume_re is None:
+            resume_re = compile_resume_pattern(self.engine)
+            self.resume_re = resume_re
+        return resume_re
+
+    def is_resume_line(self, line: str) -> bool:
+        self.ensure_resume_re()
+        return super().is_resume_line(line)
+
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        self.ensure_resume_re()
+        return super().extract_resume(text)
+
+    async def run(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
+        self.ensure_resume_re()
+        async for evt in self.run_locked(prompt, resume):
+            yield evt
+
+    async def run_locked(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
+        if resume is not None:
+            async for evt in self.run_with_resume_lock(prompt, resume, self.run_impl):
+                yield evt
+            return
+
+        lock: anyio.Lock | None = None
+        acquired = False
+        try:
+            async for evt in self.run_impl(prompt, None):
+                if lock is None and isinstance(evt, StartedEvent):
+                    lock = self.lock_for(evt.resume)
+                    await lock.acquire()
+                    acquired = True
+                yield evt
+        finally:
+            if acquired and lock is not None:
+                lock.release()
+
+    async def run_impl(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
+        if False:
+            yield  # pragma: no cover
+        raise NotImplementedError
 
 
 class Runner(Protocol):

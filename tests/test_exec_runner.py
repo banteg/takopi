@@ -39,7 +39,7 @@ async def test_run_serializes_same_session() -> None:
         finally:
             in_flight -= 1
 
-    runner._run = run_stub  # type: ignore[assignment]
+    runner.run_impl = run_stub  # type: ignore[assignment]
 
     async def drain(prompt: str, resume: ResumeToken | None) -> None:
         async for _event in runner.run(prompt, resume):
@@ -76,7 +76,7 @@ async def test_run_allows_parallel_new_sessions() -> None:
         finally:
             in_flight -= 1
 
-    runner._run = run_stub  # type: ignore[assignment]
+    runner.run_impl = run_stub  # type: ignore[assignment]
 
     async def drain(prompt: str, resume: ResumeToken | None) -> None:
         async for _event in runner.run(prompt, resume):
@@ -112,7 +112,7 @@ async def test_run_allows_parallel_different_sessions() -> None:
         finally:
             in_flight -= 1
 
-    runner._run = run_stub  # type: ignore[assignment]
+    runner.run_impl = run_stub  # type: ignore[assignment]
 
     async def drain(prompt: str, resume: ResumeToken | None) -> None:
         async for _event in runner.run(prompt, resume):

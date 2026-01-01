@@ -24,7 +24,7 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..runner import ResumeTokenMixin, Runner, SessionLockMixin
+from ..runner import BaseRunner, Runner
 from ..utils.paths import relativize_command, relativize_path
 from ..utils.streams import drain_stderr, iter_jsonl
 from ..utils.subprocess import manage_subprocess
@@ -425,7 +425,7 @@ def translate_claude_event(
 
 
 @dataclass
-class ClaudeRunner(SessionLockMixin, ResumeTokenMixin, Runner):
+class ClaudeRunner(BaseRunner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE
 
@@ -456,31 +456,23 @@ class ClaudeRunner(SessionLockMixin, ResumeTokenMixin, Runner):
         args.append(prompt)
         return args
 
-    async def run(
-        self, prompt: str, resume: ResumeToken | None
-    ) -> AsyncIterator[TakopiEvent]:
-        async for evt in self.run_with_resume_lock(prompt, resume, self._run):
-            yield evt
-
-    async def _run(  # noqa: C901
+    async def run_impl(  # noqa: C901
         self,
         prompt: str,
-        resume_token: ResumeToken | None,
+        resume: ResumeToken | None,
     ) -> AsyncIterator[TakopiEvent]:
         logger.info(
             "[claude] start run resume=%r",
-            resume_token.value if resume_token else None,
+            resume.value if resume else None,
         )
         logger.debug("[claude] prompt: %s", prompt)
         args = [self.claude_cmd]
-        args.extend(self._build_args(prompt, resume_token))
+        args.extend(self._build_args(prompt, resume))
 
-        session_lock: anyio.Lock | None = None
-        session_lock_acquired = False
         did_emit_completed = False
         note_seq = 0
         state = ClaudeStreamState()
-        expected_session = resume_token
+        expected_session = resume
         found_session: ResumeToken | None = None
 
         def next_note_id() -> str:
@@ -488,128 +480,120 @@ class ClaudeRunner(SessionLockMixin, ResumeTokenMixin, Runner):
             note_seq += 1
             return f"claude.note.{note_seq}"
 
-        try:
-            env: dict[str, str] | None = None
-            if self.use_api_billing is not True:
-                env = dict(os.environ)
-                env.pop("ANTHROPIC_API_KEY", None)
-            async with manage_subprocess(
-                *args,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-            ) as proc:
-                if proc.stdout is None or proc.stderr is None:
-                    raise RuntimeError("claude failed to open subprocess pipes")
-                proc_stdout = proc.stdout
-                proc_stderr = proc.stderr
-                if proc.stdin is not None:
-                    await proc.stdin.aclose()
+        env: dict[str, str] | None = None
+        if self.use_api_billing is not True:
+            env = dict(os.environ)
+            env.pop("ANTHROPIC_API_KEY", None)
+        async with manage_subprocess(
+            *args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        ) as proc:
+            if proc.stdout is None or proc.stderr is None:
+                raise RuntimeError("claude failed to open subprocess pipes")
+            proc_stdout = proc.stdout
+            proc_stderr = proc.stderr
+            if proc.stdin is not None:
+                await proc.stdin.aclose()
 
-                stderr_chunks: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
-                rc: int | None = None
+            stderr_chunks: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
+            rc: int | None = None
 
-                async with anyio.create_task_group() as tg:
-                    tg.start_soon(
-                        drain_stderr,
-                        proc_stderr,
-                        stderr_chunks,
-                        logger,
-                        "claude",
-                    )
-                    async for json_line in iter_jsonl(
-                        proc_stdout, logger=logger, tag="claude"
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(
+                    drain_stderr,
+                    proc_stderr,
+                    stderr_chunks,
+                    logger,
+                    "claude",
+                )
+                async for json_line in iter_jsonl(
+                    proc_stdout, logger=logger, tag="claude"
+                ):
+                    if did_emit_completed:
+                        continue
+                    if json_line.data is None:
+                        yield _note_completed(
+                            next_note_id(),
+                            "invalid JSON from claude; ignoring line",
+                            ok=False,
+                            detail={"line": json_line.raw},
+                        )
+                        continue
+                    evt = json_line.data
+
+                    for out_evt in translate_claude_event(
+                        evt,
+                        title=self.session_title,
+                        state=state,
                     ):
-                        if did_emit_completed:
-                            continue
-                        if json_line.data is None:
-                            yield _note_completed(
-                                next_note_id(),
-                                "invalid JSON from claude; ignoring line",
-                                ok=False,
-                                detail={"line": json_line.raw},
-                            )
-                            continue
-                        evt = json_line.data
-
-                        for out_evt in translate_claude_event(
-                            evt,
-                            title=self.session_title,
-                            state=state,
-                        ):
-                            if isinstance(out_evt, StartedEvent):
-                                session = out_evt.resume
-                                if session.engine != ENGINE:
-                                    raise RuntimeError(
-                                        "claude emitted session token for wrong engine"
-                                    )
-                                if (
-                                    expected_session is not None
-                                    and session != expected_session
-                                ):
-                                    raise RuntimeError(
-                                        "claude emitted a different session id than expected"
-                                    )
-                                if expected_session is None:
-                                    session_lock = self.lock_for(session)
-                                    await session_lock.acquire()
-                                    session_lock_acquired = True
-                                found_session = session
-                                yield out_evt
-                                continue
+                        if isinstance(out_evt, StartedEvent):
+                            session = out_evt.resume
+                            if session.engine != ENGINE:
+                                raise RuntimeError(
+                                    "claude emitted session token for wrong engine"
+                                )
+                            if (
+                                expected_session is not None
+                                and session != expected_session
+                            ):
+                                raise RuntimeError(
+                                    "claude emitted a different session id than expected"
+                                )
+                            found_session = session
                             yield out_evt
-                            if isinstance(out_evt, CompletedEvent):
-                                did_emit_completed = True
-                                break
-                    rc = await proc.wait()
+                            continue
+                        yield out_evt
+                        if isinstance(out_evt, CompletedEvent):
+                            did_emit_completed = True
+                            break
+                rc = await proc.wait()
 
-                logger.debug("[claude] process exit pid=%s rc=%s", proc.pid, rc)
-                if did_emit_completed:
-                    return
+            logger.debug("[claude] process exit pid=%s rc=%s", proc.pid, rc)
+            if did_emit_completed:
+                return
 
-                if rc != 0:
-                    stderr_text = "".join(stderr_chunks)
-                    message = f"claude failed (rc={rc})."
-                    yield _note_completed(
-                        next_note_id(),
-                        message,
-                        ok=False,
-                        detail={"stderr_tail": stderr_text},
-                    )
-                    resume_for_completed = found_session or resume_token
-                    yield CompletedEvent(
-                        engine=ENGINE,
-                        ok=False,
-                        answer="",
-                        resume=resume_for_completed,
-                        error=message,
-                    )
-                    return
-
-                if not found_session:
-                    message = "claude finished but no session_id was captured"
-                    resume_for_completed = resume_token
-                    yield CompletedEvent(
-                        engine=ENGINE,
-                        ok=False,
-                        answer="",
-                        resume=resume_for_completed,
-                        error=message,
-                    )
-                    return
-
-                message = "claude finished without a result event"
+            if rc != 0:
+                stderr_text = "".join(stderr_chunks)
+                message = f"claude failed (rc={rc})."
+                yield _note_completed(
+                    next_note_id(),
+                    message,
+                    ok=False,
+                    detail={"stderr_tail": stderr_text},
+                )
+                resume_for_completed = found_session or resume
                 yield CompletedEvent(
                     engine=ENGINE,
                     ok=False,
-                    answer=state.last_assistant_text or "",
-                    resume=found_session,
+                    answer="",
+                    resume=resume_for_completed,
                     error=message,
                 )
-        finally:
-            if session_lock is not None and session_lock_acquired:
-                session_lock.release()
+                return
+
+            if not found_session:
+                message = "claude finished but no session_id was captured"
+                resume_for_completed = resume
+                yield CompletedEvent(
+                    engine=ENGINE,
+                    ok=False,
+                    answer="",
+                    resume=resume_for_completed,
+                    error=message,
+                )
+                return
+
+            message = "claude finished without a result event"
+            yield CompletedEvent(
+                engine=ENGINE,
+                ok=False,
+                answer=state.last_assistant_text or "",
+                resume=found_session,
+                error=message,
+            )
 
 
 INSTALL_ISSUE = SetupIssue(

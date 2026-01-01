@@ -25,12 +25,7 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..runner import (
-    ResumeTokenMixin,
-    Runner,
-    SessionLockMixin,
-    compile_resume_pattern,
-)
+from ..runner import BaseRunner, Runner, compile_resume_pattern
 from ..utils.paths import relativize_command
 from ..utils.streams import drain_stderr, iter_jsonl
 from ..utils.subprocess import manage_subprocess
@@ -412,7 +407,7 @@ def translate_codex_event(event: dict[str, Any], *, title: str) -> list[TakopiEv
     return []
 
 
-class CodexRunner(SessionLockMixin, ResumeTokenMixin, Runner):
+class CodexRunner(BaseRunner):
     engine: EngineId = ENGINE
     resume_re = _RESUME_RE
 
@@ -427,118 +422,84 @@ class CodexRunner(SessionLockMixin, ResumeTokenMixin, Runner):
         self.extra_args = extra_args
         self.session_title = title
 
-    async def run(
-        self, prompt: str, resume: ResumeToken | None
-    ) -> AsyncIterator[TakopiEvent]:
-        async for evt in self.run_with_resume_lock(prompt, resume, self._run):
-            yield evt
-
-    async def _run(  # noqa: C901
+    async def run_impl(  # noqa: C901
         self,
         prompt: str,
-        resume_token: ResumeToken | None,
+        resume: ResumeToken | None,
     ) -> AsyncIterator[TakopiEvent]:
-        logger.info(
-            "[codex] start run resume=%r", resume_token.value if resume_token else None
-        )
+        logger.info("[codex] start run resume=%r", resume.value if resume else None)
         logger.debug("[codex] prompt: %s", prompt)
         args = [self.codex_cmd]
         args.extend(self.extra_args)
         args.extend(["exec", "--json"])
 
-        if resume_token:
-            args.extend(["resume", resume_token.value, "-"])
+        if resume:
+            args.extend(["resume", resume.value, "-"])
         else:
             args.append("-")
-        session_lock: anyio.Lock | None = None
-        session_lock_acquired = False
 
-        try:
-            async with manage_subprocess(
-                *args,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            ) as proc:
-                if proc.stdin is None or proc.stdout is None or proc.stderr is None:
-                    raise RuntimeError("codex exec failed to open subprocess pipes")
-                proc_stdin = proc.stdin
-                proc_stdout = proc.stdout
-                proc_stderr = proc.stderr
-                logger.debug("[codex] spawn pid=%s args=%r", proc.pid, args)
+        async with manage_subprocess(
+            *args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ) as proc:
+            if proc.stdin is None or proc.stdout is None or proc.stderr is None:
+                raise RuntimeError("codex exec failed to open subprocess pipes")
+            proc_stdin = proc.stdin
+            proc_stdout = proc.stdout
+            proc_stderr = proc.stderr
+            logger.debug("[codex] spawn pid=%s args=%r", proc.pid, args)
 
-                stderr_chunks: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
-                rc: int | None = None
+            stderr_chunks: deque[str] = deque(maxlen=STDERR_TAIL_LINES)
+            rc: int | None = None
 
-                expected_session: ResumeToken | None = resume_token
-                found_session: ResumeToken | None = None
-                final_answer: str | None = None
-                note_seq = 0
-                did_emit_completed = False
-                turn_index = 0
+            expected_session: ResumeToken | None = resume
+            found_session: ResumeToken | None = None
+            final_answer: str | None = None
+            note_seq = 0
+            did_emit_completed = False
+            turn_index = 0
 
-                def next_note_id() -> str:
-                    nonlocal note_seq
-                    note_seq += 1
-                    return f"codex.note.{note_seq}"
+            def next_note_id() -> str:
+                nonlocal note_seq
+                note_seq += 1
+                return f"codex.note.{note_seq}"
 
-                async with anyio.create_task_group() as tg:
-                    tg.start_soon(
-                        drain_stderr,
-                        proc_stderr,
-                        stderr_chunks,
-                        logger,
-                        "codex",
-                    )
-                    await proc_stdin.send(prompt.encode())
-                    await proc_stdin.aclose()
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(
+                    drain_stderr,
+                    proc_stderr,
+                    stderr_chunks,
+                    logger,
+                    "codex",
+                )
+                await proc_stdin.send(prompt.encode())
+                await proc_stdin.aclose()
 
-                    async for json_line in iter_jsonl(
-                        proc_stdout, logger=logger, tag="codex"
-                    ):
-                        if did_emit_completed:
-                            continue
-                        if json_line.data is None:
-                            note = _note_completed(
-                                next_note_id(),
-                                "invalid JSON from codex; ignoring line",
-                                ok=False,
-                                detail={"line": json_line.line},
-                            )
-                            yield note
-                            continue
-                        evt = json_line.data
+                async for json_line in iter_jsonl(
+                    proc_stdout, logger=logger, tag="codex"
+                ):
+                    if did_emit_completed:
+                        continue
+                    if json_line.data is None:
+                        note = _note_completed(
+                            next_note_id(),
+                            "invalid JSON from codex; ignoring line",
+                            ok=False,
+                            detail={"line": json_line.line},
+                        )
+                        yield note
+                        continue
+                    evt = json_line.data
 
-                        etype = evt.get("type")
-                        if etype == "error":
-                            message = str(evt.get("message") or "codex error")
-                            fatal_flag = evt.get("fatal")
-                            fatal = fatal_flag is True or fatal_flag is None
-                            if fatal:
-                                resume_for_completed = found_session or resume_token
-                                yield _completed_event(
-                                    resume=resume_for_completed,
-                                    ok=False,
-                                    answer=final_answer or "",
-                                    error=message,
-                                )
-                                did_emit_completed = True
-                                continue
-                            note = _note_completed(
-                                next_note_id(),
-                                message,
-                                ok=False,
-                                detail={
-                                    "code": evt.get("code"),
-                                    "fatal": evt.get("fatal"),
-                                },
-                            )
-                            yield note
-                            continue
-                        if etype == "turn.failed":
-                            error = evt.get("error") or {}
-                            message = str(error.get("message") or "codex turn failed")
-                            resume_for_completed = found_session or resume_token
+                    etype = evt.get("type")
+                    if etype == "error":
+                        message = str(evt.get("message") or "codex error")
+                        fatal_flag = evt.get("fatal")
+                        fatal = fatal_flag is True or fatal_flag is None
+                        if fatal:
+                            resume_for_completed = found_session or resume
                             yield _completed_event(
                                 resume=resume_for_completed,
                                 ok=False,
@@ -547,120 +508,132 @@ class CodexRunner(SessionLockMixin, ResumeTokenMixin, Runner):
                             )
                             did_emit_completed = True
                             continue
-                        if etype == "turn.rate_limited":
-                            retry_ms = evt.get("retry_after_ms")
-                            message = "rate limited"
-                            if isinstance(retry_ms, int):
-                                message = f"rate limited (retry after {retry_ms}ms)"
-                            note = _note_completed(next_note_id(), message, ok=False)
-                            yield note
-                            continue
-                        if etype == "turn.started":
-                            action_id = f"turn_{turn_index}"
-                            turn_index += 1
-                            yield _action_event(
-                                phase="started",
-                                action_id=action_id,
-                                kind="turn",
-                                title="turn started",
-                            )
-                            continue
-                        if etype == "turn.completed":
-                            resume_for_completed = found_session or resume_token
-                            yield _completed_event(
-                                resume=resume_for_completed,
-                                ok=True,
-                                answer=final_answer or "",
-                                usage=evt.get("usage"),
-                            )
-                            did_emit_completed = True
-                            continue
+                        note = _note_completed(
+                            next_note_id(),
+                            message,
+                            ok=False,
+                            detail={
+                                "code": evt.get("code"),
+                                "fatal": evt.get("fatal"),
+                            },
+                        )
+                        yield note
+                        continue
+                    if etype == "turn.failed":
+                        error = evt.get("error") or {}
+                        message = str(error.get("message") or "codex turn failed")
+                        resume_for_completed = found_session or resume
+                        yield _completed_event(
+                            resume=resume_for_completed,
+                            ok=False,
+                            answer=final_answer or "",
+                            error=message,
+                        )
+                        did_emit_completed = True
+                        continue
+                    if etype == "turn.rate_limited":
+                        retry_ms = evt.get("retry_after_ms")
+                        message = "rate limited"
+                        if isinstance(retry_ms, int):
+                            message = f"rate limited (retry after {retry_ms}ms)"
+                        note = _note_completed(next_note_id(), message, ok=False)
+                        yield note
+                        continue
+                    if etype == "turn.started":
+                        action_id = f"turn_{turn_index}"
+                        turn_index += 1
+                        yield _action_event(
+                            phase="started",
+                            action_id=action_id,
+                            kind="turn",
+                            title="turn started",
+                        )
+                        continue
+                    if etype == "turn.completed":
+                        resume_for_completed = found_session or resume
+                        yield _completed_event(
+                            resume=resume_for_completed,
+                            ok=True,
+                            answer=final_answer or "",
+                            usage=evt.get("usage"),
+                        )
+                        did_emit_completed = True
+                        continue
 
-                        if evt.get("type") == "item.completed":
-                            item = evt.get("item") or {}
-                            item_type = item.get("type") or item.get("item_type")
-                            if item_type == "assistant_message":
-                                item_type = "agent_message"
-                            if item_type == "agent_message" and isinstance(
-                                item.get("text"), str
-                            ):
-                                if final_answer is None:
-                                    final_answer = item["text"]
-                                else:
-                                    logger.debug(
-                                        "[codex] emitted multiple agent messages; using the last one"
-                                    )
-                                    final_answer = item["text"]
-
-                        for out_evt in translate_codex_event(
-                            evt, title=self.session_title
+                    if evt.get("type") == "item.completed":
+                        item = evt.get("item") or {}
+                        item_type = item.get("type") or item.get("item_type")
+                        if item_type == "assistant_message":
+                            item_type = "agent_message"
+                        if item_type == "agent_message" and isinstance(
+                            item.get("text"), str
                         ):
-                            if isinstance(out_evt, StartedEvent):
-                                session = out_evt.resume
-                                if found_session is None:
-                                    if session.engine != ENGINE:
-                                        raise RuntimeError(
-                                            f"codex emitted session token for engine {session.engine!r}"
-                                        )
-                                    if (
-                                        expected_session is not None
-                                        and session != expected_session
-                                    ):
-                                        message = "codex emitted a different session id than expected"
-                                        raise RuntimeError(message)
-                                    if expected_session is None:
-                                        session_lock = self.lock_for(session)
-                                        await session_lock.acquire()
-                                        session_lock_acquired = True
-                                    found_session = session
-                                    yield out_evt
-                                continue
-                            yield out_evt
-                    rc = await proc.wait()
+                            if final_answer is None:
+                                final_answer = item["text"]
+                            else:
+                                logger.debug(
+                                    "[codex] emitted multiple agent messages; using the last one"
+                                )
+                                final_answer = item["text"]
 
-                logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
-                if did_emit_completed:
-                    return
-                if rc != 0:
-                    stderr_text = "".join(stderr_chunks)
-                    message = f"codex exec failed (rc={rc})."
-                    yield _note_completed(
-                        next_note_id(),
-                        message,
-                        ok=False,
-                        detail={"stderr_tail": stderr_text},
-                    )
-                    resume_for_completed = found_session or resume_token
-                    yield _completed_event(
-                        resume=resume_for_completed,
-                        ok=False,
-                        answer=final_answer or "",
-                        error=message,
-                    )
-                    return
+                    for out_evt in translate_codex_event(evt, title=self.session_title):
+                        if isinstance(out_evt, StartedEvent):
+                            session = out_evt.resume
+                            if found_session is None:
+                                if session.engine != ENGINE:
+                                    raise RuntimeError(
+                                        f"codex emitted session token for engine {session.engine!r}"
+                                    )
+                                if (
+                                    expected_session is not None
+                                    and session != expected_session
+                                ):
+                                    message = "codex emitted a different session id than expected"
+                                    raise RuntimeError(message)
+                                found_session = session
+                                yield out_evt
+                            continue
+                        yield out_evt
+                rc = await proc.wait()
 
-                if not found_session:
-                    message = (
-                        "codex exec finished but no session_id/thread_id was captured"
-                    )
-                    resume_for_completed = resume_token
-                    yield _completed_event(
-                        resume=resume_for_completed,
-                        ok=False,
-                        answer=final_answer or "",
-                        error=message,
-                    )
-                    return
-
-                logger.info("[codex] done run session=%s", found_session.value)
-                yield _completed_event(
-                    resume=found_session,
-                    ok=True,
-                    answer=final_answer or "",
+            logger.debug("[codex] process exit pid=%s rc=%s", proc.pid, rc)
+            if did_emit_completed:
+                return
+            if rc != 0:
+                stderr_text = "".join(stderr_chunks)
+                message = f"codex exec failed (rc={rc})."
+                yield _note_completed(
+                    next_note_id(),
+                    message,
+                    ok=False,
+                    detail={"stderr_tail": stderr_text},
                 )
-        finally:
-            if session_lock is not None and session_lock_acquired:
-                session_lock.release()
+                resume_for_completed = found_session or resume
+                yield _completed_event(
+                    resume=resume_for_completed,
+                    ok=False,
+                    answer=final_answer or "",
+                    error=message,
+                )
+                return
+
+            if not found_session:
+                message = "codex exec finished but no session_id/thread_id was captured"
+                resume_for_completed = resume
+                yield _completed_event(
+                    resume=resume_for_completed,
+                    ok=False,
+                    answer=final_answer or "",
+                    error=message,
+                )
+                return
+
+            logger.info("[codex] done run session=%s", found_session.value)
+            yield _completed_event(
+                resume=found_session,
+                ok=True,
+                answer=final_answer or "",
+            )
 
 
 INSTALL_ISSUE = SetupIssue(

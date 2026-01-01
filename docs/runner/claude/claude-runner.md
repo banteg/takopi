@@ -318,7 +318,7 @@ Mirror the existing `CodexRunner` tests patterns.
 
 1. **Contract & locking**
 
-* `test_run_serializes_same_session` (stub `_run` like Codex tests)
+* `test_run_serializes_same_session` (stub `run_impl` like Codex tests)
 * `test_run_allows_parallel_new_sessions`
 * `test_run_serializes_new_session_after_session_is_known`:
 
