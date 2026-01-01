@@ -681,7 +681,7 @@ async def _send_with_resume(
     await enqueue(chat_id, user_msg_id, text, resume)
 
 
-async def _run_main_loop(
+async def run_main_loop(
     cfg: BridgeConfig,
     poller: Callable[[BridgeConfig], AsyncIterator[dict[str, Any]]] = poll_updates,
 ) -> None:

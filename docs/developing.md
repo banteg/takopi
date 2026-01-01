@@ -36,7 +36,7 @@ The orchestrator module containing:
 |-----------|---------|
 | `BridgeConfig` | Frozen dataclass holding runtime config |
 | `poll_updates()` | Async generator that drains backlog, long-polls updates, filters messages |
-| `_run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
+| `run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
 | `handle_message()` | Per-message handler with progress updates and final render |
 | `ProgressEdits` | Throttled progress edit worker |
 | `_handle_cancel()` | `/cancel` routing |
@@ -162,7 +162,7 @@ Telegram Update
     ↓
 poll_updates() drains backlog, long-polls, filters chat_id == from_id == cfg.chat_id
     ↓
-_run_main_loop() spawns tasks in TaskGroup
+run_main_loop() spawns tasks in TaskGroup
     ↓
 handle_message() spawned as task
     ↓

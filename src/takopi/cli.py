@@ -8,7 +8,7 @@ import typer
 
 from . import __version__
 from .backends import EngineBackend
-from .bridge import BridgeConfig, _run_main_loop
+from .bridge import BridgeConfig, run_main_loop
 from .config import ConfigError, load_telegram_config
 from .engines import get_backend, get_engine_config, list_backends
 from .logging import setup_logging
@@ -90,7 +90,7 @@ def _run_engine(*, engine: str, final_notify: bool, debug: bool) -> None:
     except ConfigError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
-    anyio.run(_run_main_loop, cfg)
+    anyio.run(run_main_loop, cfg)
 
 
 app = typer.Typer(

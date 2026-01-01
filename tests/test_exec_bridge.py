@@ -774,7 +774,7 @@ async def test_send_with_resume_reports_when_missing() -> None:
 
 @pytest.mark.anyio
 async def test_run_main_loop_routes_reply_to_running_resume() -> None:
-    from takopi.bridge import BridgeConfig, _run_main_loop
+    from takopi.bridge import BridgeConfig, run_main_loop
 
     progress_ready = anyio.Event()
     stop_polling = anyio.Event()
@@ -843,7 +843,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
         await stop_polling.wait()
 
     async with anyio.create_task_group() as tg:
-        tg.start_soon(_run_main_loop, cfg, poller)
+        tg.start_soon(run_main_loop, cfg, poller)
         try:
             with anyio.fail_after(2):
                 await reply_ready.wait()
