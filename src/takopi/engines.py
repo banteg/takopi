@@ -248,11 +248,6 @@ def _claude_build_runner(config: EngineConfig, config_path: Path) -> Runner:
         field="dangerously_skip_permissions",
         config_path=config_path,
     )
-    allow_dangerously_skip_permissions = _parse_bool(
-        config.get("allow_dangerously_skip_permissions"),
-        field="allow_dangerously_skip_permissions",
-        config_path=config_path,
-    )
     idle_timeout_s = _parse_float(
         config.get("idle_timeout_s"),
         field="idle_timeout_s",
@@ -284,7 +279,6 @@ def _claude_build_runner(config: EngineConfig, config_path: Path) -> Runner:
         max_budget_usd=max_budget_usd,
         include_partial_messages=bool(include_partial_messages),
         dangerously_skip_permissions=bool(dangerously_skip_permissions),
-        allow_dangerously_skip_permissions=bool(allow_dangerously_skip_permissions),
         mcp_config=mcp_config,
         add_dirs=add_dirs,
         extra_args=extra_args,

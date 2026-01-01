@@ -474,7 +474,6 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
     max_budget_usd: float | None = None
     include_partial_messages: bool = False
     dangerously_skip_permissions: bool = False
-    allow_dangerously_skip_permissions: bool = False
     mcp_config: list[str] | None = None
     add_dirs: list[str] | None = None
     extra_args: list[str] = field(default_factory=list)
@@ -527,8 +526,6 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
             args.append("--include-partial-messages")
         if self.dangerously_skip_permissions:
             args.append("--dangerously-skip-permissions")
-        if self.allow_dangerously_skip_permissions:
-            args.append("--allow-dangerously-skip-permissions")
         if self.mcp_config:
             for cfg in self.mcp_config:
                 args.extend(["--mcp-config", cfg])
