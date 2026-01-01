@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from takopi import backends_helpers, engines, onboarding
+from takopi import engines, onboarding
 
 
 def test_check_setup_marks_missing_codex(monkeypatch, tmp_path: Path) -> None:
     backend = engines.get_backend("codex")
-    monkeypatch.setattr(backends_helpers.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(onboarding.shutil, "which", lambda _name: None)
     monkeypatch.setattr(
         onboarding,
         "load_telegram_config",
@@ -24,9 +24,7 @@ def test_check_setup_marks_missing_codex(monkeypatch, tmp_path: Path) -> None:
 
 def test_check_setup_marks_missing_config(monkeypatch) -> None:
     backend = engines.get_backend("codex")
-    monkeypatch.setattr(
-        backends_helpers.shutil, "which", lambda _name: "/usr/bin/codex"
-    )
+    monkeypatch.setattr(onboarding.shutil, "which", lambda _name: "/usr/bin/codex")
 
     def _raise() -> None:
         raise onboarding.ConfigError("Missing config file")
@@ -42,9 +40,7 @@ def test_check_setup_marks_missing_config(monkeypatch) -> None:
 
 def test_check_setup_marks_invalid_chat_id(monkeypatch, tmp_path: Path) -> None:
     backend = engines.get_backend("codex")
-    monkeypatch.setattr(
-        backends_helpers.shutil, "which", lambda _name: "/usr/bin/codex"
-    )
+    monkeypatch.setattr(onboarding.shutil, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
         onboarding,
         "load_telegram_config",

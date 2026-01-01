@@ -40,8 +40,8 @@ def run(
     setup = check_setup(backend)
     if force:
         forced_issues = [config_issue(setup.config_path)]
-        if backend.install_cmd:
-            forced_issues.insert(0, install_issue(backend.id, backend.install_cmd))
+        cmd = backend.cli_cmd or backend.id
+        forced_issues.insert(0, install_issue(cmd, backend.install_cmd))
         setup = SetupResult(
             issues=_dedupe_issues([*setup.issues, *forced_issues]),
             config_path=setup.config_path,

@@ -8,7 +8,8 @@ domain model. Use the existing runners (Codex/Claude) as references.
 1. Implement `Runner` in `src/takopi/runners/<engine>.py`.
 2. Emit Takopi events from `takopi.model` and implement resume helpers
    (`format_resume`, `extract_resume`, `is_resume_line`).
-3. Define `BACKEND = EngineBackend(...)` in the runner module (auto-discovered).
+3. Define `BACKEND = EngineBackend(...)` in the runner module (auto-discovered),
+   including `install_cmd` (and `cli_cmd` only if the binary name differs).
 4. Extend tests (runner contract + engine-specific translation tests).
 
 ---
@@ -102,9 +103,9 @@ At the bottom of `src/takopi/runners/pi.py`, define:
 ```py
 BACKEND = EngineBackend(
     id="pi",
-    check_setup=check_setup,
     build_runner=build_runner,
     startup_message=startup_message,
+    install_cmd="npm install -g @acme/pi-cli",
 )
 ```
 
@@ -112,6 +113,9 @@ No changes to `engines.py` or `cli.py` are required.
 
 Only modules that define `BACKEND` are treated as engines. Internal/testing
 modules (like `mock.py`) should omit it.
+
+If the CLI binary name differs from the engine id, set `cli_cmd="pi-cli"` on
+the backend.
 
 Example config (minimal):
 

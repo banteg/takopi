@@ -11,7 +11,6 @@ from typing import Any, cast
 import anyio
 
 from ..backends import EngineBackend, EngineConfig
-from ..backends_helpers import which_issue
 from ..config import ConfigError
 from ..model import (
     Action,
@@ -636,8 +635,6 @@ class CodexRunner(BaseRunner):
             )
 
 
-check_setup = which_issue("codex", "npm install -g @openai/codex")
-
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
     codex_cmd = "codex"
@@ -673,7 +670,6 @@ def startup_message(cwd: str) -> str:
 
 BACKEND = EngineBackend(
     id="codex",
-    check_setup=check_setup,
     build_runner=build_runner,
     startup_message=startup_message,
     install_cmd="npm install -g @openai/codex",

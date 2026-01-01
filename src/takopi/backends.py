@@ -18,7 +18,7 @@ class SetupIssue:
 @dataclass(frozen=True, slots=True)
 class EngineBackend:
     id: str
-    check_setup: Callable[[EngineConfig, Path], list[SetupIssue]]
     build_runner: Callable[[EngineConfig, Path], Runner]
     startup_message: Callable[[str], str]
+    cli_cmd: str | None = None
     install_cmd: str | None = None

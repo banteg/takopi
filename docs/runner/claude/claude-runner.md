@@ -103,8 +103,8 @@ Takopi auto-discovers runners by importing `takopi.runners.*` and looking for
 `BACKEND` should provide:
 
 * Engine id: `"claude"`
-* `check_setup()`:
-  * `shutil.which("claude")` must exist.
+* `install_cmd`:
+  * Install command for `claude` (used by onboarding when missing on PATH).
   * Error message should include official install options and “run `claude` once to authenticate”.
 
     * Install methods include install scripts, Homebrew, and npm. ([Claude Code][4])
