@@ -472,11 +472,9 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
     add_dirs: list[str] | None = None
     extra_args: list[str] = field(default_factory=list)
     session_title: str = "claude"
-
-    def __post_init__(self) -> None:
-        self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
-            WeakValueDictionary()
-        )
+    _session_locks: WeakValueDictionary[str, anyio.Lock] = field(
+        default_factory=WeakValueDictionary, init=False, repr=False
+    )
 
     def _lock_for(self, token: ResumeToken) -> anyio.Lock:
         key = f"{token.engine}:{token.value}"
