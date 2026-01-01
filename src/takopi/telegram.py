@@ -60,18 +60,15 @@ class TelegramClient:
         if self._owns_client:
             await self._client.aclose()
 
-    def _response_body(self, resp: httpx.Response, *, limit: int = 500) -> str:
+    def _response_body(self, resp: httpx.Response) -> str:
         try:
-            text = resp.text
+            return resp.text
         except Exception:
-            content = resp.content[:limit]
+            content = resp.content
             try:
-                text = content.decode("utf-8", errors="replace")
+                return content.decode("utf-8", errors="replace")
             except Exception:
-                text = repr(content)
-        if len(text) > limit:
-            return f"{text[:limit]}...[+{len(text) - limit} chars]"
-        return text
+                return repr(content)
 
     async def _post(self, method: str, json_data: dict[str, Any]) -> Any | None:
         logger.debug("[telegram] request %s: %s", method, json_data)
