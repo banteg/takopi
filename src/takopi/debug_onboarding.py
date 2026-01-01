@@ -3,8 +3,19 @@ from __future__ import annotations
 import typer
 
 from .config import ConfigError
-from .engines import SetupIssue, get_backend, list_backend_ids
-from .onboarding import SetupResult, check_setup, render_setup_guide
+from .engines import SetupIssue, get_backend, get_install_issue, list_backend_ids
+from .onboarding import SetupResult, check_setup, config_issue, render_setup_guide
+
+
+def _dedupe_issues(issues: list[SetupIssue]) -> list[SetupIssue]:
+    seen: set[SetupIssue] = set()
+    deduped: list[SetupIssue] = []
+    for issue in issues:
+        if issue in seen:
+            continue
+        seen.add(issue)
+        deduped.append(issue)
+    return deduped
 
 
 def run(
@@ -25,14 +36,13 @@ def run(
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
     setup = check_setup(backend)
-    if setup.ok and force:
+    if force:
+        forced_issues = [
+            get_install_issue(backend.id),
+            config_issue(setup.config_path),
+        ]
         setup = SetupResult(
-            issues=[
-                SetupIssue(
-                    "Setup looks good",
-                    ("Everything appears configured correctly.",),
-                )
-            ],
+            issues=_dedupe_issues([*setup.issues, *forced_issues]),
             config_path=setup.config_path,
         )
     render_setup_guide(setup)

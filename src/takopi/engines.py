@@ -30,13 +30,15 @@ class EngineBackend:
 
 def _codex_check_setup(_config: EngineConfig, _config_path: Path) -> list[SetupIssue]:
     if shutil.which("codex") is None:
-        return [
-            SetupIssue(
-                "Install the Codex CLI",
-                ("   [dim]$[/] npm install -g @openai/codex",),
-            )
-        ]
+        return [_codex_install_issue()]
     return []
+
+
+def _codex_install_issue() -> SetupIssue:
+    return SetupIssue(
+        "Install the Codex CLI",
+        ("   [dim]$[/] npm install -g @openai/codex",),
+    )
 
 
 def _codex_build_runner(config: EngineConfig, config_path: Path) -> Runner:
@@ -81,17 +83,19 @@ def _codex_startup_message(cwd: str) -> str:
 def _claude_check_setup(_config: EngineConfig, _config_path: Path) -> list[SetupIssue]:
     claude_cmd = "claude"
     if shutil.which(claude_cmd) is None:
-        return [
-            SetupIssue(
-                "Install the Claude Code CLI",
-                (
-                    "   [dim]$[/] npm install -g @anthropic-ai/claude-code",
-                    "   [dim]# or[/]",
-                    "   [dim]$[/] claude install",
-                ),
-            )
-        ]
+        return [_claude_install_issue()]
     return []
+
+
+def _claude_install_issue() -> SetupIssue:
+    return SetupIssue(
+        "Install the Claude Code CLI",
+        (
+            "   [dim]$[/] npm install -g @anthropic-ai/claude-code",
+            "   [dim]# or[/]",
+            "   [dim]$[/] claude install",
+        ),
+    )
 
 
 def _claude_build_runner(config: EngineConfig, _config_path: Path) -> Runner:
@@ -143,6 +147,15 @@ def get_backend(engine_id: str) -> EngineBackend:
         raise ConfigError(
             f"Unknown engine {engine_id!r}. Available: {available}."
         ) from exc
+
+
+def get_install_issue(engine_id: str) -> SetupIssue:
+    if engine_id == "codex":
+        return _codex_install_issue()
+    if engine_id == "claude":
+        return _claude_install_issue()
+    available = ", ".join(sorted(_ENGINE_BACKENDS))
+    raise ConfigError(f"Unknown engine {engine_id!r}. Available: {available}.")
 
 
 def list_backends() -> list[EngineBackend]:
