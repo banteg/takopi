@@ -244,6 +244,30 @@ async def test_codex_runner_preserves_warning_order(tmp_path) -> None:
 
 
 @pytest.mark.anyio
+async def test_codex_runner_includes_stderr_reason(tmp_path) -> None:
+    codex_path = tmp_path / "codex"
+    codex_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "\n"
+        "sys.stderr.write('Not inside a trusted directory and --skip-git-repo-check was not specified.\\n')\n"
+        "sys.stderr.flush()\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    codex_path.chmod(0o755)
+
+    runner = CodexRunner(codex_cmd=str(codex_path), extra_args=[])
+    events = [evt async for evt in runner.run("hi", None)]
+
+    completed = next(evt for evt in events if isinstance(evt, CompletedEvent))
+    assert completed.ok is False
+    assert completed.error is not None
+    assert "codex exec failed (rc=1)." in completed.error
+    assert "\n\nNot inside a trusted directory" in completed.error
+
+
+@pytest.mark.anyio
 async def test_run_serializes_two_new_sessions_same_thread(
     tmp_path, monkeypatch
 ) -> None:

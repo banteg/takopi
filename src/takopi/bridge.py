@@ -409,7 +409,7 @@ async def handle_message(
         if resume_token_value is None:
             resume_token_value = progress_renderer.resume_token
         progress_renderer.resume_token = resume_token_value
-        err_body = f"Error:\n{error}"
+        err_body = str(error)
         final_md = progress_renderer.render_final(elapsed, err_body, status="error")
         logger.debug("[error] markdown: %s", final_md)
         final_msg, edited = await _send_or_edit_markdown(
@@ -463,9 +463,9 @@ async def handle_message(
     final_answer = answer
     if run_ok is False and run_error:
         if final_answer.strip():
-            final_answer = f"{final_answer}\n\nError:\n{run_error}"
+            final_answer = f"{final_answer}\n\n{run_error}"
         else:
-            final_answer = f"Error:\n{run_error}"
+            final_answer = str(run_error)
 
     status = (
         "error" if run_ok is False else ("done" if final_answer.strip() else "error")

@@ -39,6 +39,23 @@ _ACTION_KIND_MAP: dict[str, ActionKind] = {
 }
 
 _RESUME_RE = re.compile(r"(?im)^\s*`?codex\s+resume\s+(?P<token>[^`\s]+)`?\s*$")
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_TRUSTED_DIR_RE = re.compile(r"not inside a trusted directory", re.IGNORECASE)
+def _strip_ansi(text: str) -> str:
+    return _ANSI_ESCAPE_RE.sub("", text)
+
+
+def _extract_stderr_reason(stderr_tail: str) -> str | None:
+    if not stderr_tail:
+        return None
+    cleaned = _strip_ansi(stderr_tail)
+    lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    if not lines:
+        return None
+    for line in lines:
+        if _TRUSTED_DIR_RE.search(line):
+            return line
+    return lines[-1]
 
 
 def _started_event(token: ResumeToken, *, title: str) -> StartedEvent:
@@ -558,7 +575,11 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         stderr_tail: str,
         state: CodexRunState,
     ) -> list[TakopiEvent]:
-        message = f"codex exec failed (rc={rc})."
+        reason = _extract_stderr_reason(stderr_tail)
+        if reason:
+            message = f"codex exec failed (rc={rc}).\n\n{reason}"
+        else:
+            message = f"codex exec failed (rc={rc})."
         resume_for_completed = found_session or resume
         return [
             self.note_event(
