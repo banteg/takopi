@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 import inspect
 from collections import deque
@@ -53,62 +52,14 @@ def _is_cancel_command(text: str) -> bool:
     return command == "/cancel" or command.startswith("/cancel@")
 
 
-_RESUME_COMMAND_RE = re.compile(
-    r"(?im)^\s*`?(?P<engine>[a-z0-9_-]+)\s+resume\s+(?P<token>(?=[^`\s]*\d)[^`\s]+)`?\s*$"
-)
-_CLAUDE_RESUME_RE = re.compile(
-    r"(?im)^\s*`?claude\s+(?:--resume|-r)\s+(?P<token>[^`\s]+)`?\s*$"
-)
-
-
-def _resume_attempt(text: str | None) -> tuple[bool, str | None]:
-    if not text:
-        return False, None
-    match = _RESUME_COMMAND_RE.search(text)
-    if match:
-        return True, match.group("engine").lower()
-    match = _CLAUDE_RESUME_RE.search(text)
-    if match:
-        return True, "claude"
-    return False, None
-
-
-def _resume_warning_text(engine_hint: str | None, current_engine: str) -> str:
-    if engine_hint and engine_hint.lower() != current_engine.lower():
-        return (
-            f"That looks like a {engine_hint} resume command, but this bot is running "
-            f"{current_engine}. Starting a new thread."
-        )
-    return "Couldn't parse a resume command; starting a new thread."
-
-
 def _strip_resume_lines(text: str, *, is_resume_line: Callable[[str], bool]) -> str:
     stripped_lines: list[str] = []
     for line in text.splitlines():
-        if (
-            is_resume_line(line)
-            or _RESUME_COMMAND_RE.match(line)
-            or _CLAUDE_RESUME_RE.match(line)
-        ):
+        if is_resume_line(line):
             continue
         stripped_lines.append(line)
     prompt = "\n".join(stripped_lines).strip()
     return prompt or "continue"
-
-
-async def _send_resume_warning(
-    bot: BotClient,
-    chat_id: int,
-    user_msg_id: int,
-    engine_hint: str | None,
-    current_engine: str,
-) -> None:
-    await bot.send_message(
-        chat_id=chat_id,
-        text=_resume_warning_text(engine_hint, current_engine),
-        reply_to_message_id=user_msg_id,
-        disable_notification=True,
-    )
 
 
 PROGRESS_EDIT_EVERY_S = 2.0
@@ -803,19 +754,6 @@ async def _run_main_loop(
                             text,
                         )
                         continue
-                if resume_token is None:
-                    attempt_text, engine_text = _resume_attempt(text)
-                    attempt_reply, engine_reply = _resume_attempt(r.get("text"))
-                    attempt = attempt_text or attempt_reply
-                    if attempt:
-                        tg.start_soon(
-                            _send_resume_warning,
-                            cfg.bot,
-                            msg["chat"]["id"],
-                            user_msg_id,
-                            engine_text or engine_reply,
-                            str(cfg.runner.engine),
-                        )
 
                 if resume_token is None:
                     tg.start_soon(

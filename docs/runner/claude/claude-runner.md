@@ -277,20 +277,6 @@ Reuse the existing subprocess lifecycle pattern (like `CodexRunner.manage_subpro
 * Drain stderr concurrently (log-only)
 * Ensure locks release in `finally`
 
-## Bridge-level tweak (optional but recommended)
-
-`bridge.py` fallback mismatch detector (`_resume_attempt`) only recognizes `"<engine> resume <token>"`.
-
-If the bot is running codex but user pastes `claude --resume ...`, Takopi can’t give a good hint today.
-
-Add a second pattern for Claude:
-
-* `^\s*`?claude\s+(?:--resume|-r)\s+(\S+)`?\s*$`
-
-Use it only to set `engine_hint="claude"` in the warning; still do not cross-engine resume.
-
----
-
 ## Documentation updates
 
 ### README
@@ -374,7 +360,6 @@ Mirror the existing `CodexRunner` tests patterns.
 
 * [ ] Add `ClaudeBackend` in `src/takopi/engines.py` and register in `ENGINES`.
 * [ ] Add `src/takopi/runners/claude.py` implementing the `Runner` protocol.
-* [ ] (Optional) Add bridge hint parsing for `claude --resume`.
 * [ ] Add tests + stub executable fixtures.
 * [ ] Update README and developing docs.
 * [ ] Run full test suite.
