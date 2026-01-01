@@ -353,16 +353,13 @@ Decision (v0.4.0):
 
 ### 8.1 Command menu (Telegram)
 
-Takopi SHOULD keep the bot’s slash-command menu in sync at startup (or deploy) by
-calling `setMyCommands` with the canonical list of supported commands.
+Takopi SHOULD keep the bot’s slash-command menu in sync at startup by calling
+`setMyCommands` with the canonical list of supported commands.
 
-* Command names MUST be `1–32` chars of lowercase letters, digits, or underscores
-  (no leading `/`).
 * The command list MUST include:
   * `cancel` — cancel the current run
-  * one entry per configured engine that has a valid command name
+  * one entry per configured engine that can be exposed as a slash command
 * The command list MUST NOT include commands the bot does not support.
-* `scope` and `language_code` MAY be provided; defaults are acceptable.
 
 ## 9. Testing requirements (MUST)
 
