@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -76,9 +75,6 @@ def _strip_engine_command(
     return "\n".join(lines).strip(), engine
 
 
-_COMMAND_RE = re.compile(r"^[a-z0-9_]{1,32}$")
-
-
 def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = [
         {"command": "cancel", "description": "cancel run"}
@@ -87,12 +83,6 @@ def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
     for engine in router.engine_ids:
         cmd = engine.lower()
         if cmd in seen:
-            continue
-        if not _COMMAND_RE.match(cmd):
-            logger.info(
-                "[startup] skip command for engine=%r (invalid telegram command)",
-                engine,
-            )
             continue
         commands.append({"command": cmd, "description": f"start {cmd}"})
         seen.add(cmd)

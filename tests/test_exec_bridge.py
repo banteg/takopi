@@ -171,27 +171,6 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
     assert any(cmd["command"] == "codex" for cmd in commands)
 
 
-def test_build_bot_commands_skips_invalid_engine_ids() -> None:
-    invalid_engine = EngineId("my-engine")
-    runner = ScriptRunner(
-        [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
-    )
-    bad_runner = ScriptRunner(
-        [Return(answer="ok")], engine=invalid_engine, resume_value="sid"
-    )
-    router = AutoRouter(
-        entries=[
-            RunnerEntry(engine=CODEX_ENGINE, runner=runner),
-            RunnerEntry(engine=invalid_engine, runner=bad_runner),
-        ],
-        default_engine=CODEX_ENGINE,
-    )
-    commands = _build_bot_commands(router)
-
-    assert any(cmd["command"] == "codex" for cmd in commands)
-    assert not any(cmd["command"] == "my-engine" for cmd in commands)
-
-
 def test_prepare_telegram_drops_entities_on_truncate() -> None:
     md = ("**bold** " * 200).strip()
 
