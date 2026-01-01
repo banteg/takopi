@@ -2,7 +2,7 @@
 
 🐙 *he just wants to help-pi*
 
-telegram bot for Codex and Claude Code. runs the engine CLI, streams progress, and supports resumable sessions.
+telegram bot for codex and claude code. runs the engine cli, streams progress, and supports resumable sessions.
 
 ## features
 
@@ -36,7 +36,6 @@ runs in parallel across threads and queues per thread to keep codex history sane
 ## config
 
 takopi reads `.takopi/takopi.toml` in the current repo, otherwise `~/.takopi/takopi.toml`.
-legacy `.codex/takopi.toml` is migrated automatically.
 
 ```toml
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
@@ -45,6 +44,16 @@ chat_id = 123456789
 [codex]
 # optional: profile from ~/.codex/config.toml
 profile = "takopi"
+
+[claude]
+# optional: model override
+model = "sonnet"
+# optional: auto-approve tools
+allowed_tools = ["Bash", "Read", "Write", "WebSearch"]
+# optional: bypass permission checks (high risk; prefer sandbox use only)
+dangerously_skip_permissions = false
+# optional: keep ANTHROPIC_API_KEY for API billing
+use_api_billing = false
 ```
 
 ## usage
