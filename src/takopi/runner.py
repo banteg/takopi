@@ -126,7 +126,7 @@ class BaseRunner(SessionLockMixin):
         raise NotImplementedError
 
 
-@dataclass
+@dataclass(slots=True)
 class JsonlRunState:
     note_seq: int = 0
 

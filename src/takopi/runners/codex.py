@@ -381,7 +381,7 @@ def translate_codex_event(event: dict[str, Any], *, title: str) -> list[TakopiEv
     return []
 
 
-@dataclass
+@dataclass(slots=True)
 class CodexRunState:
     note_seq: int = 0
     final_answer: str | None = None

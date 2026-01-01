@@ -31,7 +31,7 @@ _RESUME_RE = re.compile(
 )
 
 
-@dataclass
+@dataclass(slots=True)
 class ClaudeStreamState:
     pending_actions: dict[str, Action] = field(default_factory=dict)
     last_assistant_text: str | None = None
