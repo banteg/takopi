@@ -13,7 +13,7 @@ async def test_manage_subprocess_kills_when_terminate_times_out(
         _ = timeout
         return True
 
-    monkeypatch.setattr(subprocess_utils, "_wait_for_process", fake_wait_for_process)
+    monkeypatch.setattr(subprocess_utils, "wait_for_process", fake_wait_for_process)
 
     async with subprocess_utils.manage_subprocess(
         sys.executable,

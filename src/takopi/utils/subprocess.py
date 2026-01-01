@@ -11,13 +11,13 @@ from anyio.abc import Process
 logger = logging.getLogger(__name__)
 
 
-async def _wait_for_process(proc: Process, timeout: float) -> bool:
+async def wait_for_process(proc: Process, timeout: float) -> bool:
     with anyio.move_on_after(timeout) as scope:
         await proc.wait()
     return scope.cancel_called
 
 
-def _terminate_process(proc: Process) -> None:
+def terminate_process(proc: Process) -> None:
     if proc.returncode is not None:
         return
     if os.name == "posix" and proc.pid is not None:
@@ -34,7 +34,7 @@ def _terminate_process(proc: Process) -> None:
         return
 
 
-def _kill_process(proc: Process) -> None:
+def kill_process(proc: Process) -> None:
     if proc.returncode is not None:
         return
     if os.name == "posix" and proc.pid is not None:
@@ -62,8 +62,8 @@ async def manage_subprocess(*args, **kwargs):
     finally:
         if proc.returncode is None:
             with anyio.CancelScope(shield=True):
-                _terminate_process(proc)
-                timed_out = await _wait_for_process(proc, timeout=2.0)
+                terminate_process(proc)
+                timed_out = await wait_for_process(proc, timeout=2.0)
                 if timed_out:
-                    _kill_process(proc)
+                    kill_process(proc)
                     await proc.wait()
