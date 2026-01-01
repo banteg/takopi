@@ -515,7 +515,7 @@ async def handle_message(
         await cfg.bot.delete_message(chat_id=chat_id, message_id=progress_id)
 
 
-async def poll_updates(cfg: BridgeConfig):
+async def poll_updates(cfg: BridgeConfig) -> AsyncIterator[dict[str, Any]]:
     offset: int | None = None
     offset = await _drain_backlog(cfg, offset)
     await _send_startup(cfg)
