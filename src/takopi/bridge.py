@@ -11,9 +11,14 @@ from typing import Any
 
 import anyio
 
-from .markdown import TELEGRAM_MARKDOWN_LIMIT, prepare_telegram
 from .model import CompletedEvent, EngineId, ResumeToken, StartedEvent, TakopiEvent
-from .render import ExecProgressRenderer, render_event_cli
+from .render import (
+    ExecProgressRenderer,
+    MarkdownParts,
+    assemble_markdown_parts,
+    prepare_telegram,
+    render_event_cli,
+)
 from .router import AutoRouter, RunnerUnavailableError
 from .runner import Runner
 from .telegram import BotClient
@@ -152,18 +157,14 @@ async def _send_or_edit_markdown(
     bot: BotClient,
     *,
     chat_id: int,
-    text: str,
+    parts: MarkdownParts,
     edit_message_id: int | None = None,
     reply_to_message_id: int | None = None,
     disable_notification: bool = False,
-    limit: int = TELEGRAM_MARKDOWN_LIMIT,
-    is_resume_line: Callable[[str], bool] | None = None,
-    prepared: tuple[str, list[dict[str, Any]] | None] | None = None,
+    prepared: tuple[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[dict[str, Any] | None, bool]:
     if prepared is None:
-        rendered, entities = prepare_telegram(
-            text, limit=limit, is_resume_line=is_resume_line
-        )
+        rendered, entities = prepare_telegram(parts)
     else:
         rendered, entities = prepared
     if edit_message_id is not None:
@@ -200,10 +201,8 @@ class ProgressEdits:
         progress_edit_every: float,
         clock: Callable[[], float],
         sleep: Callable[[float], Awaitable[None]],
-        limit: int,
         last_edit_at: float,
         last_rendered: str | None,
-        is_resume_line: Callable[[str], bool],
     ) -> None:
         self.bot = bot
         self.chat_id = chat_id
@@ -213,10 +212,8 @@ class ProgressEdits:
         self.progress_edit_every = progress_edit_every
         self.clock = clock
         self.sleep = sleep
-        self.limit = limit
         self.last_edit_at = last_edit_at
         self.last_rendered = last_rendered
-        self.is_resume_line = is_resume_line
         self.event_seq = 0
         self.rendered_seq = 0
         self.signal_send, self.signal_recv = anyio.create_memory_object_stream(1)
@@ -240,10 +237,9 @@ class ProgressEdits:
 
             seq_at_render = self.event_seq
             now = self.clock()
-            md = self.renderer.render_progress(now - self.started_at)
-            rendered, entities = prepare_telegram(
-                md, limit=self.limit, is_resume_line=self.is_resume_line
-            )
+            parts = self.renderer.render_progress_parts(now - self.started_at)
+            md = assemble_markdown_parts(parts)
+            rendered, entities = prepare_telegram(parts)
             if rendered != self.last_rendered:
                 logger.debug(
                     "[progress] edit message_id=%s md=%s", self.progress_id, md
@@ -297,8 +293,7 @@ async def _send_startup(cfg: BridgeConfig) -> None:
     sent, _ = await _send_or_edit_markdown(
         cfg.bot,
         chat_id=cfg.chat_id,
-        text=cfg.startup_msg,
-        limit=TELEGRAM_MARKDOWN_LIMIT,
+        parts=MarkdownParts(header=cfg.startup_msg),
     )
     if sent is not None:
         logger.info("[startup] sent startup message to chat_id=%s", cfg.chat_id)
@@ -336,18 +331,15 @@ async def send_initial_progress(
     user_msg_id: int,
     label: str,
     renderer: ExecProgressRenderer,
-    is_resume_line: Callable[[str], bool],
     clock: Callable[[], float],
-    limit: int,
 ) -> ProgressMessageState:
     progress_id: int | None = None
     last_edit_at = 0.0
     last_rendered: str | None = None
 
-    initial_md = renderer.render_progress(0.0, label=label)
-    initial_rendered, initial_entities = prepare_telegram(
-        initial_md, limit=limit, is_resume_line=is_resume_line
-    )
+    initial_parts = renderer.render_progress_parts(0.0, label=label)
+    initial_md = assemble_markdown_parts(initial_parts)
+    initial_rendered, initial_entities = prepare_telegram(initial_parts)
     logger.debug(
         "[progress] send reply_to=%s md=%s rendered=%s entities=%s",
         user_msg_id,
@@ -438,22 +430,19 @@ async def send_result_message(
     chat_id: int,
     user_msg_id: int,
     progress_id: int | None,
-    markdown: str,
+    parts: MarkdownParts,
     disable_notification: bool,
     edit_message_id: int | None,
-    is_resume_line: Callable[[str], bool],
-    prepared: tuple[str, list[dict[str, Any]] | None] | None = None,
+    prepared: tuple[str, list[dict[str, Any]]] | None = None,
     delete_tag: str = "final",
 ) -> None:
     final_msg, edited = await _send_or_edit_markdown(
         cfg.bot,
         chat_id=chat_id,
-        text=markdown,
+        parts=parts,
         edit_message_id=edit_message_id,
         reply_to_message_id=user_msg_id,
         disable_notification=disable_notification,
-        limit=TELEGRAM_MARKDOWN_LIMIT,
-        is_resume_line=is_resume_line,
         prepared=prepared,
     )
     if final_msg is None:
@@ -501,9 +490,7 @@ async def handle_message(
         user_msg_id=user_msg_id,
         label=f"working ({runner.engine})",
         renderer=progress_renderer,
-        is_resume_line=is_resume_line,
         clock=clock,
-        limit=TELEGRAM_MARKDOWN_LIMIT,
     )
     progress_id = progress_state.message_id
 
@@ -516,10 +503,8 @@ async def handle_message(
         progress_edit_every=progress_edit_every,
         clock=clock,
         sleep=sleep,
-        limit=TELEGRAM_MARKDOWN_LIMIT,
         last_edit_at=progress_state.last_edit_at,
         last_rendered=progress_state.last_rendered,
-        is_resume_line=is_resume_line,
     )
 
     running_task: RunningTask | None = None
@@ -575,17 +560,18 @@ async def handle_message(
     if error is not None:
         sync_resume_token(progress_renderer, outcome.resume)
         err_body = _format_error(error)
-        final_md = progress_renderer.render_final(elapsed, err_body, status="error")
-        logger.debug("[error] markdown: %s", final_md)
+        final_parts = progress_renderer.render_final_parts(
+            elapsed, err_body, status="error"
+        )
+        logger.debug("[error] markdown: %s", assemble_markdown_parts(final_parts))
         await send_result_message(
             cfg,
             chat_id=chat_id,
             user_msg_id=user_msg_id,
             progress_id=progress_id,
-            markdown=final_md,
+            parts=final_parts,
             disable_notification=True,
             edit_message_id=progress_id,
-            is_resume_line=is_resume_line,
             delete_tag="error",
         )
         return
@@ -597,16 +583,17 @@ async def handle_message(
             resume.value if resume else None,
             elapsed,
         )
-        final_md = progress_renderer.render_progress(elapsed, label="`cancelled`")
+        final_parts = progress_renderer.render_progress_parts(
+            elapsed, label="`cancelled`"
+        )
         await send_result_message(
             cfg,
             chat_id=chat_id,
             user_msg_id=user_msg_id,
             progress_id=progress_id,
-            markdown=final_md,
+            parts=final_parts,
             disable_notification=True,
             edit_message_id=progress_id,
-            is_resume_line=is_resume_line,
             delete_tag="cancel",
         )
         return
@@ -629,13 +616,13 @@ async def handle_message(
         "error" if run_ok is False else ("done" if final_answer.strip() else "error")
     )
     sync_resume_token(progress_renderer, completed.resume or outcome.resume)
-    final_md = progress_renderer.render_final(elapsed, final_answer, status=status)
-    logger.debug("[final] markdown: %s", final_md)
-
-    final_rendered, final_entities = prepare_telegram(
-        final_md, limit=TELEGRAM_MARKDOWN_LIMIT, is_resume_line=is_resume_line
+    final_parts = progress_renderer.render_final_parts(
+        elapsed, final_answer, status=status
     )
-    can_edit_final = progress_id is not None and final_entities is not None
+    logger.debug("[final] markdown: %s", assemble_markdown_parts(final_parts))
+
+    final_rendered, final_entities = prepare_telegram(final_parts)
+    can_edit_final = progress_id is not None
     edit_message_id = None if cfg.final_notify or not can_edit_final else progress_id
 
     if edit_message_id is None:
@@ -658,10 +645,9 @@ async def handle_message(
         chat_id=chat_id,
         user_msg_id=user_msg_id,
         progress_id=progress_id,
-        markdown=final_md,
+        parts=final_parts,
         disable_notification=False,
         edit_message_id=edit_message_id,
-        is_resume_line=is_resume_line,
         prepared=(final_rendered, final_entities),
         delete_tag="final",
     )
@@ -788,15 +774,15 @@ async def _send_runner_unavailable(
     )
     if resume_token is not None:
         progress_renderer.resume_token = resume_token
-    final_md = progress_renderer.render_final(0.0, f"Error:\n{reason}", status="error")
+    final_parts = progress_renderer.render_final_parts(
+        0.0, f"Error:\n{reason}", status="error"
+    )
     await _send_or_edit_markdown(
         cfg.bot,
         chat_id=chat_id,
-        text=final_md,
+        parts=final_parts,
         reply_to_message_id=user_msg_id,
         disable_notification=False,
-        limit=TELEGRAM_MARKDOWN_LIMIT,
-        is_resume_line=runner.is_resume_line,
     )
 
 
@@ -859,10 +845,9 @@ async def run_main_loop(
                         await _send_or_edit_markdown(
                             cfg.bot,
                             chat_id=chat_id,
-                            text=f"Error:\n{exc}",
+                            parts=MarkdownParts(header=f"Error:\n{exc}"),
                             reply_to_message_id=user_msg_id,
                             disable_notification=False,
-                            limit=TELEGRAM_MARKDOWN_LIMIT,
                         )
                         return
                     if not entry.available:

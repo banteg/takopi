@@ -4,8 +4,8 @@ import anyio
 import pytest
 
 from takopi.bridge import _build_bot_commands, _strip_engine_command
-from takopi.markdown import prepare_telegram, truncate_for_telegram
 from takopi.model import EngineId, ResumeToken, TakopiEvent
+from takopi.render import MarkdownParts, prepare_telegram
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
@@ -101,25 +101,33 @@ def test_codex_extract_resume_accepts_uuid7() -> None:
     assert runner.extract_resume(text) == ResumeToken(engine=CODEX_ENGINE, value=token)
 
 
-def test_truncate_for_telegram_preserves_resume_line() -> None:
-    uuid = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
-    md = ("x" * 10_000) + f"\n`codex resume {uuid}`"
+def test_prepare_telegram_trims_body_preserves_footer() -> None:
+    body_limit = 3500
+    parts = MarkdownParts(
+        header="header",
+        body="x" * (body_limit + 100),
+        footer="footer",
+    )
 
-    runner = CodexRunner(codex_cmd="codex", extra_args=[])
-    out = truncate_for_telegram(md, 400, is_resume_line=runner.is_resume_line)
+    rendered, _ = prepare_telegram(parts)
 
-    assert len(out) <= 400
-    assert f"codex resume {uuid}" in out
-    assert out.rstrip().endswith(f"`codex resume {uuid}`")
+    chunks = [chunk for chunk in rendered.split("\n\n") if chunk]
+    assert chunks[0] == "header"
+    assert chunks[-1].rstrip() == "footer"
+    assert len(chunks[1]) == body_limit
+    assert chunks[1].endswith("…")
 
 
-def test_truncate_for_telegram_keeps_last_non_empty_line() -> None:
-    md = "intro\n\n" + ("x" * 500) + "\nlast line"
+def test_prepare_telegram_preserves_entities_on_truncate() -> None:
+    body_limit = 3500
+    parts = MarkdownParts(
+        header="h",
+        body="**bold** " + ("x" * (body_limit + 100)),
+    )
 
-    out = truncate_for_telegram(md, 120, is_resume_line=lambda _line: False)
+    _, entities = prepare_telegram(parts)
 
-    assert len(out) <= 120
-    assert out.rstrip().endswith("last line")
+    assert any(e.get("type") == "bold" for e in entities)
 
 
 def test_strip_engine_command_inline() -> None:
@@ -169,15 +177,6 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
 
     assert {"command": "cancel", "description": "cancel run"} in commands
     assert any(cmd["command"] == "codex" for cmd in commands)
-
-
-def test_prepare_telegram_drops_entities_on_truncate() -> None:
-    md = ("**bold** " * 200).strip()
-
-    rendered, entities = prepare_telegram(md, limit=40)
-
-    assert len(rendered) <= 40
-    assert entities is None
 
 
 class _FakeBot:
@@ -364,7 +363,7 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
 
 
 @pytest.mark.anyio
-async def test_new_final_message_forces_notification_when_too_long_to_edit() -> None:
+async def test_long_final_message_edits_progress_message() -> None:
     from takopi.bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
@@ -386,9 +385,9 @@ async def test_new_final_message_forces_notification_when_too_long_to_edit() -> 
         resume_token=None,
     )
 
-    assert len(bot.send_calls) == 2
+    assert len(bot.send_calls) == 1
     assert bot.send_calls[0]["disable_notification"] is True
-    assert bot.send_calls[1]["disable_notification"] is False
+    assert len(bot.edit_calls) == 1
 
 
 @pytest.mark.anyio

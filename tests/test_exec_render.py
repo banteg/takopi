@@ -2,9 +2,13 @@ from typing import cast
 from types import SimpleNamespace
 from pathlib import Path
 
-from takopi.markdown import render_markdown
 from takopi.model import TakopiEvent
-from takopi.render import ExecProgressRenderer, render_event_cli
+from takopi.render import (
+    ExecProgressRenderer,
+    assemble_markdown_parts,
+    render_event_cli,
+    render_markdown,
+)
 from tests.factories import (
     action_completed,
     action_started,
@@ -113,12 +117,14 @@ def test_progress_renderer_renders_progress_and_final() -> None:
     for evt in SAMPLE_EVENTS:
         r.note_event(evt)
 
-    progress = r.render_progress(3.0)
+    progress_parts = r.render_progress_parts(3.0)
+    progress = assemble_markdown_parts(progress_parts)
     assert progress.startswith("working · 3s · step 2")
     assert "✓ `bash -lc ls`" in progress
     assert "`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
 
-    final = r.render_final(3.0, "answer", status="done")
+    final_parts = r.render_final_parts(3.0, "answer", status="done")
+    final = assemble_markdown_parts(final_parts)
     assert final.startswith("done · 3s · step 2")
     assert "answer" in final
     assert final.rstrip().endswith(
@@ -162,7 +168,7 @@ def test_progress_renderer_renders_commands_in_markdown() -> None:
             )
         )
 
-    md = r.render_progress(0.0)
+    md = assemble_markdown_parts(r.render_progress_parts(0.0))
     text, _ = render_markdown(md)
     assert "✓ echo 30" in text
     assert "✓ echo 31" in text
@@ -241,4 +247,6 @@ def test_progress_renderer_deterministic_output() -> None:
         r1.note_event(evt)
         r2.note_event(evt)
 
-    assert r1.render_progress(1.0) == r2.render_progress(1.0)
+    assert assemble_markdown_parts(
+        r1.render_progress_parts(1.0)
+    ) == assemble_markdown_parts(r2.render_progress_parts(1.0))

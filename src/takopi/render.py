@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import textwrap
+from dataclasses import dataclass
 from collections import deque
 from collections.abc import Callable
 from pathlib import Path
@@ -19,6 +20,22 @@ HARD_BREAK = "  \n"
 
 MAX_PROGRESS_CMD_LEN = 300
 MAX_FILE_CHANGES_INLINE = 3
+
+
+@dataclass(frozen=True)
+class MarkdownParts:
+    header: str
+    body: str | None = None
+    footer: str | None = None
+
+
+def assemble_markdown_parts(parts: MarkdownParts) -> str:
+    chunks = [parts.header]
+    if parts.body:
+        chunks.append(parts.body)
+    if parts.footer:
+        chunks.append(parts.footer)
+    return "\n\n".join(chunks)
 
 
 def format_changed_file_path(path: str, *, base_dir: Path | None = None) -> str:
@@ -47,7 +64,20 @@ def format_header(elapsed_s: float, item: int | None, label: str) -> str:
 def shorten(text: str, width: int | None) -> str:
     if width is None:
         return text
-    return textwrap.shorten(text, width=width, placeholder="…")
+    if width <= 0:
+        return ""
+
+    placeholder = "…"
+    if len(text) <= width:
+        return text
+
+    shortened = textwrap.shorten(text, width=width, placeholder=placeholder)
+    if shortened != placeholder:
+        return shortened
+
+    if width <= len(placeholder):
+        return placeholder[:width]
+    return text[: width - len(placeholder)] + placeholder
 
 
 def action_status_symbol(
@@ -236,28 +266,47 @@ class ExecProgressRenderer:
         self._recent_action_completed.append(completed)
 
     def render_progress(self, elapsed_s: float, label: str = "working") -> str:
-        step = self.action_count or None
-        header = format_header(elapsed_s, step, label=self._label_with_title(label))
-        message = self._assemble(header, list(self.recent_actions))
-        return self._append_resume(message)
+        parts = self.render_progress_parts(elapsed_s, label=label)
+        return assemble_markdown_parts(parts)
 
     def render_final(self, elapsed_s: float, answer: str, status: str = "done") -> str:
+        parts = self.render_final_parts(elapsed_s, answer, status=status)
+        return assemble_markdown_parts(parts)
+
+    def render_progress_parts(
+        self, elapsed_s: float, label: str = "working"
+    ) -> MarkdownParts:
+        step = self.action_count or None
+        header = format_header(elapsed_s, step, label=self._label_with_title(label))
+        body = self.assemble_body(list(self.recent_actions))
+        return MarkdownParts(header=header, body=body, footer=self.render_footer())
+
+    def render_final_parts(
+        self, elapsed_s: float, answer: str, status: str = "done"
+    ) -> MarkdownParts:
         step = self.action_count or None
         header = format_header(elapsed_s, step, label=self._label_with_title(status))
+        lines = list(self.recent_actions)
+        if status == "done":
+            lines = [line for line in lines if not is_command_log_line(line)]
+        body = self.assemble_body(lines)
         answer = (answer or "").strip()
-        message = header + ("\n\n" + answer if answer else "")
-        return self._append_resume(message)
+        if answer:
+            body = answer if not body else body + "\n\n" + answer
+        return MarkdownParts(header=header, body=body, footer=self.render_footer())
 
     def _label_with_title(self, label: str) -> str:
         if self.show_title and self.session_title:
             return f"{label} ({self.session_title})"
         return label
 
-    def _append_resume(self, message: str) -> str:
+    def render_footer(self) -> str | None:
         if not self.resume_token or self._resume_formatter is None:
-            return message
-        return message + "\n\n" + self._resume_formatter(self.resume_token)
+            return None
+        return self._resume_formatter(self.resume_token)
 
     @staticmethod
-    def _assemble(header: str, lines: list[str]) -> str:
-        return header if not lines else header + "\n\n" + HARD_BREAK.join(lines)
+    def assemble_body(lines: list[str]) -> str | None:
+        if not lines:
+            return None
+        return HARD_BREAK.join(lines)

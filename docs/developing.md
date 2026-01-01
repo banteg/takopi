@@ -60,13 +60,16 @@ The orchestrator module containing:
 | `run()` / `main()` | Typer CLI entry points |
 | `_parse_bridge_config()` | Reads config + builds `BridgeConfig` |
 
-### `markdown.py` - Telegram markdown helpers
+### `render.py` - Takopi event + Markdown helpers
 
-| Function | Purpose |
-|----------|---------|
+| Function/Class | Purpose |
+|----------------|---------|
 | `render_markdown()` | Markdown → Telegram text + entities |
-| `prepare_telegram()` | Render + truncate for Telegram limits |
-| `truncate_for_telegram()` | Smart truncation preserving resume lines |
+| `trim_body()` | Trim body to 3500 chars (header/footer preserved) |
+| `prepare_telegram()` | Trim + render Markdown parts for Telegram |
+| `ExecProgressRenderer` | Stateful renderer tracking recent actions for progress display |
+| `render_event_cli()` | Format a takopi event for CLI logs |
+| `format_elapsed()` | Formats seconds as `Xh Ym`, `Xm Ys`, or `Xs` |
 
 ### `telegram.py` - Telegram API wrapper
 
@@ -88,21 +91,6 @@ The orchestrator module containing:
 - Event delivery uses a single internal queue to preserve order without per-event tasks
 - Stderr is drained into a bounded tail (debug logging only)
 - Event callbacks must not raise; callback errors abort the run
-
-### `render.py` - Takopi event rendering
-
-Transforms takopi events into human-readable text:
-
-| Function/Class | Purpose |
-|----------------|---------|
-| `ExecProgressRenderer` | Stateful renderer tracking recent actions for progress display |
-| `render_event_cli()` | Format a takopi event for CLI logs |
-| `format_elapsed()` | Formats seconds as `Xh Ym`, `Xm Ys`, or `Xs` |
-
-**Supported event types:**
-- `started`
-- `action`
-- `completed`
 
 ### `model.py` / `runner.py` - Core domain types
 
