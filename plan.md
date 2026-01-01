@@ -88,12 +88,11 @@ Core methods:
 
 Spec requires “poll runners in order”. You need to define that order deterministically.
 
-Recommended ordering:
+Decision:
 
-1. put the **default engine runner first**
-2. then append all other runners in stable sorted order (e.g., by backend id)
+* poll runners in **sorted backend id order**
 
-This makes “default engine” the most likely match if users paste multiple resume lines, while remaining deterministic.
+This keeps routing deterministic without bias toward the default engine.
 
 ---
 
@@ -227,9 +226,10 @@ Implementation approach:
 3. Determine default engine:
 
    * `default_engine = override if provided else config.get("default_engine") else "codex"`
+   * if `default_engine` is provided but unknown → error with a clear message
 4. Create router:
 
-   * runner ordering: default runner first, then others sorted
+   * runner ordering: sorted backend ids
 5. Build `BridgeConfig(router=..., ...)` and start `_run_main_loop`.
 
 ### 5.3 Onboarding checks
@@ -239,14 +239,14 @@ Right now `check_setup(backend)` validates a single engine command exists + conf
 For auto-router:
 
 * **MUST** validate config exists + bot_token/chat_id are valid (already)
-* **MUST** validate the chosen default engine is usable (at least binary on PATH)
-* **SHOULD** warn (non-fatal) if other engines are missing binaries, since they’ll only matter if you try to resume them
+* **MUST** validate the chosen default engine is usable (binary on PATH + config OK)
+* **SHOULD** warn (non-fatal) if other engines are missing binaries or misconfigured, since they’ll only matter if you try to resume them
 
 Plan:
 
 * Add `check_setup_auto_router(default_backend, all_backends)` that:
 
-  * errors if default engine missing
+  * errors if default engine missing/misconfigured
   * collects warnings for other missing engines and logs or prints a short note in startup
 
 ### 5.4 Startup message update
@@ -283,7 +283,7 @@ Test cases:
 3. **Polling order chooses first matching runner**
 
    * craft text containing both a codex and claude resume line
-   * ensure the runner ordering rule picks the intended one
+   * ensure sorted backend id ordering picks the intended one
 4. **Fallback to None**
 
    * no resume line anywhere → returns None
@@ -359,10 +359,10 @@ Minimum doc changes to keep repo consistent with spec:
   → router-wide `_strip_resume_lines` removes it regardless of engine.
 
 * **Message contains resume lines for multiple engines**
-  → deterministic runner ordering governs the selection (spec requires “first match”).
+  → sorted-backend-id ordering governs the selection (spec requires “first match”).
 
 * **Engine installed mismatch (resume for an engine not installed)**
-  → router can still parse it; run will fail when spawning the subprocess. Prefer improving UX by detecting missing binaries at startup and/or emitting a friendly “engine unavailable” error when routed.
+  → non-default engines may be missing at startup (warn only). If a resume targets a missing engine, emit a friendly “engine unavailable” error when routed.
 
 * **Existing per-thread scheduling**
   → unchanged, because thread keys already include `engine:value`, and StartedEvent carries the engine in the token.
