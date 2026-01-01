@@ -26,7 +26,7 @@ class SetupResult:
 def config_issue(path: Path) -> SetupIssue:
     config_display = _config_path_display(path)
     return SetupIssue(
-        "Create a config",
+        "create a config",
         (
             f"   [dim]{config_display}[/]",
             "",
@@ -35,7 +35,7 @@ def config_issue(path: Path) -> SetupIssue:
             "",
             "[dim]" + ("-" * 56) + "[/]",
             "",
-            "[bold]Getting your Telegram credentials:[/]",
+            "[bold]getting your telegram credentials:[/]",
             "",
             "   [cyan]bot_token[/]  create a bot with [link=https://t.me/BotFather]@BotFather[/]",
             "   [cyan]chat_id[/]    message [link=https://t.me/myidbot]@myidbot[/] to get your id",
