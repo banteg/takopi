@@ -233,13 +233,13 @@ async def _drain_backlog(cfg: BridgeConfig, offset: int | None) -> int | None:
 
 
 @dataclass(frozen=True, slots=True)
-class _ProgressMessageState:
+class ProgressMessageState:
     message_id: int | None
     last_edit_at: float
     last_rendered: str | None
 
 
-async def _send_initial_progress(
+async def send_initial_progress(
     cfg: BridgeConfig,
     *,
     chat_id: int,
@@ -249,7 +249,7 @@ async def _send_initial_progress(
     is_resume_line: Callable[[str], bool],
     clock: Callable[[], float],
     limit: int,
-) -> _ProgressMessageState:
+) -> ProgressMessageState:
     progress_id: int | None = None
     last_edit_at = 0.0
     last_rendered: str | None = None
@@ -278,7 +278,7 @@ async def _send_initial_progress(
         last_rendered = initial_rendered
         logger.debug("[progress] sent chat_id=%s message_id=%s", chat_id, progress_id)
 
-    return _ProgressMessageState(
+    return ProgressMessageState(
         message_id=progress_id,
         last_edit_at=last_edit_at,
         last_rendered=last_rendered,
@@ -286,7 +286,7 @@ async def _send_initial_progress(
 
 
 @dataclass(slots=True)
-class _RunOutcome:
+class RunOutcome:
     cancelled: bool = False
     completed: CompletedEvent | None = None
     resume: ResumeToken | None = None
@@ -300,8 +300,8 @@ async def run_runner_with_cancel(
     edits: ProgressEdits,
     running_task: RunningTask | None,
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
-) -> _RunOutcome:
-    outcome = _RunOutcome()
+) -> RunOutcome:
+    outcome = RunOutcome()
     async with anyio.create_task_group() as tg:
 
         async def run_runner() -> None:
@@ -334,7 +334,7 @@ async def run_runner_with_cancel(
     return outcome
 
 
-def _sync_resume_token(
+def sync_resume_token(
     renderer: ExecProgressRenderer, resume: ResumeToken | None
 ) -> ResumeToken | None:
     resume = resume or renderer.resume_token
@@ -403,7 +403,7 @@ async def handle_message(
         max_actions=5, resume_formatter=runner.format_resume
     )
 
-    progress_state = await _send_initial_progress(
+    progress_state = await send_initial_progress(
         cfg,
         chat_id=chat_id,
         user_msg_id=user_msg_id,
@@ -446,7 +446,7 @@ async def handle_message(
             # Edits are best-effort; cancellation should not bubble into the task group.
             return
 
-    outcome = _RunOutcome()
+    outcome = RunOutcome()
     error: Exception | None = None
 
     async with anyio.create_task_group() as tg:
@@ -480,7 +480,7 @@ async def handle_message(
     elapsed = clock() - started_at
 
     if error is not None:
-        _sync_resume_token(progress_renderer, outcome.resume)
+        sync_resume_token(progress_renderer, outcome.resume)
         err_body = str(error)
         final_md = progress_renderer.render_final(elapsed, err_body, status="error")
         logger.debug("[error] markdown: %s", final_md)
@@ -498,7 +498,7 @@ async def handle_message(
         return
 
     if outcome.cancelled:
-        resume = _sync_resume_token(progress_renderer, outcome.resume)
+        resume = sync_resume_token(progress_renderer, outcome.resume)
         logger.info(
             "[handle] cancelled resume=%s elapsed=%.1fs",
             resume.value if resume else None,
@@ -535,7 +535,7 @@ async def handle_message(
     status = (
         "error" if run_ok is False else ("done" if final_answer.strip() else "error")
     )
-    _sync_resume_token(progress_renderer, completed.resume or outcome.resume)
+    sync_resume_token(progress_renderer, completed.resume or outcome.resume)
     final_md = progress_renderer.render_final(elapsed, final_answer, status=status)
     logger.debug("[final] markdown: %s", final_md)
 
