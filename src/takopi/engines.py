@@ -78,9 +78,8 @@ def _codex_startup_message(cwd: str) -> str:
     return f"codex is ready\npwd: {cwd}"
 
 
-def _claude_check_setup(config: EngineConfig, _config_path: Path) -> list[SetupIssue]:
-    cmd = config.get("cmd")
-    claude_cmd = str(cmd) if cmd else "claude"
+def _claude_check_setup(_config: EngineConfig, _config_path: Path) -> list[SetupIssue]:
+    claude_cmd = "claude"
     if shutil.which(claude_cmd) is None:
         return [
             SetupIssue(
@@ -96,12 +95,7 @@ def _claude_check_setup(config: EngineConfig, _config_path: Path) -> list[SetupI
 
 
 def _claude_build_runner(config: EngineConfig, _config_path: Path) -> Runner:
-    cmd = config.get("cmd")
-    if cmd is None:
-        claude_cmd = shutil.which("claude")
-    else:
-        cmd_str = str(cmd)
-        claude_cmd = shutil.which(cmd_str) or cmd_str
+    claude_cmd = shutil.which("claude")
     if not claude_cmd:
         raise ConfigError(
             "claude not found on PATH. Install Claude Code with:\n"
@@ -110,56 +104,16 @@ def _claude_build_runner(config: EngineConfig, _config_path: Path) -> Runner:
             "  claude install"
         )
 
-    extra_args_value = config.get("extra_args")
-    if extra_args_value is None:
-        extra_args = []
-    else:
-        if isinstance(extra_args_value, (list, tuple)):
-            extra_args = [str(item) for item in extra_args_value]
-        else:
-            extra_args = [str(extra_args_value)]
-
     model = config.get("model")
-    system_prompt = config.get("system_prompt")
-    append_system_prompt = config.get("append_system_prompt")
-    permission_mode = config.get("permission_mode")
-    output_style = config.get("output_style")
     allowed_tools = config.get("allowed_tools")
-    disallowed_tools = config.get("disallowed_tools")
-    tools = config.get("tools")
-    max_turns = config.get("max_turns")
-    max_budget_usd = config.get("max_budget_usd")
-    include_partial_messages = config.get("include_partial_messages")
     dangerously_skip_permissions = config.get("dangerously_skip_permissions")
-    idle_timeout_s = config.get("idle_timeout_s")
-
-    mcp_config = config.get("mcp_config")
-    add_dirs = config.get("add_dirs")
-
-    title = config.get("title")
-    if title is None:
-        title = model or "claude"
-    if title is not None:
-        title = str(title)
+    title = str(model) if model is not None else "claude"
 
     return ClaudeRunner(
         claude_cmd=claude_cmd,
         model=model,
-        system_prompt=system_prompt,
-        append_system_prompt=append_system_prompt,
-        permission_mode=permission_mode,
-        output_style=output_style,
         allowed_tools=allowed_tools,
-        disallowed_tools=disallowed_tools,
-        tools=tools,
-        max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
-        include_partial_messages=include_partial_messages,
         dangerously_skip_permissions=dangerously_skip_permissions,
-        mcp_config=mcp_config,
-        add_dirs=add_dirs,
-        extra_args=extra_args,
-        idle_timeout_s=idle_timeout_s,
         session_title=title,
     )
 

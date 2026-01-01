@@ -76,26 +76,16 @@ Recommended v1 schema:
 engine = "claude"
 
 [claude]
-cmd = "claude"                       # default: "claude"
 model = "claude-sonnet-4-5-20250929" # optional (Claude Code supports model override in settings too)
-output_style = "Explanatory"         # optional
 allowed_tools = "Bash,Read,Edit"     # optional but strongly recommended for automation
-permission_mode = "acceptEdits"      # optional
-max_turns = 40                       # optional safety bound
-max_budget_usd = 2.50                # optional safety bound
-append_system_prompt = ""            # optional
-include_partial_messages = false     # optional
 dangerously_skip_permissions = false # optional (high risk; prefer sandbox use only)
-extra_args = []                      # optional: escape hatch
-idle_timeout_s = 300                 # optional watchdog for hung processes
 ```
 
 Notes:
 
 * `--allowedTools` exists specifically to auto-approve tools in programmatic runs. ([Claude Code][1])
 * Claude Code tools (Bash/Edit/Write/WebSearch/etc.) and whether permission is required are documented. ([Claude Code][2])
-* Claude Code supports a permission system and multiple “modes” (plan/accept edits/bypass prompts, etc.).
-* Safety bounds (`max_turns`, `max_budget_usd`) align with Agent SDK result subtypes such as `error_max_turns` and `error_max_budget_usd`. ([Claude Code][3])
+* Takopi only reads `model`, `allowed_tools`, and `dangerously_skip_permissions` from `[claude]`. Use Claude Code settings for other defaults.
 
 ---
 
@@ -109,7 +99,7 @@ Add a new backend:
 
 * `check_setup()` should:
 
-  * `shutil.which("claude")` (or configured `cmd`) must exist.
+  * `shutil.which("claude")` must exist.
   * Error message should include official install options and “run `claude` once to authenticate”.
 
     * Install methods include install scripts, Homebrew, and npm. ([Claude Code][4])
@@ -146,11 +136,14 @@ Resume:
 
 * add `--resume <session_id>` if resuming. ([Claude Code][1])
 
+Model:
+
+* add `--model <name>` if configured. ([Claude Code][1])
+
 Permissions:
 
 * add `--allowedTools "<rules>"` if configured. ([Claude Code][1])
-* optionally support `--tools` to explicitly set the available tool set (only works with `-p`).
-* optionally support `--dangerously-skip-permissions` / `--allow-dangerously-skip-permissions` (high risk; document clearly if exposed).
+* add `--dangerously-skip-permissions` only if explicitly enabled (high risk; document clearly).
 
 Prompt passing:
 
@@ -158,10 +151,7 @@ Prompt passing:
 
 Other flags:
 
-* `--permission-mode`, `--model`, `--output-style`, `--max-turns`, `--max-budget`, `--append-system-prompt`, etc. are in Claude CLI reference.
-* `--include-partial-messages` only works with `-p` and `--output-format stream-json`.
-* `--input-format stream-json` / `--replay-user-messages` are available but out-of-scope unless we implement streaming input.
-* `--continue`, `--fork-session`, `--no-session-persistence`, and `--session-id` exist; treat as optional passthroughs via `extra_args` if needed.
+* Claude exposes more CLI flags, but Takopi does not surface them in config.
 
 #### Stream parsing
 
@@ -287,23 +277,6 @@ Reuse the existing subprocess lifecycle pattern (like `CodexRunner.manage_subpro
 * Drain stderr concurrently (log-only)
 * Ensure locks release in `finally`
 
-#### Watchdog for hung stream-json
-
-There’s evidence that some Claude Code versions have had stream-json sessions that don’t finish cleanly (e.g., missing final result message and not terminating).
-
-Mitigation design:
-
-* Config `idle_timeout_s`:
-
-  * If no stdout data is received for N seconds after init, terminate subprocess and return a failure CompletedEvent.
-* Optionally turn on `include_partial_messages` for liveness signals:
-
-  * Agent SDK defines `type: 'stream_event'` messages when enabled. ([Claude Code][3])
-
-Default could be conservative (e.g., disabled unless configured), but the knob should exist.
-
----
-
 ## Bridge-level tweak (optional but recommended)
 
 `bridge.py` fallback mismatch detector (`_resume_attempt`) only recognizes `"<engine> resume <token>"`.
@@ -394,10 +367,6 @@ Mirror the existing `CodexRunner` tests patterns.
 5. **Cancellation**
 
 * Stub `claude` that sleeps; ensure cancellation kills it (pattern already used for codex subprocess cancellation tests).
-
-6. **Idle timeout**
-
-* Stub that prints init then hangs; ensure runner terminates and returns CompletedEvent(ok=False) when `idle_timeout_s` is set.
 
 ---
 

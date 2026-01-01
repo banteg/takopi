@@ -216,30 +216,11 @@ A minimal TOML config for Claude:
 
 ```toml
 [claude]
-# path to claude binary (optional if on PATH)
-cmd = "claude"
-
 # model: opus | sonnet | haiku
 model = "sonnet"
 
-# optional
-max_turns = 5
-system_prompt = "You are a helpful coding agent"
-append_system_prompt = "Follow repository AGENTS.md instructions"
 allowed_tools = ["Bash", "Read", "Write", "WebSearch"]
-disallowed_tools = []
-permission_prompt_tool = "mcp__approvals__request_permission"
-
-# MCP config path (JSON) or inline config (runner may write a temp file)
-mcp_config_path = "~/.claude/mcp.json"
-
-# working dir and extra dirs
-working_dir = "/path/to/repo"
-additional_directories = ["/path/to/other"]
-
-# environment overrides (optional)
-[claude.env]
-ANTHROPIC_API_KEY = "..."
+dangerously_skip_permissions = false
 ```
 
-Mapping to CLI flags should follow `claudecode-go/client.go`.
+Takopi only maps these keys to Claude CLI flags; other options should be configured in Claude Code settings.
