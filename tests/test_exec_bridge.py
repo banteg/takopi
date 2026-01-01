@@ -123,13 +123,17 @@ def test_truncate_for_telegram_keeps_last_non_empty_line() -> None:
 
 
 def test_strip_engine_command_inline() -> None:
-    text, engine = _strip_engine_command("/claude do it", engine_ids=("codex", "claude"))
+    text, engine = _strip_engine_command(
+        "/claude do it", engine_ids=("codex", "claude")
+    )
     assert engine == "claude"
     assert text == "do it"
 
 
 def test_strip_engine_command_newline() -> None:
-    text, engine = _strip_engine_command("/codex\nhello", engine_ids=("codex", "claude"))
+    text, engine = _strip_engine_command(
+        "/codex\nhello", engine_ids=("codex", "claude")
+    )
     assert engine == "codex"
     assert text == "hello"
 

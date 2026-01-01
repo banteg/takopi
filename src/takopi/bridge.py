@@ -97,7 +97,9 @@ def _flatten_exception_group(error: BaseException) -> list[BaseException]:
 def _format_error(error: Exception) -> str:
     cancel_exc = anyio.get_cancelled_exc_class()
     flattened = [
-        exc for exc in _flatten_exception_group(error) if not isinstance(exc, cancel_exc)
+        exc
+        for exc in _flatten_exception_group(error)
+        if not isinstance(exc, cancel_exc)
     ]
     if len(flattened) == 1:
         return str(flattened[0]) or flattened[0].__class__.__name__
