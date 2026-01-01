@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 from rich.console import Console
 from rich.panel import Panel
@@ -98,6 +99,36 @@ def render_setup_guide(result: SetupResult) -> None:
         "\n".join(parts).rstrip(),
         title="[bold]welcome to takopi![/]",
         subtitle=f"{_OCTOPUS} setup required",
+        border_style="yellow",
+        padding=(1, 2),
+        expand=False,
+    )
+    console.print(panel)
+
+
+def render_engine_choice(backends: Sequence[EngineBackend]) -> None:
+    console = Console(stderr=True)
+    parts: list[str] = []
+    step = 0
+
+    def add_step(title: str, *lines: str) -> None:
+        nonlocal step
+        step += 1
+        parts.append(f"[bold yellow]{step}.[/] [bold]{title}[/]")
+        parts.append("")
+        parts.extend(lines)
+        parts.append("")
+
+    for backend in backends:
+        add_step(
+            f"Run with {backend.display_name}",
+            f"   [dim]$[/] takopi {backend.id}",
+        )
+
+    panel = Panel(
+        "\n".join(parts).rstrip(),
+        title="[bold]welcome to takopi![/]",
+        subtitle=f"{_OCTOPUS} choose an engine",
         border_style="yellow",
         padding=(1, 2),
         expand=False,

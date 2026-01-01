@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
 
 import anyio
 import typer
@@ -9,9 +8,9 @@ import typer
 from . import __version__
 from .bridge import BridgeConfig, _run_main_loop
 from .config import ConfigError, load_telegram_config
-from .engines import EngineBackend, get_backend, get_engine_config
+from .engines import EngineBackend, get_backend, get_engine_config, list_backends
 from .logging import setup_logging
-from .onboarding import check_setup, render_setup_guide
+from .onboarding import check_setup, render_engine_choice, render_setup_guide
 from .telegram import TelegramClient
 
 
@@ -88,11 +87,12 @@ def _run_engine(*, engine: str, final_notify: bool, debug: bool) -> None:
     anyio.run(_run_main_loop, cfg)
 
 
-app = typer.Typer(add_completion=False)
+app = typer.Typer(add_completion=False, invoke_without_command=True)
 
 
 @app.callback()
 def app_main(
+    ctx: typer.Context,
     version: bool = typer.Option(
         False,
         "--version",
@@ -102,6 +102,9 @@ def app_main(
     ),
 ) -> None:
     """Takopi CLI."""
+    if ctx.invoked_subcommand is None:
+        render_engine_choice(list_backends())
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -137,11 +140,6 @@ def claude(
 
 
 def main() -> None:
-    args = sys.argv[1:]
-    has_subcommand = any(arg in {"codex", "claude"} for arg in args)
-    wants_help = any(arg in {"-h", "--help"} for arg in args)
-    if not has_subcommand and not wants_help:
-        sys.argv.insert(1, "codex")
     app()
 
 
