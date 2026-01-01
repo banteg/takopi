@@ -1,10 +1,10 @@
-# Takopi Specification v0.2.0 (minimal) [2025-12-31]
+# Takopi Specification v0.4.0 [2026-01-01]
 
 This document is **normative**. The words **MUST**, **SHOULD**, and **MAY** express requirements.
 
 ## 1. Scope
 
-Takopi v0.2.0 specifies:
+Takopi v0.4.0 specifies:
 
 - A **Telegram** bot bridge that runs an agent **Runner** and posts:
   - a throttled, edited **progress message**
@@ -12,12 +12,12 @@ Takopi v0.2.0 specifies:
 - **Thread continuation** via a **resume command** embedded in chat messages
 - **Parallel runs across different threads**
 - **Serialization within a thread** (no concurrent runs on the same thread)
+- **Automatic runner selection** among multiple engines based on ResumeLine (with a configurable default for new threads)
 - A Takopi-owned **normalized event model** produced by runners and consumed by renderers/bridge
 
-Out of scope for v0.2.0:
+Out of scope for v0.4.0:
 
 - Non-Telegram clients (Slack/Discord/etc.)
-- Auto-selecting among multiple runners
 - Token-by-token streaming of the assistant’s final answer
 - Engines/runners that cannot provide **stable action IDs** within a run
 
@@ -71,11 +71,13 @@ Constraints:
 
 ### 3.4 Bridge resume resolution (MUST)
 
-Given `text` (user message) and optional `reply_text` (the message being replied to):
+Given `text` (user message), optional `reply_text` (the message being replied to), and an ordered list of available runners `runners`:
 
-1. The bridge MUST attempt `runner.extract_resume(text)`.
-2. If not found, it MUST attempt `runner.extract_resume(reply_text)` if present.
-3. If still not found, the run MUST start with `resume=None` (new thread).
+1. The bridge MUST attempt to extract a resume token by polling all runners in order:
+   1. for each `r` in `runners`, attempt `r.extract_resume(text)`
+   2. choose the **first** runner that returns a non-`None` token and stop
+2. If not found, it MUST repeat step (1) for `reply_text` if present.
+3. If still not found, the run MUST start with `resume=None` (new thread) on the default runner (per §8).
 
 ## 4. Normalized event model
 
@@ -335,12 +337,15 @@ Action update collapsing:
 
 ## 8. Configuration and engine selection
 
-Decision (v0.2.0):
+Decision (v0.4.0):
 
-* Exactly one runner is selected at startup via a CLI subcommand (no default).
-* If no engine subcommand is provided, Takopi prints an engine chooser panel and exits.
-* Resume extraction uses only the selected runner.
-* If a user provides a resume line for a different engine, extraction fails and the bridge treats the message as a new thread (`resume=None`).
+* Takopi MUST support configuring a **default engine** used to start new threads (`resume=None`).
+  * If not configured, the default engine is implementation-defined (non-normative: the reference implementation defaults to `codex`).
+* If no engine subcommand is provided, Takopi MUST run in **auto-router** mode:
+  * new threads use the configured default engine
+  * resumed threads are routed based on ResumeLine extraction (per §3.4)
+* If an engine subcommand is provided, Takopi MUST still use the auto-router, but it overrides the configured default engine for new threads.
+* Resume extraction MUST poll **all** available runners (per §3.4) and route to the first matching runner.
 
 ## 9. Testing requirements (MUST)
 
@@ -373,5 +378,23 @@ Tests MUST cover:
 
    * completed-only actions render correctly
    * repeated events for same Action.id collapse as intended
+7. **Auto-router engine selection**
+
+   * resume lines for non-default engines are detected and routed correctly (poll all runners)
+   * new threads use the configured default engine, with CLI subcommand overriding it
 
 Test tooling SHOULD include event factories, deterministic/fake time, and a script/mock runner.
+
+## 10. Changelog
+
+### v0.4.0 (2026-01-01)
+
+- Add auto-router engine selection by polling all runners to decode resume lines; add configurable default engine for new threads (subcommand overrides default).
+
+### v0.3.0 (2026-01-01)
+
+- Require runners to implement explicit resume formatting/extraction/detection and treat runners as authoritative for resume tokens/lines.
+
+### v0.2.0 (2025-12-31)
+
+- Initial minimal Takopi specification (Telegram bridge + runner protocol + normalized events + resume support).
