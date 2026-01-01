@@ -72,8 +72,6 @@ resume lines always route to the matching engine; subcommands only override the 
 
 send a message to the bot.
 
-start a new thread with a specific engine by prefixing your message with `/codex` or `/claude`.
-
 to continue a thread, reply to a bot message containing a resume line.
 you can also copy it to resume an interactive session in your terminal.
 
