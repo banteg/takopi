@@ -44,17 +44,21 @@ class ResumeTokenMixin:
 
 class SessionLockMixin:
     engine: EngineId
-    _session_locks: WeakValueDictionary[str, anyio.Lock]
+    session_locks: WeakValueDictionary[str, anyio.Lock] | None = None
 
-    def _lock_for(self, token: ResumeToken) -> anyio.Lock:
+    def lock_for(self, token: ResumeToken) -> anyio.Lock:
+        locks = self.session_locks
+        if locks is None:
+            locks = WeakValueDictionary()
+            self.session_locks = locks
         key = f"{token.engine}:{token.value}"
-        lock = self._session_locks.get(key)
+        lock = locks.get(key)
         if lock is None:
             lock = anyio.Lock()
-            self._session_locks[key] = lock
+            locks[key] = lock
         return lock
 
-    async def _run_with_resume_lock(
+    async def run_with_resume_lock(
         self,
         prompt: str,
         resume: ResumeToken | None,
@@ -69,7 +73,7 @@ class SessionLockMixin:
             async for evt in run_fn(prompt, resume_token):
                 yield evt
             return
-        lock = self._lock_for(resume_token)
+        lock = self.lock_for(resume_token)
         async with lock:
             async for evt in run_fn(prompt, resume_token):
                 yield evt

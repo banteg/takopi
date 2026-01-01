@@ -9,7 +9,6 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
-from weakref import WeakValueDictionary
 
 import anyio
 
@@ -436,9 +435,6 @@ class ClaudeRunner(SessionLockMixin, ResumeTokenMixin, Runner):
     dangerously_skip_permissions: bool = False
     use_api_billing: bool = False
     session_title: str = "claude"
-    _session_locks: WeakValueDictionary[str, anyio.Lock] = field(
-        default_factory=WeakValueDictionary, init=False, repr=False
-    )
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
@@ -463,7 +459,7 @@ class ClaudeRunner(SessionLockMixin, ResumeTokenMixin, Runner):
     async def run(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
-        async for evt in self._run_with_resume_lock(prompt, resume, self._run):
+        async for evt in self.run_with_resume_lock(prompt, resume, self._run):
             yield evt
 
     async def _run(  # noqa: C901
@@ -556,7 +552,7 @@ class ClaudeRunner(SessionLockMixin, ResumeTokenMixin, Runner):
                                         "claude emitted a different session id than expected"
                                     )
                                 if expected_session is None:
-                                    session_lock = self._lock_for(session)
+                                    session_lock = self.lock_for(session)
                                     await session_lock.acquire()
                                     session_lock_acquired = True
                                 found_session = session

@@ -4,7 +4,6 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from typing import TypeAlias
-from weakref import WeakValueDictionary
 
 import anyio
 
@@ -76,9 +75,6 @@ class MockRunner(SessionLockMixin, ResumeTokenMixin, Runner):
         self._answer = answer
         self._resume_value = resume_value
         self.title = title or str(engine).title()
-        self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
-            WeakValueDictionary()
-        )
         self.resume_re = compile_resume_pattern(engine)
 
     async def run(
@@ -100,7 +96,7 @@ class MockRunner(SessionLockMixin, ResumeTokenMixin, Runner):
             resume=token,
             title=self.title,
         )
-        lock = self._lock_for(token)
+        lock = self.lock_for(token)
         async with lock:
             yield session_evt
 
@@ -174,7 +170,7 @@ class ScriptRunner(MockRunner):
             resume=token,
             title=self.title,
         )
-        lock = self._lock_for(token)
+        lock = self.lock_for(token)
 
         async with lock:
             if self._emit_session_start:

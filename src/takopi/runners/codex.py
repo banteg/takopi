@@ -8,9 +8,9 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
-from weakref import WeakValueDictionary
 
 import anyio
+
 from ..backends import EngineBackend, EngineConfig, SetupIssue
 from ..backends_helpers import which_issue
 from ..config import ConfigError
@@ -427,14 +427,11 @@ class CodexRunner(SessionLockMixin, ResumeTokenMixin, Runner):
         self.codex_cmd = codex_cmd
         self.extra_args = extra_args
         self.session_title = title
-        self._session_locks: WeakValueDictionary[str, anyio.Lock] = (
-            WeakValueDictionary()
-        )
 
     async def run(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
-        async for evt in self._run_with_resume_lock(prompt, resume, self._run):
+        async for evt in self.run_with_resume_lock(prompt, resume, self._run):
             yield evt
 
     async def _run(  # noqa: C901
@@ -613,7 +610,7 @@ class CodexRunner(SessionLockMixin, ResumeTokenMixin, Runner):
                                         message = "codex emitted a different session id than expected"
                                         raise RuntimeError(message)
                                     if expected_session is None:
-                                        session_lock = self._lock_for(session)
+                                        session_lock = self.lock_for(session)
                                         await session_lock.acquire()
                                         session_lock_acquired = True
                                     found_session = session

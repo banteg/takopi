@@ -59,7 +59,7 @@ class PiRunner(SessionLockMixin, ResumeTokenMixin, Runner):
     async def run(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
-        async for evt in self._run_with_resume_lock(prompt, resume, self._run):
+        async for evt in self.run_with_resume_lock(prompt, resume, self._run):
             yield evt
 ```
 
