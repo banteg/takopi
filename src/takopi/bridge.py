@@ -56,6 +56,9 @@ def _is_cancel_command(text: str) -> bool:
 _RESUME_COMMAND_RE = re.compile(
     r"(?im)^\s*`?(?P<engine>[a-z0-9_-]+)\s+resume\s+(?P<token>(?=[^`\s]*\d)[^`\s]+)`?\s*$"
 )
+_CLAUDE_RESUME_RE = re.compile(
+    r"(?im)^\s*`?claude\s+(?:--resume|-r)\s+(?P<token>[^`\s]+)`?\s*$"
+)
 
 
 def _resume_attempt(text: str | None) -> tuple[bool, str | None]:
@@ -64,6 +67,9 @@ def _resume_attempt(text: str | None) -> tuple[bool, str | None]:
     match = _RESUME_COMMAND_RE.search(text)
     if match:
         return True, match.group("engine").lower()
+    match = _CLAUDE_RESUME_RE.search(text)
+    if match:
+        return True, "claude"
     return False, None
 
 
@@ -79,7 +85,11 @@ def _resume_warning_text(engine_hint: str | None, current_engine: str) -> str:
 def _strip_resume_lines(text: str, *, is_resume_line: Callable[[str], bool]) -> str:
     stripped_lines: list[str] = []
     for line in text.splitlines():
-        if is_resume_line(line) or _RESUME_COMMAND_RE.match(line):
+        if (
+            is_resume_line(line)
+            or _RESUME_COMMAND_RE.match(line)
+            or _CLAUDE_RESUME_RE.match(line)
+        ):
             continue
         stripped_lines.append(line)
     prompt = "\n".join(stripped_lines).strip()
