@@ -41,6 +41,8 @@ _ACTION_KIND_MAP: dict[str, ActionKind] = {
 _RESUME_RE = re.compile(r"(?im)^\s*`?codex\s+resume\s+(?P<token>[^`\s]+)`?\s*$")
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _TRUSTED_DIR_RE = re.compile(r"not inside a trusted directory", re.IGNORECASE)
+
+
 def _strip_ansi(text: str) -> str:
     return _ANSI_ESCAPE_RE.sub("", text)
 
