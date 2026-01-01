@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+import logging
+import os
+import signal
+from contextlib import asynccontextmanager
+
+import anyio
+from anyio.abc import Process
+
+logger = logging.getLogger(__name__)
+
+
+async def _wait_for_process(proc: Process, timeout: float) -> bool:
+    with anyio.move_on_after(timeout) as scope:
+        await proc.wait()
+    return scope.cancel_called
+
+
+def _terminate_process(proc: Process) -> None:
+    if proc.returncode is not None:
+        return
+    if os.name == "posix" and proc.pid is not None:
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+            return
+        except ProcessLookupError:
+            return
+        except Exception as e:
+            logger.debug("[subprocess] failed to terminate process group: %s", e)
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        return
+
+
+def _kill_process(proc: Process) -> None:
+    if proc.returncode is not None:
+        return
+    if os.name == "posix" and proc.pid is not None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            return
+        except Exception as e:
+            logger.debug("[subprocess] failed to kill process group: %s", e)
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        return
+
+
+@asynccontextmanager
+async def manage_subprocess(*args, **kwargs):
+    """Ensure subprocesses receive SIGTERM, then SIGKILL after a 2s timeout."""
+    if os.name == "posix":
+        kwargs.setdefault("start_new_session", True)
+    proc = await anyio.open_process(args, **kwargs)
+    try:
+        yield proc
+    finally:
+        if proc.returncode is None:
+            with anyio.CancelScope(shield=True):
+                _terminate_process(proc)
+                timed_out = await _wait_for_process(proc, timeout=2.0)
+                if timed_out:
+                    _kill_process(proc)
+                    await proc.wait()

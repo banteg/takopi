@@ -27,7 +27,7 @@ from ..model import (
 from ..runner import ResumeRunnerMixin, Runner
 from ..utils.paths import relativize_path
 from ..utils.streams import iter_text_lines
-from . import codex
+from ..utils.subprocess import manage_subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -367,7 +367,7 @@ def translate_claude_event(
             tool_use_id = content.get("tool_use_id")
             if not isinstance(tool_use_id, str) or not tool_use_id:
                 continue
-            action = state.pending_actions.get(tool_use_id)
+            action = state.pending_actions.pop(tool_use_id, None)
             if action is None:
                 action = Action(
                     id=tool_use_id,
@@ -577,7 +577,7 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
             if self.use_api_billing is not True:
                 env = dict(os.environ)
                 env.pop("ANTHROPIC_API_KEY", None)
-            async with codex.manage_subprocess(
+            async with manage_subprocess(
                 *args,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,

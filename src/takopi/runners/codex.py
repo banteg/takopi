@@ -2,18 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-import signal
 import subprocess
 from collections import deque
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, cast
 from weakref import WeakValueDictionary
 
 import anyio
-from anyio.abc import ByteReceiveStream, Process
+from anyio.abc import ByteReceiveStream
 from ..model import (
     Action,
     ActionEvent,
@@ -28,6 +25,7 @@ from ..model import (
 )
 from ..runner import ResumeRunnerMixin, Runner, compile_resume_pattern
 from ..utils.streams import iter_text_lines
+from ..utils.subprocess import manage_subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -413,64 +411,6 @@ async def _drain_stderr(stderr: ByteReceiveStream, chunks: deque[str]) -> None:
             chunks.append(line)
     except Exception as e:
         logger.debug("[codex][stderr] drain error: %s", e)
-
-
-async def _wait_for_process(proc: Process, timeout: float) -> bool:
-    with anyio.move_on_after(timeout) as scope:
-        await proc.wait()
-    return scope.cancel_called
-
-
-def _terminate_process(proc: Process) -> None:
-    if proc.returncode is not None:
-        return
-    if os.name == "posix" and proc.pid is not None:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-            return
-        except ProcessLookupError:
-            return
-        except Exception as e:
-            logger.debug("[codex] failed to terminate process group: %s", e)
-    try:
-        proc.terminate()
-    except ProcessLookupError:
-        return
-
-
-def _kill_process(proc: Process) -> None:
-    if proc.returncode is not None:
-        return
-    if os.name == "posix" and proc.pid is not None:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-            return
-        except ProcessLookupError:
-            return
-        except Exception as e:
-            logger.debug("[codex] failed to kill process group: %s", e)
-    try:
-        proc.kill()
-    except ProcessLookupError:
-        return
-
-
-@asynccontextmanager
-async def manage_subprocess(*args, **kwargs):
-    """Ensure subprocesses receive SIGTERM, then SIGKILL after a 2s timeout."""
-    if os.name == "posix":
-        kwargs.setdefault("start_new_session", True)
-    proc = await anyio.open_process(args, **kwargs)
-    try:
-        yield proc
-    finally:
-        if proc.returncode is None:
-            with anyio.CancelScope(shield=True):
-                _terminate_process(proc)
-                timed_out = await _wait_for_process(proc, timeout=2.0)
-                if timed_out:
-                    _kill_process(proc)
-                    await proc.wait()
 
 
 class CodexRunner(ResumeRunnerMixin, Runner):

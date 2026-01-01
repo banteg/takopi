@@ -2,7 +2,7 @@ import sys
 
 import pytest
 
-from takopi.runners import codex
+from takopi.utils import subprocess as subprocess_utils
 
 
 @pytest.mark.anyio
@@ -13,9 +13,9 @@ async def test_manage_subprocess_kills_when_terminate_times_out(
         _ = timeout
         return True
 
-    monkeypatch.setattr(codex, "_wait_for_process", fake_wait_for_process)
+    monkeypatch.setattr(subprocess_utils, "_wait_for_process", fake_wait_for_process)
 
-    async with codex.manage_subprocess(
+    async with subprocess_utils.manage_subprocess(
         sys.executable,
         "-c",
         "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(10)",
