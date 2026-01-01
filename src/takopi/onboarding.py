@@ -109,21 +109,17 @@ def render_setup_guide(result: SetupResult) -> None:
 def render_engine_choice(backends: Sequence[EngineBackend]) -> None:
     console = Console(stderr=True)
     parts: list[str] = []
-    step = 0
-
-    def add_step(title: str, *lines: str) -> None:
-        nonlocal step
-        step += 1
-        parts.append(f"[bold yellow]{step}.[/] [bold]{title}[/]")
+    parts.append("[bold]available engines:[/]")
+    parts.append("")
+    for idx, backend in enumerate(backends, start=1):
+        parts.append(f"[bold yellow]{idx}.[/]")
+        parts.append(f"   [dim]$[/] takopi {backend.id}")
+        if backend.id == "claude":
+            description = "use claude code"
+        else:
+            description = f"use {backend.display_name.lower()}"
+        parts.append(f"   {description}")
         parts.append("")
-        parts.extend(lines)
-        parts.append("")
-
-    for backend in backends:
-        add_step(
-            f"Run with {backend.display_name}",
-            f"   [dim]$[/] takopi {backend.id}",
-        )
 
     panel = Panel(
         "\n".join(parts).rstrip(),
