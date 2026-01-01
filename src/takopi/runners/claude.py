@@ -25,7 +25,7 @@ from ..model import (
 )
 from ..runner import ResumeTokenMixin, Runner, SessionLockMixin
 from ..utils.paths import relativize_path
-from ..utils.streams import drain_stderr, iter_text_lines
+from ..utils.streams import drain_stderr, iter_jsonl
 from ..utils.subprocess import manage_subprocess
 
 logger = logging.getLogger(__name__)
@@ -520,25 +520,20 @@ class ClaudeRunner(SessionLockMixin, ResumeTokenMixin, Runner):
                         logger,
                         "claude",
                     )
-                    async for raw_line in iter_text_lines(proc_stdout):
-                        raw = raw_line.rstrip("\n")
-                        logger.debug("[claude][jsonl] %s", raw)
-                        line = raw.strip()
-                        if not line:
-                            continue
+                    async for json_line in iter_jsonl(
+                        proc_stdout, logger=logger, tag="claude"
+                    ):
                         if did_emit_completed:
                             continue
-                        try:
-                            evt = json.loads(line)
-                        except json.JSONDecodeError:
-                            logger.debug("[claude] invalid json line: %s", line)
+                        if json_line.data is None:
                             yield _note_completed(
                                 next_note_id(),
                                 "invalid JSON from claude; ignoring line",
                                 ok=False,
-                                detail={"line": raw},
+                                detail={"line": json_line.raw},
                             )
                             continue
+                        evt = json_line.data
 
                         for out_evt in translate_claude_event(
                             evt,
