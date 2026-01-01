@@ -9,7 +9,7 @@ Below is a concrete implementation spec for adding **Anthropic Claude Code (“c
 Add a new engine backend **`claude`** so Takopi can:
 
 * Run Claude Code non-interactively via the **Agent SDK CLI** (`claude -p`). ([Claude Code][1])
-* Stream progress in Telegram by parsing **`--output-format stream-json`** (newline-delimited JSON). ([Claude Code][1])
+* Stream progress in Telegram by parsing **`--output-format stream-json --verbose`** (newline-delimited JSON). ([Claude Code][1])
 * Support resumable sessions via **`--resume <session_id>`** (Takopi emits a canonical resume line the user can reply with). ([Claude Code][1])
 
 ### Non-goals (v1)
@@ -47,9 +47,13 @@ Takopi should parse either:
 * `claude --resume <id>`
 * `claude -r <id>` (short form from docs)
 
+**Note:** Claude session IDs should be treated as **opaque strings**. Do not assume UUID format.
+
 ### Permissions / non-interactive runs
 
 In `-p` mode, Claude Code can require tool approvals. Takopi cannot click/answer interactive prompts, so **users must preconfigure permissions** (via Claude Code settings or `--allowedTools`). Claude’s settings system supports allow/deny tool rules. ([Claude Code][2])
+
+**Safety note:** `-p/--print` skips the workspace trust dialog; only use this flag in trusted directories.
 
 Takopi should document this clearly: if permissions aren’t configured and Claude tries to use a gated tool, the run may block or fail.
 
@@ -134,7 +138,7 @@ Use Agent SDK CLI non-interactively:
 
 Core invocation:
 
-* `claude -p --output-format stream-json` ([Claude Code][1])
+* `claude -p --output-format stream-json --verbose` ([Claude Code][1])
 
 Resume:
 
@@ -146,7 +150,7 @@ Permissions:
 
 Prompt passing:
 
-* Prefer writing prompt to **stdin** (supported by `-p` usage examples via piping) to avoid huge argv and leaking prompt via `ps`. ([Claude Code][1])
+* Prefer writing the prompt to **stdin** (supported by `-p` usage via piping) to avoid huge argv and leaking prompt via `ps`. ([Claude Code][1])
 
 Other flags:
 
@@ -173,6 +177,7 @@ Takopi should:
 
 * Parse each line as JSON; on decode error emit a warning ActionEvent (like CodexRunner does) and continue.
 * Prefer stdout for JSON; log stderr separately (do not merge).
+* Treat unknown top-level fields (e.g., `parent_tool_use_id`) as optional metadata and ignore them unless needed.
 
 #### Mapping to Takopi events
 
@@ -181,6 +186,7 @@ Takopi should:
 * Emit upon first `system/init` message:
 
   * `resume = ResumeToken(engine="claude", value=session_id)`
+    (treat `session_id` as opaque; do not validate as UUID)
   * `title = model` (or user-specified config title; default `"claude"`)
   * `meta` should include `cwd`, `tools`, `permissionMode`, `output_style` for debugging.
 
@@ -196,18 +202,27 @@ Strategy:
   * Emit `ActionEvent(phase="started")` with:
 
     * `action.id = tool_use.id`
-    * `action.kind` based on tool name:
+    * `action.kind` based on tool name (complete mapping):
 
       * `Bash` → `command`
       * `Edit`/`Write`/`NotebookEdit` → `file_change` (best-effort path extraction)
+      * `Read` → `tool`
+      * `Glob`/`Grep` → `tool`
       * `WebSearch`/`WebFetch` → `web_search`
+      * `TodoWrite`/`TodoRead` → `note`
+      * `AskUserQuestion` → `note`
+      * `Task`/`Agent` → `tool`
+      * `KillShell` → `command`
       * otherwise → `tool`
     * `action.title`:
 
       * Bash: use `input.command` if present
+      * Read/Write/Edit/NotebookEdit: use file path (best-effort; field may be `file_path` or `path`)
+      * Glob/Grep: use pattern
       * WebSearch: use query
       * WebFetch: use URL
-      * Edit/Write: use file path
+      * TodoWrite/TodoRead: short summary (e.g., “update todos”)
+      * AskUserQuestion: short summary (e.g., “ask user”)
       * otherwise: tool name
     * `detail` includes a compacted copy of input (or a safe summary).
 
@@ -215,6 +230,7 @@ Strategy:
 
   * Emit `ActionEvent(phase="completed")` for `tool_use_id`
   * `ok = not is_error`
+  * `content` may be a string or an array of content blocks; normalize to a string for summaries
   * `detail` includes a small summary (char count / first line / “(truncated)”)
 
 This mirrors CodexRunner’s “started → completed” item tracking and renders well in existing `TakopiProgressRenderer`.
@@ -223,7 +239,7 @@ This mirrors CodexRunner’s “started → completed” item tracking and rende
 
 * Emit on `result` message:
 
-  * `ok = (subtype == 'success' and is_error == false)`
+  * `ok = (is_error == false)` (treat `is_error` as authoritative; `subtype` is informational)
   * `answer = result` on success; on error, a concise message using `errors` and/or denials
   * `usage` attach:
 
@@ -231,7 +247,7 @@ This mirrors CodexRunner’s “started → completed” item tracking and rende
   * Always include `resume` (same session_id).
 
 **Permission denials**
-Because result includes `permission_denials`, optionally emit warning ActionEvent(s) *before* CompletedEvent:
+Because result includes `permission_denials`, optionally emit warning ActionEvent(s) *before* CompletedEvent (CompletedEvent must be final):
 
 * kind: `warning`
 * title: “permission denied: <tool_name>”
