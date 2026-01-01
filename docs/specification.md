@@ -77,7 +77,7 @@ Given `text` (user message), optional `reply_text` (the message being replied to
    1. for each `r` in `runners`, attempt `r.extract_resume(text)`
    2. choose the **first** runner that returns a non-`None` token and stop
 2. If not found, it MUST repeat step (1) for `reply_text` if present.
-3. If still not found, the run MUST start with `resume=None` (new thread) on the default runner (per §8).
+3. If still not found, the run MUST start with `resume=None` (new thread) on the default runner (per §8, including chat-level overrides).
 
 ## 4. Normalized event model
 
@@ -346,6 +346,10 @@ Decision (v0.4.0):
   * resumed threads are routed based on ResumeLine extraction (per §3.4)
 * If an engine subcommand is provided, Takopi MUST still use the auto-router, but it overrides the configured default engine for new threads.
 * Resume extraction MUST poll **all** available runners (per §3.4) and route to the first matching runner.
+* New thread engine override (chat-level):
+  * Users MAY prefix the first non-empty line with `/{engine}` (e.g. `/claude` or `/codex`) to select the engine for a **new** thread.
+  * The bridge MUST strip that directive from the prompt before invoking the runner.
+  * If a ResumeToken is resolved from the message or reply, it MUST take precedence and the `/{engine}` directive MUST be ignored.
 
 ## 9. Testing requirements (MUST)
 
