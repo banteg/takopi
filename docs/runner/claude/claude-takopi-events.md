@@ -17,17 +17,18 @@ ids, per-session serialization, single completed event).
 ## 1. Input stream contract (Claude CLI)
 
 Claude Code CLI emits **one JSON object per line** (JSONL) when invoked with
-`--output-format stream-json`.
+`--output-format stream-json` (only valid with `-p/--print`).
 
 Recommended invocation (matches claudecode-go):
 
 ```
-claude --output-format stream-json --verbose --print -- <query>
+claude -p --output-format stream-json --verbose -- <query>
 ```
 
 Notes:
 - `--verbose` is required for `stream-json` output (clis may otherwise drop events).
-- `--print -- <query>` is required to safely pass prompts that start with `-`.
+- `-p/--print` is required for `--output-format` and `--include-partial-messages`.
+- `-- <query>` is required to safely pass prompts that start with `-`.
 - Resuming uses `--resume <session_id>` and optional `--fork-session`.
 - The CLI does **not** read the prompt from stdin in claudecode-go; it passes the
   prompt as the final positional argument after `--`.
@@ -47,8 +48,10 @@ Runner must implement its own regex (cannot use `compile_resume_pattern` because
 that only matches `<engine> resume <token>`). Suggested regex:
 
 ```
-(?im)^\s*`?claude\s+--resume\s+(?P<token>[^`\s]+)`?\s*$
+(?im)^\s*`?claude\s+(?:--resume|-r)\s+(?P<token>[^`\s]+)`?\s*$
 ```
+
+**Note:** Claude session IDs should be treated as opaque strings.
 
 Resume rules:
 - If a resume token is provided to `run()`, the runner MUST verify that any
@@ -240,4 +243,3 @@ ANTHROPIC_API_KEY = "..."
 ```
 
 Mapping to CLI flags should follow `claudecode-go/client.go`.
-

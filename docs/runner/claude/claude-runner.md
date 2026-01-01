@@ -153,7 +153,7 @@ Permissions:
 
 Prompt passing:
 
-* Prefer writing the prompt to **stdin** (supported by `-p` usage via piping) to avoid huge argv and leaking prompt via `ps`. ([Claude Code][1])
+* Pass the prompt as the final positional argument after `--` (CLI expects `prompt` as an argument). This also protects prompts that begin with `-`. ([Claude Code][1])
 
 Other flags:
 
