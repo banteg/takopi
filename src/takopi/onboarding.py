@@ -96,7 +96,7 @@ def render_setup_guide(result: SetupResult) -> None:
 
     panel = Panel(
         "\n".join(parts).rstrip(),
-        title="[bold]Welcome to takopi![/]",
+        title="[bold]welcome to takopi![/]",
         subtitle=f"{_OCTOPUS} setup required",
         border_style="yellow",
         padding=(1, 2),

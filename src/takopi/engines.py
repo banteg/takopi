@@ -90,11 +90,7 @@ def _claude_check_setup(_config: EngineConfig, _config_path: Path) -> list[Setup
 def _claude_install_issue() -> SetupIssue:
     return SetupIssue(
         "Install the Claude Code CLI",
-        (
-            "   [dim]$[/] npm install -g @anthropic-ai/claude-code",
-            "   [dim]# or[/]",
-            "   [dim]$[/] claude install",
-        ),
+        ("   [dim]$[/] npm install -g @anthropic-ai/claude-code",),
     )
 
 
@@ -103,8 +99,8 @@ def _claude_build_runner(config: EngineConfig, _config_path: Path) -> Runner:
 
     model = config.get("model")
     allowed_tools = config.get("allowed_tools")
-    dangerously_skip_permissions = config.get("dangerously_skip_permissions")
-    use_api_billing = config.get("use_api_billing")
+    dangerously_skip_permissions = config.get("dangerously_skip_permissions") is True
+    use_api_billing = config.get("use_api_billing") is True
     title = str(model) if model is not None else "claude"
 
     return ClaudeRunner(

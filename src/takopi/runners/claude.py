@@ -8,7 +8,7 @@ import subprocess
 from collections import deque
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 from weakref import WeakValueDictionary
 
 import anyio
@@ -51,11 +51,11 @@ class _IdleTimeout(Exception):
 
 def _action_event(
     *,
-    phase: str,
+    phase: Literal["started", "updated", "completed"],
     action: Action,
     ok: bool | None = None,
     message: str | None = None,
-    level: str | None = None,
+    level: Literal["debug", "info", "warning", "error"] | None = None,
 ) -> ActionEvent:
     return ActionEvent(
         engine=ENGINE,
