@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import tomllib
 from pathlib import Path
 
@@ -38,8 +39,7 @@ def _maybe_migrate_legacy(legacy_path: Path, target_path: Path) -> None:
         return
     try:
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        raw = legacy_path.read_text(encoding="utf-8")
-        target_path.write_text(raw, encoding="utf-8")
+        shutil.move(legacy_path, target_path)
     except OSError as e:
         raise ConfigError(
             f"Failed to migrate legacy config {legacy_path} to {target_path}: {e}"
