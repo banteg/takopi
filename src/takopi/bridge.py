@@ -127,56 +127,61 @@ class ProgressEdits:
         self.last_edit_at = last_edit_at
         self.last_rendered = last_rendered
         self.is_resume_line = is_resume_line
-        self._event_seq = 0
-        self._published_seq = 0
-        self.wakeup = anyio.Event()
-
-    async def _wait_for_wakeup(self) -> None:
-        await self.wakeup.wait()
-        self.wakeup = anyio.Event()
+        self.event_seq = 0
+        self.rendered_seq = 0
+        self.signal_send, self.signal_recv = anyio.create_memory_object_stream(1)
 
     async def run(self) -> None:
         if self.progress_id is None:
             return
         while True:
-            await self._wait_for_wakeup()
-            while self._published_seq < self._event_seq:
-                await self.sleep(
-                    max(
-                        0.0,
-                        self.last_edit_at + self.progress_edit_every - self.clock(),
-                    )
-                )
+            while self.rendered_seq == self.event_seq:
+                try:
+                    await self.signal_recv.receive()
+                except anyio.EndOfStream:
+                    return
 
-                seq_at_render = self._event_seq
-                now = self.clock()
-                md = self.renderer.render_progress(now - self.started_at)
-                rendered, entities = prepare_telegram(
-                    md, limit=self.limit, is_resume_line=self.is_resume_line
+            await self.sleep(
+                max(
+                    0.0,
+                    self.last_edit_at + self.progress_edit_every - self.clock(),
                 )
-                if rendered != self.last_rendered:
-                    logger.debug(
-                        "[progress] edit message_id=%s md=%s", self.progress_id, md
-                    )
-                    self.last_edit_at = now
-                    edited = await self.bot.edit_message_text(
-                        chat_id=self.chat_id,
-                        message_id=self.progress_id,
-                        text=rendered,
-                        entities=entities,
-                    )
-                    if edited is not None:
-                        self.last_rendered = rendered
+            )
 
-                self._published_seq = seq_at_render
+            seq_at_render = self.event_seq
+            now = self.clock()
+            md = self.renderer.render_progress(now - self.started_at)
+            rendered, entities = prepare_telegram(
+                md, limit=self.limit, is_resume_line=self.is_resume_line
+            )
+            if rendered != self.last_rendered:
+                logger.debug(
+                    "[progress] edit message_id=%s md=%s", self.progress_id, md
+                )
+                self.last_edit_at = now
+                edited = await self.bot.edit_message_text(
+                    chat_id=self.chat_id,
+                    message_id=self.progress_id,
+                    text=rendered,
+                    entities=entities,
+                )
+                if edited is not None:
+                    self.last_rendered = rendered
+
+            self.rendered_seq = seq_at_render
 
     async def on_event(self, evt: TakopiEvent) -> None:
         if not self.renderer.note_event(evt):
             return
         if self.progress_id is None:
             return
-        self._event_seq += 1
-        self.wakeup.set()
+        self.event_seq += 1
+        try:
+            self.signal_send.send_nowait(None)
+        except anyio.WouldBlock:
+            pass
+        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+            pass
 
 
 @dataclass(frozen=True)
