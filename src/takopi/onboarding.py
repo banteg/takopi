@@ -112,8 +112,7 @@ def render_engine_choice(backends: Sequence[EngineBackend]) -> None:
     parts.append("[bold]available engines:[/]")
     parts.append("")
     for idx, backend in enumerate(backends, start=1):
-        parts.append(f"[bold yellow]{idx}.[/]")
-        parts.append(f"   [dim]$[/] takopi {backend.id}")
+        parts.append(f"[bold yellow]{idx}.[/] [dim]$[/] takopi {backend.id}")
         if backend.id == "claude":
             description = "use claude code"
         else:
@@ -124,7 +123,7 @@ def render_engine_choice(backends: Sequence[EngineBackend]) -> None:
     panel = Panel(
         "\n".join(parts).rstrip(),
         title="[bold]welcome to takopi![/]",
-        subtitle=f"{_OCTOPUS} choose an engine",
+        subtitle=f"{_OCTOPUS} choose engine",
         border_style="yellow",
         padding=(1, 2),
         expand=False,
