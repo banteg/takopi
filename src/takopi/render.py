@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import textwrap
 from collections import deque
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
 from .utils.paths import relativize_path
