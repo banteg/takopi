@@ -40,6 +40,8 @@ parallel runs across threads, per thread queue support.
 global config `~/.takopi/takopi.toml`, repo-level config `.takopi/takopi.toml`
 
 ```toml
+default_engine = "codex"
+
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 
@@ -61,10 +63,12 @@ start takopi in the repo you want to work on:
 
 ```sh
 cd ~/dev/your-repo
+takopi
+# or override the default engine for new threads:
 takopi codex
-# or
-takopi claude
 ```
+
+resume lines always route to the matching engine; subcommands only override the default for new threads.
 
 send a message to the bot.
 

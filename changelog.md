@@ -2,6 +2,8 @@
 
 ## unreleased
 
+- add auto-router runner selection with configurable default engine
+
 ## v0.3.0 (2026-01-01)
 
 ### changes

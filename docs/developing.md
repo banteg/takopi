@@ -26,6 +26,9 @@ uv run ty check .
 make check
 ```
 
+Takopi runs in **auto-router** mode by default. `default_engine` in `takopi.toml` selects
+the engine for new threads; engine subcommands override that default for the process.
+
 ## Module Responsibilities
 
 ### `bridge.py` - Telegram bridge loop
