@@ -8,18 +8,10 @@ import typer
 from . import __version__
 from .bridge import BridgeConfig, _run_main_loop
 from .config import ConfigError, load_telegram_config
-from .engines import (
-    EngineBackend,
-    SetupIssue,
-    get_backend,
-    get_engine_config,
-    list_backend_ids,
-)
+from .engines import EngineBackend, get_backend, get_engine_config, list_backend_ids
 from .logging import setup_logging
-from .onboarding import SetupResult, check_setup, render_setup_guide
+from .onboarding import check_setup, render_setup_guide
 from .telegram import TelegramClient
-
-app = typer.Typer()
 
 
 def _print_version_and_exit() -> None:
@@ -73,35 +65,7 @@ def _parse_bridge_config(
     )
 
 
-def _run(*, final_notify: bool, engine: str, debug: bool) -> None:
-    setup_logging(debug=debug)
-    try:
-        backend = get_backend(engine)
-    except ConfigError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(code=1)
-    setup = check_setup(backend)
-    if not setup.ok:
-        render_setup_guide(setup)
-        raise typer.Exit(code=1)
-    try:
-        cfg = _parse_bridge_config(
-            final_notify=final_notify,
-            backend=backend,
-        )
-    except ConfigError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(code=1)
-    anyio.run(_run_main_loop, cfg)
-
-
-def main() -> None:
-    app()
-
-
-@app.callback(invoke_without_command=True)
-def main_callback(
-    ctx: typer.Context,
+def run(
     version: bool = typer.Option(
         False,
         "--version",
@@ -125,62 +89,29 @@ def main_callback(
         help="Log engine JSONL, Telegram requests, and rendered messages.",
     ),
 ) -> None:
-    if ctx.invoked_subcommand is not None:
-        return
-    _run(final_notify=final_notify, engine=engine, debug=debug)
-
-
-@app.command()
-def run(
-    final_notify: bool = typer.Option(
-        True,
-        "--final-notify/--no-final-notify",
-        help="Send the final response as a new message (not an edit).",
-    ),
-    engine: str = typer.Option(
-        "codex",
-        "--engine",
-        help=f"Engine backend id ({', '.join(list_backend_ids())}).",
-    ),
-    debug: bool = typer.Option(
-        False,
-        "--debug/--no-debug",
-        help="Log engine JSONL, Telegram requests, and rendered messages.",
-    ),
-) -> None:
-    _run(final_notify=final_notify, engine=engine, debug=debug)
-
-
-@app.command("debug-onboarding")
-def debug_onboarding(
-    engine: str = typer.Option(
-        "codex",
-        "--engine",
-        help=f"Engine backend id ({', '.join(list_backend_ids())}).",
-    ),
-    force: bool = typer.Option(
-        True,
-        "--force/--no-force",
-        help="Render onboarding panel even if setup looks OK.",
-    ),
-) -> None:
+    setup_logging(debug=debug)
     try:
         backend = get_backend(engine)
     except ConfigError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
     setup = check_setup(backend)
-    if setup.ok and force:
-        setup = SetupResult(
-            issues=[
-                SetupIssue(
-                    "Setup looks good",
-                    ("Everything appears configured correctly.",),
-                )
-            ],
-            config_path=setup.config_path,
+    if not setup.ok:
+        render_setup_guide(setup)
+        raise typer.Exit(code=1)
+    try:
+        cfg = _parse_bridge_config(
+            final_notify=final_notify,
+            backend=backend,
         )
-    render_setup_guide(setup)
+    except ConfigError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+    anyio.run(_run_main_loop, cfg)
+
+
+def main() -> None:
+    typer.run(run)
 
 
 if __name__ == "__main__":
