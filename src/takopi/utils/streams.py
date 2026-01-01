@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import AsyncIterator
+import logging
 
 import anyio
 from anyio.abc import ByteReceiveStream
@@ -25,3 +27,17 @@ async def iter_text_lines(stream: ByteReceiveStream) -> AsyncIterator[str]:
             line = buffer[: split_at + 1]
             buffer = buffer[split_at + 1 :]
             yield line
+
+
+async def drain_stderr(
+    stream: ByteReceiveStream,
+    chunks: deque[str],
+    logger: logging.Logger,
+    tag: str,
+) -> None:
+    try:
+        async for line in iter_text_lines(stream):
+            logger.debug("[%s][stderr] %s", tag, line.rstrip())
+            chunks.append(line)
+    except Exception as e:
+        logger.debug("[%s][stderr] drain error: %s", tag, e)

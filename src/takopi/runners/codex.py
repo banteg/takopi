@@ -10,7 +10,6 @@ from typing import Any, cast
 from weakref import WeakValueDictionary
 
 import anyio
-from anyio.abc import ByteReceiveStream
 from ..model import (
     Action,
     ActionEvent,
@@ -23,8 +22,8 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..runner import ResumeRunnerMixin, Runner, compile_resume_pattern
-from ..utils.streams import iter_text_lines
+from ..runner import ResumeRunnerMixin, Runner, SessionLockMixin, compile_resume_pattern
+from ..utils.streams import drain_stderr, iter_text_lines
 from ..utils.subprocess import manage_subprocess
 
 logger = logging.getLogger(__name__)
@@ -404,16 +403,7 @@ def translate_codex_event(event: dict[str, Any], *, title: str) -> list[TakopiEv
     return []
 
 
-async def _drain_stderr(stderr: ByteReceiveStream, chunks: deque[str]) -> None:
-    try:
-        async for line in iter_text_lines(stderr):
-            logger.debug("[codex][stderr] %s", line.rstrip())
-            chunks.append(line)
-    except Exception as e:
-        logger.debug("[codex][stderr] drain error: %s", e)
-
-
-class CodexRunner(ResumeRunnerMixin, Runner):
+class CodexRunner(SessionLockMixin, ResumeRunnerMixin, Runner):
     engine: EngineId = ENGINE
     resume_re = _RESUME_RE
 
@@ -431,30 +421,11 @@ class CodexRunner(ResumeRunnerMixin, Runner):
             WeakValueDictionary()
         )
 
-    def _lock_for(self, token: ResumeToken) -> anyio.Lock:
-        key = f"{token.engine}:{token.value}"
-        lock = self._session_locks.get(key)
-        if lock is None:
-            lock = anyio.Lock()
-            self._session_locks[key] = lock
-        return lock
-
     async def run(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
-        resume_token = resume
-        if resume_token is not None and resume_token.engine != ENGINE:
-            raise RuntimeError(
-                f"resume token is for engine {resume_token.engine!r}, not {ENGINE!r}"
-            )
-        if resume_token is None:
-            async for evt in self._run(prompt, resume_token):
-                yield evt
-            return
-        lock = self._lock_for(resume_token)
-        async with lock:
-            async for evt in self._run(prompt, resume_token):
-                yield evt
+        async for evt in self._run_with_resume_lock(prompt, resume, self._run):
+            yield evt
 
     async def _run(  # noqa: C901
         self,
@@ -506,7 +477,13 @@ class CodexRunner(ResumeRunnerMixin, Runner):
                     return f"codex.note.{note_seq}"
 
                 async with anyio.create_task_group() as tg:
-                    tg.start_soon(_drain_stderr, proc_stderr, stderr_chunks)
+                    tg.start_soon(
+                        drain_stderr,
+                        proc_stderr,
+                        stderr_chunks,
+                        logger,
+                        "codex",
+                    )
                     await proc_stdin.send(prompt.encode())
                     await proc_stdin.aclose()
 

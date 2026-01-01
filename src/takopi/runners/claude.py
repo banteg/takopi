@@ -12,7 +12,6 @@ from typing import Any, Literal
 from weakref import WeakValueDictionary
 
 import anyio
-from anyio.abc import ByteReceiveStream
 
 from ..model import (
     Action,
@@ -24,9 +23,9 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..runner import ResumeRunnerMixin, Runner
+from ..runner import ResumeRunnerMixin, Runner, SessionLockMixin
 from ..utils.paths import relativize_path
-from ..utils.streams import iter_text_lines
+from ..utils.streams import drain_stderr, iter_text_lines
 from ..utils.subprocess import manage_subprocess
 
 logger = logging.getLogger(__name__)
@@ -430,17 +429,8 @@ def translate_claude_event(
     return []
 
 
-async def _drain_stderr(stderr: ByteReceiveStream, chunks: deque[str]) -> None:
-    try:
-        async for line in iter_text_lines(stderr):
-            logger.debug("[claude][stderr] %s", line.rstrip())
-            chunks.append(line)
-    except Exception as e:
-        logger.debug("[claude][stderr] drain error: %s", e)
-
-
 @dataclass
-class ClaudeRunner(ResumeRunnerMixin, Runner):
+class ClaudeRunner(SessionLockMixin, ResumeRunnerMixin, Runner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE
 
@@ -453,14 +443,6 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
     _session_locks: WeakValueDictionary[str, anyio.Lock] = field(
         default_factory=WeakValueDictionary, init=False, repr=False
     )
-
-    def _lock_for(self, token: ResumeToken) -> anyio.Lock:
-        key = f"{token.engine}:{token.value}"
-        lock = self._session_locks.get(key)
-        if lock is None:
-            lock = anyio.Lock()
-            self._session_locks[key] = lock
-        return lock
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
@@ -485,19 +467,8 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
     async def run(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
-        resume_token = resume
-        if resume_token is not None and resume_token.engine != ENGINE:
-            raise RuntimeError(
-                f"resume token is for engine {resume_token.engine!r}, not {ENGINE!r}"
-            )
-        if resume_token is None:
-            async for evt in self._run(prompt, resume_token):
-                yield evt
-            return
-        lock = self._lock_for(resume_token)
-        async with lock:
-            async for evt in self._run(prompt, resume_token):
-                yield evt
+        async for evt in self._run_with_resume_lock(prompt, resume, self._run):
+            yield evt
 
     async def _run(  # noqa: C901
         self,
@@ -548,7 +519,13 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
                 rc: int | None = None
 
                 async with anyio.create_task_group() as tg:
-                    tg.start_soon(_drain_stderr, proc_stderr, stderr_chunks)
+                    tg.start_soon(
+                        drain_stderr,
+                        proc_stderr,
+                        stderr_chunks,
+                        logger,
+                        "claude",
+                    )
                     async for raw_line in iter_text_lines(proc_stdout):
                         raw = raw_line.rstrip("\n")
                         logger.debug("[claude][jsonl] %s", raw)

@@ -16,7 +16,7 @@ from ..model import (
     StartedEvent,
     TakopiEvent,
 )
-from ..runner import ResumeRunnerMixin, Runner, compile_resume_pattern
+from ..runner import ResumeRunnerMixin, Runner, SessionLockMixin, compile_resume_pattern
 
 ENGINE: EngineId = EngineId("mock")
 
@@ -59,7 +59,7 @@ def _resume_token(engine: EngineId, value: str | None) -> ResumeToken:
     return ResumeToken(engine=engine, value=value or uuid.uuid4().hex)
 
 
-class MockRunner(ResumeRunnerMixin, Runner):
+class MockRunner(SessionLockMixin, ResumeRunnerMixin, Runner):
     engine: EngineId
 
     def __init__(
@@ -80,14 +80,6 @@ class MockRunner(ResumeRunnerMixin, Runner):
             WeakValueDictionary()
         )
         self.resume_re = compile_resume_pattern(engine)
-
-    def _lock_for(self, token: ResumeToken) -> anyio.Lock:
-        key = f"{token.engine}:{token.value}"
-        lock = self._session_locks.get(key)
-        if lock is None:
-            lock = anyio.Lock()
-            self._session_locks[key] = lock
-        return lock
 
     async def run(
         self, prompt: str, resume: ResumeToken | None
