@@ -3,7 +3,6 @@ import uuid
 import anyio
 import pytest
 
-from takopi import engines
 from takopi.markdown import prepare_telegram, truncate_for_telegram
 from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.router import AutoRouter, RunnerEntry

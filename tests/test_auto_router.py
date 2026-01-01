@@ -19,9 +19,7 @@ def _router() -> tuple[AutoRouter, ClaudeRunner, CodexRunner]:
 
 def test_router_resolves_text_before_reply() -> None:
     router, _claude, _codex = _router()
-    token = router.resolve_resume(
-        "`codex resume abc`", "`claude --resume def`"
-    )
+    token = router.resolve_resume("`codex resume abc`", "`claude --resume def`")
 
     assert token == ResumeToken(engine="codex", value="abc")
 

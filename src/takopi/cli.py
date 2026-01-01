@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 from collections.abc import Callable
+from pathlib import Path
 
 import anyio
 import typer
@@ -52,7 +53,7 @@ def _resolve_default_engine(
     *,
     override: str | None,
     config: dict,
-    config_path: os.PathLike[str] | str,
+    config_path: Path,
     backends: list[EngineBackend],
 ) -> str:
     default_engine = override or config.get("default_engine") or "codex"
@@ -73,7 +74,7 @@ def _resolve_default_engine(
 def _build_router(
     *,
     config: dict,
-    config_path: os.PathLike[str] | str,
+    config_path: Path,
     backends: list[EngineBackend],
     default_engine: str,
 ) -> AutoRouter:
@@ -132,6 +133,7 @@ def _build_router(
         logger.warning("[setup] %s", warning)
 
     return AutoRouter(entries=entries, default_engine=default_engine)
+
 
 def _parse_bridge_config(
     *,

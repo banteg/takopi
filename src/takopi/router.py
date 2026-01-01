@@ -26,7 +26,9 @@ class RunnerEntry:
 
 
 class AutoRouter:
-    def __init__(self, entries: Iterable[RunnerEntry], default_engine: EngineId) -> None:
+    def __init__(
+        self, entries: Iterable[RunnerEntry], default_engine: EngineId
+    ) -> None:
         self._entries = tuple(entries)
         if not self._entries:
             raise ValueError("AutoRouter requires at least one runner.")
