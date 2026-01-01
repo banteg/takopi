@@ -2,7 +2,7 @@
 
 🐙 *he just wants to help-pi*
 
-telegram bridge for codex and claude code. runs the agent cli, streams progress, and supports resumable sessions.
+telegram bridge for codex, claude code, and [other agents](docs/adding-a-runner.md). runs the agent cli, streams progress, and supports resumable sessions.
 
 ## features
 
