@@ -43,7 +43,9 @@ def test_translate_success_fixture() -> None:
     assert len(action_events) == 4
 
     started_actions = {
-        (evt.action.id, evt.phase): evt for evt in action_events if evt.phase == "started"
+        (evt.action.id, evt.phase): evt
+        for evt in action_events
+        if evt.phase == "started"
     }
     assert started_actions[("toolu_1", "started")].action.kind == "command"
     write_action = started_actions[("toolu_2", "started")].action

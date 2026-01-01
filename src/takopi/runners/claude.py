@@ -142,7 +142,9 @@ def _tool_input_path(tool_input: dict[str, Any]) -> str | None:
     return None
 
 
-def _tool_kind_and_title(name: str, tool_input: dict[str, Any]) -> tuple[ActionKind, str]:
+def _tool_kind_and_title(
+    name: str, tool_input: dict[str, Any]
+) -> tuple[ActionKind, str]:
     if name in {"Bash", "Shell", "KillShell"}:
         command = tool_input.get("command")
         display = relativize_command(str(command or name))
@@ -671,7 +673,10 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
                                         raise RuntimeError(
                                             "claude emitted session token for wrong engine"
                                         )
-                                    if expected_session is not None and session != expected_session:
+                                    if (
+                                        expected_session is not None
+                                        and session != expected_session
+                                    ):
                                         raise RuntimeError(
                                             "claude emitted a different session id than expected"
                                         )
@@ -725,9 +730,7 @@ class ClaudeRunner(ResumeRunnerMixin, Runner):
                     return
 
                 if not found_session:
-                    message = (
-                        "claude finished but no session_id was captured"
-                    )
+                    message = "claude finished but no session_id was captured"
                     resume_for_completed = resume_token
                     yield CompletedEvent(
                         engine=ENGINE,
