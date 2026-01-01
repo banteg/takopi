@@ -2,7 +2,7 @@
 
 🐙 *he just wants to help-pi*
 
-telegram bot for [codex](https://github.com/openai/codex). runs `codex exec --json`, streams progress, and supports resumable sessions.
+telegram bot for Codex and Claude Code. runs the engine CLI, streams progress, and supports resumable sessions.
 
 ## features
 
@@ -17,7 +17,9 @@ runs in parallel across threads and queues per thread to keep codex history sane
 ## requirements
 
 - `uv` for installation (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- `codex` on PATH (`npm install -g @openai/codex` or `brew install codex`)
+- at least one engine installed:
+  - `codex` on PATH (`npm install -g @openai/codex` or `brew install codex`)
+  - `claude` on PATH (`npm install -g @anthropic-ai/claude-code`)
 
 ## install
 
@@ -51,7 +53,9 @@ start takopi in the repo you want to work on:
 
 ```sh
 cd ~/dev/your-repo
-takopi
+takopi codex
+# or
+takopi claude
 ```
 
 send a message to the bot.
@@ -61,6 +65,13 @@ to continue a thread, reply to a bot message containing a resume line.
 to stop a run, reply to the progress message with `/cancel`.
 
 ## cli
+
+pick the engine explicitly (no default):
+
+```sh
+takopi codex
+takopi claude
+```
 
 default: progress is silent, final answer is sent as a new message (notification), progress message is deleted.
 

@@ -440,7 +440,8 @@ Final output MUST include:
 
 ### 9.1 v0.2.0 behavior (Decision #5)
 
-- A single runner/engine is selected at startup via config/CLI (default: Codex).
+- A single runner/engine is selected at startup via CLI subcommand (no default).
+- If no engine subcommand is provided, Takopi prints the engine chooser panel and exits.
 - Resume extraction uses only the selected runner’s parser.
 - If the user attempts to resume a thread created by a different engine, resume extraction will fail and the bot treats it as a new thread.
 
@@ -449,7 +450,7 @@ Final output MUST include:
 Takopi MAY support:
 
 - trying all registered runners’ `extract_resume` to auto-select a runner for resumes
-- falling back to default runner when no resume is present
+- selecting a preferred engine from config when no resume is present
 
 The architecture SHOULD keep this future change localized to a `RunnerRegistry` / router.
 
