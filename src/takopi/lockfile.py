@@ -182,8 +182,11 @@ def _lock_state(existing: LockInfo | None) -> str:
 
 
 def _format_lock_message(path: Path, existing: LockInfo | None, state: str) -> str:
+    header = "another takopi instance may already be running for this bot."
+    if state == "running":
+        header = "another takopi instance is already running for this bot."
     lines = [
-        "another takopi instance may already be running for this bot.",
+        header,
         f"lock: {path}",
     ]
     if state not in {"stale", "running", "unknown"}:
