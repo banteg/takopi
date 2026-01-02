@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from .backends import EngineBackend
 from .bridge import BridgeConfig, run_main_loop
 from .config import ConfigError, load_telegram_config
 from .engines import get_backend, get_engine_config, list_backends
+from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import setup_logging
 from .onboarding import check_setup, render_setup_guide
 from .router import AutoRouter, RunnerEntry
@@ -31,6 +33,80 @@ def _version_callback(value: bool) -> None:
     if value:
         _print_version_and_exit()
 
+
+def _load_and_validate_config(
+    path: str | Path | None = None,
+) -> tuple[dict, Path, str, int]:
+    config, config_path = load_telegram_config(path)
+    try:
+        token = config["bot_token"]
+    except KeyError:
+        raise ConfigError(f"Missing key `bot_token` in {config_path}.") from None
+    if not isinstance(token, str) or not token.strip():
+        raise ConfigError(
+            f"Invalid `bot_token` in {config_path}; expected a non-empty string."
+        ) from None
+    try:
+        chat_id_value = config["chat_id"]
+    except KeyError:
+        raise ConfigError(f"Missing key `chat_id` in {config_path}.") from None
+    if isinstance(chat_id_value, bool) or not isinstance(chat_id_value, int):
+        raise ConfigError(
+            f"Invalid `chat_id` in {config_path}; expected an integer."
+        ) from None
+    return config, config_path, token.strip(), chat_id_value
+
+
+def _confirm_start_anyway() -> bool:
+    if not sys.stdin.isatty():
+        return False
+    try:
+        answer = input(
+            "Another instance could already be running. Start anyway? [y/N] "
+        )
+    except EOFError:
+        return False
+    return answer.strip().lower().startswith("y")
+
+
+def _remove_lock_file(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        typer.echo(f"Failed to remove lock file {path}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
+def _acquire_lock(config_path: Path, token: str) -> LockHandle:
+    try:
+        return acquire_lock(
+            config_path=config_path,
+            token_fingerprint=token_fingerprint(token),
+        )
+    except LockError as exc:
+        if exc.state == "stale" and sys.stdin.isatty():
+            typer.echo(str(exc), err=True)
+            if _confirm_start_anyway():
+                _remove_lock_file(exc.path)
+                try:
+                    return acquire_lock(
+                        config_path=config_path,
+                        token_fingerprint=token_fingerprint(token),
+                    )
+                except LockError as retry_exc:
+                    typer.echo(str(retry_exc), err=True)
+                    raise typer.Exit(code=1) from retry_exc
+            raise typer.Exit(code=1)
+
+        typer.echo(str(exc), err=True)
+        if exc.state == "stale":
+            typer.echo(
+                "Run in a TTY to confirm removal, or delete the lock file manually.",
+                err=True,
+            )
+        raise typer.Exit(code=1) from exc
 
 def _default_engine_for_setup(override: str | None) -> str:
     if override:
@@ -139,27 +215,12 @@ def _parse_bridge_config(
     *,
     final_notify: bool,
     default_engine_override: str | None,
+    config: dict,
+    config_path: Path,
+    token: str,
+    chat_id: int,
 ) -> BridgeConfig:
     startup_pwd = os.getcwd()
-
-    config, config_path = load_telegram_config()
-    try:
-        token = config["bot_token"]
-    except KeyError:
-        raise ConfigError(f"Missing key `bot_token` in {config_path}.") from None
-    if not isinstance(token, str) or not token.strip():
-        raise ConfigError(
-            f"Invalid `bot_token` in {config_path}; expected a non-empty string."
-        ) from None
-    try:
-        chat_id_value = config["chat_id"]
-    except KeyError:
-        raise ConfigError(f"Missing key `chat_id` in {config_path}.") from None
-    if isinstance(chat_id_value, bool) or not isinstance(chat_id_value, int):
-        raise ConfigError(
-            f"Invalid `chat_id` in {config_path}; expected an integer."
-        ) from None
-    chat_id = chat_id_value
 
     backends = list_backends()
     default_engine = _resolve_default_engine(
@@ -201,6 +262,7 @@ def _run_auto_router(
     *, default_engine_override: str | None, final_notify: bool, debug: bool
 ) -> None:
     setup_logging(debug=debug)
+    lock_handle: LockHandle | None = None
     try:
         default_engine = _default_engine_for_setup(default_engine_override)
         backend = get_backend(default_engine)
@@ -212,14 +274,26 @@ def _run_auto_router(
         render_setup_guide(setup)
         raise typer.Exit(code=1)
     try:
+        config, config_path, token, chat_id = _load_and_validate_config()
+        lock_handle = _acquire_lock(config_path, token)
         cfg = _parse_bridge_config(
             final_notify=final_notify,
             default_engine_override=default_engine_override,
+            config=config,
+            config_path=config_path,
+            token=token,
+            chat_id=chat_id,
         )
+        anyio.run(run_main_loop, cfg)
     except ConfigError as e:
         typer.echo(str(e), err=True)
         raise typer.Exit(code=1)
-    anyio.run(run_main_loop, cfg)
+    except KeyboardInterrupt:
+        logger.info("[shutdown] interrupted")
+        raise typer.Exit(code=130)
+    finally:
+        if lock_handle is not None:
+            lock_handle.release()
 
 
 app = typer.Typer(
