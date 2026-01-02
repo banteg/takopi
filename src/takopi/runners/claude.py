@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 ENGINE: EngineId = EngineId("claude")
 STDERR_TAIL_LINES = 200
+DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Edit", "Write"]
 
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?claude\s+(?:--resume|-r)\s+(?P<token>[^`\s]+)`?\s*$"
@@ -539,7 +540,10 @@ def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
     claude_cmd = "claude"
 
     model = config.get("model")
-    allowed_tools = config.get("allowed_tools")
+    if "allowed_tools" in config:
+        allowed_tools = config.get("allowed_tools")
+    else:
+        allowed_tools = DEFAULT_ALLOWED_TOOLS
     dangerously_skip_permissions = config.get("dangerously_skip_permissions") is True
     use_api_billing = config.get("use_api_billing") is True
     title = str(model) if model is not None else "claude"

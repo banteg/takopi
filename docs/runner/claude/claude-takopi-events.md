@@ -221,10 +221,11 @@ A minimal TOML config for Claude:
 # model: opus | sonnet | haiku
 model = "sonnet"
 
-allowed_tools = ["Bash", "Read", "Write", "WebSearch"]
+allowed_tools = ["Bash", "Read", "Edit", "Write", "WebSearch"]
 dangerously_skip_permissions = false
 use_api_billing = false
 ```
 
 Takopi only maps these keys to Claude CLI flags; other options should be configured in Claude Code settings.
+If `allowed_tools` is omitted, Takopi defaults to `["Bash", "Read", "Edit", "Write"]`.
 When `use_api_billing` is false (default), Takopi strips `ANTHROPIC_API_KEY` from the Claude subprocess environment to prefer subscription billing.

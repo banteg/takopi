@@ -55,7 +55,8 @@ profile = "takopi"
 
 [claude]
 model = "sonnet"
-allowed_tools = ["Bash", "Read", "Write", "WebSearch"]
+# optional: defaults to ["Bash", "Read", "Edit", "Write"]
+allowed_tools = ["Bash", "Read", "Edit", "Write", "WebSearch"]
 dangerously_skip_permissions = false
 # uses subscription by default, override to use api billing
 use_api_billing = false
