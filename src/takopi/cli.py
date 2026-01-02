@@ -4,12 +4,11 @@ import logging
 import os
 import shutil
 import sys
-import termios
-import tty
 from collections.abc import Callable
 from pathlib import Path
 
 import anyio
+import click
 import typer
 
 from . import __version__
@@ -64,21 +63,11 @@ def _confirm_start_anyway() -> bool:
         return False
     try:
         typer.echo("may already be running. start anyway? [y/N] ", nl=False)
-        answer = _read_key()
+        answer = click.getchar()
         typer.echo()
     except (EOFError, OSError):
         return False
     return answer.strip().lower().startswith("y")
-
-
-def _read_key() -> str:
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        return sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
 def _echo_error(message: str) -> None:
