@@ -248,152 +248,156 @@ def translate_claude_event(
     state: ClaudeStreamState,
 ) -> list[TakopiEvent]:
     etype = event.get("type")
-    if etype == "system" and event.get("subtype") == "init":
-        session_id = event.get("session_id")
-        if not session_id:
-            return []
-        model = event.get("model")
-        event_title = str(model) if model else title
-        meta: dict[str, Any] = {}
-        for key in ("cwd", "tools", "permissionMode", "output_style", "apiKeySource"):
-            if key in event:
-                meta[key] = event.get(key)
-        if "mcp_servers" in event:
-            meta["mcp_servers"] = event.get("mcp_servers")
+    match etype:
+        case "system" if event.get("subtype") == "init":
+            session_id = event.get("session_id")
+            if not session_id:
+                return []
+            model = event.get("model")
+            event_title = str(model) if model else title
+            meta: dict[str, Any] = {}
+            for key in (
+                "cwd",
+                "tools",
+                "permissionMode",
+                "output_style",
+                "apiKeySource",
+            ):
+                if key in event:
+                    meta[key] = event.get(key)
+            if "mcp_servers" in event:
+                meta["mcp_servers"] = event.get("mcp_servers")
 
-        return [
-            StartedEvent(
-                engine=ENGINE,
-                resume=ResumeToken(engine=ENGINE, value=str(session_id)),
-                title=event_title,
-                meta=meta or None,
-            )
-        ]
-
-    if etype == "assistant":
-        message = event.get("message")
-        if not isinstance(message, dict):
-            return []
-        message_id = message.get("id")
-        if not isinstance(message_id, str):
-            message_id = None
-        parent_tool_use_id = event.get("parent_tool_use_id")
-        if not isinstance(parent_tool_use_id, str):
-            parent_tool_use_id = None
-        content_blocks = message.get("content")
-        if not isinstance(content_blocks, list):
-            return []
-        out: list[TakopiEvent] = []
-        for content in content_blocks:
-            if not isinstance(content, dict):
-                continue
-            ctype = content.get("type")
-            if ctype == "tool_use":
-                action = _tool_action(
-                    content,
-                    message_id=message_id,
-                    parent_tool_use_id=parent_tool_use_id,
+            return [
+                StartedEvent(
+                    engine=ENGINE,
+                    resume=ResumeToken(engine=ENGINE, value=str(session_id)),
+                    title=event_title,
+                    meta=meta or None,
                 )
-                if action is None:
+            ]
+        case "assistant":
+            message = event.get("message")
+            if not isinstance(message, dict):
+                return []
+            message_id = message.get("id")
+            if not isinstance(message_id, str):
+                message_id = None
+            parent_tool_use_id = event.get("parent_tool_use_id")
+            if not isinstance(parent_tool_use_id, str):
+                parent_tool_use_id = None
+            content_blocks = message.get("content")
+            if not isinstance(content_blocks, list):
+                return []
+            out: list[TakopiEvent] = []
+            for content in content_blocks:
+                if not isinstance(content, dict):
                     continue
-                state.pending_actions[action.id] = action
-                out.append(_action_event(phase="started", action=action))
-            elif ctype == "text":
-                text = content.get("text")
-                if isinstance(text, str) and text:
-                    state.last_assistant_text = text
-        return out
-
-    if etype == "user":
-        message = event.get("message")
-        if not isinstance(message, dict):
-            return []
-        message_id = message.get("id")
-        if not isinstance(message_id, str):
-            message_id = None
-        content_blocks = message.get("content")
-        if not isinstance(content_blocks, list):
-            return []
-        out: list[TakopiEvent] = []
-        for content in content_blocks:
-            if not isinstance(content, dict):
-                continue
-            if content.get("type") != "tool_result":
-                continue
-            tool_use_id = content.get("tool_use_id")
-            if not isinstance(tool_use_id, str) or not tool_use_id:
-                continue
-            action = state.pending_actions.pop(tool_use_id, None)
-            if action is None:
-                action = Action(
-                    id=tool_use_id,
-                    kind="tool",
-                    title="tool result",
-                    detail={},
+                ctype = content.get("type")
+                if ctype == "tool_use":
+                    action = _tool_action(
+                        content,
+                        message_id=message_id,
+                        parent_tool_use_id=parent_tool_use_id,
+                    )
+                    if action is None:
+                        continue
+                    state.pending_actions[action.id] = action
+                    out.append(_action_event(phase="started", action=action))
+                elif ctype == "text":
+                    text = content.get("text")
+                    if isinstance(text, str) and text:
+                        state.last_assistant_text = text
+            return out
+        case "user":
+            message = event.get("message")
+            if not isinstance(message, dict):
+                return []
+            message_id = message.get("id")
+            if not isinstance(message_id, str):
+                message_id = None
+            content_blocks = message.get("content")
+            if not isinstance(content_blocks, list):
+                return []
+            out: list[TakopiEvent] = []
+            for content in content_blocks:
+                if not isinstance(content, dict):
+                    continue
+                if content.get("type") != "tool_result":
+                    continue
+                tool_use_id = content.get("tool_use_id")
+                if not isinstance(tool_use_id, str) or not tool_use_id:
+                    continue
+                action = state.pending_actions.pop(tool_use_id, None)
+                if action is None:
+                    action = Action(
+                        id=tool_use_id,
+                        kind="tool",
+                        title="tool result",
+                        detail={},
+                    )
+                out.append(
+                    _tool_result_event(content, action=action, message_id=message_id)
                 )
-            out.append(
-                _tool_result_event(content, action=action, message_id=message_id)
-            )
-        return out
+            return out
+        case "result":
+            out: list[TakopiEvent] = []
+            for idx, denial in enumerate(event.get("permission_denials") or []):
+                if not isinstance(denial, dict):
+                    continue
+                tool_name = denial.get("tool_name")
+                denial_title = "permission denied"
+                if isinstance(tool_name, str) and tool_name:
+                    denial_title = f"permission denied: {tool_name}"
+                tool_use_id = denial.get("tool_use_id")
+                action_id = (
+                    f"claude.permission.{tool_use_id}"
+                    if isinstance(tool_use_id, str) and tool_use_id
+                    else f"claude.permission.{idx}"
+                )
+                out.append(
+                    _action_event(
+                        phase="completed",
+                        action=Action(
+                            id=action_id,
+                            kind="warning",
+                            title=denial_title,
+                            detail=denial,
+                        ),
+                        ok=False,
+                        level="warning",
+                    )
+                )
 
-    if etype == "result":
-        out: list[TakopiEvent] = []
-        for idx, denial in enumerate(event.get("permission_denials") or []):
-            if not isinstance(denial, dict):
-                continue
-            tool_name = denial.get("tool_name")
-            denial_title = "permission denied"
-            if isinstance(tool_name, str) and tool_name:
-                denial_title = f"permission denied: {tool_name}"
-            tool_use_id = denial.get("tool_use_id")
-            action_id = (
-                f"claude.permission.{tool_use_id}"
-                if isinstance(tool_use_id, str) and tool_use_id
-                else f"claude.permission.{idx}"
+            ok = not event.get("is_error", False)
+            result_text = event.get("result")
+            if not isinstance(result_text, str):
+                result_text = ""
+            if ok and not result_text and state.last_assistant_text:
+                result_text = state.last_assistant_text
+
+            resume_value = event.get("session_id")
+            resume = (
+                ResumeToken(engine=ENGINE, value=str(resume_value))
+                if resume_value
+                else None
             )
+            error = None if ok else _extract_error(event)
+            usage = _usage_payload(event)
+
             out.append(
-                _action_event(
-                    phase="completed",
-                    action=Action(
-                        id=action_id,
-                        kind="warning",
-                        title=denial_title,
-                        detail=denial,
-                    ),
-                    ok=False,
-                    level="warning",
+                CompletedEvent(
+                    engine=ENGINE,
+                    ok=ok,
+                    answer=result_text,
+                    resume=resume,
+                    error=error,
+                    usage=usage or None,
                 )
             )
-
-        ok = not event.get("is_error", False)
-        result_text = event.get("result")
-        if not isinstance(result_text, str):
-            result_text = ""
-        if ok and not result_text and state.last_assistant_text:
-            result_text = state.last_assistant_text
-
-        resume_value = event.get("session_id")
-        resume = (
-            ResumeToken(engine=ENGINE, value=str(resume_value))
-            if resume_value
-            else None
-        )
-        error = None if ok else _extract_error(event)
-        usage = _usage_payload(event)
-
-        out.append(
-            CompletedEvent(
-                engine=ENGINE,
-                ok=ok,
-                answer=result_text,
-                resume=resume,
-                error=error,
-                usage=usage or None,
-            )
-        )
-        return out
-
-    return []
+            return out
+        case _:
+            return []
 
 
 @dataclass
