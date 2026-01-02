@@ -29,32 +29,26 @@ def _patch_config(monkeypatch, config):
     monkeypatch.setattr(
         cli,
         "load_telegram_config",
-        lambda: (config, Path("takopi.toml")),
+        lambda *args, **kwargs: (config, Path("takopi.toml")),
     )
 
 
-def test_parse_bridge_config_rejects_empty_token(monkeypatch) -> None:
+def test_load_and_validate_config_rejects_empty_token(monkeypatch) -> None:
     from takopi import cli
 
     _patch_config(monkeypatch, {"bot_token": "   ", "chat_id": 123})
 
     with pytest.raises(cli.ConfigError, match="bot_token"):
-        cli._parse_bridge_config(
-            final_notify=True,
-            default_engine_override=None,
-        )
+        cli._load_and_validate_config()
 
 
-def test_parse_bridge_config_rejects_string_chat_id(monkeypatch) -> None:
+def test_load_and_validate_config_rejects_string_chat_id(monkeypatch) -> None:
     from takopi import cli
 
     _patch_config(monkeypatch, {"bot_token": "token", "chat_id": "123"})
 
     with pytest.raises(cli.ConfigError, match="chat_id"):
-        cli._parse_bridge_config(
-            final_notify=True,
-            default_engine_override=None,
-        )
+        cli._load_and_validate_config()
 
 
 def test_codex_extract_resume_finds_command() -> None:
