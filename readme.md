@@ -19,6 +19,7 @@ parallel runs across threads, per thread queue support.
 ## requirements
 
 - `uv` for installation (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- python 3.14+ (uv can install it: `uv python install 3.14`)
 - at least one engine installed:
   - `codex` on PATH (`npm install -g @openai/codex` or `brew install codex`)
   - `claude` on PATH (`npm install -g @anthropic-ai/claude-code`)
@@ -27,8 +28,9 @@ parallel runs across threads, per thread queue support.
 
 ## install
 
-- `uv tool install takopi` to install as `takopi`
-- or try it with `uvx takopi`
+- `uv python install 3.14`
+- `uv tool install -U takopi` to install as `takopi`
+- or try it with `uvx takopi@latest`
 
 ## setup
 
