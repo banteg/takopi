@@ -1,5 +1,11 @@
 # changelog
 
+## v0.5.2 (2026-01-02)
+
+### fixes
+
+- avoid crashes when codex tool/file-change events omit error fields
+
 ## v0.5.1 (2026-01-02)
 
 ### changes

@@ -1,7 +1,7 @@
 [project]
 name = "takopi"
 authors = [{name = "banteg"}]
-version = "0.5.1"
+version = "0.5.2"
 description = "Telegram bridge for Codex, Claude Code, and other agent CLIs."
 readme = "readme.md"
 license = { file = "LICENSE" }
