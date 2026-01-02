@@ -254,7 +254,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             title = str(name) if name else "tool"
             detail = {
                 "name": name,
-                "status": item["status"],
+                "status": item.get("status"),
                 "arguments": item.get("arguments"),
             }
         else:
@@ -263,7 +263,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             detail = {
                 "server": item["server"],
                 "tool": item["tool"],
-                "status": item["status"],
+                "status": item.get("status"),
                 "arguments": item.get("arguments"),
             }
 
@@ -278,10 +278,14 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
                 )
             ]
         if phase == "completed":
-            ok = item["status"] != "failed" and not item["error"]
-            error = item["error"]
+            status = item.get("status")
+            error = item.get("error")
+            ok = status != "failed" and not error
             if error:
-                detail["error_message"] = str(error.get("message") or error)
+                if isinstance(error, dict):
+                    detail["error_message"] = str(error.get("message") or error)
+                else:
+                    detail["error_message"] = str(error)
             result_summary = _summarize_tool_result(item.get("result"))
             if result_summary is not None:
                 detail["result_summary"] = result_summary
@@ -326,11 +330,11 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             return []
         title = _format_change_summary(item)
         detail = {
-            "changes": item["changes"],
-            "status": item["status"],
-            "error": item["error"],
+            "changes": item.get("changes", []),
+            "status": item.get("status"),
+            "error": item.get("error"),
         }
-        ok = item["status"] != "failed"
+        ok = item.get("status") != "failed"
         return [
             _action_event(
                 phase="completed",
