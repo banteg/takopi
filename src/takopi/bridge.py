@@ -560,8 +560,9 @@ async def handle_message(
     if error is not None:
         sync_resume_token(progress_renderer, outcome.resume)
         err_body = _format_error(error)
+        status_label = f"error ({runner.engine})"
         final_parts = progress_renderer.render_final_parts(
-            elapsed, err_body, status="error"
+            elapsed, err_body, status=status_label
         )
         logger.debug(
             "[error] markdown: %s",
@@ -587,7 +588,7 @@ async def handle_message(
             elapsed,
         )
         final_parts = progress_renderer.render_progress_parts(
-            elapsed, label="`cancelled`"
+            elapsed, label=f"`cancelled` ({runner.engine})"
         )
         await send_result_message(
             cfg,
@@ -619,8 +620,9 @@ async def handle_message(
         "error" if run_ok is False else ("done" if final_answer.strip() else "error")
     )
     sync_resume_token(progress_renderer, completed.resume or outcome.resume)
+    status_label = f"{status} ({runner.engine})"
     final_parts = progress_renderer.render_final_parts(
-        elapsed, final_answer, status=status
+        elapsed, final_answer, status=status_label
     )
     logger.debug(
         "[final] markdown: %s",
@@ -781,7 +783,7 @@ async def _send_runner_unavailable(
     if resume_token is not None:
         progress_renderer.resume_token = resume_token
     final_parts = progress_renderer.render_final_parts(
-        0.0, f"Error:\n{reason}", status="error"
+        0.0, f"Error:\n{reason}", status=f"error ({runner.engine})"
     )
     await _send_or_edit_markdown(
         cfg.bot,
