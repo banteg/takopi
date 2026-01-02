@@ -3,13 +3,32 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _find_whisper() -> str:
+    """Find the whisper executable."""
+    # First try shutil.which (uses PATH)
+    whisper_path = shutil.which("whisper")
+    if whisper_path:
+        return whisper_path
+
+    # Try in the same directory as the Python executable (venv/bin)
+    python_dir = Path(sys.executable).parent
+    whisper_in_venv = python_dir / "whisper"
+    if whisper_in_venv.exists():
+        return str(whisper_in_venv)
+
+    # Fallback to just "whisper" and hope it's in PATH
+    return "whisper"
 
 
 @dataclass
@@ -59,8 +78,9 @@ async def transcribe_audio(
         input_file.write_bytes(audio_data)
 
         # Build whisper command
+        whisper_bin = _find_whisper()
         cmd = [
-            "whisper",
+            whisper_bin,
             str(input_file),
             "--model", model,
             "--output_dir", str(tmppath),
@@ -106,8 +126,9 @@ async def transcribe_audio(
 def is_whisper_available() -> bool:
     """Check if whisper CLI is available."""
     try:
+        whisper_bin = _find_whisper()
         result = subprocess.run(
-            ["whisper", "--help"],
+            [whisper_bin, "--help"],
             capture_output=True,
             timeout=5,
         )
