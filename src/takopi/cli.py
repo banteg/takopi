@@ -174,15 +174,9 @@ def _parse_bridge_config(
         backends=backends,
         default_engine=default_engine,
     )
-    installed_engines: list[str] = []
-    missing_engines: list[str] = []
-    for backend in backends:
-        cmd = backend.cli_cmd or backend.id
-        if shutil.which(cmd) is None:
-            missing_engines.append(backend.id)
-        else:
-            installed_engines.append(backend.id)
-    engine_list = ", ".join(installed_engines) if installed_engines else "none"
+    available_engines = [entry.engine for entry in router.available_entries]
+    missing_engines = [entry.engine for entry in router.entries if not entry.available]
+    engine_list = ", ".join(available_engines) if available_engines else "none"
     if missing_engines:
         engine_list = f"{engine_list} (not installed: {', '.join(missing_engines)})"
     startup_msg = (

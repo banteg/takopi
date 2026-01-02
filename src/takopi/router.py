@@ -47,6 +47,10 @@ class AutoRouter:
         return self._entries
 
     @property
+    def available_entries(self) -> tuple[RunnerEntry, ...]:
+        return tuple(entry for entry in self._entries if entry.available)
+
+    @property
     def engine_ids(self) -> tuple[EngineId, ...]:
         return tuple(entry.engine for entry in self._entries)
 
