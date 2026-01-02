@@ -783,7 +783,7 @@ async def _send_runner_unavailable(
     if resume_token is not None:
         progress_renderer.resume_token = resume_token
     final_parts = progress_renderer.render_final_parts(
-        0.0, f"Error:\n{reason}", status=f"error ({runner.engine})"
+        0.0, f"error:\n{reason}", status=f"error ({runner.engine})"
     )
     await _send_or_edit_markdown(
         cfg.bot,
@@ -853,7 +853,7 @@ async def run_main_loop(
                         await _send_or_edit_markdown(
                             cfg.bot,
                             chat_id=chat_id,
-                            parts=MarkdownParts(header=f"Error:\n{exc}"),
+                            parts=MarkdownParts(header=f"error:\n{exc}"),
                             reply_to_message_id=user_msg_id,
                             disable_notification=False,
                         )
