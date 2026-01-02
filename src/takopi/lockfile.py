@@ -182,19 +182,24 @@ def _lock_state(existing: LockInfo | None) -> str:
 
 
 def _format_lock_message(path: Path, existing: LockInfo | None, state: str) -> str:
+    if state not in {"stale", "running", "unknown"}:
+        return f"failed to create lock: {state}"
     header = "another takopi instance may already be running for this bot."
     if state == "running":
         header = "another takopi instance is already running for this bot."
+    display_path = _display_lock_path(path)
     lines = [
         header,
-        f"lock: {path}",
+        f"if you are sure that's not the case, delete {display_path}",
     ]
-    if state not in {"stale", "running", "unknown"}:
-        lines.append(f"lock error: {state}")
-        return "\n".join(lines)
-    if state == "stale":
-        lines.append("lock looks stale (process not running).")
-        lines.append("if you're sure, delete the lock file to continue.")
-        return "\n".join(lines)
-    lines.append("if you're sure this is stale, delete the lock file to continue.")
     return "\n".join(lines)
+
+
+def _display_lock_path(path: Path) -> str:
+    home = Path.home()
+    try:
+        resolved = path.expanduser().resolve()
+        rel = resolved.relative_to(home)
+        return f"~/{rel}"
+    except (ValueError, OSError):
+        return str(path)

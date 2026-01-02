@@ -76,8 +76,10 @@ def _echo_error(message: str) -> None:
         return
     first = lines[0]
     if not first.lower().startswith("error:"):
-        lines[0] = f"error: {first}"
-    typer.secho("\n".join(lines), fg=typer.colors.RED, err=True)
+        first = f"error: {first}"
+    typer.secho(first, fg=typer.colors.RED, err=True)
+    if len(lines) > 1:
+        typer.echo("\n".join(lines[1:]), err=True)
 
 
 def _remove_lock_file(path: Path) -> None:
@@ -111,13 +113,7 @@ def _acquire_lock(config_path: Path, token: str) -> LockHandle:
                     raise typer.Exit(code=1) from retry_exc
             raise typer.Exit(code=1)
 
-        message = str(exc)
-        if exc.state == "stale":
-            message = (
-                f"{message}\n"
-                "run in a tty to confirm removal, or delete the lock file manually."
-            )
-        _echo_error(message)
+        _echo_error(str(exc))
         raise typer.Exit(code=1) from exc
 
 
