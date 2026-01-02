@@ -40,7 +40,7 @@ ENGINE: EngineId = EngineId("opencode")
 STDERR_TAIL_LINES = 200
 
 _RESUME_RE = re.compile(
-    r"(?im)^\s*`?opencode\s+(?:--session|-s)\s+(?P<token>ses_[A-Za-z0-9]+)`?\s*$"
+    r"(?im)^\s*`?opencode(?:\s+run)?\s+(?:--session|-s)\s+(?P<token>ses_[A-Za-z0-9]+)`?\s*$"
 )
 
 
@@ -225,6 +225,8 @@ def translate_opencode_event(
                 )
             detail["exit_code"] = exit_code
 
+            state.pending_actions.pop(action.id, None)
+
             return [
                 _action_event(
                     phase="completed",
@@ -235,6 +237,31 @@ def translate_opencode_event(
                         detail=detail,
                     ),
                     ok=not is_error,
+                )
+            ]
+        if status == "error":
+            error = tool_state.get("error")
+            metadata = tool_state.get("metadata") or {}
+            exit_code = metadata.get("exit")
+
+            detail = dict(action.detail)
+            if error is not None:
+                detail["error"] = error
+            detail["exit_code"] = exit_code
+
+            state.pending_actions.pop(action.id, None)
+
+            return [
+                _action_event(
+                    phase="completed",
+                    action=Action(
+                        id=action.id,
+                        kind=action.kind,
+                        title=action.title,
+                        detail=detail,
+                    ),
+                    ok=False,
+                    message=str(error) if error is not None else None,
                 )
             ]
         else:
@@ -294,9 +321,21 @@ def translate_opencode_event(
         return []
 
     if etype == "error":
-        message = event.get("message") or event.get("error") or "opencode error"
+        raw_message = event.get("message")
+        if raw_message is None:
+            raw_message = event.get("error")
+
+        message = raw_message
         if isinstance(message, dict):
-            message = message.get("message") or "opencode error"
+            data = message.get("data")
+            if isinstance(data, dict) and data.get("message"):
+                message = data.get("message")
+            else:
+                message = (
+                    message.get("message") or message.get("name") or "opencode error"
+                )
+        elif message is None:
+            message = "opencode error"
 
         resume = None
         if state.session_id:
@@ -331,7 +370,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
             raise RuntimeError(f"resume token is for engine {token.engine!r}")
-        return f"`opencode --session {token.value}`"
+        return f"`opencode run --session {token.value}`"
 
     def command(self) -> str:
         return self.opencode_cmd

@@ -22,8 +22,11 @@ def test_opencode_resume_format_and_extract() -> None:
     runner = OpenCodeRunner(opencode_cmd="opencode")
     token = ResumeToken(engine=ENGINE, value="ses_abc123")
 
-    assert runner.format_resume(token) == "`opencode --session ses_abc123`"
-    assert runner.extract_resume("`opencode --session ses_abc123`") == token
+    assert runner.format_resume(token) == "`opencode run --session ses_abc123`"
+    assert runner.extract_resume("`opencode run --session ses_abc123`") == token
+    assert runner.extract_resume("opencode run -s ses_other") == ResumeToken(
+        engine=ENGINE, value="ses_other"
+    )
     assert runner.extract_resume("opencode -s ses_other") == ResumeToken(
         engine=ENGINE, value="ses_other"
     )
@@ -177,26 +180,18 @@ def test_translate_tool_use_with_error() -> None:
     assert action_event.ok is False
 
 
-def test_translate_error_event() -> None:
+def test_translate_error_fixture() -> None:
     state = OpenCodeStreamState()
-    state.session_id = "ses_test123"
-    state.emitted_started = True
+    events: list = []
+    for event in _load_fixture("opencode_stream_error.jsonl"):
+        events.extend(translate_opencode_event(event, title="opencode", state=state))
 
-    events = translate_opencode_event(
-        {
-            "type": "error",
-            "sessionID": "ses_test123",
-            "message": "API rate limit exceeded",
-        },
-        title="opencode",
-        state=state,
-    )
+    started = next(evt for evt in events if isinstance(evt, StartedEvent))
+    completed = next(evt for evt in events if isinstance(evt, CompletedEvent))
 
-    assert len(events) == 1
-    completed = events[0]
-    assert isinstance(completed, CompletedEvent)
     assert completed.ok is False
-    assert completed.error == "API rate limit exceeded"
+    assert completed.error == "Rate limit exceeded"
+    assert completed.resume == started.resume
 
 
 def test_step_finish_tool_calls_does_not_complete() -> None:

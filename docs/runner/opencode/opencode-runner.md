@@ -25,9 +25,9 @@ takopi opencode
 
 ## Resume Format
 
-Resume line format: `` `opencode --session ses_XXX` ``
+Resume line format: `` `opencode run --session ses_XXX` ``
 
-The runner recognizes both `--session` and `-s` flags.
+The runner recognizes both `--session` and `-s` flags (with or without `run`).
 
 ## JSON Event Format
 

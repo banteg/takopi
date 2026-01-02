@@ -26,7 +26,7 @@ Example:
 
 ### `tool_use`
 
-Tool invocation event. Emitted with status indicating completion.
+Tool invocation event. Emitted when a tool finishes (`status == "completed"`).
 
 Fields:
 - `type`: `"tool_use"`
@@ -35,7 +35,7 @@ Fields:
 - `part.id`: Part identifier
 - `part.callID`: Unique call ID for this tool invocation
 - `part.tool`: Tool name (e.g., "bash", "read", "write", "grep")
-- `part.state.status`: `"pending"`, `"running"`, or `"completed"`
+- `part.state.status`: `"completed"` (the CLI JSON output does not emit pending/running tool states)
 - `part.state.input`: Tool input parameters
 - `part.state.output`: Tool output (when completed)
 - `part.state.title`: Human-readable description
@@ -96,12 +96,27 @@ Example (tool-calls step):
 {"type":"step_finish","timestamp":1767036061205,"sessionID":"ses_494719016ffe85dkDMj0FPRbHK","part":{"id":"prt_b6b8e85fb001L4I3WHMqH6EQNI","sessionID":"ses_494719016ffe85dkDMj0FPRbHK","messageID":"msg_b6b8e702b0012XuEC4bGe0XhKa","type":"step-finish","reason":"tool-calls","snapshot":"ee3406d50c7d9048674bbb1a3e325d82513b74ed","cost":0,"tokens":{"input":21772,"output":110,"reasoning":0,"cache":{"read":0,"write":0}}}}
 ```
 
+### `error`
+
+Session error event.
+
+Fields:
+- `type`: `"error"`
+- `timestamp`: Unix timestamp in milliseconds
+- `sessionID`: Session identifier
+- `error.name`: Error type
+- `error.data.message`: Human-readable error (when available)
+
+Example:
+```json
+{"type":"error","timestamp":1767036065000,"sessionID":"ses_494719016ffe85dkDMj0FPRbHK","error":{"name":"APIError","data":{"message":"Rate limit exceeded","statusCode":429,"isRetryable":true}}}
+```
+
 ## Mapping to Takopi Events
 
 | OpenCode Event | Takopi Event | Condition |
 |----------------|--------------|-----------|
 | `step_start` | `StartedEvent` | First occurrence |
-| `tool_use` | `ActionEvent(phase="started")` | `status != "completed"` |
 | `tool_use` | `ActionEvent(phase="completed")` | `status == "completed"` |
 | `text` | (accumulate text) | - |
 | `step_finish` | `CompletedEvent` | `reason == "stop"` |

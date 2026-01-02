@@ -15,9 +15,9 @@ Takopi:   StartedEvent(engine="opencode", resume=ResumeToken(engine="opencode", 
 
 ### ActionEvent
 
-Tool usage is translated to action events.
+Tool usage is translated to action events. Note: `opencode run --format json` currently only emits `tool_use` events when the tool finishes (`status == "completed"`). Pending/running tool states exist in the schema but are not emitted by the CLI JSON stream.
 
-**Started phase** (when tool is pending/running):
+**Started phase** (when tool is pending/running, if emitted by the JSON stream):
 ```
 OpenCode: {"type":"tool_use","part":{"tool":"bash","state":{"status":"pending",...}}}
 Takopi:   ActionEvent(engine="opencode", action=Action(kind="command"), phase="started")
@@ -41,7 +41,7 @@ Takopi:   CompletedEvent(engine="opencode", ok=True, answer="<accumulated text>"
 
 **Error**:
 ```
-OpenCode: {"type":"error","message":"API rate limit exceeded"}
+OpenCode: {"type":"error","error":{"name":"APIError","data":{"message":"API rate limit exceeded"}}}
 Takopi:   CompletedEvent(engine="opencode", ok=False, error="API rate limit exceeded")
 ```
 
