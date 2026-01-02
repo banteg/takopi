@@ -23,6 +23,9 @@ HARD_BREAK = "  \n"
 MAX_PROGRESS_CMD_LEN = 300
 MAX_FILE_CHANGES_INLINE = 3
 
+_MD_RENDERER = MarkdownIt("commonmark", {"html": False})
+_BULLET_RE = re.compile(r"(?m)^(\s*)•")
+
 
 @dataclass(frozen=True)
 class MarkdownParts:
@@ -38,11 +41,10 @@ def assemble_markdown_parts(parts: MarkdownParts) -> str:
 
 
 def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
-    md_renderer = MarkdownIt("commonmark", {"html": False})
-    html = md_renderer.render(md or "")
+    html = _MD_RENDERER.render(md or "")
     rendered = transform_html(html)
 
-    text = re.sub(r"(?m)^(\s*)•", r"\1-", rendered.text)
+    text = _BULLET_RE.sub(r"\1-", rendered.text)
 
     entities = [dict(e) for e in rendered.entities]
     return text, entities
