@@ -81,12 +81,10 @@ def format_elapsed(elapsed_s: float) -> str:
 
 
 def format_header(
-    elapsed_s: float, item: int | None, *, label: str, engine: str | None = None
+    elapsed_s: float, item: int | None, *, label: str, engine: str
 ) -> str:
     elapsed = format_elapsed(elapsed_s)
-    parts = [label]
-    if engine:
-        parts.append(engine)
+    parts = [label, engine]
     parts.append(elapsed)
     if item is not None:
         parts.append(f"step {item}")
@@ -220,11 +218,11 @@ class RecentLine:
 class ExecProgressRenderer:
     def __init__(
         self,
+        engine: str,
         max_actions: int = 5,
         command_width: int | None = MAX_PROGRESS_CMD_LEN,
         resume_formatter: Callable[[ResumeToken], str] | None = None,
         show_title: bool = False,
-        engine: str | None = None,
     ) -> None:
         self.max_actions = max(0, int(max_actions))
         self.command_width = command_width

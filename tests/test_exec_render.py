@@ -113,19 +113,21 @@ def test_file_change_renders_relative_paths_inside_cwd() -> None:
 
 
 def test_progress_renderer_renders_progress_and_final() -> None:
-    r = ExecProgressRenderer(max_actions=5, resume_formatter=_format_resume)
+    r = ExecProgressRenderer(
+        max_actions=5, resume_formatter=_format_resume, engine="codex"
+    )
     for evt in SAMPLE_EVENTS:
         r.note_event(evt)
 
     progress_parts = r.render_progress_parts(3.0)
     progress = assemble_markdown_parts(progress_parts)
-    assert progress.startswith("working · 3s · step 2")
+    assert progress.startswith("working · codex · 3s · step 2")
     assert "✓ `bash -lc ls`" in progress
     assert "`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
 
     final_parts = r.render_final_parts(3.0, "answer", status="done")
     final = assemble_markdown_parts(final_parts)
-    assert final.startswith("done · 3s · step 2")
+    assert final.startswith("done · codex · 3s · step 2")
     assert "answer" in final
     assert final.rstrip().endswith(
         "`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`"
@@ -133,7 +135,7 @@ def test_progress_renderer_renders_progress_and_final() -> None:
 
 
 def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
-    r = ExecProgressRenderer(max_actions=3, command_width=20)
+    r = ExecProgressRenderer(max_actions=3, command_width=20, engine="codex")
     events = [
         action_completed(
             f"item_{i}",
@@ -156,7 +158,7 @@ def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
 
 
 def test_progress_renderer_renders_commands_in_markdown() -> None:
-    r = ExecProgressRenderer(max_actions=5, command_width=None)
+    r = ExecProgressRenderer(max_actions=5, command_width=None, engine="codex")
     for i in (30, 31, 32):
         r.note_event(
             action_completed(
@@ -176,7 +178,7 @@ def test_progress_renderer_renders_commands_in_markdown() -> None:
 
 
 def test_progress_renderer_handles_duplicate_action_ids() -> None:
-    r = ExecProgressRenderer(max_actions=5)
+    r = ExecProgressRenderer(max_actions=5, engine="codex")
     events = [
         action_started("dup", "command", "echo first"),
         action_completed(
@@ -207,7 +209,7 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
 
 
 def test_progress_renderer_collapses_action_updates() -> None:
-    r = ExecProgressRenderer(max_actions=5)
+    r = ExecProgressRenderer(max_actions=5, engine="codex")
     events = [
         action_started("a-1", "command", "echo one"),
         action_started("a-1", "command", "echo two"),
@@ -240,8 +242,8 @@ def test_progress_renderer_deterministic_output() -> None:
             detail={"exit_code": 0},
         ),
     ]
-    r1 = ExecProgressRenderer(max_actions=5)
-    r2 = ExecProgressRenderer(max_actions=5)
+    r1 = ExecProgressRenderer(max_actions=5, engine="codex")
+    r2 = ExecProgressRenderer(max_actions=5, engine="codex")
 
     for evt in events:
         r1.note_event(evt)
