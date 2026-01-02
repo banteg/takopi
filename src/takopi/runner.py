@@ -91,11 +91,10 @@ class SessionLockMixin:
 class BaseRunner(SessionLockMixin):
     engine: EngineId
 
-    async def run(
+    def run(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
-        async for evt in self.run_locked(prompt, resume):
-            yield evt
+        return self.run_locked(prompt, resume)
 
     async def run_locked(
         self, prompt: str, resume: ResumeToken | None
