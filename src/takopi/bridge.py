@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -21,6 +20,7 @@ from .render import (
 )
 from .router import AutoRouter, RunnerUnavailableError
 from .runner import Runner
+from .scheduler import ThreadJob, ThreadScheduler
 from .telegram import BotClient
 
 
@@ -801,35 +801,6 @@ async def run_main_loop(
     try:
         await _set_command_menu(cfg)
         async with anyio.create_task_group() as tg:
-            scheduler_lock = anyio.Lock()
-
-            @dataclass(frozen=True, slots=True)
-            class ThreadJob:
-                chat_id: int
-                user_msg_id: int
-                text: str
-                resume_token: ResumeToken
-
-            pending_by_thread: dict[str, deque[ThreadJob]] = {}
-            active_threads: set[str] = set()
-            busy_until: dict[str, anyio.Event] = {}
-
-            def thread_key(token: ResumeToken) -> str:
-                return f"{token.engine}:{token.value}"
-
-            async def clear_busy(key: str, done: anyio.Event) -> None:
-                await done.wait()
-                async with scheduler_lock:
-                    if busy_until.get(key) is done:
-                        busy_until.pop(key, None)
-
-            async def note_thread_known(token: ResumeToken, done: anyio.Event) -> None:
-                key = thread_key(token)
-                async with scheduler_lock:
-                    current = busy_until.get(key)
-                    if current is None or current.is_set():
-                        busy_until[key] = done
-                tg.start_soon(clear_busy, key, done)
 
             async def run_job(
                 chat_id: int,
@@ -882,55 +853,15 @@ async def run_main_loop(
                 except Exception:
                     logger.exception("[handle] worker failed")
 
-            async def thread_worker(key: str) -> None:
-                try:
-                    while True:
-                        async with scheduler_lock:
-                            done = busy_until.get(key)
-                            queue = pending_by_thread.get(key)
-                            if not queue:
-                                pending_by_thread.pop(key, None)
-                                active_threads.discard(key)
-                                return
-                            job = queue.popleft()
+            async def run_thread_job(job: ThreadJob) -> None:
+                await run_job(
+                    job.chat_id,
+                    job.user_msg_id,
+                    job.text,
+                    job.resume_token,
+                )
 
-                        if done is not None and not done.is_set():
-                            await done.wait()
-
-                        await run_job(
-                            job.chat_id,
-                            job.user_msg_id,
-                            job.text,
-                            job.resume_token,
-                        )
-                finally:
-                    async with scheduler_lock:
-                        active_threads.discard(key)
-
-            async def enqueue(
-                chat_id: int,
-                user_msg_id: int,
-                text: str,
-                resume_token: ResumeToken,
-            ) -> None:
-                key = thread_key(resume_token)
-                async with scheduler_lock:
-                    queue = pending_by_thread.get(key)
-                    if queue is None:
-                        queue = deque()
-                        pending_by_thread[key] = queue
-                    queue.append(
-                        ThreadJob(
-                            chat_id=chat_id,
-                            user_msg_id=user_msg_id,
-                            text=text,
-                            resume_token=resume_token,
-                        )
-                    )
-                    if key in active_threads:
-                        return
-                    active_threads.add(key)
-                tg.start_soon(thread_worker, key)
+            scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
 
             async for msg in poller(cfg):
                 text = msg["text"]
@@ -953,7 +884,7 @@ async def run_main_loop(
                         tg.start_soon(
                             _send_with_resume,
                             cfg.bot,
-                            enqueue,
+                            scheduler.enqueue_resume,
                             running_task,
                             msg["chat"]["id"],
                             user_msg_id,
@@ -968,10 +899,12 @@ async def run_main_loop(
                         user_msg_id,
                         text,
                         None,
-                        note_thread_known,
+                        scheduler.note_thread_known,
                         engine_override,
                     )
                 else:
-                    await enqueue(msg["chat"]["id"], user_msg_id, text, resume_token)
+                    await scheduler.enqueue_resume(
+                        msg["chat"]["id"], user_msg_id, text, resume_token
+                    )
     finally:
         await cfg.bot.close()
