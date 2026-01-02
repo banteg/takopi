@@ -26,7 +26,7 @@ class SetupResult:
 
 
 def config_issue(path: Path) -> SetupIssue:
-    config_display = _config_path_display(path)
+    config_display = _config_path_display(_preferred_config_path(path))
     return SetupIssue(
         "create a config",
         (
@@ -80,6 +80,12 @@ def _config_path_display(path: Path) -> str:
         return f"~/{path.relative_to(home)}"
     except ValueError:
         return str(path)
+
+
+def _preferred_config_path(path: Path) -> Path:
+    if path.name == "takopi.toml" and path.parent.name == ".codex":
+        return path.parent.parent / ".takopi" / "takopi.toml"
+    return path
 
 
 def render_setup_guide(result: SetupResult) -> None:

@@ -29,7 +29,6 @@ Issues = "https://github.com/banteg/takopi/issues"
 
 [project.scripts]
 takopi = "takopi.cli:main"
-takopi-debug-onboarding = "takopi.debug_onboarding:main"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
