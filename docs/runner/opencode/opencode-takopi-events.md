@@ -39,6 +39,8 @@ OpenCode: {"type":"step_finish","part":{"reason":"stop","tokens":{...},"cost":0.
 Takopi:   CompletedEvent(engine="opencode", ok=True, answer="<accumulated text>", usage={...})
 ```
 
+If `step_finish` omits `reason`, Takopi treats a clean process exit as successful completion and emits `CompletedEvent(ok=True)` with the accumulated usage.
+
 **Error**:
 ```
 OpenCode: {"type":"error","error":{"name":"APIError","data":{"message":"API rate limit exceeded"}}}

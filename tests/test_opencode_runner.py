@@ -63,6 +63,28 @@ def test_translate_success_fixture() -> None:
     assert "tokens" in completed.usage
 
 
+def test_translate_missing_reason_success() -> None:
+    state = OpenCodeStreamState()
+    events: list = []
+    for event in _load_fixture("opencode_stream_success_no_reason.jsonl"):
+        events.extend(translate_opencode_event(event, title="opencode", state=state))
+
+    started = next(evt for evt in events if isinstance(evt, StartedEvent))
+    runner = OpenCodeRunner(opencode_cmd="opencode")
+    fallback = runner.stream_end_events(
+        resume=None,
+        found_session=started.resume,
+        stderr_tail="",
+        state=state,
+    )
+
+    completed = next(evt for evt in fallback if isinstance(evt, CompletedEvent))
+    assert completed.ok is True
+    assert completed.resume == started.resume
+    assert completed.answer == "All done."
+    assert completed.usage is not None
+
+
 def test_translate_accumulates_text() -> None:
     state = OpenCodeStreamState()
 
@@ -222,6 +244,7 @@ def test_build_args_new_session() -> None:
         "json",
         "--model",
         "claude-sonnet",
+        "--",
         "hello world",
     ]
 
@@ -231,7 +254,15 @@ def test_build_args_with_resume() -> None:
     token = ResumeToken(engine=ENGINE, value="ses_abc123")
     args = runner.build_args("continue", token, state=OpenCodeStreamState())
 
-    assert args == ["run", "--format", "json", "--session", "ses_abc123", "continue"]
+    assert args == [
+        "run",
+        "--format",
+        "json",
+        "--session",
+        "ses_abc123",
+        "--",
+        "continue",
+    ]
 
 
 def test_stdin_payload_returns_none() -> None:

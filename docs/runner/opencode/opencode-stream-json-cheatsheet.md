@@ -77,7 +77,7 @@ Fields:
 - `sessionID`: Session identifier
 - `part.id`: Part identifier
 - `part.type`: `"step-finish"`
-- `part.reason`: `"stop"` (final) or `"tool-calls"` (continuing)
+- `part.reason`: Optional. `"stop"` (final) or `"tool-calls"` (continuing) when present.
 - `part.snapshot`: Git snapshot hash
 - `part.cost`: Cost in USD
 - `part.tokens.input`: Input token count
@@ -122,6 +122,8 @@ Example:
 | `step_finish` | `CompletedEvent` | `reason == "stop"` |
 | `step_finish` | (ignored) | `reason == "tool-calls"` |
 | `error` | `CompletedEvent(ok=False)` | - |
+
+If `step_finish` omits `reason`, Takopi treats a clean process exit as successful completion and emits `CompletedEvent(ok=True)` with accumulated usage.
 
 ## Session ID Format
 

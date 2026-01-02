@@ -53,6 +53,7 @@ class OpenCodeStreamState:
     note_seq: int = 0
     session_id: str | None = None
     emitted_started: bool = False
+    saw_step_finish: bool = False
     total_cost: float = 0.0
     total_tokens: dict[str, int] = field(default_factory=dict)
 
@@ -281,22 +282,24 @@ def translate_opencode_event(
     if etype == "step_finish":
         part = event.get("part") or {}
         reason = part.get("reason")
+        state.saw_step_finish = True
 
         tokens = part.get("tokens") or {}
         if isinstance(tokens, dict):
             for key in ("input", "output", "reasoning"):
-                if key in tokens:
-                    state.total_tokens[key] = state.total_tokens.get(
-                        key, 0
-                    ) + tokens.get(key, 0)
+                value = tokens.get(key)
+                if isinstance(value, int):
+                    state.total_tokens[key] = state.total_tokens.get(key, 0) + value
             cache = tokens.get("cache") or {}
             if isinstance(cache, dict):
                 for key in ("read", "write"):
+                    value = cache.get(key)
+                    if not isinstance(value, int):
+                        continue
                     cache_key = f"cache_{key}"
-                    if key in cache:
-                        state.total_tokens[cache_key] = state.total_tokens.get(
-                            cache_key, 0
-                        ) + cache.get(key, 0)
+                    state.total_tokens[cache_key] = (
+                        state.total_tokens.get(cache_key, 0) + value
+                    )
 
         cost = part.get("cost")
         if isinstance(cost, (int, float)):
@@ -388,7 +391,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             args.extend(["--session", resume.value])
         if self.model is not None:
             args.extend(["--model", str(self.model)])
-        args.append(prompt)
+        args.extend(["--", prompt])
         return args
 
     def stdin_payload(
@@ -494,6 +497,18 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                 )
             ]
 
+        if state.saw_step_finish:
+            usage = _usage_from_tokens(state.total_tokens, state.total_cost)
+            return [
+                CompletedEvent(
+                    engine=ENGINE,
+                    ok=True,
+                    answer=state.last_text or "",
+                    resume=found_session,
+                    usage=usage or None,
+                )
+            ]
+
         message = "opencode finished without a result event"
         return [
             CompletedEvent(
@@ -528,5 +543,5 @@ def build_runner(config: EngineConfig, config_path: Path) -> Runner:
 BACKEND = EngineBackend(
     id="opencode",
     build_runner=build_runner,
-    install_cmd="go install github.com/sst/opencode@latest",
+    install_cmd="npm i -g opencode-ai@latest",
 )

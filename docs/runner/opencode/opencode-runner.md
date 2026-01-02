@@ -5,7 +5,7 @@ This runner integrates with the [OpenCode CLI](https://github.com/sst/opencode).
 ## Installation
 
 ```bash
-go install github.com/sst/opencode@latest
+npm i -g opencode-ai@latest
 ```
 
 ## Configuration
@@ -40,7 +40,7 @@ OpenCode outputs JSON events with the following types:
 | `step_start` | Beginning of a processing step |
 | `tool_use` | Tool invocation with input/output |
 | `text` | Text output from the model |
-| `step_finish` | End of a step (reason: "stop" or "tool-calls") |
+| `step_finish` | End of a step (reason: "stop" or "tool-calls" when present) |
 | `error` | Error event |
 
 See [opencode-stream-json-cheatsheet.md](./opencode-stream-json-cheatsheet.md) for detailed event format documentation.
