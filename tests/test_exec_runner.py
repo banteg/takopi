@@ -244,6 +244,77 @@ async def test_codex_runner_preserves_warning_order(tmp_path) -> None:
 
 
 @pytest.mark.anyio
+async def test_codex_runner_reconnect_notice_is_non_fatal(tmp_path) -> None:
+    thread_id = "019b73c4-0c3f-7701-a0bb-aac6b4d8a3bc"
+
+    codex_path = tmp_path / "codex"
+    codex_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "\n"
+        "sys.stdin.read()\n"
+        "print(json.dumps({'type': 'error', 'message': 'Reconnecting... 1/5'}), flush=True)\n"
+        f"print(json.dumps({{'type': 'thread.started', 'thread_id': '{thread_id}'}}), flush=True)\n"
+        "print(json.dumps({'type': 'item.completed', 'item': {'id': 'item_0', 'type': 'agent_message', 'text': 'ok'}}), flush=True)\n",
+        encoding="utf-8",
+    )
+    codex_path.chmod(0o755)
+
+    runner = CodexRunner(codex_cmd=str(codex_path), extra_args=[])
+    seen = [evt async for evt in runner.run("hi", None)]
+
+    assert len(seen) == 3
+    assert isinstance(seen[0], ActionEvent)
+    assert seen[0].phase == "started"
+    assert seen[0].ok is None
+    assert seen[0].action.kind == "note"
+    assert seen[0].action.title == "Reconnecting... 1/5"
+
+    assert isinstance(seen[1], StartedEvent)
+    assert seen[1].resume.value == thread_id
+
+    assert isinstance(seen[2], CompletedEvent)
+    assert seen[2].resume == seen[1].resume
+    assert seen[2].answer == "ok"
+
+
+@pytest.mark.anyio
+async def test_codex_runner_reconnect_notice_updates_phase(tmp_path) -> None:
+    thread_id = "019b73c4-0c3f-7701-a0bb-aac6b4d8a3bc"
+
+    codex_path = tmp_path / "codex"
+    codex_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "\n"
+        "sys.stdin.read()\n"
+        "print(json.dumps({'type': 'error', 'message': 'Reconnecting... 1/5'}), flush=True)\n"
+        "print(json.dumps({'type': 'error', 'message': 'Reconnecting... 2/5'}), flush=True)\n"
+        f"print(json.dumps({{'type': 'thread.started', 'thread_id': '{thread_id}'}}), flush=True)\n"
+        "print(json.dumps({'type': 'item.completed', 'item': {'id': 'item_0', 'type': 'agent_message', 'text': 'ok'}}), flush=True)\n"
+        "print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'cached_input_tokens': 0, 'output_tokens': 1}}), flush=True)\n",
+        encoding="utf-8",
+    )
+    codex_path.chmod(0o755)
+
+    runner = CodexRunner(codex_cmd=str(codex_path), extra_args=[])
+    seen = [evt async for evt in runner.run("hi", None)]
+
+    assert len(seen) == 4
+    first = seen[0]
+    second = seen[1]
+    assert isinstance(first, ActionEvent)
+    assert isinstance(second, ActionEvent)
+    assert first.phase == "started"
+    assert second.phase == "updated"
+    assert first.action.id == second.action.id == "codex.reconnect"
+    assert isinstance(seen[2], StartedEvent)
+    assert isinstance(seen[3], CompletedEvent)
+
+
+@pytest.mark.anyio
 async def test_codex_runner_includes_stderr_reason(tmp_path) -> None:
     codex_path = tmp_path / "codex"
     codex_path.write_text(

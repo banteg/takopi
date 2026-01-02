@@ -171,7 +171,10 @@ Codex:
 {"type":"error","message":"stream error: broken pipe"}
 ```
 
-Cheatsheet meaning: this is a **fatal stream failure** (not just a tool failure). 
+Cheatsheet meaning: this is a **fatal stream failure** (not just a tool failure).
+However, Codex may also emit transient reconnect notices as `type="error"` with
+messages like `"Reconnecting... 1/5"` while it retries a dropped stream. Treat
+those as non-fatal progress updates (do **not** end the run).
 
 → Takopi:
 
@@ -237,7 +240,8 @@ This is usually safe to show as a short “what it’s doing” line (or ignore 
 
 ### 3) `command_execution` (`item.started` and `item.completed`)
 
-Codex fields include `command`, `exit_code`, `status`, `aggregated_output` (often noisy). 
+Codex fields include `command`, `status`, `aggregated_output` (often noisy), and
+`exit_code` (null or omitted until completion). 
 
 → Takopi `action`:
 
@@ -246,7 +250,7 @@ Codex fields include `command`, `exit_code`, `status`, `aggregated_output` (ofte
 * `detail={ command, exit_code, status }` (optionally include output tail)
 * `phase="started"` on `item.started`
 * `phase="completed"` on `item.completed`
-* `ok = (item.status == "completed")` (or `exit_code == 0`)
+* `ok = (item.status == "completed")` (and `exit_code == 0` when present)
 
 Note: “failed” command becomes `ok=false` but it’s still just an `action` completion — the overall run might still succeed later, depending on agent behavior.
 
@@ -270,7 +274,8 @@ This is a great progress line for your UI (“updated docs/…, added …”).
 
 ### 5) `mcp_tool_call` (`item.started` and `item.completed`)
 
-Codex contains server/tool/arguments/result/error/status. Result can be large; may include base64 in content blocks. 
+Codex contains server/tool/arguments/status and may include result/error on
+completion. Result can be large; may include base64 in content blocks. 
 
 → Takopi `action`:
 

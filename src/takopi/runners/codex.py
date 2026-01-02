@@ -41,6 +41,10 @@ _ACTION_KIND_MAP: dict[str, ActionKind] = {
 _RESUME_RE = re.compile(r"(?im)^\s*`?codex\s+resume\s+(?P<token>[^`\s]+)`?\s*$")
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _TRUSTED_DIR_RE = re.compile(r"not inside a trusted directory", re.IGNORECASE)
+_RECONNECTING_RE = re.compile(
+    r"^Reconnecting\.{3}\s*(?P<attempt>\d+)/(?P<max>\d+)\s*$",
+    re.IGNORECASE,
+)
 
 
 def _strip_ansi(text: str) -> str:
@@ -58,6 +62,18 @@ def _extract_stderr_reason(stderr_tail: str) -> str | None:
         if _TRUSTED_DIR_RE.search(line):
             return line
     return lines[-1]
+
+
+def _parse_reconnect_message(message: str) -> tuple[int, int] | None:
+    match = _RECONNECTING_RE.match(message)
+    if not match:
+        return None
+    try:
+        attempt = int(match.group("attempt"))
+        max_attempts = int(match.group("max"))
+    except (TypeError, ValueError):
+        return None
+    return (attempt, max_attempts)
 
 
 def _started_event(token: ResumeToken, *, title: str) -> StartedEvent:
@@ -229,13 +245,14 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
                 )
             ]
         if phase == "completed":
-            exit_code = item["exit_code"]
-            ok = item["status"] != "failed"
-            if exit_code is not None:
+            status = item["status"]
+            exit_code = item.get("exit_code")
+            ok = status == "completed"
+            if isinstance(exit_code, int):
                 ok = ok and exit_code == 0
             detail = {
                 "exit_code": exit_code,
-                "status": item["status"],
+                "status": status,
             }
             return [
                 _action_event(
@@ -280,7 +297,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
         if phase == "completed":
             status = item.get("status")
             error = item.get("error")
-            ok = status != "failed" and not error
+            ok = status == "completed" and not error
             if error:
                 if isinstance(error, dict):
                     detail["error_message"] = str(error.get("message") or error)
@@ -334,7 +351,7 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             "status": item.get("status"),
             "error": item.get("error"),
         }
-        ok = item.get("status") != "failed"
+        ok = item.get("status") == "completed"
         return [
             _action_event(
                 phase="completed",
@@ -463,7 +480,22 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         etype = data["type"]
         match etype:
             case "error":
-                message = str(data["message"])
+                message = str(data.get("message") or "")
+                reconnect = _parse_reconnect_message(message)
+                if reconnect is not None:
+                    attempt, max_attempts = reconnect
+                    phase: ActionPhase = "started" if attempt <= 1 else "updated"
+                    return [
+                        _action_event(
+                            phase=phase,
+                            action_id="codex.reconnect",
+                            kind="note",
+                            title=message,
+                            detail={"attempt": attempt, "max": max_attempts},
+                            level="info",
+                        )
+                    ]
+
                 fatal_flag = data.get("fatal")
                 fatal = fatal_flag is True or fatal_flag is None
                 if fatal:

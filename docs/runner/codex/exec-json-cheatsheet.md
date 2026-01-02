@@ -3,8 +3,10 @@
 `codex exec --json` writes **one JSON object per line** (JSONL) to stdout. Each
 line is a top-level **thread event** with a `type` field.
 
-Below: **all fields** for every line type plus a **full-line example** for each
-shape that can be emitted.
+Below: **required + commonly emitted fields** for every line type plus a
+**full-line example** for each shape that can be emitted. Fields noted as
+optional may be omitted (or `null`) depending on Codex version and lifecycle.
+Unknown fields may appear; ignore what you don't use.
 
 ## Top-level event lines (non-item)
 
@@ -64,6 +66,10 @@ Example:
 {"type":"error","message":"stream error: broken pipe"}
 ```
 
+Note: Codex may emit transient reconnect notices as `type="error"` with messages
+like `"Reconnecting... 1/5"` while it retries a dropped stream. Treat those as
+non-fatal progress updates (the turn continues).
+
 ## Item event lines (`item.*`)
 
 Every item line includes:
@@ -99,7 +105,7 @@ Example:
 Fields:
 - `item.command`
 - `item.aggregated_output`
-- `item.exit_code` (null until completion)
+- `item.exit_code` (null or omitted until completion)
 - `item.status` (`in_progress`, `completed`, `failed`)
 
 Example (started):
@@ -138,10 +144,10 @@ Fields:
 - `item.server`
 - `item.tool`
 - `item.arguments` (JSON value; defaults to `null` if absent)
-- `item.result` (object or `null`)
+- `item.result` (object or `null`; may be omitted)
 - `item.result.content` (array of MCP content blocks)
 - `item.result.structured_content` (JSON value or `null`)
-- `item.error` (object or `null`)
+- `item.error` (object or `null`; may be omitted)
 - `item.error.message` (if `error` is present)
 - `item.status` (`in_progress`, `completed`, `failed`)
 
@@ -317,7 +323,8 @@ machine-only metadata.
   - `file_change.status`: `completed` = patch applied, `failed` = patch failed.
   - `mcp_tool_call.status`: `completed` = tool succeeded, `failed` = tool failed.
 - **Fatal stream errors:** `type = "error"` means the JSONL stream itself hit an
-  unrecoverable error.
+  unrecoverable error (except transient `"Reconnecting... X/Y"` notices, which
+  are non-fatal).
 
 ### Suggested minimal rendering
 
@@ -327,3 +334,12 @@ If you want a compact UI, the following is usually enough:
 - Final answer: `item.completed` with `item.type = "agent_message"`
 - Optional progress: `item.started` / `item.completed` for `command_execution`
   and `file_change`
+
+### Optional/conditional emission notes
+
+- `turn.failed` only appears on failure; otherwise `turn.completed` is emitted.
+- `reasoning` items only appear when reasoning summaries are enabled.
+- `todo_list` items only appear when the plan tool is active; they are the
+  primary source of `item.updated`.
+- `file_change` and `web_search` items are emitted only as `item.completed`
+  in the current `codex exec --json` stream.
