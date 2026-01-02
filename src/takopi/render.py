@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import textwrap
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,12 +32,9 @@ class MarkdownParts:
 
 
 def assemble_markdown_parts(parts: MarkdownParts) -> str:
-    chunks = [parts.header]
-    if parts.body:
-        chunks.append(parts.body)
-    if parts.footer:
-        chunks.append(parts.footer)
-    return "\n\n".join(chunks)
+    return "\n\n".join(
+        chunk for chunk in (parts.header, parts.body, parts.footer) if chunk
+    )
 
 
 def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
@@ -50,32 +48,21 @@ def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
     return text, entities
 
 
-def trim_body(body: str) -> str:
-    if len(body) <= 3500:
-        return body
-    return body[: 3500 - 1] + "…"
-
-
-def trim_markdown_parts(parts: MarkdownParts) -> MarkdownParts:
-    header = parts.header or ""
-    body = parts.body or ""
-    footer = parts.footer or ""
-
-    trimmed_body = trim_body(body) if body else ""
-    if not trimmed_body.strip():
-        trimmed_body = ""
-
-    return MarkdownParts(
-        header=header,
-        body=trimmed_body or None,
-        footer=footer or None,
-    )
+def trim_body(body: str | None) -> str | None:
+    if not body:
+        return None
+    if len(body) > 3500:
+        body = body[: 3500 - 1] + "…"
+    return body if body.strip() else None
 
 
 def prepare_telegram(parts: MarkdownParts) -> tuple[str, list[dict[str, Any]]]:
-    trimmed = trim_markdown_parts(parts)
-    md = assemble_markdown_parts(trimmed)
-    return render_markdown(md)
+    trimmed = MarkdownParts(
+        header=parts.header or "",
+        body=trim_body(parts.body),
+        footer=parts.footer,
+    )
+    return render_markdown(assemble_markdown_parts(trimmed))
 
 
 def format_changed_file_path(path: str, *, base_dir: Path | None = None) -> str:
@@ -195,9 +182,7 @@ def format_action_line(
 
 
 def is_command_log_line(line: str) -> bool:
-    return line.startswith(f"{STATUS['running']} `") or line.startswith(
-        f"{STATUS['done']} `"
-    )
+    return any(line.startswith(f"{symbol} `") for symbol in STATUS.values())
 
 
 def render_event_cli(event: TakopiEvent) -> list[str]:
@@ -221,9 +206,9 @@ def render_event_cli(event: TakopiEvent) -> list[str]:
 
 
 @dataclass
-class TrackedAction:
+class RecentLine:
     action_id: str
-    line: str
+    text: str
     completed: bool = False
 
 
@@ -235,11 +220,11 @@ class ExecProgressRenderer:
         resume_formatter: Callable[[ResumeToken], str] | None = None,
         show_title: bool = False,
     ) -> None:
-        self.max_actions = max_actions
+        self.max_actions = max(0, int(max_actions))
         self.command_width = command_width
-        self.actions: list[TrackedAction] = []
+        self.lines: deque[RecentLine] = deque(maxlen=self.max_actions)
         self.action_count = 0
-        self.started_counts: dict[str, int] = {}
+        self.seen_action_ids: set[str] = set()
         self.resume_token: ResumeToken | None = None
         self.session_title: str | None = None
         self._resume_formatter = resume_formatter
@@ -257,61 +242,48 @@ class ExecProgressRenderer:
                 action_id = str(action.id or "")
                 if not action_id:
                     return False
-                return self.record_action(action_id, action, phase, ok)
+                completed = phase == "completed"
+                has_open = self.has_open_line(action_id)
+                is_update = phase == "updated" or (phase == "started" and has_open)
+                phase_for_line = "updated" if is_update and not completed else phase
+                line = format_action_line(
+                    action, phase_for_line, ok, command_width=self.command_width
+                )
+
+                if action_id not in self.seen_action_ids:
+                    self.seen_action_ids.add(action_id)
+                    self.action_count += 1
+
+                self.upsert_line(action_id, line=line, completed=completed)
+                return True
             case _:
                 return False
 
-    def record_action(
-        self, action_id: str, action: Action, phase: str, ok: bool | None
-    ) -> bool:
-        completed = phase == "completed"
-        started_count = self.started_counts.get(action_id, 0)
-        if completed:
-            is_update = False
-        else:
-            is_update = phase == "updated" or started_count > 0
-            if started_count == 0:
-                self.action_count += 1
-                self.started_counts[action_id] = 1
-            elif phase == "started":
-                self.started_counts[action_id] = started_count + 1
-            else:
-                self.started_counts[action_id] = started_count
-
-        if completed:
-            count = self.started_counts.get(action_id, 0)
-            if count <= 0:
-                self.action_count += 1
-            elif count == 1:
-                self.started_counts.pop(action_id, None)
-            else:
-                self.started_counts[action_id] = count - 1
-
-        phase_for_line = "updated" if is_update and not completed else phase
-        line = format_action_line(
-            action, phase_for_line, ok, command_width=self.command_width
+    def has_open_line(self, action_id: str) -> bool:
+        return any(
+            line.action_id == action_id and not line.completed for line in self.lines
         )
 
-        for tracked in reversed(self.actions):
-            if tracked.action_id == action_id and not tracked.completed:
-                tracked.line = line
-                if completed:
-                    tracked.completed = True
-                return True
-
-        self.actions.append(
-            TrackedAction(action_id=action_id, line=line, completed=completed)
+    def upsert_line(self, action_id: str, *, line: str, completed: bool) -> None:
+        for i in range(len(self.lines) - 1, -1, -1):
+            existing = self.lines[i]
+            if existing.action_id == action_id and not existing.completed:
+                self.lines[i] = RecentLine(
+                    action_id=action_id,
+                    text=line,
+                    completed=existing.completed or completed,
+                )
+                return
+        self.lines.append(
+            RecentLine(action_id=action_id, text=line, completed=completed)
         )
-        if len(self.actions) > self.max_actions:
-            self.actions.pop(0)
-        return True
 
     def render_progress_parts(
         self, elapsed_s: float, label: str = "working"
     ) -> MarkdownParts:
         step = self.action_count or None
         header = format_header(elapsed_s, step, label=self.label_with_title(label))
-        body = self.assemble_body([tracked.line for tracked in self.actions])
+        body = self.assemble_body([line.text for line in self.lines])
         return MarkdownParts(header=header, body=body, footer=self.render_footer())
 
     def render_final_parts(
@@ -319,7 +291,7 @@ class ExecProgressRenderer:
     ) -> MarkdownParts:
         step = self.action_count or None
         header = format_header(elapsed_s, step, label=self.label_with_title(status))
-        lines = [tracked.line for tracked in self.actions]
+        lines = [line.text for line in self.lines]
         if status == "done":
             lines = [line for line in lines if not is_command_log_line(line)]
         body = self.assemble_body(lines)
@@ -340,7 +312,7 @@ class ExecProgressRenderer:
 
     @property
     def recent_actions(self) -> list[str]:
-        return [tracked.line for tracked in self.actions]
+        return [line.text for line in self.lines]
 
     @staticmethod
     def assemble_body(lines: list[str]) -> str | None:
