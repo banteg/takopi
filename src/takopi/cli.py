@@ -4,6 +4,8 @@ import logging
 import os
 import shutil
 import sys
+import termios
+import tty
 from collections.abc import Callable
 from pathlib import Path
 
@@ -61,10 +63,22 @@ def _confirm_start_anyway() -> bool:
     if not sys.stdin.isatty():
         return False
     try:
-        answer = input("may already be running. start anyway? [y/N] ")
-    except EOFError:
+        typer.echo("may already be running. start anyway? [y/N] ", nl=False)
+        answer = _read_key()
+        typer.echo()
+    except (EOFError, OSError):
         return False
     return answer.strip().lower().startswith("y")
+
+
+def _read_key() -> str:
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        return sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
 def _echo_error(message: str) -> None:
