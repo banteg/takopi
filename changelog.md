@@ -1,15 +1,17 @@
 # changelog
 
-## v0.5.0 (unreleased)
+## v0.5.0 (2026-01-02)
 
 ### changes
 
-- add a pi runner via the `pi` CLI with jsonl streaming and resume support
-- document the pi runner, event mapping, and jsonl stream capture tips
+- add an opencode runner via the `opencode` CLI with json event parsing and resume support
+- add a pi agent runner via the `pi` CLI with jsonl streaming and resume support
+- document the opencode and pi runners, event mappings, and stream capture tips
 
 ### fixes
 
-- TBD
+- fix path relativization so progress output does not strip sibling directories
+- reduce noisy debug logging from markdown_it/httpcore
 
 ## v0.4.0 (2026-01-02)
 

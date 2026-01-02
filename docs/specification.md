@@ -1,10 +1,10 @@
-# Takopi Specification v0.4.0 [2026-01-01]
+# Takopi Specification v0.5.0 [2026-01-02]
 
 This document is **normative**. The words **MUST**, **SHOULD**, and **MAY** express requirements.
 
 ## 1. Scope
 
-Takopi v0.4.0 specifies:
+Takopi v0.5.0 specifies:
 
 - A **Telegram** bot bridge that runs an agent **Runner** and posts:
   - a throttled, edited **progress message**
@@ -15,7 +15,7 @@ Takopi v0.4.0 specifies:
 - **Automatic runner selection** among multiple engines based on ResumeLine (with a configurable default for new threads)
 - A Takopi-owned **normalized event model** produced by runners and consumed by renderers/bridge
 
-Out of scope for v0.4.0:
+Out of scope for v0.5.0:
 
 - Non-Telegram clients (Slack/Discord/etc.)
 - Token-by-token streaming of the assistant’s final answer
@@ -404,6 +404,10 @@ Tests MUST cover:
 Test tooling SHOULD include event factories, deterministic/fake time, and a script/mock runner.
 
 ## 10. Changelog
+
+### v0.5.0 (2026-01-02)
+
+- No normative changes; align spec version with the v0.5.0 release.
 
 ### v0.4.0 (2026-01-01)
 

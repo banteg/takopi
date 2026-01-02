@@ -1,8 +1,8 @@
 # Claude Code -> Takopi event mapping (spec)
 
-This document specifies how to add a Claude Code runner to Takopi by translating
-Claude CLI `--output-format stream-json` JSONL events into Takopi events. It is
-based on the reverse-engineered schema in `humanlayer/claudecode-go`:
+This document specifies how the Claude Code runner (implemented in Takopi v0.3.0)
+translates Claude CLI `--output-format stream-json` JSONL events into Takopi events.
+It is based on the reverse-engineered schema in `humanlayer/claudecode-go`:
 
 - `claudecode-go/types.go` (StreamEvent, Message, Content, Result)
 - `claudecode-go/client.go` (CLI flags, stream parsing)
@@ -196,18 +196,18 @@ without transformation. Optionally include `modelUsage` inside `usage` or
 
 ---
 
-## 7. Implementation checklist (handoff)
+## 7. Implementation checklist (v0.3.0)
 
-Add a Claude runner without changing the Takopi domain model:
+Claude runner implementation summary (no Takopi domain model changes):
 
-1. Create `takopi/runners/claude.py` implementing `Runner` and (custom)
+1. [x] Create `takopi/runners/claude.py` implementing `Runner` and (custom)
    resume parsing.
-2. Define `BACKEND` in `takopi/runners/claude.py`:
+2. [x] Define `BACKEND` in `takopi/runners/claude.py`:
    - `install_cmd`: install command for the `claude` binary
    - `build_runner`: read `[claude]` config + construct runner
-3. Add new docs (this file + `claude-stream-json-cheatsheet.md`).
-4. Add fixtures in `tests/fixtures/` (see below).
-5. Add unit tests mirroring `tests/test_codex_*` but for Claude translation
+3. [x] Add new docs (this file + `claude-stream-json-cheatsheet.md`).
+4. [x] Add fixtures in `tests/fixtures/` (see below).
+5. [x] Add unit tests mirroring `tests/test_codex_*` but for Claude translation
    and resume parsing (recommended, not required for initial handoff).
 
 ---

@@ -1,6 +1,6 @@
 # Pi -> Takopi event mapping (spec)
 
-This document specifies how to add a Pi runner to Takopi by translating
+This document specifies how the Pi runner shipped in Takopi v0.5.0 translates
 Pi CLI `--mode json` JSONL events into Takopi events. The Pi JSONL stream is
 `AgentSessionEvent` from `@mariozechner/pi-agent-core`.
 

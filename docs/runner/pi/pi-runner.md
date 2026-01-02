@@ -1,4 +1,4 @@
-Below is a concrete implementation spec for adding **Pi (pi-coding-agent CLI)** as a first-class engine in Takopi (v0.4.0).
+Below is a concrete implementation spec for the **Pi (pi-coding-agent CLI)** runner shipped in Takopi (v0.5.0).
 
 ---
 
@@ -6,7 +6,7 @@ Below is a concrete implementation spec for adding **Pi (pi-coding-agent CLI)** 
 
 ### Goal
 
-Add a new engine backend **`pi`** so Takopi can:
+Provide the **`pi`** engine backend so Takopi can:
 
 * Run Pi non-interactively via the **pi CLI** (`pi --print`).
 * Stream progress by parsing **`--mode json`** (newline-delimited JSON). Each line is a JSON object.
@@ -23,8 +23,8 @@ Add a new engine backend **`pi`** so Takopi can:
 
 ### Engine selection
 
-* Existing: `takopi codex`
-* New: `takopi pi`
+* Default: `takopi` (auto-router uses `default_engine` from config)
+* Override: `takopi pi`
 
 ### Resume UX (canonical line)
 

@@ -1,4 +1,4 @@
-Below is a concrete implementation spec for adding **Anthropic Claude Code (“claude” CLI / Agent SDK runtime)** as a first-class engine in Takopi (v0.2.0).
+Below is a concrete implementation spec for the **Anthropic Claude Code (“claude” CLI / Agent SDK runtime)** runner shipped in Takopi (v0.3.0).
 
 ---
 
@@ -6,7 +6,7 @@ Below is a concrete implementation spec for adding **Anthropic Claude Code (“c
 
 ### Goal
 
-Add a new engine backend **`claude`** so Takopi can:
+Provide the **`claude`** engine backend so Takopi can:
 
 * Run Claude Code non-interactively via the **Agent SDK CLI** (`claude -p`). ([Claude Code][1])
 * Stream progress in Telegram by parsing **`--output-format stream-json --verbose`** (newline-delimited JSON). Note: `--output-format` only works with `-p/--print`. ([Claude Code][1])
@@ -24,11 +24,11 @@ Add a new engine backend **`claude`** so Takopi can:
 
 ### Engine selection
 
-* Existing: `takopi codex`
-* New: `takopi claude`
+* Default: `takopi` (auto-router uses `default_engine` from config)
+* Override: `takopi claude`
 
-Takopi requires an explicit engine subcommand; `takopi` alone prints the engine
-selection panel and exits.
+Takopi runs in auto-router mode by default; `takopi claude` or `/claude` selects
+Claude for new threads.
 
 ### Resume UX (canonical line)
 
@@ -74,11 +74,11 @@ Recommended v1 schema:
 ```toml
 # .takopi/takopi.toml
 
-engine = "claude"
+default_engine = "claude"
 
 [claude]
 model = "claude-sonnet-4-5-20250929" # optional (Claude Code supports model override in settings too)
-allowed_tools = "Bash,Read,Edit"     # optional but strongly recommended for automation
+allowed_tools = ["Bash", "Read", "Edit"] # optional but strongly recommended for automation
 dangerously_skip_permissions = false # optional (high risk; prefer sandbox use only)
 use_api_billing = false             # optional (keep ANTHROPIC_API_KEY for API billing)
 ```
@@ -365,13 +365,13 @@ Mirror the existing `CodexRunner` tests patterns.
 
 ---
 
-## Implementation checklist
+## Implementation checklist (v0.3.0)
 
-* [ ] Export `BACKEND = EngineBackend(...)` from `src/takopi/runners/claude.py`.
-* [ ] Add `src/takopi/runners/claude.py` implementing the `Runner` protocol.
-* [ ] Add tests + stub executable fixtures.
-* [ ] Update README and developing docs.
-* [ ] Run full test suite.
+* [x] Export `BACKEND = EngineBackend(...)` from `src/takopi/runners/claude.py`.
+* [x] Add `src/takopi/runners/claude.py` implementing the `Runner` protocol.
+* [x] Add tests + stub executable fixtures.
+* [x] Update README and developing docs.
+* [ ] Run full test suite before release.
 
 ---
 

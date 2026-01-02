@@ -177,9 +177,8 @@ def _parse_bridge_config(
     engine_list = ", ".join(router.engine_ids)
     startup_msg = (
         f"\N{OCTOPUS} **takopi is ready**\n\n"
-        f"mode: `auto-router`  \n"
         f"default: `{router.default_engine}`  \n"
-        f"engines: `{engine_list}`  \n"
+        f"agents: `{engine_list}`  \n"
         f"working in: `{startup_pwd}`"
     )
 

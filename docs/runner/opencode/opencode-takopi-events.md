@@ -1,6 +1,7 @@
 # OpenCode to Takopi Event Mapping
 
 This document describes how OpenCode JSON events are translated to Takopi's normalized event model.
+The OpenCode runner shipped in Takopi v0.5.0.
 
 ## Event Translation
 

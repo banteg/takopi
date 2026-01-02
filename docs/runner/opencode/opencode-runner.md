@@ -1,6 +1,7 @@
 # OpenCode Runner
 
 This runner integrates with the [OpenCode CLI](https://github.com/sst/opencode).
+Shipped in Takopi v0.5.0.
 
 ## Installation
 
