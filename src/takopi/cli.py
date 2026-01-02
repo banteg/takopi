@@ -10,7 +10,7 @@ from . import __version__
 from .backends import EngineBackend
 from .bridge import BridgeConfig, _run_main_loop
 from .transcribe import WhisperConfig
-from .config import ConfigError, load_telegram_config
+from .config import ConfigError, load_telegram_config, get_bot_token, get_chat_id
 from .engines import get_backend, get_engine_config, list_backends
 from .logging import setup_logging
 from .onboarding import check_setup, render_engine_choice, render_setup_guide
@@ -35,23 +35,10 @@ def _parse_bridge_config(
     startup_pwd = os.getcwd()
 
     config, config_path = load_telegram_config()
-    try:
-        token = config["bot_token"]
-    except KeyError:
-        raise ConfigError(f"Missing key `bot_token` in {config_path}.") from None
-    if not isinstance(token, str) or not token.strip():
-        raise ConfigError(
-            f"Invalid `bot_token` in {config_path}; expected a non-empty string."
-        ) from None
-    try:
-        chat_id_value = config["chat_id"]
-    except KeyError:
-        raise ConfigError(f"Missing key `chat_id` in {config_path}.") from None
-    if isinstance(chat_id_value, bool) or not isinstance(chat_id_value, int):
-        raise ConfigError(
-            f"Invalid `chat_id` in {config_path}; expected an integer."
-        ) from None
-    chat_id = chat_id_value
+
+    # Get credentials from env vars (preferred) or config file
+    token = get_bot_token(config, config_path)
+    chat_id = get_chat_id(config, config_path)
 
     engine_cfg = get_engine_config(config, backend.id, config_path)
 
