@@ -460,33 +460,6 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     def pipes_error_message(self) -> str:
         return "codex exec failed to open subprocess pipes"
 
-    def handle_started_event(
-        self,
-        event: StartedEvent,
-        *,
-        expected_session: ResumeToken | None,
-        found_session: ResumeToken | None,
-    ) -> tuple[ResumeToken | None, bool]:
-        if event.engine != ENGINE:
-            raise RuntimeError(
-                f"codex emitted session token for engine {event.engine!r}"
-            )
-        if expected_session is not None and event.resume != expected_session:
-            message = (
-                f"codex emitted session id {event.resume.value} "
-                f"but expected {expected_session.value}"
-            )
-            raise RuntimeError(message)
-        if found_session is None:
-            return event.resume, True
-        if event.resume != found_session:
-            message = (
-                f"codex emitted session id {event.resume.value} "
-                f"but expected {found_session.value}"
-            )
-            raise RuntimeError(message)
-        return found_session, False
-
     def translate(
         self,
         data: dict[str, Any],
