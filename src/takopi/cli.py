@@ -69,13 +69,24 @@ def _confirm_start_anyway() -> bool:
     return answer.strip().lower().startswith("y")
 
 
+def _echo_error(message: str) -> None:
+    lines = message.splitlines()
+    if not lines:
+        typer.secho("error: unknown error", fg=typer.colors.RED, err=True)
+        return
+    first = lines[0]
+    if not first.lower().startswith("error:"):
+        lines[0] = f"error: {first}"
+    typer.secho("\n".join(lines), fg=typer.colors.RED, err=True)
+
+
 def _remove_lock_file(path: Path) -> None:
     try:
         path.unlink()
     except FileNotFoundError:
         return
     except OSError as exc:
-        typer.echo(f"Failed to remove lock file {path}: {exc}", err=True)
+        _echo_error(f"failed to remove lock file {path}: {exc}")
         raise typer.Exit(code=1) from exc
 
 
@@ -87,7 +98,7 @@ def _acquire_lock(config_path: Path, token: str) -> LockHandle:
         )
     except LockError as exc:
         if exc.state == "stale" and sys.stdin.isatty():
-            typer.echo(str(exc), err=True)
+            _echo_error(str(exc))
             if _confirm_start_anyway():
                 _remove_lock_file(exc.path)
                 try:
@@ -96,16 +107,17 @@ def _acquire_lock(config_path: Path, token: str) -> LockHandle:
                         token_fingerprint=token_fingerprint(token),
                     )
                 except LockError as retry_exc:
-                    typer.echo(str(retry_exc), err=True)
+                    _echo_error(str(retry_exc))
                     raise typer.Exit(code=1) from retry_exc
             raise typer.Exit(code=1)
 
-        typer.echo(str(exc), err=True)
+        message = str(exc)
         if exc.state == "stale":
-            typer.echo(
-                "run in a tty to confirm removal, or delete the lock file manually.",
-                err=True,
+            message = (
+                f"{message}\n"
+                "run in a tty to confirm removal, or delete the lock file manually."
             )
+        _echo_error(message)
         raise typer.Exit(code=1) from exc
 
 
@@ -268,7 +280,7 @@ def _run_auto_router(
         default_engine = _default_engine_for_setup(default_engine_override)
         backend = get_backend(default_engine)
     except ConfigError as e:
-        typer.echo(str(e), err=True)
+        _echo_error(str(e))
         raise typer.Exit(code=1)
     setup = check_setup(backend)
     if not setup.ok:
@@ -287,7 +299,7 @@ def _run_auto_router(
         )
         anyio.run(run_main_loop, cfg)
     except ConfigError as e:
-        typer.echo(str(e), err=True)
+        _echo_error(str(e))
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         logger.info("[shutdown] interrupted")
