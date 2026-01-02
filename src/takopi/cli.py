@@ -8,7 +8,6 @@ from collections.abc import Callable
 from pathlib import Path
 
 import anyio
-import click
 import typer
 
 from . import __version__
@@ -58,18 +57,6 @@ def _load_and_validate_config(
     return config, config_path, token.strip(), chat_id_value
 
 
-def _confirm_start_anyway() -> bool:
-    if not sys.stdin.isatty():
-        return False
-    try:
-        typer.echo("may already be running. start anyway? [y/N] ", nl=False)
-        answer = click.getchar()
-        typer.echo()
-    except (EOFError, OSError):
-        return False
-    return answer.strip().lower().startswith("y")
-
-
 def _echo_error(message: str) -> None:
     lines = message.splitlines()
     if not lines:
@@ -94,28 +81,36 @@ def _remove_lock_file(path: Path) -> None:
 
 
 def _acquire_lock(config_path: Path, token: str) -> LockHandle:
+    fingerprint = token_fingerprint(token)
+
+    def _retry_or_exit() -> LockHandle:
+        try:
+            return acquire_lock(
+                config_path=config_path,
+                token_fingerprint=fingerprint,
+            )
+        except LockError as retry_exc:
+            _echo_error(str(retry_exc))
+            raise typer.Exit(code=1) from retry_exc
+
     try:
         return acquire_lock(
             config_path=config_path,
-            token_fingerprint=token_fingerprint(token),
+            token_fingerprint=fingerprint,
         )
     except LockError as exc:
-        if exc.state == "stale" and sys.stdin.isatty():
-            _echo_error(str(exc))
-            if _confirm_start_anyway():
+        existing = exc.existing
+        if existing and existing.token_fingerprint:
+            if existing.token_fingerprint != fingerprint:
                 _remove_lock_file(exc.path)
-                try:
-                    return acquire_lock(
-                        config_path=config_path,
-                        token_fingerprint=token_fingerprint(token),
-                    )
-                except LockError as retry_exc:
-                    _echo_error(str(retry_exc))
-                    raise typer.Exit(code=1) from retry_exc
-            raise typer.Exit(code=1)
+                return _retry_or_exit()
 
-        _echo_error(str(exc))
-        raise typer.Exit(code=1) from exc
+        if exc.state == "running":
+            _echo_error(str(exc))
+            raise typer.Exit(code=1) from exc
+
+        _remove_lock_file(exc.path)
+        return _retry_or_exit()
 
 
 def _default_engine_for_setup(override: str | None) -> str:
