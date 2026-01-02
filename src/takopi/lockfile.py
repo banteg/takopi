@@ -4,7 +4,6 @@ import hashlib
 import json
 import logging
 import os
-import socket
 import sys
 import uuid
 from dataclasses import asdict, dataclass
@@ -22,7 +21,6 @@ class LockInfo:
     instance_id: str | None
     pid: int | None
     started_at: str | None
-    hostname: str | None
     config_path: str | None
     token_fingerprint: str | None
     argv: list[str] | None
@@ -84,7 +82,6 @@ def acquire_lock(
         instance_id=instance_id,
         pid=os.getpid(),
         started_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        hostname=socket.gethostname(),
         config_path=str(cfg_path),
         token_fingerprint=token_fingerprint,
         argv=list(sys.argv),
@@ -126,9 +123,6 @@ def _read_lock_info(path: Path) -> LockInfo | None:
     started_at = data.get("started_at")
     if not isinstance(started_at, str):
         started_at = None
-    hostname = data.get("hostname")
-    if not isinstance(hostname, str):
-        hostname = None
     config_path = data.get("config_path")
     if not isinstance(config_path, str):
         config_path = None
@@ -146,7 +140,6 @@ def _read_lock_info(path: Path) -> LockInfo | None:
         instance_id=instance_id,
         pid=pid,
         started_at=started_at,
-        hostname=hostname,
         config_path=config_path,
         token_fingerprint=token_hint,
         argv=argv,
@@ -169,9 +162,6 @@ def _pid_state(pid: int | None) -> str:
 
 def _lock_state(existing: LockInfo | None) -> str:
     if existing is None:
-        return "unknown"
-    hostname = existing.hostname
-    if hostname and hostname != socket.gethostname():
         return "unknown"
     state = _pid_state(existing.pid)
     if state == "not_running":
