@@ -61,9 +61,7 @@ def _confirm_start_anyway() -> bool:
     if not sys.stdin.isatty():
         return False
     try:
-        answer = input(
-            "Another instance could already be running. Start anyway? [y/N] "
-        )
+        answer = input("another instance could already be running. start anyway? [y/N] ")
     except EOFError:
         return False
     return answer.strip().lower().startswith("y")
@@ -102,10 +100,10 @@ def _acquire_lock(config_path: Path, token: str) -> LockHandle:
 
         typer.echo(str(exc), err=True)
         if exc.state == "stale":
-            typer.echo(
-                "Run in a TTY to confirm removal, or delete the lock file manually.",
-                err=True,
-            )
+        typer.echo(
+            "run in a tty to confirm removal, or delete the lock file manually.",
+            err=True,
+        )
         raise typer.Exit(code=1) from exc
 
 def _default_engine_for_setup(override: str | None) -> str:

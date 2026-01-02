@@ -184,15 +184,15 @@ def _lock_state(existing: LockInfo | None) -> str:
 
 def _format_lock_message(path: Path, existing: LockInfo | None, state: str) -> str:
     lines = [
-        "Another takopi instance may already be running for this bot.",
-        f"Lock: {path}",
+        "another takopi instance may already be running for this bot.",
+        f"lock: {path}",
     ]
     if state not in {"stale", "running", "unknown"}:
-        lines.append(f"Lock error: {state}")
+        lines.append(f"lock error: {state}")
         return "\n".join(lines)
     if state == "stale":
-        lines.append("Lock looks stale (process not running).")
-        lines.append("If you're sure, delete the lock file to continue.")
+        lines.append("lock looks stale (process not running).")
+        lines.append("if you're sure, delete the lock file to continue.")
         return "\n".join(lines)
-    lines.append("If you're sure this is stale, delete the lock file to continue.")
+    lines.append("if you're sure this is stale, delete the lock file to continue.")
     return "\n".join(lines)
