@@ -318,8 +318,8 @@ def test_render_event_cli_ignores_turn_actions() -> None:
     assert render_event_cli(event) == []
 
 
-def test_progress_renderer_ignores_missing_action_id_and_titles() -> None:
-    renderer = ExecProgressRenderer(engine="codex", show_title=True)
+def test_progress_renderer_ignores_missing_action_id() -> None:
+    renderer = ExecProgressRenderer(engine="codex")
     resume = ResumeToken(engine="codex", value="abc")
     renderer.note_event(StartedEvent(engine="codex", resume=resume, title="Session"))
 
@@ -332,4 +332,4 @@ def test_progress_renderer_ignores_missing_action_id_and_titles() -> None:
     assert renderer.note_event(event) is False
 
     header = assemble_markdown_parts(renderer.render_progress_parts(0.0))
-    assert header.startswith("working (Session) · codex · 0s")
+    assert header.startswith("working · codex · 0s")
