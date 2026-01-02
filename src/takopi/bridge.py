@@ -488,7 +488,7 @@ async def handle_message(
         cfg,
         chat_id=chat_id,
         user_msg_id=user_msg_id,
-        label="working",
+        label="starting",
         renderer=progress_renderer,
         clock=clock,
     )

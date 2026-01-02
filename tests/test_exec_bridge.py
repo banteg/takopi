@@ -552,7 +552,8 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
     )
 
     assert bot.send_calls[0]["reply_to_message_id"] == 42
-    assert "working" in bot.send_calls[0]["text"]
+    assert "starting" in bot.send_calls[0]["text"]
+    assert "codex" in bot.send_calls[0]["text"]
     assert len(bot.edit_calls) >= 1
     assert session_id in bot.send_calls[-1]["text"]
     assert "codex resume" in bot.send_calls[-1]["text"].lower()
