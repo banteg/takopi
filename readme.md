@@ -93,7 +93,7 @@ if you prefer no notifications, `--no-final-notify` edits the progress message i
 
 ## notes
 
-* private chat only: the bot only responds to the configured `chat_id`
+* the bot only responds to the configured `chat_id` (private or group)
 * run only one takopi instance per bot token: multiple instances will race telegram's `getUpdates` offsets and cause missed updates
 
 ## development

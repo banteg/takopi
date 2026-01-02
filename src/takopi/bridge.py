@@ -679,7 +679,7 @@ async def poll_updates(cfg: BridgeConfig) -> AsyncIterator[dict[str, Any]]:
             msg = upd["message"]
             if "text" not in msg:
                 continue
-            if not (msg["chat"]["id"] == msg["from"]["id"] == cfg.chat_id):
+            if msg["chat"]["id"] != cfg.chat_id:
                 continue
             yield msg
 

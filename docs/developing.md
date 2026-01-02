@@ -162,7 +162,7 @@ See `docs/adding-a-runner.md` for the full guide and a worked example.
 ```
 Telegram Update
     ↓
-poll_updates() drains backlog, long-polls, filters chat_id == from_id == cfg.chat_id
+poll_updates() drains backlog, long-polls, filters chat_id == cfg.chat_id
     ↓
 run_main_loop() spawns tasks in TaskGroup
     ↓
