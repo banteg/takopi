@@ -129,6 +129,23 @@ def _tool_kind_and_title(
     return "tool", tool_name
 
 
+def _normalize_tool_title(
+    title: str,
+    *,
+    tool_input: dict[str, Any],
+) -> str:
+    if "`" in title:
+        return title
+
+    path = tool_input.get("file_path") or tool_input.get("filePath")
+    if isinstance(path, str) and path:
+        rel_path = relativize_path(path)
+        if title == path or title == rel_path:
+            return f"`{rel_path}`"
+
+    return title
+
+
 def _extract_tool_action(event: dict[str, Any]) -> Action | None:
     """Extract an Action from an OpenCode tool_use event."""
     part = event.get("part") or {}
@@ -149,7 +166,7 @@ def _extract_tool_action(event: dict[str, Any]) -> Action | None:
 
     state_title = state.get("title")
     if isinstance(state_title, str) and state_title:
-        title = state_title
+        title = _normalize_tool_title(state_title, tool_input=tool_input)
 
     detail: dict[str, Any] = {
         "name": tool_name,

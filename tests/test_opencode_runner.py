@@ -202,6 +202,39 @@ def test_translate_tool_use_with_error() -> None:
     assert action_event.ok is False
 
 
+def test_translate_tool_use_read_title_wraps_path() -> None:
+    state = OpenCodeStreamState()
+    state.session_id = "ses_test123"
+    state.emitted_started = True
+    path = Path.cwd() / "src" / "takopi" / "runners" / "opencode.py"
+
+    events = translate_opencode_event(
+        {
+            "type": "tool_use",
+            "sessionID": "ses_test123",
+            "part": {
+                "id": "prt_123",
+                "callID": "call_abc",
+                "tool": "read",
+                "state": {
+                    "status": "completed",
+                    "input": {"filePath": str(path)},
+                    "output": "file contents",
+                    "title": "src/takopi/runners/opencode.py",
+                },
+            },
+        },
+        title="opencode",
+        state=state,
+    )
+
+    assert len(events) == 1
+    action_event = events[0]
+    assert isinstance(action_event, ActionEvent)
+    assert action_event.action.kind == "tool"
+    assert action_event.action.title == "`src/takopi/runners/opencode.py`"
+
+
 def test_translate_error_fixture() -> None:
     state = OpenCodeStreamState()
     events: list = []
