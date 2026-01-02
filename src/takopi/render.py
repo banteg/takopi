@@ -80,9 +80,14 @@ def format_elapsed(elapsed_s: float) -> str:
     return f"{seconds}s"
 
 
-def format_header(elapsed_s: float, item: int | None, label: str) -> str:
+def format_header(
+    elapsed_s: float, item: int | None, *, label: str, engine: str | None = None
+) -> str:
     elapsed = format_elapsed(elapsed_s)
-    parts = [label, elapsed]
+    parts = [label]
+    if engine:
+        parts.append(engine)
+    parts.append(elapsed)
     if item is not None:
         parts.append(f"step {item}")
     return HEADER_SEP.join(parts)
@@ -219,6 +224,7 @@ class ExecProgressRenderer:
         command_width: int | None = MAX_PROGRESS_CMD_LEN,
         resume_formatter: Callable[[ResumeToken], str] | None = None,
         show_title: bool = False,
+        engine: str | None = None,
     ) -> None:
         self.max_actions = max(0, int(max_actions))
         self.command_width = command_width
@@ -229,6 +235,7 @@ class ExecProgressRenderer:
         self.session_title: str | None = None
         self._resume_formatter = resume_formatter
         self.show_title = show_title
+        self.engine = engine
 
     def note_event(self, event: TakopiEvent) -> bool:
         match event:
@@ -282,7 +289,12 @@ class ExecProgressRenderer:
         self, elapsed_s: float, label: str = "working"
     ) -> MarkdownParts:
         step = self.action_count or None
-        header = format_header(elapsed_s, step, label=self.label_with_title(label))
+        header = format_header(
+            elapsed_s,
+            step,
+            label=self.label_with_title(label),
+            engine=self.engine,
+        )
         body = self.assemble_body([line.text for line in self.lines])
         return MarkdownParts(header=header, body=body, footer=self.render_footer())
 
@@ -290,7 +302,12 @@ class ExecProgressRenderer:
         self, elapsed_s: float, answer: str, status: str = "done"
     ) -> MarkdownParts:
         step = self.action_count or None
-        header = format_header(elapsed_s, step, label=self.label_with_title(status))
+        header = format_header(
+            elapsed_s,
+            step,
+            label=self.label_with_title(status),
+            engine=self.engine,
+        )
         lines = [line.text for line in self.lines]
         if status == "done":
             lines = [line for line in lines if not is_command_log_line(line)]

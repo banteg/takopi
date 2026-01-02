@@ -481,14 +481,14 @@ async def handle_message(
     runner_text = _strip_resume_lines(text, is_resume_line=resume_strip)
 
     progress_renderer = ExecProgressRenderer(
-        max_actions=5, resume_formatter=runner.format_resume
+        max_actions=5, resume_formatter=runner.format_resume, engine=runner.engine
     )
 
     progress_state = await send_initial_progress(
         cfg,
         chat_id=chat_id,
         user_msg_id=user_msg_id,
-        label=f"working ({runner.engine})",
+        label="working",
         renderer=progress_renderer,
         clock=clock,
     )
@@ -560,9 +560,8 @@ async def handle_message(
     if error is not None:
         sync_resume_token(progress_renderer, outcome.resume)
         err_body = _format_error(error)
-        status_label = f"error ({runner.engine})"
         final_parts = progress_renderer.render_final_parts(
-            elapsed, err_body, status=status_label
+            elapsed, err_body, status="error"
         )
         logger.debug(
             "[error] markdown: %s",
@@ -588,7 +587,7 @@ async def handle_message(
             elapsed,
         )
         final_parts = progress_renderer.render_progress_parts(
-            elapsed, label=f"`cancelled` ({runner.engine})"
+            elapsed, label="`cancelled`"
         )
         await send_result_message(
             cfg,
@@ -620,9 +619,8 @@ async def handle_message(
         "error" if run_ok is False else ("done" if final_answer.strip() else "error")
     )
     sync_resume_token(progress_renderer, completed.resume or outcome.resume)
-    status_label = f"{status} ({runner.engine})"
     final_parts = progress_renderer.render_final_parts(
-        elapsed, final_answer, status=status_label
+        elapsed, final_answer, status=status
     )
     logger.debug(
         "[final] markdown: %s",
@@ -778,12 +776,12 @@ async def _send_runner_unavailable(
     reason: str,
 ) -> None:
     progress_renderer = ExecProgressRenderer(
-        max_actions=0, resume_formatter=runner.format_resume
+        max_actions=0, resume_formatter=runner.format_resume, engine=runner.engine
     )
     if resume_token is not None:
         progress_renderer.resume_token = resume_token
     final_parts = progress_renderer.render_final_parts(
-        0.0, f"error:\n{reason}", status=f"error ({runner.engine})"
+        0.0, f"error:\n{reason}", status="error"
     )
     await _send_or_edit_markdown(
         cfg.bot,
