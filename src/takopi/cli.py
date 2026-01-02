@@ -61,9 +61,7 @@ def _confirm_start_anyway() -> bool:
     if not sys.stdin.isatty():
         return False
     try:
-        answer = input(
-            "another instance could already be running. start anyway? [y/N] "
-        )
+        answer = input("may already be running. start anyway? [y/N] ")
     except EOFError:
         return False
     return answer.strip().lower().startswith("y")

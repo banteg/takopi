@@ -62,5 +62,5 @@ def test_lockfile_reports_stale_pid(tmp_path, monkeypatch) -> None:
         )
 
     message = str(exc.value).lower()
-    assert "delete" in message
+    assert "remove" in message
     assert str(lock_path) in str(exc.value)
