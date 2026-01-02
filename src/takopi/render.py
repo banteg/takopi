@@ -184,10 +184,6 @@ def format_action_line(
     )
 
 
-def is_command_log_line(line: str) -> bool:
-    return any(line.startswith(f"{symbol} `") for symbol in STATUS.values())
-
-
 def render_event_cli(event: TakopiEvent) -> list[str]:
     match event:
         case StartedEvent(engine=engine):
@@ -306,13 +302,8 @@ class ExecProgressRenderer:
             label=self.label_with_title(status),
             engine=self.engine,
         )
-        lines = [line.text for line in self.lines]
-        if status == "done":
-            lines = [line for line in lines if not is_command_log_line(line)]
-        body = self.assemble_body(lines)
         answer = (answer or "").strip()
-        if answer:
-            body = answer if not body else body + "\n\n" + answer
+        body = answer if answer else None
         return MarkdownParts(header=header, body=body, footer=self.render_footer())
 
     def label_with_title(self, label: str) -> str:

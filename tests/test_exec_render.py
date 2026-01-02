@@ -133,6 +133,8 @@ def test_progress_renderer_renders_progress_and_final() -> None:
     final_parts = r.render_final_parts(3.0, "answer", status="done")
     final = assemble_markdown_parts(final_parts)
     assert final.startswith("done · codex · 3s · step 2")
+    assert "✓ `bash -lc ls`" not in final
+    assert "Checking repository root for README" not in final
     assert "answer" in final
     assert final.rstrip().endswith(
         "`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`"
