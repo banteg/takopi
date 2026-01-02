@@ -13,11 +13,11 @@ def relativize_path(value: str, *, base_dir: Path | None = None) -> str:
         return value
     if value == base_str:
         return "."
-    if value.startswith(base_str):
-        suffix = value[len(base_str) :]
-        if suffix.startswith((os.sep, "/")):
-            suffix = suffix[1:]
-        return suffix or "."
+    for sep in (os.sep, "/"):
+        prefix = base_str if base_str.endswith(sep) else f"{base_str}{sep}"
+        if value.startswith(prefix):
+            suffix = value[len(prefix) :]
+            return suffix or "."
     return value
 
 
