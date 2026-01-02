@@ -272,7 +272,7 @@ def translate_claude_event(
             ]
         case "assistant":
             message = event["message"]
-            message_id = message["id"]
+            message_id = message.get("id")
             parent_tool_use_id = event.get("parent_tool_use_id")
             content_blocks = message["content"]
             out: list[TakopiEvent] = []
@@ -295,7 +295,7 @@ def translate_claude_event(
             return out
         case "user":
             message = event["message"]
-            message_id = message["id"]
+            message_id = message.get("id")
             content_blocks = message["content"]
             out: list[TakopiEvent] = []
             for content in content_blocks:
