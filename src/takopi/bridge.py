@@ -166,12 +166,12 @@ async def _send_or_edit_markdown(
     edit_message_id: int | None = None,
     reply_to_message_id: int | None = None,
     disable_notification: bool = False,
-    prepared: tuple[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[dict[str, Any] | None, bool]:
-    if prepared is None:
-        rendered, entities = prepare_telegram(parts)
-    else:
-        rendered, entities = prepared
+    """Send or edit a single message. Used for progress messages (truncates long bodies).
+
+    For final answer messages that need splitting, use send_result_message() instead.
+    """
+    rendered, entities = prepare_telegram(parts)
     if edit_message_id is not None:
         logger.debug(
             "telegram.edit_message",
@@ -455,15 +455,10 @@ async def send_result_message(
     parts: MarkdownParts,
     disable_notification: bool,
     edit_message_id: int | None,
-    prepared: tuple[str, list[dict[str, Any]]] | None = None,
     delete_tag: str = "final",
 ) -> None:
     # Prepare all message chunks (handles splitting if needed)
-    if prepared is not None:
-        # Use pre-prepared single message (backwards compatibility)
-        message_chunks = [prepared]
-    else:
-        message_chunks = prepare_telegram_split(parts)
+    message_chunks = prepare_telegram_split(parts)
 
     if not message_chunks:
         return
@@ -893,12 +888,15 @@ async def run_main_loop(
                             else cfg.router.entry_for(resume_token)
                         )
                     except RunnerUnavailableError as exc:
-                        await _send_or_edit_markdown(
-                            cfg.bot,
+                        await send_result_message(
+                            cfg,
                             chat_id=chat_id,
+                            user_msg_id=user_msg_id,
+                            progress_id=None,
                             parts=MarkdownParts(header=f"error:\n{exc}"),
-                            reply_to_message_id=user_msg_id,
                             disable_notification=False,
+                            edit_message_id=None,
+                            delete_tag="error",
                         )
                         return
                     if not entry.available:
