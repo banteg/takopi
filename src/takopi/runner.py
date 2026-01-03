@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import subprocess
 from collections import deque
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from weakref import WeakValueDictionary
 
 import anyio
@@ -22,7 +23,7 @@ from .model import (
     StartedEvent,
     TakopiEvent,
 )
-from .utils.streams import JsonLine, drain_stderr, iter_jsonl
+from .utils.streams import drain_stderr, iter_text_lines
 from .utils.subprocess import manage_subprocess
 
 
@@ -225,11 +226,15 @@ class JsonlSubprocessRunner(BaseRunner):
     def decode_jsonl(
         self,
         *,
-        json_line: JsonLine,
+        raw: str,
+        line: str,
         state: Any,
     ) -> dict[str, Any] | None:
-        _ = state
-        return json_line.data
+        _ = raw, state
+        try:
+            return cast(dict[str, Any], json.loads(line))
+        except json.JSONDecodeError:
+            return None
 
     async def iter_json_lines(
         self,
@@ -237,9 +242,11 @@ class JsonlSubprocessRunner(BaseRunner):
         *,
         logger: logging.Logger,
         tag: str,
-    ) -> AsyncIterator[JsonLine]:
-        async for json_line in iter_jsonl(stream, logger=logger, tag=tag):
-            yield json_line
+    ) -> AsyncIterator[str]:
+        async for raw_line in iter_text_lines(stream):
+            raw = raw_line.rstrip("\n")
+            logger.debug("[%s][jsonl] %s", tag, raw)
+            yield raw
 
     def decode_error_events(
         self,
@@ -395,28 +402,32 @@ class JsonlSubprocessRunner(BaseRunner):
                     logger,
                     tag,
                 )
-                async for json_line in self.iter_json_lines(
+                async for raw_line in self.iter_json_lines(
                     proc.stdout, logger=logger, tag=tag
                 ):
                     if did_emit_completed:
                         continue
+                    line = raw_line.strip()
+                    if not line:
+                        continue
                     try:
                         decoded = self.decode_jsonl(
-                            json_line=json_line,
+                            raw=raw_line,
+                            line=line,
                             state=state,
                         )
                     except Exception as exc:
                         events = self.decode_error_events(
-                            raw=json_line.raw,
-                            line=json_line.line,
+                            raw=raw_line,
+                            line=line,
                             error=exc,
                             state=state,
                         )
                     else:
                         if decoded is None:
                             events = self.invalid_json_events(
-                                raw=json_line.raw,
-                                line=json_line.line,
+                                raw=raw_line,
+                                line=line,
                                 state=state,
                             )
                         else:
