@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
 import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +83,23 @@ def _render_config(token: str, chat_id: int, default_engine: str | None) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _update_log_path() -> Path | None:
+    value = os.environ.get("TAKOPI_ONBOARDING_LOG")
+    if not value:
+        return None
+    if value.lower() in {"1", "true", "yes"}:
+        return HOME_CONFIG_PATH.parent / "onboarding-updates.jsonl"
+    return Path(value).expanduser()
+
+
+def _append_update_log(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = dict(payload)
+    record.setdefault("ts", datetime.now(timezone.utc).isoformat())
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=True, default=str) + "\n")
+
+
 async def _get_bot_info(token: str) -> dict[str, Any] | None:
     bot = TelegramClient(token)
     try:
@@ -90,6 +110,7 @@ async def _get_bot_info(token: str) -> dict[str, Any] | None:
 
 async def _wait_for_chat(token: str) -> ChatInfo:
     bot = TelegramClient(token)
+    log_path = _update_log_path()
     try:
         offset: int | None = None
         allowed_updates = [
@@ -103,12 +124,30 @@ async def _wait_for_chat(token: str) -> ChatInfo:
         drained = await bot.get_updates(
             offset=None, timeout_s=0, allowed_updates=allowed_updates
         )
+        if log_path is not None:
+            _append_update_log(
+                log_path,
+                {
+                    "event": "drain",
+                    "offset": offset,
+                    "updates": drained,
+                },
+            )
         if drained:
             offset = drained[-1]["update_id"] + 1
         while True:
             updates = await bot.get_updates(
                 offset=offset, timeout_s=50, allowed_updates=allowed_updates
             )
+            if log_path is not None:
+                _append_update_log(
+                    log_path,
+                    {
+                        "event": "poll",
+                        "offset": offset,
+                        "updates": updates,
+                    },
+                )
             if updates is None:
                 await anyio.sleep(1)
                 continue
@@ -339,6 +378,9 @@ def interactive_setup(*, force: bool) -> bool:
         console.print(
             "  for group chats, mention the bot or disable privacy via @BotFather"
         )
+        log_path = _update_log_path()
+        if log_path is not None:
+            console.print(f"  logging updates to {_display_path(log_path)}")
         console.print("  waiting for message... (press ctrl+c to cancel)")
         try:
             chat = anyio.run(_wait_for_chat, token)
