@@ -127,6 +127,32 @@ def test_tool_results_pop_pending_actions() -> None:
     assert not state.pending_actions
 
 
+def test_translate_thinking_block() -> None:
+    state = ClaudeStreamState()
+    event = {
+        "type": "assistant",
+        "message": {
+            "id": "msg_1",
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "Consider the options.",
+                    "signature": "sig",
+                }
+            ],
+        },
+    }
+
+    events = translate_claude_event(event, title="claude", state=state)
+
+    assert len(events) == 1
+    assert isinstance(events[0], ActionEvent)
+    assert events[0].phase == "completed"
+    assert events[0].action.kind == "note"
+    assert events[0].action.title == "Consider the options."
+    assert events[0].ok is True
+
+
 @pytest.mark.anyio
 async def test_run_serializes_same_session() -> None:
     runner = ClaudeRunner(claude_cmd="claude")

@@ -286,6 +286,32 @@ def translate_claude_event(
                         )
                         state.pending_actions[action.id] = action
                         out.append(_action_event(phase="started", action=action))
+                    case "thinking":
+                        thinking = content.get("thinking")
+                        if not isinstance(thinking, str) or not thinking:
+                            continue
+                        state.note_seq += 1
+                        action_id = f"claude.thinking.{state.note_seq}"
+                        detail: dict[str, Any] = {}
+                        if message_id:
+                            detail["message_id"] = message_id
+                        if parent_tool_use_id:
+                            detail["parent_tool_use_id"] = parent_tool_use_id
+                        signature = content.get("signature")
+                        if signature:
+                            detail["signature"] = signature
+                        out.append(
+                            _action_event(
+                                phase="completed",
+                                action=Action(
+                                    id=action_id,
+                                    kind="note",
+                                    title=thinking,
+                                    detail=detail,
+                                ),
+                                ok=True,
+                            )
+                        )
                     case "text":
                         text = content["text"]
                         if text:
