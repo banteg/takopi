@@ -203,206 +203,205 @@ def _todo_title(summary: _TodoSummary) -> str:
 def _translate_item_event(
     phase: ActionPhase, item: codex_schema.ThreadItem
 ) -> list[TakopiEvent]:
-    if isinstance(item, codex_schema.AgentMessageItem):
-        return []
-
-    action_id = item.id
-
-    if isinstance(item, codex_schema.ErrorItem):
-        if phase != "completed":
+    match item:
+        case codex_schema.AgentMessageItem():
             return []
-        message = item.message
-        return [
-            _action_event(
-                phase="completed",
-                action_id=action_id,
-                kind="warning",
-                title=message,
-                detail={"message": message},
-                ok=False,
-                message=message,
-                level="warning",
-            )
-        ]
-
-    if isinstance(item, codex_schema.CommandExecutionItem):
-        title = relativize_command(item.command)
-        if phase in {"started", "updated"}:
+        case codex_schema.ErrorItem(id=action_id, message=message):
+            if phase != "completed":
+                return []
             return [
                 _action_event(
-                    phase=phase,
+                    phase="completed",
                     action_id=action_id,
-                    kind="command",
-                    title=title,
+                    kind="warning",
+                    title=message,
+                    detail={"message": message},
+                    ok=False,
+                    message=message,
+                    level="warning",
                 )
             ]
-        if phase == "completed":
-            status = item.status
-            exit_code = item.exit_code
+        case codex_schema.CommandExecutionItem(
+            id=action_id,
+            command=command,
+            exit_code=exit_code,
+            status=status,
+        ):
+            title = relativize_command(command)
+            if phase in {"started", "updated"}:
+                return [
+                    _action_event(
+                        phase=phase,
+                        action_id=action_id,
+                        kind="command",
+                        title=title,
+                    )
+                ]
+            if phase == "completed":
+                ok = status == "completed"
+                if isinstance(exit_code, int):
+                    ok = ok and exit_code == 0
+                detail = {"exit_code": exit_code, "status": status}
+                return [
+                    _action_event(
+                        phase="completed",
+                        action_id=action_id,
+                        kind="command",
+                        title=title,
+                        detail=detail,
+                        ok=ok,
+                    )
+                ]
+        case codex_schema.McpToolCallItem(
+            id=action_id,
+            server=server,
+            tool=tool,
+            arguments=arguments,
+            status=status,
+            result=result,
+            error=error,
+        ):
+            title = _short_tool_name(server, tool)
+            detail: dict[str, Any] = {
+                "server": server,
+                "tool": tool,
+                "status": status,
+                "arguments": arguments,
+            }
+
+            if phase in {"started", "updated"}:
+                return [
+                    _action_event(
+                        phase=phase,
+                        action_id=action_id,
+                        kind="tool",
+                        title=title,
+                        detail=detail,
+                    )
+                ]
+            if phase == "completed":
+                ok = status == "completed" and error is None
+                if error is not None:
+                    detail["error_message"] = str(error.message)
+                result_summary = _summarize_tool_result(result)
+                if result_summary is not None:
+                    detail["result_summary"] = result_summary
+                return [
+                    _action_event(
+                        phase="completed",
+                        action_id=action_id,
+                        kind="tool",
+                        title=title,
+                        detail=detail,
+                        ok=ok,
+                    )
+                ]
+        case codex_schema.WebSearchItem(id=action_id, query=query):
+            detail = {"query": query}
+            if phase in {"started", "updated"}:
+                return [
+                    _action_event(
+                        phase=phase,
+                        action_id=action_id,
+                        kind="web_search",
+                        title=query,
+                        detail=detail,
+                    )
+                ]
+            if phase == "completed":
+                return [
+                    _action_event(
+                        phase="completed",
+                        action_id=action_id,
+                        kind="web_search",
+                        title=query,
+                        detail=detail,
+                        ok=True,
+                    )
+                ]
+        case codex_schema.FileChangeItem(id=action_id, changes=changes, status=status):
+            if phase != "completed":
+                return []
+            title = _format_change_summary(changes)
+            detail = {
+                "changes": changes,
+                "status": status,
+                "error": None,
+            }
             ok = status == "completed"
-            if isinstance(exit_code, int):
-                ok = ok and exit_code == 0
-            detail = {"exit_code": exit_code, "status": status}
             return [
                 _action_event(
                     phase="completed",
                     action_id=action_id,
-                    kind="command",
+                    kind="file_change",
                     title=title,
                     detail=detail,
                     ok=ok,
                 )
             ]
-
-    if isinstance(item, codex_schema.McpToolCallItem):
-        title = _short_tool_name(item.server, item.tool)
-        detail: dict[str, Any] = {
-            "server": item.server,
-            "tool": item.tool,
-            "status": item.status,
-            "arguments": item.arguments,
-        }
-
-        if phase in {"started", "updated"}:
-            return [
-                _action_event(
-                    phase=phase,
-                    action_id=action_id,
-                    kind="tool",
-                    title=title,
-                    detail=detail,
-                )
-            ]
-        if phase == "completed":
-            status = item.status
-            error = item.error
-            ok = status == "completed" and error is None
-            if error is not None:
-                detail["error_message"] = str(error.message)
-            result_summary = _summarize_tool_result(item.result)
-            if result_summary is not None:
-                detail["result_summary"] = result_summary
-            return [
-                _action_event(
-                    phase="completed",
-                    action_id=action_id,
-                    kind="tool",
-                    title=title,
-                    detail=detail,
-                    ok=ok,
-                )
-            ]
-
-    if isinstance(item, codex_schema.WebSearchItem):
-        title = item.query
-        detail = {"query": item.query}
-        if phase in {"started", "updated"}:
-            return [
-                _action_event(
-                    phase=phase,
-                    action_id=action_id,
-                    kind="web_search",
-                    title=title,
-                    detail=detail,
-                )
-            ]
-        if phase == "completed":
-            return [
-                _action_event(
-                    phase="completed",
-                    action_id=action_id,
-                    kind="web_search",
-                    title=title,
-                    detail=detail,
-                    ok=True,
-                )
-            ]
-
-    if isinstance(item, codex_schema.FileChangeItem):
-        if phase != "completed":
-            return []
-        title = _format_change_summary(item.changes)
-        detail = {
-            "changes": item.changes,
-            "status": item.status,
-            "error": None,
-        }
-        ok = item.status == "completed"
-        return [
-            _action_event(
-                phase="completed",
-                action_id=action_id,
-                kind="file_change",
-                title=title,
-                detail=detail,
-                ok=ok,
-            )
-        ]
-
-    if isinstance(item, codex_schema.TodoListItem):
-        summary = _summarize_todo_list(item.items)
-        title = _todo_title(summary)
-        detail = {"done": summary.done, "total": summary.total}
-        if phase in {"started", "updated"}:
-            return [
-                _action_event(
-                    phase=phase,
-                    action_id=action_id,
-                    kind="note",
-                    title=title,
-                    detail=detail,
-                )
-            ]
-        if phase == "completed":
-            return [
-                _action_event(
-                    phase="completed",
-                    action_id=action_id,
-                    kind="note",
-                    title=title,
-                    detail=detail,
-                    ok=True,
-                )
-            ]
-
-    if isinstance(item, codex_schema.ReasoningItem):
-        title = item.text
-        if phase in {"started", "updated"}:
-            return [
-                _action_event(
-                    phase=phase,
-                    action_id=action_id,
-                    kind="note",
-                    title=title,
-                )
-            ]
-        if phase == "completed":
-            return [
-                _action_event(
-                    phase="completed",
-                    action_id=action_id,
-                    kind="note",
-                    title=title,
-                    ok=True,
-                )
-            ]
-
+        case codex_schema.TodoListItem(id=action_id, items=items):
+            summary = _summarize_todo_list(items)
+            title = _todo_title(summary)
+            detail = {"done": summary.done, "total": summary.total}
+            if phase in {"started", "updated"}:
+                return [
+                    _action_event(
+                        phase=phase,
+                        action_id=action_id,
+                        kind="note",
+                        title=title,
+                        detail=detail,
+                    )
+                ]
+            if phase == "completed":
+                return [
+                    _action_event(
+                        phase="completed",
+                        action_id=action_id,
+                        kind="note",
+                        title=title,
+                        detail=detail,
+                        ok=True,
+                    )
+                ]
+        case codex_schema.ReasoningItem(id=action_id, text=text):
+            if phase in {"started", "updated"}:
+                return [
+                    _action_event(
+                        phase=phase,
+                        action_id=action_id,
+                        kind="note",
+                        title=text,
+                    )
+                ]
+            if phase == "completed":
+                return [
+                    _action_event(
+                        phase="completed",
+                        action_id=action_id,
+                        kind="note",
+                        title=text,
+                        ok=True,
+                    )
+                ]
     return []
 
 
 def translate_codex_event(
     event: codex_schema.ThreadEvent, *, title: str
 ) -> list[TakopiEvent]:
-    if isinstance(event, codex_schema.ThreadStarted):
-        token = ResumeToken(engine=ENGINE, value=event.thread_id)
-        return [_started_event(token, title=title)]
-    if isinstance(event, codex_schema.ItemStarted):
-        return _translate_item_event("started", event.item)
-    if isinstance(event, codex_schema.ItemUpdated):
-        return _translate_item_event("updated", event.item)
-    if isinstance(event, codex_schema.ItemCompleted):
-        return _translate_item_event("completed", event.item)
-    return []
+    match event:
+        case codex_schema.ThreadStarted(thread_id=thread_id):
+            token = ResumeToken(engine=ENGINE, value=thread_id)
+            return [_started_event(token, title=title)]
+        case codex_schema.ItemStarted(item=item):
+            return _translate_item_event("started", item)
+        case codex_schema.ItemUpdated(item=item):
+            return _translate_item_event("updated", item)
+        case codex_schema.ItemCompleted(item=item):
+            return _translate_item_event("completed", item)
+        case _:
+            return []
 
 
 @dataclass(slots=True)
@@ -496,70 +495,66 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
     ) -> list[TakopiEvent]:
-        if isinstance(data, codex_schema.StreamError):
-            message = data.message
-            reconnect = _parse_reconnect_message(message)
-            if reconnect is not None:
-                attempt, max_attempts = reconnect
-                phase: ActionPhase = "started" if attempt <= 1 else "updated"
+        match data:
+            case codex_schema.StreamError(message=message):
+                reconnect = _parse_reconnect_message(message)
+                if reconnect is not None:
+                    attempt, max_attempts = reconnect
+                    phase: ActionPhase = "started" if attempt <= 1 else "updated"
+                    return [
+                        _action_event(
+                            phase=phase,
+                            action_id="codex.reconnect",
+                            kind="note",
+                            title=message,
+                            detail={"attempt": attempt, "max": max_attempts},
+                            level="info",
+                        )
+                    ]
+                return [self.note_event(message, state=state, ok=False)]
+            case codex_schema.TurnFailed(error=error):
+                resume_for_completed = found_session or resume
                 return [
-                    _action_event(
-                        phase=phase,
-                        action_id="codex.reconnect",
-                        kind="note",
-                        title=message,
-                        detail={"attempt": attempt, "max": max_attempts},
-                        level="info",
+                    _completed_event(
+                        resume=resume_for_completed,
+                        ok=False,
+                        answer=state.final_answer or "",
+                        error=error.message,
                     )
                 ]
-            return [self.note_event(message, state=state, ok=False)]
-
-        if isinstance(data, codex_schema.TurnFailed):
-            message = data.error.message
-            resume_for_completed = found_session or resume
-            return [
-                _completed_event(
-                    resume=resume_for_completed,
-                    ok=False,
-                    answer=state.final_answer or "",
-                    error=message,
-                )
-            ]
-
-        if isinstance(data, codex_schema.TurnStarted):
-            action_id = f"turn_{state.turn_index}"
-            state.turn_index += 1
-            return [
-                _action_event(
-                    phase="started",
-                    action_id=action_id,
-                    kind="turn",
-                    title="turn started",
-                )
-            ]
-
-        if isinstance(data, codex_schema.TurnCompleted):
-            resume_for_completed = found_session or resume
-            usage = msgspec.to_builtins(data.usage)
-            return [
-                _completed_event(
-                    resume=resume_for_completed,
-                    ok=True,
-                    answer=state.final_answer or "",
-                    usage=usage,
-                )
-            ]
-
-        if isinstance(data, codex_schema.ItemCompleted) and isinstance(
-            data.item, codex_schema.AgentMessageItem
-        ):
-            if state.final_answer is None:
-                state.final_answer = data.item.text
-            else:
-                logger.debug(
-                    "[codex] emitted multiple agent messages; using the last one"
-                )
-                state.final_answer = data.item.text
+            case codex_schema.TurnStarted():
+                action_id = f"turn_{state.turn_index}"
+                state.turn_index += 1
+                return [
+                    _action_event(
+                        phase="started",
+                        action_id=action_id,
+                        kind="turn",
+                        title="turn started",
+                    )
+                ]
+            case codex_schema.TurnCompleted(usage=usage):
+                resume_for_completed = found_session or resume
+                return [
+                    _completed_event(
+                        resume=resume_for_completed,
+                        ok=True,
+                        answer=state.final_answer or "",
+                        usage=msgspec.to_builtins(usage),
+                    )
+                ]
+            case codex_schema.ItemCompleted(
+                item=codex_schema.AgentMessageItem(text=text)
+            ):
+                if state.final_answer is None:
+                    state.final_answer = text
+                else:
+                    logger.debug(
+                        "[codex] emitted multiple agent messages; using the last one"
+                    )
+                    state.final_answer = text
+            case _:
+                pass
 
         return translate_codex_event(data, title=self.session_title)
 
