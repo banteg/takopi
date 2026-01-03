@@ -113,6 +113,8 @@ class StreamEventMessage(
 class ControlInterruptRequest(
     msgspec.Struct, tag="interrupt", tag_field="subtype", forbid_unknown_fields=False
 ):
+    pass
+
 
 class ControlCanUseToolRequest(
     msgspec.Struct, tag="can_use_tool", tag_field="subtype", forbid_unknown_fields=False
@@ -183,8 +185,6 @@ class StreamControlRequest(
 class ControlSuccessResponse(
     msgspec.Struct, tag="success", tag_field="subtype", forbid_unknown_fields=False
 ):
-    """Control response for successful requests."""
-
     request_id: str
     response: dict[str, Any] | None = None
 
@@ -192,8 +192,6 @@ class ControlSuccessResponse(
 class ControlErrorResponse(
     msgspec.Struct, tag="error", tag_field="subtype", forbid_unknown_fields=False
 ):
-    """Control response for failed requests."""
-
     request_id: str
     error: str
 
@@ -207,8 +205,6 @@ class StreamControlResponse(
     tag_field="type",
     forbid_unknown_fields=False,
 ):
-    """Envelope for control responses emitted by the CLI."""
-
     response: ControlResponse
 
 
@@ -218,8 +214,6 @@ class StreamControlCancelRequest(
     tag_field="type",
     forbid_unknown_fields=False,
 ):
-    """Envelope for control cancellation requests (shape may evolve)."""
-
     request_id: str | None = None
 
 
