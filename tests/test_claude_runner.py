@@ -11,16 +11,44 @@ from takopi.runners.claude import (
     ENGINE,
     translate_claude_event,
 )
+from takopi.schemas import claude as claude_schema
 
 
-def _load_fixture(name: str, *, session_id: str | None = None) -> list[dict]:
+def _load_fixture(
+    name: str, *, session_id: str | None = None
+) -> list[claude_schema.DecodedLine]:
     path = Path(__file__).parent / "fixtures" / name
     events = [
-        json.loads(line) for line in path.read_text().splitlines() if line.strip()
+        claude_schema.decode_stream_json_line(line)
+        for line in path.read_bytes().splitlines()
+        if line.strip()
     ]
     if session_id is None:
         return events
-    return [event for event in events if event.get("session_id") == session_id]
+    return [
+        event for event in events if getattr(event, "session_id", None) == session_id
+    ]
+
+
+def _decode_event(payload: dict) -> claude_schema.DecodedLine:
+    data_payload = dict(payload)
+    data_payload.setdefault("uuid", "uuid")
+    data_payload.setdefault("session_id", "session")
+    match data_payload.get("type"):
+        case "assistant":
+            message = dict(data_payload.get("message", {}))
+            message.setdefault("id", "msg_1")
+            message.setdefault("type", "message")
+            message.setdefault("role", "assistant")
+            message.setdefault("content", [])
+            data_payload["message"] = message
+        case "user":
+            message = dict(data_payload.get("message", {}))
+            message.setdefault("role", "user")
+            message.setdefault("content", [])
+            data_payload["message"] = message
+    data = json.dumps(data_payload).encode("utf-8")
+    return claude_schema.decode_stream_json_line(data)
 
 
 def test_claude_resume_format_and_extract() -> None:
@@ -42,7 +70,14 @@ def test_translate_success_fixture() -> None:
         "claude_streamjson_session.jsonl",
         session_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
     ):
-        events.extend(translate_claude_event(event, title="claude", state=state))
+        events.extend(
+            translate_claude_event(
+                event,
+                title="claude",
+                state=state,
+                factory=state.factory,
+            )
+        )
 
     assert isinstance(events[0], StartedEvent)
     started = next(evt for evt in events if isinstance(evt, StartedEvent))
@@ -84,7 +119,14 @@ def test_translate_error_fixture_permission_denials() -> None:
         "claude_streamjson_session.jsonl",
         session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
     ):
-        events.extend(translate_claude_event(event, title="claude", state=state))
+        events.extend(
+            translate_claude_event(
+                event,
+                title="claude",
+                state=state,
+                factory=state.factory,
+            )
+        )
 
     started = next(evt for evt in events if isinstance(evt, StartedEvent))
     completed = next(evt for evt in events if isinstance(evt, CompletedEvent))
@@ -134,10 +176,20 @@ def test_tool_results_pop_pending_actions() -> None:
         },
     }
 
-    translate_claude_event(tool_use_event, title="claude", state=state)
+    translate_claude_event(
+        _decode_event(tool_use_event),
+        title="claude",
+        state=state,
+        factory=state.factory,
+    )
     assert "toolu_1" in state.pending_actions
 
-    translate_claude_event(tool_result_event, title="claude", state=state)
+    translate_claude_event(
+        _decode_event(tool_result_event),
+        title="claude",
+        state=state,
+        factory=state.factory,
+    )
     assert not state.pending_actions
 
 
@@ -157,7 +209,12 @@ def test_translate_thinking_block() -> None:
         },
     }
 
-    events = translate_claude_event(event, title="claude", state=state)
+    events = translate_claude_event(
+        _decode_event(event),
+        title="claude",
+        state=state,
+        factory=state.factory,
+    )
 
     assert len(events) == 1
     assert isinstance(events[0], ActionEvent)
@@ -224,15 +281,30 @@ async def test_run_serializes_new_session_after_session_is_known(
         "resume_marker = os.environ['CLAUDE_TEST_RESUME_MARKER']\n"
         "session_id = os.environ['CLAUDE_TEST_SESSION_ID']\n"
         "\n"
+        "init = {\n"
+        "    'type': 'system',\n"
+        "    'subtype': 'init',\n"
+        "    'uuid': 'uuid',\n"
+        "    'session_id': session_id,\n"
+        "    'apiKeySource': 'env',\n"
+        "    'cwd': '.',\n"
+        "    'tools': [],\n"
+        "    'mcp_servers': [],\n"
+        "    'model': 'claude',\n"
+        "    'permissionMode': 'default',\n"
+        "    'slash_commands': [],\n"
+        "    'output_style': 'default',\n"
+        "}\n"
+        "\n"
         "args = sys.argv[1:]\n"
         "if '--resume' in args or '-r' in args:\n"
-        "    print(json.dumps({'type': 'system', 'subtype': 'init', 'session_id': session_id}), flush=True)\n"
+        "    print(json.dumps(init), flush=True)\n"
         "    with open(resume_marker, 'w', encoding='utf-8') as f:\n"
         "        f.write('started')\n"
         "        f.flush()\n"
         "    sys.exit(0)\n"
         "\n"
-        "print(json.dumps({'type': 'system', 'subtype': 'init', 'session_id': session_id}), flush=True)\n"
+        "print(json.dumps(init), flush=True)\n"
         "while not os.path.exists(gate):\n"
         "    time.sleep(0.001)\n"
         "sys.exit(0)\n",
@@ -292,8 +364,37 @@ async def test_run_strips_anthropic_api_key_by_default(tmp_path, monkeypatch) ->
         "\n"
         "session_id = 'session_01'\n"
         "status = 'set' if os.environ.get('ANTHROPIC_API_KEY') else 'unset'\n"
-        "print(json.dumps({'type': 'system', 'subtype': 'init', 'session_id': session_id}), flush=True)\n"
-        "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': f'api={status}', 'session_id': session_id}), flush=True)\n"
+        "init = {\n"
+        "    'type': 'system',\n"
+        "    'subtype': 'init',\n"
+        "    'uuid': 'uuid',\n"
+        "    'session_id': session_id,\n"
+        "    'apiKeySource': 'env',\n"
+        "    'cwd': '.',\n"
+        "    'tools': [],\n"
+        "    'mcp_servers': [],\n"
+        "    'model': 'claude',\n"
+        "    'permissionMode': 'default',\n"
+        "    'slash_commands': [],\n"
+        "    'output_style': 'default',\n"
+        "}\n"
+        "print(json.dumps(init), flush=True)\n"
+        "result = {\n"
+        "    'type': 'result',\n"
+        "    'subtype': 'success',\n"
+        "    'uuid': 'uuid',\n"
+        "    'session_id': session_id,\n"
+        "    'duration_ms': 0,\n"
+        "    'duration_api_ms': 0,\n"
+        "    'is_error': False,\n"
+        "    'num_turns': 1,\n"
+        "    'result': f'api={status}',\n"
+        "    'total_cost_usd': 0.0,\n"
+        "    'usage': {'input_tokens': 0, 'output_tokens': 0},\n"
+        "    'modelUsage': {},\n"
+        "    'permission_denials': [],\n"
+        "}\n"
+        "print(json.dumps(result), flush=True)\n"
         "raise SystemExit(0)\n",
         encoding="utf-8",
     )
