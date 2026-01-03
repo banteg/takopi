@@ -111,18 +111,8 @@ class ToolUseBlock(_Tagged, tag="tool_use"):
     input: Dict[str, Any]
 
 
-class ImageSource(msgspec.Struct, forbid_unknown_fields=False):
-    type: Literal["base64"]
-    media_type: str
-    data: str
-
-
-class ImageBlock(_Tagged, tag="image"):
-    source: ImageSource
-
-
-# tool_result "content" can itself be a string or an array of blocks (e.g. text/image).
-ToolResultContentBlock = Union[TextBlock, ImageBlock]
+# tool_result "content" can itself be a string or an array of blocks.
+ToolResultContentBlock = Union[TextBlock]
 ToolResultContent = Union[str, List[ToolResultContentBlock]]
 
 
@@ -144,36 +134,13 @@ class RedactedThinkingBlock(_Tagged, tag="redacted_thinking"):
     data: Optional[str] = None
 
 
-class ServerToolUseBlock(_Tagged, tag="server_tool_use"):
-    # Server-side tool use (e.g. web_search) as shown in Anthropic streaming docs.
-    id: str
-    name: str
-    input: Dict[str, Any]
-
-
-class WebSearchResult(msgspec.Struct, forbid_unknown_fields=False):
-    type: Literal["web_search_result"]
-    title: str
-    url: str
-    encrypted_content: Optional[str] = None
-    page_age: Optional[float] = None
-
-
-class WebSearchToolResultBlock(_Tagged, tag="web_search_tool_result"):
-    tool_use_id: str
-    content: List[WebSearchResult]
-
-
 # Content blocks can evolve; update the schema if new block types appear.
 ContentBlock = Union[
     TextBlock,
     ToolUseBlock,
     ToolResultBlock,
-    ImageBlock,
     ThinkingBlock,
     RedactedThinkingBlock,
-    ServerToolUseBlock,
-    WebSearchToolResultBlock,
 ]
 
 
@@ -205,98 +172,6 @@ class APIUserMessage(msgspec.Struct, forbid_unknown_fields=False):
     # generally includes "role":"user" but we default it in case it's omitted.
     role: Literal["user"] = "user"
     content: Union[str, List[ContentBlock]] = ""
-
-
-# ----------------------------
-# Streaming (RawMessageStreamEvent)
-# ----------------------------
-
-
-class StreamErrorDetail(msgspec.Struct, forbid_unknown_fields=False):
-    type: str
-    message: Optional[str] = None
-
-
-class StreamErrorEvent(_Tagged, tag="error"):
-    error: StreamErrorDetail
-
-
-class StreamPingEvent(_Tagged, tag="ping"):
-    pass
-
-
-class StreamMessageStartEvent(_Tagged, tag="message_start"):
-    message: APIAssistantMessage
-
-
-class StreamContentBlockStartEvent(_Tagged, tag="content_block_start"):
-    index: int
-    content_block: ContentBlock
-
-
-class TextDelta(_Tagged, tag="text_delta"):
-    text: str
-
-
-class InputJsonDelta(_Tagged, tag="input_json_delta"):
-    partial_json: str
-
-
-class ThinkingDelta(_Tagged, tag="thinking_delta"):
-    thinking: str
-
-
-class SignatureDelta(_Tagged, tag="signature_delta"):
-    signature: str
-
-
-class CitationsDelta(_Tagged, tag="citations_delta"):
-    # Not fully documented publicly; keep permissive.
-    citations: Optional[List[Dict[str, Any]]] = None
-
-
-ContentBlockDelta = Union[
-    TextDelta,
-    InputJsonDelta,
-    ThinkingDelta,
-    SignatureDelta,
-    CitationsDelta,
-]
-
-
-class StreamContentBlockDeltaEvent(_Tagged, tag="content_block_delta"):
-    index: int
-    delta: ContentBlockDelta
-
-
-class StreamContentBlockStopEvent(_Tagged, tag="content_block_stop"):
-    index: int
-
-
-class StreamMessageDeltaInner(msgspec.Struct, forbid_unknown_fields=False):
-    stop_reason: Optional[str] = None
-    stop_sequence: Optional[str] = None
-
-
-class StreamMessageDeltaEvent(_Tagged, tag="message_delta"):
-    delta: StreamMessageDeltaInner
-    usage: Optional[Usage] = None
-
-
-class StreamMessageStopEvent(_Tagged, tag="message_stop"):
-    pass
-
-
-RawMessageStreamEvent = Union[
-    StreamMessageStartEvent,
-    StreamContentBlockStartEvent,
-    StreamContentBlockDeltaEvent,
-    StreamContentBlockStopEvent,
-    StreamMessageDeltaEvent,
-    StreamMessageStopEvent,
-    StreamPingEvent,
-    StreamErrorEvent,
-]
 
 
 # ----------------------------
@@ -372,14 +247,6 @@ class SDKUserMessage(msgspec.Struct, forbid_unknown_fields=False):
     tool_use_result: Optional[Dict[str, Any]] = None
 
 
-class SDKPartialAssistantMessage(msgspec.Struct, forbid_unknown_fields=False):
-    type: Literal["stream_event"]
-    event: RawMessageStreamEvent
-    parent_tool_use_id: Optional[str] = None
-    uuid: UUID = ""
-    session_id: str = ""
-
-
 class SDKResultSuccess(msgspec.Struct, forbid_unknown_fields=False):
     type: Literal["result"]
     subtype: Literal["success"]
@@ -424,7 +291,6 @@ SDKMessage = Union[
     SDKSystemOther,
     SDKAssistantMessage,
     SDKUserMessage,
-    SDKPartialAssistantMessage,
     SDKResultSuccess,
     SDKResultError,
 ]
@@ -499,9 +365,6 @@ def decode_stream_json_line(line: Union[str, bytes]) -> DecodedLine:
 
         if t == "user":
             return msgspec.convert(obj, type=SDKUserMessage)
-
-        if t == "stream_event":
-            return msgspec.convert(obj, type=SDKPartialAssistantMessage)
 
         if t == "result":
             if st == "success":
