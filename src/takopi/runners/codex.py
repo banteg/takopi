@@ -10,18 +10,8 @@ import msgspec
 
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
-from ..model import (
-    Action,
-    ActionEvent,
-    ActionKind,
-    ActionLevel,
-    ActionPhase,
-    CompletedEvent,
-    EngineId,
-    ResumeToken,
-    StartedEvent,
-    TakopiEvent,
-)
+from ..events import EventFactory
+from ..model import ActionPhase, EngineId, ResumeToken, TakopiEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import codex as codex_schema
 from ..utils.paths import relativize_command
@@ -47,55 +37,6 @@ def _parse_reconnect_message(message: str) -> tuple[int, int] | None:
     except (TypeError, ValueError):
         return None
     return (attempt, max_attempts)
-
-
-def _started_event(token: ResumeToken, *, title: str) -> StartedEvent:
-    return StartedEvent(engine=token.engine, resume=token, title=title)
-
-
-def _completed_event(
-    *,
-    resume: ResumeToken | None,
-    ok: bool,
-    answer: str,
-    error: str | None = None,
-    usage: dict[str, Any] | None = None,
-) -> TakopiEvent:
-    return CompletedEvent(
-        engine=ENGINE,
-        ok=ok,
-        answer=answer,
-        resume=resume,
-        error=error,
-        usage=usage,
-    )
-
-
-def _action_event(
-    *,
-    phase: ActionPhase,
-    action_id: str,
-    kind: ActionKind,
-    title: str,
-    detail: dict[str, Any] | None = None,
-    ok: bool | None = None,
-    message: str | None = None,
-    level: ActionLevel | None = None,
-) -> TakopiEvent:
-    action = Action(
-        id=action_id,
-        kind=kind,
-        title=title,
-        detail=detail or {},
-    )
-    return ActionEvent(
-        engine=ENGINE,
-        action=action,
-        phase=phase,
-        ok=ok,
-        message=message,
-        level=level,
-    )
 
 
 def _short_tool_name(server: str | None, tool: str | None) -> str:
@@ -201,7 +142,7 @@ def _todo_title(summary: _TodoSummary) -> str:
 
 
 def _translate_item_event(
-    phase: ActionPhase, item: codex_schema.ThreadItem
+    phase: ActionPhase, item: codex_schema.ThreadItem, *, factory: EventFactory
 ) -> list[TakopiEvent]:
     match item:
         case codex_schema.AgentMessageItem():
@@ -210,8 +151,7 @@ def _translate_item_event(
             if phase != "completed":
                 return []
             return [
-                _action_event(
-                    phase="completed",
+                factory.action_completed(
                     action_id=action_id,
                     kind="warning",
                     title=message,
@@ -219,7 +159,7 @@ def _translate_item_event(
                     ok=False,
                     message=message,
                     level="warning",
-                )
+                ),
             ]
         case codex_schema.CommandExecutionItem(
             id=action_id,
@@ -230,7 +170,7 @@ def _translate_item_event(
             title = relativize_command(command)
             if phase in {"started", "updated"}:
                 return [
-                    _action_event(
+                    factory.action(
                         phase=phase,
                         action_id=action_id,
                         kind="command",
@@ -243,14 +183,13 @@ def _translate_item_event(
                     ok = ok and exit_code == 0
                 detail = {"exit_code": exit_code, "status": status}
                 return [
-                    _action_event(
-                        phase="completed",
+                    factory.action_completed(
                         action_id=action_id,
                         kind="command",
                         title=title,
                         detail=detail,
                         ok=ok,
-                    )
+                    ),
                 ]
         case codex_schema.McpToolCallItem(
             id=action_id,
@@ -271,7 +210,7 @@ def _translate_item_event(
 
             if phase in {"started", "updated"}:
                 return [
-                    _action_event(
+                    factory.action(
                         phase=phase,
                         action_id=action_id,
                         kind="tool",
@@ -287,20 +226,19 @@ def _translate_item_event(
                 if result_summary is not None:
                     detail["result_summary"] = result_summary
                 return [
-                    _action_event(
-                        phase="completed",
+                    factory.action_completed(
                         action_id=action_id,
                         kind="tool",
                         title=title,
                         detail=detail,
                         ok=ok,
-                    )
+                    ),
                 ]
         case codex_schema.WebSearchItem(id=action_id, query=query):
             detail = {"query": query}
             if phase in {"started", "updated"}:
                 return [
-                    _action_event(
+                    factory.action(
                         phase=phase,
                         action_id=action_id,
                         kind="web_search",
@@ -310,8 +248,7 @@ def _translate_item_event(
                 ]
             if phase == "completed":
                 return [
-                    _action_event(
-                        phase="completed",
+                    factory.action_completed(
                         action_id=action_id,
                         kind="web_search",
                         title=query,
@@ -330,8 +267,7 @@ def _translate_item_event(
             }
             ok = status == "completed"
             return [
-                _action_event(
-                    phase="completed",
+                factory.action_completed(
                     action_id=action_id,
                     kind="file_change",
                     title=title,
@@ -345,7 +281,7 @@ def _translate_item_event(
             detail = {"done": summary.done, "total": summary.total}
             if phase in {"started", "updated"}:
                 return [
-                    _action_event(
+                    factory.action(
                         phase=phase,
                         action_id=action_id,
                         kind="note",
@@ -355,8 +291,7 @@ def _translate_item_event(
                 ]
             if phase == "completed":
                 return [
-                    _action_event(
-                        phase="completed",
+                    factory.action_completed(
                         action_id=action_id,
                         kind="note",
                         title=title,
@@ -367,7 +302,7 @@ def _translate_item_event(
         case codex_schema.ReasoningItem(id=action_id, text=text):
             if phase in {"started", "updated"}:
                 return [
-                    _action_event(
+                    factory.action(
                         phase=phase,
                         action_id=action_id,
                         kind="note",
@@ -376,8 +311,7 @@ def _translate_item_event(
                 ]
             if phase == "completed":
                 return [
-                    _action_event(
-                        phase="completed",
+                    factory.action_completed(
                         action_id=action_id,
                         kind="note",
                         title=text,
@@ -388,24 +322,28 @@ def _translate_item_event(
 
 
 def translate_codex_event(
-    event: codex_schema.ThreadEvent, *, title: str
+    event: codex_schema.ThreadEvent,
+    *,
+    title: str,
+    factory: EventFactory,
 ) -> list[TakopiEvent]:
     match event:
         case codex_schema.ThreadStarted(thread_id=thread_id):
             token = ResumeToken(engine=ENGINE, value=thread_id)
-            return [_started_event(token, title=title)]
+            return [factory.started(token, title=title)]
         case codex_schema.ItemStarted(item=item):
-            return _translate_item_event("started", item)
+            return _translate_item_event("started", item, factory=factory)
         case codex_schema.ItemUpdated(item=item):
-            return _translate_item_event("updated", item)
+            return _translate_item_event("updated", item, factory=factory)
         case codex_schema.ItemCompleted(item=item):
-            return _translate_item_event("completed", item)
+            return _translate_item_event("completed", item, factory=factory)
         case _:
             return []
 
 
 @dataclass(slots=True)
 class CodexRunState:
+    factory: EventFactory
     note_seq: int = 0
     final_answer: str | None = None
     turn_index: int = 0
@@ -447,7 +385,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
     def new_state(self, prompt: str, resume: ResumeToken | None) -> CodexRunState:
         _ = prompt, resume
-        return CodexRunState()
+        return CodexRunState(factory=EventFactory(ENGINE))
 
     def start_run(
         self,
@@ -495,6 +433,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
     ) -> list[TakopiEvent]:
+        factory = state.factory
         match data:
             case codex_schema.StreamError(message=message):
                 reconnect = _parse_reconnect_message(message)
@@ -502,7 +441,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                     attempt, max_attempts = reconnect
                     phase: ActionPhase = "started" if attempt <= 1 else "updated"
                     return [
-                        _action_event(
+                        factory.action(
                             phase=phase,
                             action_id="codex.reconnect",
                             kind="note",
@@ -515,19 +454,17 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             case codex_schema.TurnFailed(error=error):
                 resume_for_completed = found_session or resume
                 return [
-                    _completed_event(
-                        resume=resume_for_completed,
-                        ok=False,
-                        answer=state.final_answer or "",
+                    factory.completed_error(
                         error=error.message,
+                        answer=state.final_answer or "",
+                        resume=resume_for_completed,
                     )
                 ]
             case codex_schema.TurnStarted():
                 action_id = f"turn_{state.turn_index}"
                 state.turn_index += 1
                 return [
-                    _action_event(
-                        phase="started",
+                    factory.action_started(
                         action_id=action_id,
                         kind="turn",
                         title="turn started",
@@ -536,10 +473,9 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             case codex_schema.TurnCompleted(usage=usage):
                 resume_for_completed = found_session or resume
                 return [
-                    _completed_event(
-                        resume=resume_for_completed,
-                        ok=True,
+                    factory.completed_ok(
                         answer=state.final_answer or "",
+                        resume=resume_for_completed,
                         usage=msgspec.to_builtins(usage),
                     )
                 ]
@@ -556,7 +492,11 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             case _:
                 pass
 
-        return translate_codex_event(data, title=self.session_title)
+        return translate_codex_event(
+            data,
+            title=self.session_title,
+            factory=factory,
+        )
 
     def process_error_events(
         self,
@@ -574,11 +514,10 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                 state=state,
                 ok=False,
             ),
-            _completed_event(
-                resume=resume_for_completed,
-                ok=False,
-                answer=state.final_answer or "",
+            state.factory.completed_error(
                 error=message,
+                answer=state.final_answer or "",
+                resume=resume_for_completed,
             ),
         ]
 
@@ -593,19 +532,17 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             message = "codex exec finished but no session_id/thread_id was captured"
             resume_for_completed = resume
             return [
-                _completed_event(
-                    resume=resume_for_completed,
-                    ok=False,
-                    answer=state.final_answer or "",
+                state.factory.completed_error(
                     error=message,
+                    answer=state.final_answer or "",
+                    resume=resume_for_completed,
                 )
             ]
         logger.info("[codex] done run session=%s", found_session.value)
         return [
-            _completed_event(
-                resume=found_session,
-                ok=True,
+            state.factory.completed_ok(
                 answer=state.final_answer or "",
+                resume=found_session,
             )
         ]
 

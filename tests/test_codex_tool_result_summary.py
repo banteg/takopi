@@ -1,5 +1,6 @@
 import json
 
+from takopi.events import EventFactory
 from takopi.model import ActionEvent
 from takopi.runners.codex import translate_codex_event
 from takopi.schemas import codex as codex_schema
@@ -7,6 +8,14 @@ from takopi.schemas import codex as codex_schema
 
 def _decode_event(payload: dict) -> codex_schema.ThreadEvent:
     return codex_schema.decode_event(json.dumps(payload))
+
+
+def _translate_event(payload: dict) -> list:
+    return translate_codex_event(
+        _decode_event(payload),
+        title="Codex",
+        factory=EventFactory("codex"),
+    )
 
 
 def test_translate_mcp_tool_call_summarizes_structured_content() -> None:
@@ -27,7 +36,7 @@ def test_translate_mcp_tool_call_summarizes_structured_content() -> None:
         },
     }
 
-    out = translate_codex_event(_decode_event(evt), title="Codex")
+    out = _translate_event(evt)
     assert len(out) == 1
     assert isinstance(out[0], ActionEvent)
     summary = out[0].action.detail["result_summary"]
@@ -50,7 +59,7 @@ def test_translate_mcp_tool_call_summarizes_null_structured_content() -> None:
         },
     }
 
-    out = translate_codex_event(_decode_event(evt), title="Codex")
+    out = _translate_event(evt)
     assert len(out) == 1
     assert isinstance(out[0], ActionEvent)
     assert out[0].action.detail["result_summary"]["has_structured"] is False
@@ -71,7 +80,7 @@ def test_translate_mcp_tool_call_missing_error_is_ok() -> None:
         },
     }
 
-    out = translate_codex_event(_decode_event(evt), title="Codex")
+    out = _translate_event(evt)
     assert len(out) == 1
     assert isinstance(out[0], ActionEvent)
     assert out[0].ok is True
@@ -90,7 +99,7 @@ def test_translate_command_execution_allows_null_exit_code() -> None:
         },
     }
 
-    out = translate_codex_event(_decode_event(evt), title="Codex")
+    out = _translate_event(evt)
     assert len(out) == 1
     assert isinstance(out[0], ActionEvent)
     assert out[0].ok is True
