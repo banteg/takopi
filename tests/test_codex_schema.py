@@ -41,6 +41,4 @@ def _decode_fixture(name: str) -> list[str]:
 def test_codex_schema_parses_fixture(fixture: str) -> None:
     errors = _decode_fixture(fixture)
 
-    assert not errors, (
-        f"{fixture} had {len(errors)} errors: " + "; ".join(errors[:5])
-    )
+    assert not errors, f"{fixture} had {len(errors)} errors: " + "; ".join(errors[:5])
