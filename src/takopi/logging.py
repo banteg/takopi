@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import logging
 import re
 import sys
@@ -23,6 +24,24 @@ class RedactTokenFilter(logging.Filter):
         return True
 
 
+class SafeStreamHandler(logging.StreamHandler):
+    def handleError(self, record: logging.LogRecord) -> None:
+        exc = sys.exc_info()[1]
+        if isinstance(exc, BrokenPipeError):
+            try:
+                self.stream.close()
+            except Exception:
+                pass
+            return
+        if isinstance(exc, OSError) and exc.errno == errno.EPIPE:
+            try:
+                self.stream.close()
+            except Exception:
+                pass
+            return
+        super().handleError(record)
+
+
 def setup_logging(*, debug: bool = False) -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG if debug else logging.INFO)
@@ -35,7 +54,7 @@ def setup_logging(*, debug: bool = False) -> None:
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     redactor = RedactTokenFilter()
 
-    console = logging.StreamHandler(sys.stdout)
+    console = SafeStreamHandler(sys.stderr)
     console.setLevel(logging.DEBUG if debug else logging.INFO)
     console.setFormatter(fmt)
     console.addFilter(redactor)
