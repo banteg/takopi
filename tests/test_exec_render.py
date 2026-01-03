@@ -10,6 +10,7 @@ from takopi.render import (
     assemble_markdown_parts,
     format_elapsed,
     format_file_change_title,
+    format_action_title,
     render_event_cli,
     render_markdown,
     shorten,
@@ -39,20 +40,15 @@ SAMPLE_EVENTS: list[TakopiEvent] = [
 ]
 
 
-def test_render_event_cli_sample_events() -> None:
+def test_render_event_cli_sample_events(snapshot) -> None:
     out: list[str] = []
     for evt in SAMPLE_EVENTS:
         out.extend(render_event_cli(evt))
 
-    assert out == [
-        "codex",
-        "▸ `bash -lc ls`",
-        "✓ `bash -lc ls`",
-        "✓ Checking repository root for README",
-    ]
+    assert snapshot == out
 
 
-def test_render_event_cli_handles_action_kinds() -> None:
+def test_render_event_cli_handles_action_kinds(snapshot) -> None:
     events: list[TakopiEvent] = [
         action_completed(
             "c-1", "command", "pytest -q", ok=False, detail={"exit_code": 1}
@@ -83,16 +79,7 @@ def test_render_event_cli_handles_action_kinds() -> None:
     for evt in events:
         out.extend(render_event_cli(evt))
 
-    assert any(line.startswith("✗ `pytest -q` (exit 1)") for line in out)
-    assert any(
-        "searched: python jsonlines parser handle unknown fields" in line
-        for line in out
-    )
-    assert any("tool: github.search_issues" in line for line in out)
-    assert any(
-        "files: add `README.md`, update `src/compute_answer.py`" in line for line in out
-    )
-    assert any(line.startswith("✗ stream error") for line in out)
+    assert snapshot == out
 
 
 def test_file_change_renders_relative_paths_inside_cwd() -> None:
@@ -117,7 +104,7 @@ def test_file_change_renders_relative_paths_inside_cwd() -> None:
     )
 
 
-def test_progress_renderer_renders_progress_and_final() -> None:
+def test_progress_renderer_renders_progress_and_final(snapshot) -> None:
     r = ExecProgressRenderer(
         max_actions=5, resume_formatter=_format_resume, engine="codex"
     )
@@ -126,19 +113,11 @@ def test_progress_renderer_renders_progress_and_final() -> None:
 
     progress_parts = r.render_progress_parts(3.0)
     progress = assemble_markdown_parts(progress_parts)
-    assert progress.startswith("working · codex · 3s · step 2")
-    assert "✓ `bash -lc ls`" in progress
-    assert "`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
+    assert snapshot == progress
 
     final_parts = r.render_final_parts(3.0, "answer", status="done")
     final = assemble_markdown_parts(final_parts)
-    assert final.startswith("done · codex · 3s · step 2")
-    assert "✓ `bash -lc ls`" not in final
-    assert "Checking repository root for README" not in final
-    assert "answer" in final
-    assert final.rstrip().endswith(
-        "`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`"
-    )
+    assert snapshot == final
 
 
 def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
@@ -333,3 +312,38 @@ def test_progress_renderer_ignores_missing_action_id() -> None:
 
     header = assemble_markdown_parts(renderer.render_progress_parts(0.0))
     assert header.startswith("working · codex · 0s")
+
+
+def test_format_action_title_handles_turn_kind() -> None:
+    action = Action(
+        id="test-id",
+        kind="turn",
+        title="Turn action",
+        detail={},
+    )
+
+    # Should handle turn kind (line 169)
+    title = format_action_title(action, command_width=50)
+    assert title is not None
+
+
+def test_progress_renderer_ignores_turn_actions() -> None:
+    renderer = ExecProgressRenderer(engine="codex")
+
+    # Turn actions should be ignored (line 240)
+    turn_action = Action(
+        id="turn-1",
+        kind="turn",
+        title="Turn",
+        detail={},
+    )
+
+    event = ActionEvent(
+        engine="codex",
+        action=turn_action,
+        phase="started",
+        ok=None,
+    )
+
+    result = renderer.note_event(event)
+    assert result is False

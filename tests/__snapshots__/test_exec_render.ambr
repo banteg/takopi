@@ -1,0 +1,37 @@
+# serializer version: 1
+# name: test_progress_renderer_renders_progress_and_final
+  '''
+  working · codex · 3s · step 2
+  
+  ✓ `bash -lc ls`  
+  ✓ Checking repository root for README
+  
+  `codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`
+  '''
+# ---
+# name: test_progress_renderer_renders_progress_and_final.1
+  '''
+  done · codex · 3s · step 2
+  
+  answer
+  
+  `codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`
+  '''
+# ---
+# name: test_render_event_cli_handles_action_kinds
+  list([
+    '✗ `pytest -q` (exit 1)',
+    '✓ searched: python jsonlines parser handle unknown fields',
+    '✓ tool: github.search_issues',
+    '✓ files: add `README.md`, update `src/compute_answer.py`',
+    '✗ stream error',
+  ])
+# ---
+# name: test_render_event_cli_sample_events
+  list([
+    'codex',
+    '▸ `bash -lc ls`',
+    '✓ `bash -lc ls`',
+    '✓ Checking repository root for README',
+  ])
+# ---

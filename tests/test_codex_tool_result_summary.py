@@ -2,7 +2,7 @@ from takopi.model import ActionEvent
 from takopi.runners.codex import translate_codex_event
 
 
-def test_translate_mcp_tool_call_summarizes_structured_content() -> None:
+def test_translate_mcp_tool_call_summarizes_structured_content(snapshot) -> None:
     evt = {
         "type": "item.completed",
         "item": {
@@ -23,12 +23,10 @@ def test_translate_mcp_tool_call_summarizes_structured_content() -> None:
     out = translate_codex_event(evt, title="Codex")
     assert len(out) == 1
     assert isinstance(out[0], ActionEvent)
-    summary = out[0].action.detail["result_summary"]
-    assert summary["content_blocks"] == 1
-    assert summary["has_structured"] is True
+    assert snapshot == out[0].action.detail["result_summary"]
 
 
-def test_translate_mcp_tool_call_summarizes_null_structured_content() -> None:
+def test_translate_mcp_tool_call_summarizes_null_structured_content(snapshot) -> None:
     evt = {
         "type": "item.completed",
         "item": {
@@ -45,7 +43,7 @@ def test_translate_mcp_tool_call_summarizes_null_structured_content() -> None:
     out = translate_codex_event(evt, title="Codex")
     assert len(out) == 1
     assert isinstance(out[0], ActionEvent)
-    assert out[0].action.detail["result_summary"]["has_structured"] is False
+    assert snapshot == out[0].action.detail["result_summary"]
 
 
 def test_translate_mcp_tool_call_summarizes_legacy_structured_key() -> None:

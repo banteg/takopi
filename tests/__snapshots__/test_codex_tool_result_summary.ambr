@@ -1,0 +1,13 @@
+# serializer version: 1
+# name: test_translate_mcp_tool_call_summarizes_null_structured_content
+  dict({
+    'content_blocks': 0,
+    'has_structured': False,
+  })
+# ---
+# name: test_translate_mcp_tool_call_summarizes_structured_content
+  dict({
+    'content_blocks': 1,
+    'has_structured': True,
+  })
+# ---
