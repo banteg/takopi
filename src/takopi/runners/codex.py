@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+import msgspec
+
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
 from ..model import (
@@ -475,10 +477,29 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         state: CodexRunState,
     ) -> dict[str, Any] | None:
         _ = state
-        if json_line.data is None:
-            return None
-        codex_schema.decode_event(json_line.line)
-        return cast(dict[str, Any], json_line.data)
+        event = codex_schema.decode_event(json_line.line)
+        return cast(dict[str, Any], msgspec.to_builtins(event))
+
+    def decode_error_events(
+        self,
+        *,
+        raw: str,
+        line: str,
+        error: Exception,
+        state: CodexRunState,
+    ) -> list[TakopiEvent]:
+        _ = raw, line
+        if isinstance(error, msgspec.DecodeError):
+            self.get_logger().warning(
+                "[%s] invalid msgspec event: %s", self.tag(), error
+            )
+            return []
+        return super().decode_error_events(
+            raw=raw,
+            line=line,
+            error=error,
+            state=state,
+        )
 
     def pipes_error_message(self) -> str:
         return "codex exec failed to open subprocess pipes"

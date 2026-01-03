@@ -388,46 +388,39 @@ class JsonlSubprocessRunner(BaseRunner):
                 async for json_line in iter_jsonl(proc.stdout, logger=logger, tag=tag):
                     if did_emit_completed:
                         continue
-                    if json_line.data is None:
-                        events = self.invalid_json_events(
+                    try:
+                        decoded = self.decode_jsonl(
+                            json_line=json_line,
+                            state=state,
+                        )
+                    except Exception as exc:
+                        events = self.decode_error_events(
                             raw=json_line.raw,
                             line=json_line.line,
+                            error=exc,
                             state=state,
                         )
                     else:
-                        try:
-                            decoded = self.decode_jsonl(
-                                json_line=json_line,
-                                state=state,
-                            )
-                        except Exception as exc:
-                            events = self.decode_error_events(
+                        if decoded is None:
+                            events = self.invalid_json_events(
                                 raw=json_line.raw,
                                 line=json_line.line,
-                                error=exc,
                                 state=state,
                             )
                         else:
-                            if decoded is None:
-                                events = self.invalid_json_events(
-                                    raw=json_line.raw,
-                                    line=json_line.line,
+                            try:
+                                events = self.translate(
+                                    decoded,
+                                    state=state,
+                                    resume=resume,
+                                    found_session=found_session,
+                                )
+                            except Exception as exc:
+                                events = self.translate_error_events(
+                                    data=decoded,
+                                    error=exc,
                                     state=state,
                                 )
-                            else:
-                                try:
-                                    events = self.translate(
-                                        decoded,
-                                        state=state,
-                                        resume=resume,
-                                        found_session=found_session,
-                                    )
-                                except Exception as exc:
-                                    events = self.translate_error_events(
-                                        data=decoded,
-                                        error=exc,
-                                        state=state,
-                                    )
 
                     for evt in events:
                         if isinstance(evt, StartedEvent):
