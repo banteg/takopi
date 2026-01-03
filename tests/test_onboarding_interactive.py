@@ -45,6 +45,15 @@ def _queue(values):
     return _make
 
 
+def _queue_values(values):
+    it = iter(values)
+
+    def _next(*_args, **_kwargs):
+        return next(it)
+
+    return _next
+
+
 def test_interactive_setup_skips_when_config_exists(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "takopi.toml"
     config_path.write_text('bot_token = "token"\nchat_id = 123\n', encoding="utf-8")
@@ -62,9 +71,7 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
         onboarding_interactive.shutil, "which", lambda _cmd: "/usr/bin/codex"
     )
 
-    monkeypatch.setattr(
-        onboarding_interactive.questionary, "confirm", _queue([True, True])
-    )
+    monkeypatch.setattr(onboarding_interactive, "_confirm", _queue_values([True, True]))
     monkeypatch.setattr(
         onboarding_interactive.questionary, "password", _queue(["123456789:ABCdef"])
     )

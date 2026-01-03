@@ -7,6 +7,10 @@ from typing import Any
 
 import anyio
 import questionary
+from prompt_toolkit import PromptSession
+from prompt_toolkit.formatted_text import to_formatted_text
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -14,6 +18,9 @@ from rich.table import Table
 from .config import HOME_CONFIG_PATH
 from .engines import list_backends
 from .telegram import TelegramClient
+from questionary.constants import DEFAULT_QUESTION_PREFIX
+from questionary.question import Question
+from questionary.styles import merge_styles_default
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +170,64 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
     return rows
 
 
+def _confirm(message: str, *, default: bool = True) -> bool | None:
+    merged_style = merge_styles_default([None])
+    status = {"answer": None, "complete": False}
+
+    def get_prompt_tokens():
+        tokens = [
+            ("class:qmark", DEFAULT_QUESTION_PREFIX),
+            ("class:question", f" {message} "),
+        ]
+        if not status["complete"]:
+            tokens.append(("class:instruction", "(yes/no) "))
+        if status["answer"] is not None:
+            tokens.append(("class:answer", "yes" if status["answer"] else "no"))
+        return to_formatted_text(tokens)
+
+    def exit_with_result(event):
+        status["complete"] = True
+        event.app.exit(result=status["answer"])
+
+    bindings = KeyBindings()
+
+    @bindings.add(Keys.ControlQ, eager=True)
+    @bindings.add(Keys.ControlC, eager=True)
+    def _(event):
+        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
+
+    @bindings.add("n")
+    @bindings.add("N")
+    def key_n(event):
+        status["answer"] = False
+        exit_with_result(event)
+
+    @bindings.add("y")
+    @bindings.add("Y")
+    def key_y(event):
+        status["answer"] = True
+        exit_with_result(event)
+
+    @bindings.add(Keys.ControlH)
+    def key_backspace(event):
+        status["answer"] = None
+
+    @bindings.add(Keys.ControlM, eager=True)
+    def set_answer(event):
+        if status["answer"] is None:
+            status["answer"] = default
+        exit_with_result(event)
+
+    @bindings.add(Keys.Any)
+    def other(event):
+        _ = event
+
+    question = Question(
+        PromptSession(get_prompt_tokens, key_bindings=bindings, style=merged_style).app
+    )
+    return question.ask()
+
+
 def _prompt_token(console: Console) -> tuple[str, dict[str, Any]] | None:
     while True:
         token = questionary.password("paste your bot token:").ask()
@@ -183,7 +248,7 @@ def _prompt_token(console: Console) -> tuple[str, dict[str, Any]] | None:
                 console.print(f"  connected to {name}")
             return token, info
         console.print("  failed to connect, check the token and try again")
-        retry = questionary.confirm("try again?", default=True).ask()
+        retry = _confirm("try again?", default=True)
         if not retry:
             return None
 
@@ -200,10 +265,10 @@ def interactive_setup(*, force: bool) -> bool:
         return True
 
     if config_path.exists() and force:
-        overwrite = questionary.confirm(
+        overwrite = _confirm(
             f"overwrite existing config at {_display_path(config_path)}?",
             default=False,
-        ).ask()
+        )
         if not overwrite:
             return False
 
@@ -217,7 +282,7 @@ def interactive_setup(*, force: bool) -> bool:
     console.print(panel)
 
     console.print("step 1: telegram bot setup\n")
-    have_token = questionary.confirm("do you have a telegram bot token?").ask()
+    have_token = _confirm("do you have a telegram bot token?")
     if have_token is None:
         return False
     if not have_token:
@@ -277,9 +342,7 @@ def interactive_setup(*, force: bool) -> bool:
         console.print(f"  {line}")
     console.print("")
 
-    save = questionary.confirm(
-        f"save this config to {_display_path(config_path)}?", default=True
-    ).ask()
+    save = _confirm(f"save this config to {_display_path(config_path)}?", default=True)
     if not save:
         return False
 
