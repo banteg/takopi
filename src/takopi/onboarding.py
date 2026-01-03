@@ -141,14 +141,7 @@ async def _wait_for_chat(token: str) -> ChatInfo:
     bot = TelegramClient(token)
     try:
         offset: int | None = None
-        allowed_updates = [
-            "message",
-            "edited_message",
-            "channel_post",
-            "edited_channel_post",
-            "my_chat_member",
-            "chat_member",
-        ]
+        allowed_updates = ["message"]
         drained = await bot.get_updates(
             offset=None, timeout_s=0, allowed_updates=allowed_updates
         )
@@ -166,24 +159,12 @@ async def _wait_for_chat(token: str) -> ChatInfo:
             offset = updates[-1]["update_id"] + 1
             update = updates[-1]
             msg = update.get("message")
-            if isinstance(msg, dict):
-                sender = msg.get("from")
-                if isinstance(sender, dict) and sender.get("is_bot") is True:
-                    continue
-                chat = msg.get("chat")
-            else:
-                chat = None
-                for key in (
-                    "edited_message",
-                    "channel_post",
-                    "edited_channel_post",
-                    "my_chat_member",
-                    "chat_member",
-                ):
-                    payload = update.get(key)
-                    if isinstance(payload, dict):
-                        chat = payload.get("chat")
-                        break
+            if not isinstance(msg, dict):
+                continue
+            sender = msg.get("from")
+            if isinstance(sender, dict) and sender.get("is_bot") is True:
+                continue
+            chat = msg.get("chat")
             if not isinstance(chat, dict):
                 continue
             chat_id = chat.get("id")
