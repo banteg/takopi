@@ -3,9 +3,11 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import AsyncIterator
 import logging
+import sys
 
 import anyio
 from anyio.abc import ByteReceiveStream
+from anyio.streams.buffered import BufferedByteReceiveStream
 from anyio.streams.text import TextReceiveStream
 
 
@@ -30,24 +32,27 @@ async def iter_text_lines(stream: ByteReceiveStream) -> AsyncIterator[str]:
 
 
 async def iter_bytes_lines(stream: ByteReceiveStream) -> AsyncIterator[bytes]:
-    buffer = bytearray()
+    buffered = BufferedByteReceiveStream(stream)
     while True:
         try:
-            chunk = await stream.receive()
-        except anyio.EndOfStream:
-            if buffer:
-                yield bytes(buffer)
+            line = await buffered.receive_until(b"\n", sys.maxsize)
+        except anyio.IncompleteRead:
+            try:
+                remainder = await buffered.receive(sys.maxsize)
+            except anyio.EndOfStream:
+                remainder = b""
+            if remainder:
+                yield remainder
             return
-        if not chunk:
+        except anyio.DelimiterNotFound:
+            try:
+                remainder = await buffered.receive(sys.maxsize)
+            except anyio.EndOfStream:
+                remainder = b""
+            if remainder:
+                yield remainder
             continue
-        buffer.extend(chunk)
-        while True:
-            split_at = buffer.find(b"\n")
-            if split_at < 0:
-                break
-            line = bytes(buffer[: split_at + 1])
-            del buffer[: split_at + 1]
-            yield line
+        yield line
 
 
 async def drain_stderr(
