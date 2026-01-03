@@ -117,7 +117,7 @@ def _tool_kind_and_title(
 
 
 def _tool_action(
-    content: claude_schema.ToolUseBlock,
+    content: claude_schema.StreamToolUseBlock,
     *,
     parent_tool_use_id: str | None,
 ) -> Action:
@@ -143,7 +143,7 @@ def _tool_action(
 
 
 def _tool_result_event(
-    content: claude_schema.ToolResultBlock,
+    content: claude_schema.StreamToolResultBlock,
     *,
     action: Action,
     factory: EventFactory,
@@ -171,7 +171,7 @@ def _tool_result_event(
     )
 
 
-def _extract_error(event: claude_schema.SDKResultMessage) -> str | None:
+def _extract_error(event: claude_schema.StreamResultMessage) -> str | None:
     if event.is_error:
         if isinstance(event.result, str) and event.result:
             return event.result
@@ -182,7 +182,7 @@ def _extract_error(event: claude_schema.SDKResultMessage) -> str | None:
     return None
 
 
-def _usage_payload(event: claude_schema.SDKResultMessage) -> dict[str, Any]:
+def _usage_payload(event: claude_schema.StreamResultMessage) -> dict[str, Any]:
     usage: dict[str, Any] = {}
     for key in (
         "total_cost_usd",
@@ -208,11 +208,11 @@ def translate_claude_event(
     match event:
         case claude_schema.NonJsonLine() | claude_schema.UnknownSDKLine():
             return []
-        case claude_schema.SDKSystemMessage(subtype=subtype, data=data):
+        case claude_schema.StreamSystemMessage(subtype=subtype):
             if subtype != "init":
                 return []
-            session_id = data.get("session_id")
-            if not isinstance(session_id, str):
+            session_id = event.session_id
+            if not session_id:
                 return []
             meta: dict[str, Any] = {}
             for key in (
@@ -223,20 +223,20 @@ def translate_claude_event(
                 "apiKeySource",
                 "mcp_servers",
             ):
-                value = data.get(key)
+                value = getattr(event, key, None)
                 if value is not None:
                     meta[key] = value
-            model = data.get("model")
+            model = event.model
             token = ResumeToken(engine=ENGINE, value=session_id)
             event_title = str(model) if isinstance(model, str) and model else title
             return [factory.started(token, title=event_title, meta=meta or None)]
-        case claude_schema.SDKAssistantMessage(
-            content=content, parent_tool_use_id=parent_tool_use_id
+        case claude_schema.StreamAssistantMessage(
+            message=message, parent_tool_use_id=parent_tool_use_id
         ):
             out: list[TakopiEvent] = []
-            for content in content:
+            for content in message.content:
                 match content:
-                    case claude_schema.ToolUseBlock():
+                    case claude_schema.StreamToolUseBlock():
                         action = _tool_action(
                             content,
                             parent_tool_use_id=parent_tool_use_id,
@@ -250,7 +250,7 @@ def translate_claude_event(
                                 detail=action.detail,
                             )
                         )
-                    case claude_schema.ThinkingBlock(
+                    case claude_schema.StreamThinkingBlock(
                         thinking=thinking, signature=signature
                     ):
                         if not thinking:
@@ -271,18 +271,18 @@ def translate_claude_event(
                                 detail=detail,
                             )
                         )
-                    case claude_schema.TextBlock(text=text):
+                    case claude_schema.StreamTextBlock(text=text):
                         if text:
                             state.last_assistant_text = text
                     case _:
                         continue
             return out
-        case claude_schema.SDKUserMessage(content=content):
-            if not isinstance(content, list):
+        case claude_schema.StreamUserMessage(message=message):
+            if not isinstance(message.content, list):
                 return []
             out: list[TakopiEvent] = []
-            for content in content:
-                if not isinstance(content, claude_schema.ToolResultBlock):
+            for content in message.content:
+                if not isinstance(content, claude_schema.StreamToolResultBlock):
                     continue
                 tool_use_id = content.tool_use_id
                 action = state.pending_actions.pop(tool_use_id, None)
@@ -301,7 +301,7 @@ def translate_claude_event(
                     )
                 )
             return out
-        case claude_schema.SDKResultMessage():
+        case claude_schema.StreamResultMessage():
             ok = not event.is_error
             result_text = event.result or ""
             if ok and not result_text and state.last_assistant_text:

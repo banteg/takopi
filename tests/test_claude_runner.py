@@ -37,10 +37,9 @@ def _decode_event(payload: dict) -> claude_schema.DecodedLine:
     match data_payload.get("type"):
         case "assistant":
             message = dict(data_payload.get("message", {}))
-            message.setdefault("id", "msg_1")
-            message.setdefault("type", "message")
             message.setdefault("role", "assistant")
             message.setdefault("content", [])
+            message.setdefault("model", "claude")
             data_payload["message"] = message
         case "user":
             message = dict(data_payload.get("message", {}))
