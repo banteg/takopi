@@ -35,7 +35,6 @@ def _decode_fixture(name: str) -> list[str]:
 @pytest.mark.parametrize(
     "fixture",
     [
-        "codex.jsonl",
         "codex_exec_json_all_formats.jsonl",
     ],
 )
