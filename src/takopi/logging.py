@@ -54,7 +54,7 @@ def setup_logging(*, debug: bool = False) -> None:
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     redactor = RedactTokenFilter()
 
-    console = SafeStreamHandler(sys.stderr)
+    console = SafeStreamHandler(sys.stdout)
     console.setLevel(logging.DEBUG if debug else logging.INFO)
     console.setFormatter(fmt)
     console.addFilter(redactor)
