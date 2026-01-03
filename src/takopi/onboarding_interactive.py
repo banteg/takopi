@@ -13,6 +13,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import to_formatted_text
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -91,14 +92,22 @@ async def _wait_for_chat(token: str) -> ChatInfo:
     bot = TelegramClient(token)
     try:
         offset: int | None = None
+        allowed_updates = [
+            "message",
+            "edited_message",
+            "channel_post",
+            "edited_channel_post",
+            "my_chat_member",
+            "chat_member",
+        ]
         drained = await bot.get_updates(
-            offset=None, timeout_s=0, allowed_updates=["message"]
+            offset=None, timeout_s=0, allowed_updates=allowed_updates
         )
         if drained:
             offset = drained[-1]["update_id"] + 1
         while True:
             updates = await bot.get_updates(
-                offset=offset, timeout_s=50, allowed_updates=["message"]
+                offset=offset, timeout_s=50, allowed_updates=allowed_updates
             )
             if updates is None:
                 await anyio.sleep(1)
@@ -108,12 +117,24 @@ async def _wait_for_chat(token: str) -> ChatInfo:
             offset = updates[-1]["update_id"] + 1
             update = updates[-1]
             msg = update.get("message")
-            if not isinstance(msg, dict):
-                continue
-            sender = msg.get("from")
-            if isinstance(sender, dict) and sender.get("is_bot") is True:
-                continue
-            chat = msg.get("chat")
+            if isinstance(msg, dict):
+                sender = msg.get("from")
+                if isinstance(sender, dict) and sender.get("is_bot") is True:
+                    continue
+                chat = msg.get("chat")
+            else:
+                chat = None
+                for key in (
+                    "edited_message",
+                    "channel_post",
+                    "edited_channel_post",
+                    "my_chat_member",
+                    "chat_member",
+                ):
+                    payload = update.get(key)
+                    if isinstance(payload, dict):
+                        chat = payload.get("chat")
+                        break
             if not isinstance(chat, dict):
                 continue
             chat_id = chat.get("id")
@@ -154,14 +175,14 @@ async def _send_confirmation(token: str, chat_id: int) -> bool:
 def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]:
     backends = list_backends()
     rows: list[tuple[str, bool, str | None]] = []
-    table = Table(show_header=True, header_style="bold")
+    table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
     table.add_column("agent")
     table.add_column("status")
     table.add_column("install command")
     for backend in backends:
         cmd = backend.cli_cmd or backend.id
         installed = shutil.which(cmd) is not None
-        status = "installed" if installed else "not found"
+        status = "[green]installed[/]" if installed else "[dim]not found[/]"
         rows.append((backend.id, installed, backend.install_cmd))
         table.add_row(
             backend.id,
@@ -305,7 +326,6 @@ def interactive_setup(*, force: bool) -> bool:
             console.print("  2. send /newbot and follow the prompts")
             console.print("  3. copy the token (looks like 123456789:ABCdef...)")
             console.print("")
-            questionary.text("press enter when you have your token...").ask()
 
         token_info = _prompt_token(console)
         if token_info is None:
@@ -315,6 +335,9 @@ def interactive_setup(*, force: bool) -> bool:
         console.print("")
         console.print(
             "  now send any message to your bot so we can capture your chat id"
+        )
+        console.print(
+            "  for group chats, mention the bot or disable privacy via @BotFather"
         )
         console.print("  waiting for message... (press ctrl+c to cancel)")
         try:

@@ -76,7 +76,6 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
         onboarding_interactive.questionary, "password", _queue(["123456789:ABCdef"])
     )
     monkeypatch.setattr(onboarding_interactive.questionary, "select", _queue(["codex"]))
-    monkeypatch.setattr(onboarding_interactive.questionary, "text", _queue([""]))
 
     def _fake_run(func, *args, **kwargs):
         if func is onboarding_interactive._get_bot_info:
