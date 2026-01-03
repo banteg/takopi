@@ -510,24 +510,11 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                         )
                     ]
 
-                fatal_flag = data.get("fatal")
-                fatal = fatal_flag is True or fatal_flag is None
-                if fatal:
-                    resume_for_completed = found_session or resume
-                    return [
-                        _completed_event(
-                            resume=resume_for_completed,
-                            ok=False,
-                            answer=state.final_answer or "",
-                            error=message,
-                        )
-                    ]
                 return [
                     self.note_event(
                         message,
                         state=state,
                         ok=False,
-                        detail={"code": data.get("code"), "fatal": data.get("fatal")},
                     )
                 ]
             case "turn.failed":

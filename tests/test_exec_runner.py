@@ -218,7 +218,7 @@ async def test_codex_runner_preserves_warning_order(tmp_path) -> None:
         "import sys\n"
         "\n"
         "sys.stdin.read()\n"
-        "print(json.dumps({'type': 'error', 'message': 'warning one', 'fatal': False}), flush=True)\n"
+        "print(json.dumps({'type': 'error', 'message': 'warning one'}), flush=True)\n"
         f"print(json.dumps({{'type': 'thread.started', 'thread_id': '{thread_id}'}}), flush=True)\n"
         "print(json.dumps({'type': 'item.completed', 'item': {'id': 'item_0', 'type': 'agent_message', 'text': 'ok'}}), flush=True)\n",
         encoding="utf-8",
