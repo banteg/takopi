@@ -75,7 +75,7 @@ def test_translate_mcp_tool_call_missing_error_is_ok() -> None:
             "tool": "search",
             "arguments": None,
             "status": "completed",
-            "result": {"content": []},
+            "result": {"content": [], "structured_content": None},
             "error": None,
         },
     }

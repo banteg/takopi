@@ -220,7 +220,7 @@ class JsonlSubprocessRunner(BaseRunner):
         message = f"invalid JSON from {self.tag()}; ignoring line"
         return [self.note_event(message, state=state, detail={"line": line})]
 
-    def decode_jsonl(self, *, line: bytes) -> dict[str, Any] | None:
+    def decode_jsonl(self, *, line: bytes) -> Any | None:
         text = line.decode("utf-8", errors="replace")
         try:
             return cast(dict[str, Any], json.loads(text))
