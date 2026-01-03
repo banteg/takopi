@@ -88,17 +88,15 @@ def acquire_lock(
     )
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with lock_path.open("x", encoding="utf-8") as handle:
+            json.dump(asdict(info), handle, indent=2, sort_keys=True)
+            handle.write("\n")
     except FileExistsError:
         existing = _read_lock_info(lock_path)
         state = _lock_state(existing)
         raise LockError(path=lock_path, existing=existing, state=state) from None
     except OSError as exc:
         raise LockError(path=lock_path, existing=None, state=str(exc)) from exc
-
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump(asdict(info), handle, indent=2, sort_keys=True)
-        handle.write("\n")
 
     return LockHandle(path=lock_path, instance_id=instance_id)
 
