@@ -22,6 +22,7 @@ HARD_BREAK = "  \n"
 
 MAX_PROGRESS_CMD_LEN = 300
 MAX_FILE_CHANGES_INLINE = 3
+TELEGRAM_MAX_MESSAGE_LEN = 4096
 
 _MD_RENDERER = MarkdownIt("commonmark", {"html": False})
 _BULLET_RE = re.compile(r"(?m)^(\s*)•")
@@ -58,6 +59,59 @@ def trim_body(body: str | None) -> str | None:
     return body if body.strip() else None
 
 
+def split_body(body: str, max_len: int) -> list[str]:
+    """Split body text into chunks that fit within max_len.
+
+    Splits at paragraph boundaries (double newlines) first, then single newlines,
+    then spaces, and finally hard cuts as a last resort.
+    """
+    if not body or len(body) <= max_len:
+        return [body] if body else []
+
+    chunks: list[str] = []
+    remaining = body
+
+    while remaining:
+        if len(remaining) <= max_len:
+            chunks.append(remaining)
+            break
+
+        # Try to find a good split point
+        split_idx = _find_split_point(remaining, max_len)
+        chunk = remaining[:split_idx].rstrip()
+        if chunk:
+            chunks.append(chunk)
+        remaining = remaining[split_idx:].lstrip()
+
+    return chunks
+
+
+def _find_split_point(text: str, max_len: int) -> int:
+    """Find the best split point within max_len characters.
+
+    Priority: paragraph break > single newline > space > hard cut
+    """
+    search_region = text[:max_len]
+
+    # Try paragraph break (double newline)
+    para_idx = search_region.rfind("\n\n")
+    if para_idx > max_len // 4:  # Only use if reasonably far into the text
+        return para_idx + 2  # Include the newlines in the cut
+
+    # Try single newline
+    newline_idx = search_region.rfind("\n")
+    if newline_idx > max_len // 4:
+        return newline_idx + 1
+
+    # Try space
+    space_idx = search_region.rfind(" ")
+    if space_idx > max_len // 4:
+        return space_idx + 1
+
+    # Hard cut as last resort
+    return max_len
+
+
 def prepare_telegram(parts: MarkdownParts) -> tuple[str, list[dict[str, Any]]]:
     trimmed = MarkdownParts(
         header=parts.header or "",
@@ -65,6 +119,79 @@ def prepare_telegram(parts: MarkdownParts) -> tuple[str, list[dict[str, Any]]]:
         footer=parts.footer,
     )
     return render_markdown(assemble_markdown_parts(trimmed))
+
+
+def prepare_telegram_split(
+    parts: MarkdownParts,
+    max_message_len: int = TELEGRAM_MAX_MESSAGE_LEN,
+) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Prepare telegram message(s), splitting if body exceeds max length.
+
+    Returns a list of (text, entities) tuples. Each message includes the footer
+    (for resume token continuity). Only the first message has the header.
+    Continuation messages are prefixed with "…continued".
+    """
+    header = parts.header or ""
+    body = parts.body or ""
+    footer = parts.footer
+
+    # Render header and footer to get their actual lengths after markdown processing
+    header_rendered, _ = render_markdown(header) if header else ("", [])
+    footer_rendered, _ = render_markdown(footer) if footer else ("", [])
+
+    # Calculate overhead: header + footer + separators (2 newlines between sections)
+    # For first message: header + 2 newlines + body + 2 newlines + footer
+    # For continuation messages: "…continued" + 2 newlines + body + 2 newlines + footer
+    continuation_marker = "…continued"
+    first_overhead = len(header_rendered) + len(footer_rendered) + 4  # 2x "\n\n"
+    cont_overhead = len(continuation_marker) + len(footer_rendered) + 4
+
+    # Safety margin for markdown entity expansion
+    safety_margin = 100
+
+    first_body_max = max_message_len - first_overhead - safety_margin
+    cont_body_max = max_message_len - cont_overhead - safety_margin
+
+    # Ensure reasonable minimums
+    first_body_max = max(first_body_max, 500)
+    cont_body_max = max(cont_body_max, 500)
+
+    # If body fits in single message, use original behavior
+    if len(body) <= first_body_max:
+        return [prepare_telegram(parts)]
+
+    # Split the body
+    body_chunks: list[str] = []
+
+    # First chunk uses first_body_max
+    if body:
+        first_chunk_parts = split_body(body, first_body_max)
+        if first_chunk_parts:
+            body_chunks.append(first_chunk_parts[0])
+            remaining = body[len(first_chunk_parts[0]):].lstrip()
+
+            # Remaining chunks use cont_body_max
+            if remaining:
+                body_chunks.extend(split_body(remaining, cont_body_max))
+
+    if not body_chunks:
+        return [prepare_telegram(parts)]
+
+    # Build message parts
+    messages: list[tuple[str, list[dict[str, Any]]]] = []
+
+    for i, chunk in enumerate(body_chunks):
+        if i == 0:
+            # First message: header + body + footer
+            msg_parts = MarkdownParts(header=header, body=chunk, footer=footer)
+        else:
+            # Continuation messages: marker + body + footer
+            msg_parts = MarkdownParts(
+                header=continuation_marker, body=chunk, footer=footer
+            )
+        messages.append(render_markdown(assemble_markdown_parts(msg_parts)))
+
+    return messages
 
 
 def format_changed_file_path(path: str, *, base_dir: Path | None = None) -> str:
