@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -170,6 +172,16 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
     return rows
 
 
+@contextmanager
+def _suppress_logging():
+    prev_disable = logging.root.manager.disable
+    logging.disable(logging.INFO)
+    try:
+        yield
+    finally:
+        logging.disable(prev_disable)
+
+
 def _confirm(message: str, *, default: bool = True) -> bool | None:
     merged_style = merge_styles_default([None])
     status = {"answer": None, "complete": False}
@@ -257,6 +269,8 @@ def interactive_setup(*, force: bool) -> bool:
     console = Console()
     config_path = HOME_CONFIG_PATH
 
+    suppress_logs = _suppress_logging()
+
     if config_path.exists() and not force:
         console.print(
             f"config already exists at {_display_path(config_path)}. "
@@ -272,91 +286,97 @@ def interactive_setup(*, force: bool) -> bool:
         if not overwrite:
             return False
 
-    panel = Panel(
-        "let's set up your telegram bot.",
-        title="welcome to takopi!",
-        border_style="yellow",
-        padding=(1, 2),
-        expand=False,
-    )
-    console.print(panel)
+    with suppress_logs:
+        panel = Panel(
+            "let's set up your telegram bot.",
+            title="welcome to takopi!",
+            border_style="yellow",
+            padding=(1, 2),
+            expand=False,
+        )
+        console.print(panel)
 
-    console.print("step 1: telegram bot setup\n")
-    have_token = _confirm("do you have a telegram bot token?")
-    if have_token is None:
-        return False
-    if not have_token:
-        console.print("  1. open telegram and message @BotFather")
-        console.print("  2. send /newbot and follow the prompts")
-        console.print("  3. copy the token (looks like 123456789:ABCdef...)")
-        console.print("")
-        questionary.text("press enter when you have your token...").ask()
-
-    token_info = _prompt_token(console)
-    if token_info is None:
-        return False
-    token, _info = token_info
-
-    console.print("")
-    console.print("  now send any message to your bot so we can capture your chat id")
-    console.print("  waiting for message... (press ctrl+c to cancel)")
-    try:
-        chat = anyio.run(_wait_for_chat, token)
-    except KeyboardInterrupt:
-        console.print("  cancelled")
-        return False
-    if chat is None:
-        console.print("  cancelled")
-        return False
-    console.print(f"  got chat_id {chat.chat_id} from {chat.display}")
-
-    sent = anyio.run(_send_confirmation, token, chat.chat_id)
-    if sent:
-        console.print("  sent confirmation message")
-    else:
-        console.print("  could not send confirmation message")
-
-    console.print("\nstep 2: agent cli tools\n")
-    rows = _render_engine_table(console)
-    installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
-
-    default_engine: str | None = None
-    if installed_ids:
-        default_engine = questionary.select(
-            "choose default agent:",
-            choices=installed_ids,
-        ).ask()
-        if default_engine is None:
+        console.print("step 1: telegram bot setup\n")
+        have_token = _confirm("do you have a telegram bot token?")
+        if have_token is None:
             return False
-    else:
-        console.print("no agents found on PATH. install one to continue.")
+        if not have_token:
+            console.print("  1. open telegram and message @BotFather")
+            console.print("  2. send /newbot and follow the prompts")
+            console.print("  3. copy the token (looks like 123456789:ABCdef...)")
+            console.print("")
+            questionary.text("press enter when you have your token...").ask()
 
-    config_preview = _render_config(
-        _mask_token(token),
-        chat.chat_id,
-        default_engine,
-    ).rstrip()
-    console.print("\nstep 3: save configuration\n")
-    console.print(f"  {_display_path(config_path)}\n")
-    for line in config_preview.splitlines():
-        console.print(f"  {line}")
-    console.print("")
+        token_info = _prompt_token(console)
+        if token_info is None:
+            return False
+        token, _info = token_info
 
-    save = _confirm(f"save this config to {_display_path(config_path)}?", default=True)
-    if not save:
-        return False
+        console.print("")
+        console.print(
+            "  now send any message to your bot so we can capture your chat id"
+        )
+        console.print("  waiting for message... (press ctrl+c to cancel)")
+        try:
+            chat = anyio.run(_wait_for_chat, token)
+        except KeyboardInterrupt:
+            console.print("  cancelled")
+            return False
+        if chat is None:
+            console.print("  cancelled")
+            return False
+        console.print(f"  got chat_id {chat.chat_id} from {chat.display}")
 
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_text = _render_config(token, chat.chat_id, default_engine)
-    config_path.write_text(config_text, encoding="utf-8")
-    console.print(f"  config saved to {_display_path(config_path)}")
+        sent = anyio.run(_send_confirmation, token, chat.chat_id)
+        if sent:
+            console.print("  sent confirmation message")
+        else:
+            console.print("  could not send confirmation message")
 
-    done_panel = Panel(
-        "setup complete. starting takopi...",
-        border_style="green",
-        padding=(1, 2),
-        expand=False,
-    )
-    console.print("\n")
-    console.print(done_panel)
-    return True
+        console.print("\nstep 2: agent cli tools\n")
+        rows = _render_engine_table(console)
+        installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
+
+        default_engine: str | None = None
+        if installed_ids:
+            default_engine = questionary.select(
+                "choose default agent:",
+                choices=installed_ids,
+            ).ask()
+            if default_engine is None:
+                return False
+        else:
+            console.print("no agents found on PATH. install one to continue.")
+
+        config_preview = _render_config(
+            _mask_token(token),
+            chat.chat_id,
+            default_engine,
+        ).rstrip()
+        console.print("\nstep 3: save configuration\n")
+        console.print(f"  {_display_path(config_path)}\n")
+        for line in config_preview.splitlines():
+            console.print(f"  {line}")
+        console.print("")
+
+        save = _confirm(
+            f"save this config to {_display_path(config_path)}?",
+            default=True,
+        )
+        if not save:
+            return False
+
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_text = _render_config(token, chat.chat_id, default_engine)
+        config_path.write_text(config_text, encoding="utf-8")
+        console.print(f"  config saved to {_display_path(config_path)}")
+
+        done_panel = Panel(
+            "setup complete. starting takopi...",
+            border_style="green",
+            padding=(1, 2),
+            expand=False,
+        )
+        console.print("\n")
+        console.print(done_panel)
+        return True
