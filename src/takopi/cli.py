@@ -56,59 +56,21 @@ def _load_and_validate_config(
     return config, config_path, token.strip(), chat_id_value
 
 
-def _remove_lock_file(path: Path) -> None:
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        return
-    except OSError as exc:
-        typer.echo(f"error: failed to remove lock file {path}: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-
 def _acquire_lock(config_path: Path, token: str) -> LockHandle:
-    fingerprint = token_fingerprint(token)
-
-    def _retry_or_exit() -> LockHandle:
-        try:
-            return acquire_lock(
-                config_path=config_path,
-                token_fingerprint=fingerprint,
-            )
-        except LockError as retry_exc:
-            lines = str(retry_exc).splitlines()
-            if lines:
-                typer.echo(lines[0], err=True)
-                if len(lines) > 1:
-                    typer.echo("\n".join(lines[1:]), err=True)
-            else:
-                typer.echo("error: unknown error", err=True)
-            raise typer.Exit(code=1) from retry_exc
-
     try:
         return acquire_lock(
             config_path=config_path,
-            token_fingerprint=fingerprint,
+            token_fingerprint=token_fingerprint(token),
         )
     except LockError as exc:
-        existing = exc.existing
-        if existing and existing.token_fingerprint:
-            if existing.token_fingerprint != fingerprint:
-                _remove_lock_file(exc.path)
-                return _retry_or_exit()
-
-        if exc.state == "running":
-            lines = str(exc).splitlines()
-            if lines:
-                typer.echo(lines[0], err=True)
-                if len(lines) > 1:
-                    typer.echo("\n".join(lines[1:]), err=True)
-            else:
-                typer.echo("error: unknown error", err=True)
-            raise typer.Exit(code=1) from exc
-
-        _remove_lock_file(exc.path)
-        return _retry_or_exit()
+        lines = str(exc).splitlines()
+        if lines:
+            typer.echo(lines[0], err=True)
+            if len(lines) > 1:
+                typer.echo("\n".join(lines[1:]), err=True)
+        else:
+            typer.echo("error: unknown error", err=True)
+        raise typer.Exit(code=1) from exc
 
 
 def _default_engine_for_setup(override: str | None) -> str:
