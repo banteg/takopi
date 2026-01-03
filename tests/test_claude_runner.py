@@ -130,17 +130,9 @@ def test_translate_error_fixture_permission_denials() -> None:
 
     started = next(evt for evt in events if isinstance(evt, StartedEvent))
     completed = next(evt for evt in events if isinstance(evt, CompletedEvent))
-    warnings = [
-        evt
-        for evt in events
-        if isinstance(evt, ActionEvent) and evt.action.kind == "warning"
-    ]
-
-    assert warnings
-    assert events.index(warnings[0]) < events.index(completed)
     assert completed.ok is False
     assert completed.error is not None
-    assert "Permission denied" in completed.error
+    assert "claude run failed" in completed.error
     assert completed.resume == started.resume
 
 

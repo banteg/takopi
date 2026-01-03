@@ -7,8 +7,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import msgspec
-
 from ..backends import EngineBackend, EngineConfig
 from ..events import EventFactory
 from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
@@ -121,7 +119,6 @@ def _tool_kind_and_title(
 def _tool_action(
     content: claude_schema.ToolUseBlock,
     *,
-    message_id: str | None,
     parent_tool_use_id: str | None,
 ) -> Action:
     tool_id = content.id
@@ -134,8 +131,6 @@ def _tool_action(
         "name": tool_name,
         "input": tool_input,
     }
-    if message_id:
-        detail["message_id"] = message_id
     if parent_tool_use_id:
         detail["parent_tool_use_id"] = parent_tool_use_id
 
@@ -151,7 +146,6 @@ def _tool_result_event(
     content: claude_schema.ToolResultBlock,
     *,
     action: Action,
-    message_id: str | None,
     factory: EventFactory,
 ) -> TakopiEvent:
     is_error = content.is_error is True
@@ -168,9 +162,6 @@ def _tool_result_event(
             "is_error": is_error,
         }
     )
-    if message_id:
-        detail["message_id"] = message_id
-
     return factory.action_completed(
         action_id=action.id,
         kind=action.kind,
@@ -180,21 +171,18 @@ def _tool_result_event(
     )
 
 
-def _extract_error(
-    event: claude_schema.SDKResultSuccess | claude_schema.SDKResultErrorBase,
-) -> str | None:
-    if isinstance(event, claude_schema.SDKResultErrorBase):
-        for item in event.errors:
-            if isinstance(item, str) and item:
-                return item
+def _extract_error(event: claude_schema.SDKResultMessage) -> str | None:
     if event.is_error:
+        if isinstance(event.result, str) and event.result:
+            return event.result
+        subtype = event.subtype
+        if subtype:
+            return f"claude run failed ({subtype})"
         return "claude run failed"
     return None
 
 
-def _usage_payload(
-    event: claude_schema.SDKResultSuccess | claude_schema.SDKResultErrorBase,
-) -> dict[str, Any]:
+def _usage_payload(event: claude_schema.SDKResultMessage) -> dict[str, Any]:
     usage: dict[str, Any] = {}
     for key in (
         "total_cost_usd",
@@ -205,8 +193,8 @@ def _usage_payload(
         value = getattr(event, key, None)
         if value is not None:
             usage[key] = value
-    usage["usage"] = msgspec.to_builtins(event.usage)
-    usage["modelUsage"] = msgspec.to_builtins(event.modelUsage)
+    if event.usage is not None:
+        usage["usage"] = event.usage
     return usage
 
 
@@ -220,39 +208,37 @@ def translate_claude_event(
     match event:
         case claude_schema.NonJsonLine() | claude_schema.UnknownSDKLine():
             return []
-        case claude_schema.SDKSystemInit(
-            session_id=session_id,
-            model=model,
-            cwd=cwd,
-            tools=tools,
-            permissionMode=permission_mode,
-            output_style=output_style,
-            apiKeySource=api_key_source,
-            mcp_servers=mcp_servers,
-        ):
-            meta: dict[str, Any] = {
-                "cwd": cwd,
-                "tools": tools,
-                "permissionMode": permission_mode,
-                "output_style": output_style,
-                "apiKeySource": api_key_source,
-            }
-            if mcp_servers:
-                meta["mcp_servers"] = msgspec.to_builtins(mcp_servers)
+        case claude_schema.SDKSystemMessage(subtype=subtype, data=data):
+            if subtype != "init":
+                return []
+            session_id = data.get("session_id")
+            if not isinstance(session_id, str):
+                return []
+            meta: dict[str, Any] = {}
+            for key in (
+                "cwd",
+                "tools",
+                "permissionMode",
+                "output_style",
+                "apiKeySource",
+                "mcp_servers",
+            ):
+                value = data.get(key)
+                if value is not None:
+                    meta[key] = value
+            model = data.get("model")
             token = ResumeToken(engine=ENGINE, value=session_id)
-            event_title = str(model) if model else title
+            event_title = str(model) if isinstance(model, str) and model else title
             return [factory.started(token, title=event_title, meta=meta or None)]
         case claude_schema.SDKAssistantMessage(
-            message=message, parent_tool_use_id=parent_tool_use_id
+            content=content, parent_tool_use_id=parent_tool_use_id
         ):
-            message_id = message.id
             out: list[TakopiEvent] = []
-            for content in message.content:
+            for content in content:
                 match content:
                     case claude_schema.ToolUseBlock():
                         action = _tool_action(
                             content,
-                            message_id=message_id,
                             parent_tool_use_id=parent_tool_use_id,
                         )
                         state.pending_actions[action.id] = action
@@ -272,8 +258,6 @@ def translate_claude_event(
                         state.note_seq += 1
                         action_id = f"claude.thinking.{state.note_seq}"
                         detail: dict[str, Any] = {}
-                        if message_id:
-                            detail["message_id"] = message_id
                         if parent_tool_use_id:
                             detail["parent_tool_use_id"] = parent_tool_use_id
                         if signature:
@@ -293,11 +277,11 @@ def translate_claude_event(
                     case _:
                         continue
             return out
-        case claude_schema.SDKUserMessage(message=message):
-            if not isinstance(message.content, list):
+        case claude_schema.SDKUserMessage(content=content):
+            if not isinstance(content, list):
                 return []
             out: list[TakopiEvent] = []
-            for content in message.content:
+            for content in content:
                 if not isinstance(content, claude_schema.ToolResultBlock):
                     continue
                 tool_use_id = content.tool_use_id
@@ -313,43 +297,13 @@ def translate_claude_event(
                     _tool_result_event(
                         content,
                         action=action,
-                        message_id=None,
                         factory=factory,
                     )
                 )
             return out
-        case claude_schema.SDKResultSuccess() | claude_schema.SDKResultErrorBase():
-            out: list[TakopiEvent] = []
-            for idx, denial in enumerate(event.permission_denials):
-                tool_name = denial.tool_name
-                denial_title = (
-                    f"permission denied: {tool_name}"
-                    if tool_name
-                    else "permission denied"
-                )
-                tool_use_id = denial.tool_use_id
-                action_id = (
-                    f"claude.permission.{tool_use_id}"
-                    if tool_use_id
-                    else f"claude.permission.{idx}"
-                )
-                out.append(
-                    factory.action_completed(
-                        action_id=action_id,
-                        kind="warning",
-                        title=denial_title,
-                        ok=False,
-                        detail=msgspec.to_builtins(denial),
-                        level="warning",
-                    )
-                )
-
+        case claude_schema.SDKResultMessage():
             ok = not event.is_error
-            result_text = (
-                event.result
-                if isinstance(event, claude_schema.SDKResultSuccess)
-                else ""
-            )
+            result_text = event.result or ""
             if ok and not result_text and state.last_assistant_text:
                 result_text = state.last_assistant_text
 
@@ -357,7 +311,7 @@ def translate_claude_event(
             error = None if ok else _extract_error(event)
             usage = _usage_payload(event)
 
-            out.append(
+            return [
                 factory.completed(
                     ok=ok,
                     answer=result_text,
@@ -365,8 +319,7 @@ def translate_claude_event(
                     error=error,
                     usage=usage or None,
                 )
-            )
-            return out
+            ]
         case _:
             return []
 
