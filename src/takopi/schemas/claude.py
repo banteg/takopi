@@ -237,12 +237,7 @@ class SDKResultSuccess(msgspec.Struct, forbid_unknown_fields=False):
 
 class SDKResultError(msgspec.Struct, forbid_unknown_fields=False):
     type: Literal["result"]
-    subtype: Literal[
-        "error_max_turns",
-        "error_during_execution",
-        "error_max_budget_usd",
-        "error_max_structured_output_retries",
-    ]
+    subtype: str
     uuid: UUID
     session_id: str
     duration_ms: int
@@ -253,7 +248,7 @@ class SDKResultError(msgspec.Struct, forbid_unknown_fields=False):
     usage: Usage
     modelUsage: Dict[str, ModelUsage]
     permission_denials: List[SDKPermissionDenial]
-    errors: List[str]
+    errors: Optional[List[str]] = None
 
 
 SDKMessage = Union[
@@ -335,12 +330,9 @@ def decode_stream_json_line(line: Union[str, bytes]) -> DecodedLine:
         if t == "result":
             if st == "success":
                 return msgspec.convert(obj, type=SDKResultSuccess)
-            if st in {
-                "error_max_turns",
-                "error_during_execution",
-                "error_max_budget_usd",
-                "error_max_structured_output_retries",
-            }:
+            if obj.get("is_error") is True or (
+                isinstance(st, str) and st.startswith("error")
+            ):
                 return msgspec.convert(obj, type=SDKResultError)
             # Unknown result subtype: keep raw
             return UnknownSDKLine(raw=obj)

@@ -184,7 +184,7 @@ def _extract_error(
     event: claude_schema.SDKResultSuccess | claude_schema.SDKResultError,
 ) -> str | None:
     if isinstance(event, claude_schema.SDKResultError):
-        for item in event.errors:
+        for item in event.errors or []:
             if isinstance(item, str) and item:
                 return item
     if event.is_error:
