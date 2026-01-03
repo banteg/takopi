@@ -4,7 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import msgspec
 
@@ -29,16 +29,6 @@ from ..utils.paths import relativize_command
 logger = logging.getLogger(__name__)
 
 ENGINE: EngineId = EngineId("codex")
-
-_ACTION_KIND_MAP: dict[str, ActionKind] = {
-    "command_execution": "command",
-    "mcp_tool_call": "tool",
-    "tool_call": "tool",
-    "web_search": "web_search",
-    "file_change": "file_change",
-    "reasoning": "note",
-    "todo_list": "note",
-}
 
 _RESUME_RE = re.compile(r"(?im)^\s*`?codex\s+resume\s+(?P<token>[^`\s]+)`?\s*$")
 _RECONNECTING_RE = re.compile(
@@ -108,35 +98,54 @@ def _action_event(
     )
 
 
-def _short_tool_name(item: dict[str, Any]) -> str:
-    name = ".".join(part for part in (item.get("server"), item.get("tool")) if part)
+def _short_tool_name(server: str | None, tool: str | None) -> str:
+    name = ".".join(part for part in (server, tool) if part)
     return name or "tool"
 
 
 def _summarize_tool_result(result: Any) -> dict[str, Any] | None:
-    if not isinstance(result, dict):
-        return None
-    summary: dict[str, Any] = {}
-    content = result.get("content")
-    if isinstance(content, list):
-        summary["content_blocks"] = len(content)
-    elif content is not None:
-        summary["content_blocks"] = 1
+    if isinstance(result, codex_schema.McpToolCallItemResult):
+        summary: dict[str, Any] = {}
+        content = result.content
+        if isinstance(content, list):
+            summary["content_blocks"] = len(content)
+        elif content is not None:
+            summary["content_blocks"] = 1
+        summary["has_structured"] = result.structured_content is not None
+        return summary or None
 
-    structured_key: str | None = None
-    if "structured_content" in result:
-        structured_key = "structured_content"
-    elif "structured" in result:
-        structured_key = "structured"
+    if isinstance(result, dict):
+        summary = {}
+        content = result.get("content")
+        if isinstance(content, list):
+            summary["content_blocks"] = len(content)
+        elif content is not None:
+            summary["content_blocks"] = 1
 
-    if structured_key is not None:
-        summary["has_structured"] = result.get(structured_key) is not None
-    return summary or None
+        structured_key: str | None = None
+        if "structured_content" in result:
+            structured_key = "structured_content"
+        elif "structured" in result:
+            structured_key = "structured"
+
+        if structured_key is not None:
+            summary["has_structured"] = result.get(structured_key) is not None
+        return summary or None
+
+    return None
 
 
-def _format_change_summary(item: dict[str, Any]) -> str:
-    changes = item.get("changes") or []
-    paths = [c.get("path") for c in changes if c.get("path")]
+def _format_change_summary(changes: list[Any]) -> str:
+    paths: list[str] = []
+    for change in changes:
+        if isinstance(change, codex_schema.FileUpdateChange):
+            if change.path:
+                paths.append(change.path)
+            continue
+        if isinstance(change, dict):
+            path = change.get("path")
+            if isinstance(path, str) and path:
+                paths.append(path)
     if not paths:
         total = len(changes)
         if total <= 0:
@@ -161,6 +170,14 @@ def _summarize_todo_list(items: Any) -> _TodoSummary:
     next_text: str | None = None
 
     for raw_item in items:
+        if isinstance(raw_item, codex_schema.TodoItem):
+            total += 1
+            if raw_item.completed:
+                done += 1
+                continue
+            if next_text is None:
+                next_text = raw_item.text
+            continue
         if not isinstance(raw_item, dict):
             continue
         total += 1
@@ -183,22 +200,18 @@ def _todo_title(summary: _TodoSummary) -> str:
     return f"todo {summary.done}/{summary.total}: done"
 
 
-def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]:
-    item_type = cast(str, item.get("type") or item.get("item_type"))
-    if item_type == "assistant_message":
-        item_type = "agent_message"
-
-    if item_type == "agent_message":
+def _translate_item_event(
+    phase: ActionPhase, item: codex_schema.ThreadItem
+) -> list[TakopiEvent]:
+    if isinstance(item, codex_schema.AgentMessageItem):
         return []
 
-    action_id = str(item["id"])
+    action_id = item.id
 
-    phase = cast(ActionPhase, etype.split(".")[-1])
-
-    if item_type == "error":
+    if isinstance(item, codex_schema.ErrorItem):
         if phase != "completed":
             return []
-        message = str(item["message"])
+        message = item.message
         return [
             _action_event(
                 phase="completed",
@@ -212,103 +225,83 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
             )
         ]
 
-    kind = _ACTION_KIND_MAP.get(item_type)
-    if kind is None:
-        return []
-
-    if kind == "command":
-        title = relativize_command(str(item["command"]))
+    if isinstance(item, codex_schema.CommandExecutionItem):
+        title = relativize_command(item.command)
         if phase in {"started", "updated"}:
             return [
                 _action_event(
                     phase=phase,
                     action_id=action_id,
-                    kind=kind,
+                    kind="command",
                     title=title,
                 )
             ]
         if phase == "completed":
-            status = item["status"]
-            exit_code = item.get("exit_code")
+            status = item.status
+            exit_code = item.exit_code
             ok = status == "completed"
             if isinstance(exit_code, int):
                 ok = ok and exit_code == 0
-            detail = {
-                "exit_code": exit_code,
-                "status": status,
-            }
+            detail = {"exit_code": exit_code, "status": status}
             return [
                 _action_event(
                     phase="completed",
                     action_id=action_id,
-                    kind=kind,
+                    kind="command",
                     title=title,
                     detail=detail,
                     ok=ok,
                 )
             ]
 
-    if kind == "tool":
-        if item_type == "tool_call":
-            name = item["name"]
-            title = str(name) if name else "tool"
-            detail = {
-                "name": name,
-                "status": item.get("status"),
-                "arguments": item.get("arguments"),
-            }
-        else:
-            tool_name = _short_tool_name(item)
-            title = tool_name
-            detail = {
-                "server": item["server"],
-                "tool": item["tool"],
-                "status": item.get("status"),
-                "arguments": item.get("arguments"),
-            }
+    if isinstance(item, codex_schema.McpToolCallItem):
+        title = _short_tool_name(item.server, item.tool)
+        detail: dict[str, Any] = {
+            "server": item.server,
+            "tool": item.tool,
+            "status": item.status,
+            "arguments": item.arguments,
+        }
 
         if phase in {"started", "updated"}:
             return [
                 _action_event(
                     phase=phase,
                     action_id=action_id,
-                    kind=kind,
+                    kind="tool",
                     title=title,
                     detail=detail,
                 )
             ]
         if phase == "completed":
-            status = item.get("status")
-            error = item.get("error")
-            ok = status == "completed" and not error
-            if error:
-                if isinstance(error, dict):
-                    detail["error_message"] = str(error.get("message") or error)
-                else:
-                    detail["error_message"] = str(error)
-            result_summary = _summarize_tool_result(item.get("result"))
+            status = item.status
+            error = item.error
+            ok = status == "completed" and error is None
+            if error is not None:
+                detail["error_message"] = str(error.message)
+            result_summary = _summarize_tool_result(item.result)
             if result_summary is not None:
                 detail["result_summary"] = result_summary
             return [
                 _action_event(
                     phase="completed",
                     action_id=action_id,
-                    kind=kind,
+                    kind="tool",
                     title=title,
                     detail=detail,
                     ok=ok,
                 )
             ]
 
-    if kind == "web_search":
-        title = str(item["query"])
-        detail = {"query": item["query"]}
+    if isinstance(item, codex_schema.WebSearchItem):
+        title = item.query
+        detail = {"query": item.query}
         if phase in {"started", "updated"}:
             return [
                 _action_event(
                     phase=phase,
                     action_id=action_id,
-                    kind=kind,
+                    kind="web_search",
                     title=title,
                     detail=detail,
                 )
@@ -318,49 +311,44 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
                 _action_event(
                     phase="completed",
                     action_id=action_id,
-                    kind=kind,
+                    kind="web_search",
                     title=title,
                     detail=detail,
                     ok=True,
                 )
             ]
 
-    if kind == "file_change":
+    if isinstance(item, codex_schema.FileChangeItem):
         if phase != "completed":
             return []
-        title = _format_change_summary(item)
+        title = _format_change_summary(item.changes)
         detail = {
-            "changes": item.get("changes", []),
-            "status": item.get("status"),
-            "error": item.get("error"),
+            "changes": item.changes,
+            "status": item.status,
+            "error": None,
         }
-        ok = item.get("status") == "completed"
+        ok = item.status == "completed"
         return [
             _action_event(
                 phase="completed",
                 action_id=action_id,
-                kind=kind,
+                kind="file_change",
                 title=title,
                 detail=detail,
                 ok=ok,
             )
         ]
 
-    if kind == "note":
-        if item_type == "todo_list":
-            summary = _summarize_todo_list(item["items"])
-            title = _todo_title(summary)
-            detail = {"done": summary.done, "total": summary.total}
-        else:
-            title = str(item["text"])
-            detail = None
-
+    if isinstance(item, codex_schema.TodoListItem):
+        summary = _summarize_todo_list(item.items)
+        title = _todo_title(summary)
+        detail = {"done": summary.done, "total": summary.total}
         if phase in {"started", "updated"}:
             return [
                 _action_event(
                     phase=phase,
                     action_id=action_id,
-                    kind=kind,
+                    kind="note",
                     title=title,
                     detail=detail,
                 )
@@ -370,9 +358,31 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
                 _action_event(
                     phase="completed",
                     action_id=action_id,
-                    kind=kind,
+                    kind="note",
                     title=title,
                     detail=detail,
+                    ok=True,
+                )
+            ]
+
+    if isinstance(item, codex_schema.ReasoningItem):
+        title = item.text
+        if phase in {"started", "updated"}:
+            return [
+                _action_event(
+                    phase=phase,
+                    action_id=action_id,
+                    kind="note",
+                    title=title,
+                )
+            ]
+        if phase == "completed":
+            return [
+                _action_event(
+                    phase="completed",
+                    action_id=action_id,
+                    kind="note",
+                    title=title,
                     ok=True,
                 )
             ]
@@ -380,16 +390,19 @@ def _translate_item_event(etype: str, item: dict[str, Any]) -> list[TakopiEvent]
     return []
 
 
-def translate_codex_event(event: dict[str, Any], *, title: str) -> list[TakopiEvent]:
-    etype = event["type"]
-    match etype:
-        case "thread.started":
-            token = ResumeToken(engine=ENGINE, value=str(event["thread_id"]))
-            return [_started_event(token, title=title)]
-        case "item.started" | "item.updated" | "item.completed":
-            return _translate_item_event(etype, event["item"])
-        case _:
-            return []
+def translate_codex_event(
+    event: codex_schema.ThreadEvent, *, title: str
+) -> list[TakopiEvent]:
+    if isinstance(event, codex_schema.ThreadStarted):
+        token = ResumeToken(engine=ENGINE, value=event.thread_id)
+        return [_started_event(token, title=title)]
+    if isinstance(event, codex_schema.ItemStarted):
+        return _translate_item_event("started", event.item)
+    if isinstance(event, codex_schema.ItemUpdated):
+        return _translate_item_event("updated", event.item)
+    if isinstance(event, codex_schema.ItemCompleted):
+        return _translate_item_event("completed", event.item)
+    return []
 
 
 @dataclass(slots=True)
@@ -448,16 +461,8 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         logger.info("[codex] start run resume=%r", resume.value if resume else None)
         logger.debug("[codex] prompt: %s", prompt)
 
-    def decode_jsonl(
-        self,
-        *,
-        raw: bytes,
-        line: bytes,
-        state: CodexRunState,
-    ) -> dict[str, Any] | None:
-        _ = raw, state
-        event = codex_schema.decode_event(line)
-        return cast(dict[str, Any], msgspec.to_builtins(event))
+    def decode_jsonl(self, *, line: bytes) -> codex_schema.ThreadEvent:
+        return codex_schema.decode_event(line)
 
     def decode_error_events(
         self,
@@ -485,92 +490,76 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
     def translate(
         self,
-        data: dict[str, Any],
+        data: codex_schema.ThreadEvent,
         *,
         state: CodexRunState,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
     ) -> list[TakopiEvent]:
-        etype = data["type"]
-        match etype:
-            case "error":
-                message = str(data.get("message") or "")
-                reconnect = _parse_reconnect_message(message)
-                if reconnect is not None:
-                    attempt, max_attempts = reconnect
-                    phase: ActionPhase = "started" if attempt <= 1 else "updated"
-                    return [
-                        _action_event(
-                            phase=phase,
-                            action_id="codex.reconnect",
-                            kind="note",
-                            title=message,
-                            detail={"attempt": attempt, "max": max_attempts},
-                            level="info",
-                        )
-                    ]
-
-                return [
-                    self.note_event(
-                        message,
-                        state=state,
-                        ok=False,
-                    )
-                ]
-            case "turn.failed":
-                error = data["error"]
-                message = str(error["message"])
-                resume_for_completed = found_session or resume
-                return [
-                    _completed_event(
-                        resume=resume_for_completed,
-                        ok=False,
-                        answer=state.final_answer or "",
-                        error=message,
-                    )
-                ]
-            case "turn.rate_limited":
-                retry_ms = data.get("retry_after_ms")
-                message = "rate limited"
-                if isinstance(retry_ms, int):
-                    message = f"rate limited (retry after {retry_ms}ms)"
-                return [self.note_event(message, state=state, ok=False)]
-            case "turn.started":
-                action_id = f"turn_{state.turn_index}"
-                state.turn_index += 1
+        if isinstance(data, codex_schema.StreamError):
+            message = data.message
+            reconnect = _parse_reconnect_message(message)
+            if reconnect is not None:
+                attempt, max_attempts = reconnect
+                phase: ActionPhase = "started" if attempt <= 1 else "updated"
                 return [
                     _action_event(
-                        phase="started",
-                        action_id=action_id,
-                        kind="turn",
-                        title="turn started",
+                        phase=phase,
+                        action_id="codex.reconnect",
+                        kind="note",
+                        title=message,
+                        detail={"attempt": attempt, "max": max_attempts},
+                        level="info",
                     )
                 ]
-            case "turn.completed":
-                resume_for_completed = found_session or resume
-                return [
-                    _completed_event(
-                        resume=resume_for_completed,
-                        ok=True,
-                        answer=state.final_answer or "",
-                        usage=data.get("usage"),
-                    )
-                ]
-            case "item.completed":
-                item = data["item"]
-                item_type = cast(str, item.get("type") or item.get("item_type"))
-                if item_type == "assistant_message":
-                    item_type = "agent_message"
-                if item_type == "agent_message":
-                    if state.final_answer is None:
-                        state.final_answer = item["text"]
-                    else:
-                        logger.debug(
-                            "[codex] emitted multiple agent messages; using the last one"
-                        )
-                        state.final_answer = item["text"]
-            case _:
-                pass
+            return [self.note_event(message, state=state, ok=False)]
+
+        if isinstance(data, codex_schema.TurnFailed):
+            message = data.error.message
+            resume_for_completed = found_session or resume
+            return [
+                _completed_event(
+                    resume=resume_for_completed,
+                    ok=False,
+                    answer=state.final_answer or "",
+                    error=message,
+                )
+            ]
+
+        if isinstance(data, codex_schema.TurnStarted):
+            action_id = f"turn_{state.turn_index}"
+            state.turn_index += 1
+            return [
+                _action_event(
+                    phase="started",
+                    action_id=action_id,
+                    kind="turn",
+                    title="turn started",
+                )
+            ]
+
+        if isinstance(data, codex_schema.TurnCompleted):
+            resume_for_completed = found_session or resume
+            usage = msgspec.to_builtins(data.usage)
+            return [
+                _completed_event(
+                    resume=resume_for_completed,
+                    ok=True,
+                    answer=state.final_answer or "",
+                    usage=usage,
+                )
+            ]
+
+        if isinstance(data, codex_schema.ItemCompleted) and isinstance(
+            data.item, codex_schema.AgentMessageItem
+        ):
+            if state.final_answer is None:
+                state.final_answer = data.item.text
+            else:
+                logger.debug(
+                    "[codex] emitted multiple agent messages; using the last one"
+                )
+                state.final_answer = data.item.text
 
         return translate_codex_event(data, title=self.session_title)
 
