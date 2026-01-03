@@ -33,7 +33,7 @@ def _version_callback(value: bool) -> None:
         _print_version_and_exit()
 
 
-def _load_and_validate_config(
+def load_and_validate_config(
     path: str | Path | None = None,
 ) -> tuple[dict, Path, str, int]:
     config, config_path = load_telegram_config(path)
@@ -56,7 +56,7 @@ def _load_and_validate_config(
     return config, config_path, token.strip(), chat_id_value
 
 
-def _acquire_lock(config_path: Path, token: str) -> LockHandle:
+def acquire_config_lock(config_path: Path, token: str) -> LockHandle:
     try:
         return acquire_lock(
             config_path=config_path,
@@ -239,8 +239,8 @@ def _run_auto_router(
         render_setup_guide(setup)
         raise typer.Exit(code=1)
     try:
-        config, config_path, token, chat_id = _load_and_validate_config()
-        lock_handle = _acquire_lock(config_path, token)
+        config, config_path, token, chat_id = load_and_validate_config()
+        lock_handle = acquire_config_lock(config_path, token)
         cfg = _parse_bridge_config(
             final_notify=final_notify,
             default_engine_override=default_engine_override,

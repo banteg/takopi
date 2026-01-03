@@ -39,7 +39,7 @@ def test_load_and_validate_config_rejects_empty_token(monkeypatch) -> None:
     _patch_config(monkeypatch, {"bot_token": "   ", "chat_id": 123})
 
     with pytest.raises(cli.ConfigError, match="bot_token"):
-        cli._load_and_validate_config()
+        cli.load_and_validate_config()
 
 
 def test_load_and_validate_config_rejects_string_chat_id(monkeypatch) -> None:
@@ -48,7 +48,7 @@ def test_load_and_validate_config_rejects_string_chat_id(monkeypatch) -> None:
     _patch_config(monkeypatch, {"bot_token": "token", "chat_id": "123"})
 
     with pytest.raises(cli.ConfigError, match="chat_id"):
-        cli._load_and_validate_config()
+        cli.load_and_validate_config()
 
 
 def test_codex_extract_resume_finds_command() -> None:
