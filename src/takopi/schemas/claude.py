@@ -11,7 +11,7 @@ lines are returned as UnknownSDKLine so the caller can inspect/update the schema
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import msgspec
 
@@ -111,14 +111,9 @@ class ToolUseBlock(_Tagged, tag="tool_use"):
     input: Dict[str, Any]
 
 
-# tool_result "content" can itself be a string or an array of blocks.
-ToolResultContentBlock = Union[TextBlock]
-ToolResultContent = Union[str, List[ToolResultContentBlock]]
-
-
 class ToolResultBlock(_Tagged, tag="tool_result"):
     tool_use_id: str
-    content: ToolResultContent
+    content: Any
     is_error: Optional[bool] = None
 
 
@@ -201,30 +196,6 @@ class SDKSystemInit(msgspec.Struct, forbid_unknown_fields=False):
     plugins: Optional[List[Dict[str, Any]]] = None
 
 
-class CompactMetadata(msgspec.Struct, forbid_unknown_fields=False):
-    trigger: Literal["manual", "auto"]
-    pre_tokens: int
-
-
-class SDKSystemCompactBoundary(msgspec.Struct, forbid_unknown_fields=False):
-    type: Literal["system"]
-    subtype: Literal["compact_boundary"]
-    uuid: UUID
-    session_id: str
-    compact_metadata: CompactMetadata
-
-
-class SDKSystemOther(msgspec.Struct, forbid_unknown_fields=False):
-    """
-    Catch-all for system messages with unknown subtypes (forward compatible).
-    """
-
-    type: Literal["system"]
-    subtype: str
-    uuid: Optional[UUID] = None
-    session_id: Optional[str] = None
-
-
 class SDKAssistantMessage(msgspec.Struct, forbid_unknown_fields=False):
     type: Literal["assistant"]
     uuid: UUID
@@ -287,8 +258,6 @@ class SDKResultError(msgspec.Struct, forbid_unknown_fields=False):
 
 SDKMessage = Union[
     SDKSystemInit,
-    SDKSystemCompactBoundary,
-    SDKSystemOther,
     SDKAssistantMessage,
     SDKUserMessage,
     SDKResultSuccess,
@@ -355,10 +324,7 @@ def decode_stream_json_line(line: Union[str, bytes]) -> DecodedLine:
         if t == "system":
             if st == "init":
                 return msgspec.convert(obj, type=SDKSystemInit)
-            if st == "compact_boundary":
-                return msgspec.convert(obj, type=SDKSystemCompactBoundary)
-            # Unknown system subtype
-            return msgspec.convert(obj, type=SDKSystemOther)
+            return UnknownSDKLine(raw=obj)
 
         if t == "assistant":
             return msgspec.convert(obj, type=SDKAssistantMessage)
@@ -384,18 +350,3 @@ def decode_stream_json_line(line: Union[str, bytes]) -> DecodedLine:
     except (msgspec.ValidationError, TypeError):
         # Schema mismatch — preserve the raw dict to help you update types.
         return UnknownSDKLine(raw=obj)
-
-
-def iter_decode_stream_json_lines(
-    lines: Iterable[Union[str, bytes]],
-) -> Iterator[DecodedLine]:
-    for line in lines:
-        yield decode_stream_json_line(line)
-
-
-def read_jsonl_file(path: str) -> List[DecodedLine]:
-    out: List[DecodedLine] = []
-    with open(path, "rb") as f:
-        for line in f:
-            out.append(decode_stream_json_line(line))
-    return out

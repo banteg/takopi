@@ -34,9 +34,7 @@ class ClaudeStreamState:
     note_seq: int = 0
 
 
-def _normalize_tool_result(
-    content: claude_schema.ToolResultContent | None,
-) -> str:
+def _normalize_tool_result(content: Any) -> str:
     if content is None:
         return ""
     if isinstance(content, str):
@@ -44,13 +42,17 @@ def _normalize_tool_result(
     if isinstance(content, list):
         parts: list[str] = []
         for item in content:
-            match item:
-                case claude_schema.TextBlock(text=text):
-                    if text:
-                        parts.append(text)
-                case _:
-                    continue
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+            elif isinstance(item, str):
+                parts.append(item)
         return "\n".join(part for part in parts if part)
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
     return str(content)
 
 
