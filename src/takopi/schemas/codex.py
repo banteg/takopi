@@ -57,6 +57,8 @@ class TurnFailed(msgspec.Struct, tag="turn.failed", kw_only=True):
 
 class StreamError(msgspec.Struct, tag="error", kw_only=True):
     message: str
+    code: str | None = None
+    fatal: bool | None = None
 
 
 class AgentMessageItem(msgspec.Struct, tag="agent_message", kw_only=True):

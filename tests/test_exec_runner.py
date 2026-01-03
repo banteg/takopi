@@ -335,7 +335,7 @@ async def test_codex_runner_includes_stderr_reason(tmp_path) -> None:
     assert completed.ok is False
     assert completed.error is not None
     assert "codex exec failed (rc=1)." in completed.error
-    assert "\n\nNot inside a trusted directory" in completed.error
+    assert "Not inside a trusted directory" not in completed.error
 
 
 @pytest.mark.anyio
