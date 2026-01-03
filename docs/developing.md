@@ -128,7 +128,7 @@ Auto-discovers runner modules in `takopi.runners` that export `BACKEND`.
 
 ```python
 def load_telegram_config() -> tuple[dict, Path]:
-    # Loads ./.takopi/takopi.toml, then ~/.takopi/takopi.toml
+    # Loads ~/.takopi/takopi.toml
 ```
 
 ### `logging.py` - Secure logging setup

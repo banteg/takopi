@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from .config import ConfigError, load_telegram_config
 from .engines import get_backend, get_engine_config, list_backends
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import setup_logging
-from .onboarding import check_setup, render_setup_guide
+from .onboarding import SetupResult, check_setup
 from .router import AutoRouter, RunnerEntry
 from .telegram import TelegramClient
 
@@ -223,8 +224,35 @@ def _parse_bridge_config(
     )
 
 
+def _config_path_display(path: Path) -> str:
+    home = Path.home()
+    try:
+        return f"~/{path.relative_to(home)}"
+    except ValueError:
+        return str(path)
+
+
+def _should_run_interactive() -> bool:
+    if os.environ.get("TAKOPI_NO_INTERACTIVE"):
+        return False
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _setup_needs_config(setup: SetupResult) -> bool:
+    return any(issue.title == "create a config" for issue in setup.issues)
+
+
+def _fail_missing_config(path: Path) -> None:
+    display = _config_path_display(path)
+    typer.echo(f"error: missing takopi config at {display}", err=True)
+
+
 def _run_auto_router(
-    *, default_engine_override: str | None, final_notify: bool, debug: bool
+    *,
+    default_engine_override: str | None,
+    final_notify: bool,
+    debug: bool,
+    onboard: bool,
 ) -> None:
     setup_logging(debug=debug)
     lock_handle: LockHandle | None = None
@@ -234,10 +262,32 @@ def _run_auto_router(
     except ConfigError as e:
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=1)
+    if onboard:
+        if not _should_run_interactive():
+            typer.echo("error: --onboard requires a TTY", err=True)
+            raise typer.Exit(code=1)
+        from .onboarding_interactive import interactive_setup
+
+        if not interactive_setup(force=True):
+            raise typer.Exit(code=1)
+        default_engine = _default_engine_for_setup(default_engine_override)
+        backend = get_backend(default_engine)
     setup = check_setup(backend)
     if not setup.ok:
-        render_setup_guide(setup)
-        raise typer.Exit(code=1)
+        if _setup_needs_config(setup) and _should_run_interactive():
+            from .onboarding_interactive import interactive_setup
+
+            if interactive_setup(force=False):
+                default_engine = _default_engine_for_setup(default_engine_override)
+                backend = get_backend(default_engine)
+                setup = check_setup(backend)
+        if not setup.ok:
+            if _setup_needs_config(setup):
+                _fail_missing_config(setup.config_path)
+            else:
+                first = setup.issues[0]
+                typer.echo(f"error: {first.title}", err=True)
+            raise typer.Exit(code=1)
     try:
         config, config_path, token, chat_id = load_and_validate_config()
         lock_handle = acquire_config_lock(config_path, token)
@@ -283,6 +333,11 @@ def app_main(
         "--final-notify/--no-final-notify",
         help="Send the final response as a new message (not an edit).",
     ),
+    onboard: bool = typer.Option(
+        False,
+        "--onboard/--no-onboard",
+        help="Run the interactive setup wizard before starting.",
+    ),
     debug: bool = typer.Option(
         False,
         "--debug/--no-debug",
@@ -295,6 +350,7 @@ def app_main(
             default_engine_override=None,
             final_notify=final_notify,
             debug=debug,
+            onboard=onboard,
         )
         raise typer.Exit()
 
@@ -306,6 +362,11 @@ def make_engine_cmd(engine_id: str) -> Callable[..., None]:
             "--final-notify/--no-final-notify",
             help="Send the final response as a new message (not an edit).",
         ),
+        onboard: bool = typer.Option(
+            False,
+            "--onboard/--no-onboard",
+            help="Run the interactive setup wizard before starting.",
+        ),
         debug: bool = typer.Option(
             False,
             "--debug/--no-debug",
@@ -316,6 +377,7 @@ def make_engine_cmd(engine_id: str) -> Callable[..., None]:
             default_engine_override=engine_id,
             final_notify=final_notify,
             debug=debug,
+            onboard=onboard,
         )
 
     _cmd.__name__ = f"run_{engine_id}"

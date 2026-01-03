@@ -34,14 +34,19 @@ parallel runs across threads, per thread queue support.
 
 ## setup
 
-1. get `bot_token` from [@BotFather](https://t.me/BotFather)
-2. get `chat_id` from [@myidbot](https://t.me/myidbot)
-3. send `/start` to the bot (telegram won't let it message you first)
-4. run your agent cli once interactively in the repo to trust the directory
+run `takopi` in a TTY and follow the interactive prompts. it will:
+
+- help you create a bot token (via @BotFather)
+- capture your `chat_id` from the most recent message you send to the bot
+- check installed agents and set a default engine
+
+to re-run onboarding (and overwrite config), use `takopi --onboard`.
+
+run your agent cli once interactively in the repo to trust the directory.
 
 ## config
 
-global config `~/.takopi/takopi.toml`, repo-level config `.takopi/takopi.toml`
+global config `~/.takopi/takopi.toml`
 
 ```toml
 default_engine = "codex"

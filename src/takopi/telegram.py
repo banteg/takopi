@@ -50,6 +50,8 @@ class BotClient(Protocol):
         language_code: str | None = None,
     ) -> bool: ...
 
+    async def get_me(self) -> dict | None: ...
+
 
 class TelegramClient:
     def __init__(
@@ -207,3 +209,7 @@ class TelegramClient:
             params["language_code"] = language_code
         res = await self._post("setMyCommands", params)
         return bool(res)
+
+    async def get_me(self) -> dict | None:
+        res = await self._post("getMe", {})
+        return res if isinstance(res, dict) else None

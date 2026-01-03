@@ -62,17 +62,14 @@ Takopi should document this clearly: if permissions aren’t configured and Clau
 
 ## Config additions
 
-Takopi config lives at either:
-
-* `.takopi/takopi.toml` (project-local), or
-* `~/.takopi/takopi.toml` (home). (Existing Takopi behavior.)
+Takopi config lives at `~/.takopi/takopi.toml`.
 
 Add a new optional `[claude]` section.
 
 Recommended v1 schema:
 
 ```toml
-# .takopi/takopi.toml
+# ~/.takopi/takopi.toml
 
 default_engine = "claude"
 
