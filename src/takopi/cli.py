@@ -17,7 +17,7 @@ from .config import ConfigError, load_telegram_config
 from .engines import get_backend, get_engine_config, list_backends
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import setup_logging
-from .onboarding import SetupResult, check_setup
+from .onboarding import SetupResult, check_setup, interactive_setup
 from .router import AutoRouter, RunnerEntry
 from .telegram import TelegramClient
 
@@ -266,8 +266,6 @@ def _run_auto_router(
         if not _should_run_interactive():
             typer.echo("error: --onboard requires a TTY", err=True)
             raise typer.Exit(code=1)
-        from .onboarding_interactive import interactive_setup
-
         if not interactive_setup(force=True):
             raise typer.Exit(code=1)
         default_engine = _default_engine_for_setup(default_engine_override)
@@ -275,8 +273,6 @@ def _run_auto_router(
     setup = check_setup(backend)
     if not setup.ok:
         if _setup_needs_config(setup) and _should_run_interactive():
-            from .onboarding_interactive import interactive_setup
-
             if interactive_setup(force=False):
                 default_engine = _default_engine_for_setup(default_engine_override)
                 backend = get_backend(default_engine)

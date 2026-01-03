@@ -560,5 +560,5 @@ def build_runner(config: EngineConfig, config_path: Path) -> Runner:
 BACKEND = EngineBackend(
     id="opencode",
     build_runner=build_runner,
-    install_cmd="npm i -g opencode-ai@latest",
+    install_cmd="npm install -g opencode-ai@latest",
 )
