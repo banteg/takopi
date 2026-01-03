@@ -21,6 +21,8 @@ from ..model import (
     TakopiEvent,
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from ..schemas import codex as codex_schema
+from ..utils.streams import JsonLine
 from ..utils.paths import relativize_command
 
 logger = logging.getLogger(__name__)
@@ -465,6 +467,18 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         _ = state
         logger.info("[codex] start run resume=%r", resume.value if resume else None)
         logger.debug("[codex] prompt: %s", prompt)
+
+    def decode_jsonl(
+        self,
+        *,
+        json_line: JsonLine,
+        state: CodexRunState,
+    ) -> dict[str, Any] | None:
+        _ = state
+        if json_line.data is None:
+            return None
+        codex_schema.decode_event(json_line.line)
+        return cast(dict[str, Any], json_line.data)
 
     def pipes_error_message(self) -> str:
         return "codex exec failed to open subprocess pipes"

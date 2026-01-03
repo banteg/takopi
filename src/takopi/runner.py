@@ -22,7 +22,7 @@ from .model import (
     StartedEvent,
     TakopiEvent,
 )
-from .utils.streams import drain_stderr, iter_jsonl
+from .utils.streams import JsonLine, drain_stderr, iter_jsonl
 from .utils.subprocess import manage_subprocess
 
 
@@ -222,6 +222,43 @@ class JsonlSubprocessRunner(BaseRunner):
         message = f"invalid JSON from {self.tag()}; ignoring line"
         return [self.note_event(message, state=state, detail={"line": line})]
 
+    def decode_jsonl(
+        self,
+        *,
+        json_line: JsonLine,
+        state: Any,
+    ) -> dict[str, Any] | None:
+        _ = state
+        return json_line.data
+
+    def decode_error_events(
+        self,
+        *,
+        raw: str,
+        line: str,
+        error: Exception,
+        state: Any,
+    ) -> list[TakopiEvent]:
+        message = f"invalid event from {self.tag()}; ignoring line"
+        detail = {"line": line, "error": str(error)}
+        return [self.note_event(message, state=state, detail=detail)]
+
+    def translate_error_events(
+        self,
+        *,
+        data: Any,
+        error: Exception,
+        state: Any,
+    ) -> list[TakopiEvent]:
+        message = f"{self.tag()} translation error; ignoring event"
+        detail: dict[str, Any] = {"error": str(error)}
+        if isinstance(data, dict):
+            detail["type"] = data.get("type")
+            item = data.get("item")
+            if isinstance(item, dict):
+                detail["item_type"] = item.get("type") or item.get("item_type")
+        return [self.note_event(message, state=state, detail=detail)]
+
     def process_error_events(
         self,
         rc: int,
@@ -358,12 +395,39 @@ class JsonlSubprocessRunner(BaseRunner):
                             state=state,
                         )
                     else:
-                        events = self.translate(
-                            json_line.data,
-                            state=state,
-                            resume=resume,
-                            found_session=found_session,
-                        )
+                        try:
+                            decoded = self.decode_jsonl(
+                                json_line=json_line,
+                                state=state,
+                            )
+                        except Exception as exc:
+                            events = self.decode_error_events(
+                                raw=json_line.raw,
+                                line=json_line.line,
+                                error=exc,
+                                state=state,
+                            )
+                        else:
+                            if decoded is None:
+                                events = self.invalid_json_events(
+                                    raw=json_line.raw,
+                                    line=json_line.line,
+                                    state=state,
+                                )
+                            else:
+                                try:
+                                    events = self.translate(
+                                        decoded,
+                                        state=state,
+                                        resume=resume,
+                                        found_session=found_session,
+                                    )
+                                except Exception as exc:
+                                    events = self.translate_error_events(
+                                        data=decoded,
+                                        error=exc,
+                                        state=state,
+                                    )
 
                     for evt in events:
                         if isinstance(evt, StartedEvent):
