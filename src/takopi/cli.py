@@ -62,11 +62,7 @@ def _remove_lock_file(path: Path) -> None:
     except FileNotFoundError:
         return
     except OSError as exc:
-        typer.secho(
-            f"error: failed to remove lock file {path}: {exc}",
-            fg=typer.colors.RED,
-            err=True,
-        )
+        typer.echo(f"error: failed to remove lock file {path}: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
 
@@ -82,11 +78,11 @@ def _acquire_lock(config_path: Path, token: str) -> LockHandle:
         except LockError as retry_exc:
             lines = str(retry_exc).splitlines()
             if lines:
-                typer.secho(lines[0], fg=typer.colors.RED, err=True)
+                typer.echo(lines[0], err=True)
                 if len(lines) > 1:
                     typer.echo("\n".join(lines[1:]), err=True)
             else:
-                typer.secho("error: unknown error", fg=typer.colors.RED, err=True)
+                typer.echo("error: unknown error", err=True)
             raise typer.Exit(code=1) from retry_exc
 
     try:
@@ -104,11 +100,11 @@ def _acquire_lock(config_path: Path, token: str) -> LockHandle:
         if exc.state == "running":
             lines = str(exc).splitlines()
             if lines:
-                typer.secho(lines[0], fg=typer.colors.RED, err=True)
+                typer.echo(lines[0], err=True)
                 if len(lines) > 1:
                     typer.echo("\n".join(lines[1:]), err=True)
             else:
-                typer.secho("error: unknown error", fg=typer.colors.RED, err=True)
+                typer.echo("error: unknown error", err=True)
             raise typer.Exit(code=1) from exc
 
         _remove_lock_file(exc.path)
@@ -274,7 +270,7 @@ def _run_auto_router(
         default_engine = _default_engine_for_setup(default_engine_override)
         backend = get_backend(default_engine)
     except ConfigError as e:
-        typer.secho(f"error: {e}", fg=typer.colors.RED, err=True)
+        typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=1)
     setup = check_setup(backend)
     if not setup.ok:
@@ -293,7 +289,7 @@ def _run_auto_router(
         )
         anyio.run(run_main_loop, cfg)
     except ConfigError as e:
-        typer.secho(f"error: {e}", fg=typer.colors.RED, err=True)
+        typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         logger.info("[shutdown] interrupted")
