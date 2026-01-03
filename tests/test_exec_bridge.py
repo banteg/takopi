@@ -360,11 +360,14 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
 
 
 @pytest.mark.anyio
-async def test_long_final_message_edits_progress_message() -> None:
+async def test_long_final_message_splits_into_multiple_messages() -> None:
+    """Long answers are split into multiple messages instead of truncated."""
     from takopi.bridge import BridgeConfig, handle_message
 
     bot = _FakeBot()
-    runner = _return_runner(answer="x" * 10_000)
+    # Use 'Q' which won't appear in engine name or resume token
+    long_answer = "Q" * 10_000
+    runner = _return_runner(answer=long_answer)
     cfg = BridgeConfig(
         bot=bot,
         router=_make_router(runner),
@@ -382,9 +385,25 @@ async def test_long_final_message_edits_progress_message() -> None:
         resume_token=None,
     )
 
-    assert len(bot.send_calls) == 1
+    # First message is the initial progress, then continuation chunks are sent
+    # 10000 chars splits into ~3 chunks with overhead for header/footer
+    assert len(bot.send_calls) >= 2, "Long message should be split into multiple sends"
+    # First send is progress message, subsequent are continuation chunks
     assert bot.send_calls[0]["disable_notification"] is True
+
+    # First chunk edits the progress message
     assert len(bot.edit_calls) == 1
+
+    # Verify all content is preserved (no truncation) by checking total text length
+    all_text = bot.edit_calls[0]["text"]
+    for call in bot.send_calls[1:]:  # Skip initial progress message
+        all_text += call["text"]
+    # All 10000 'Q' chars should be present across messages
+    assert all_text.count("Q") == 10_000, "All content should be preserved"
+
+    # Each continuation message should reply to the original user message
+    for call in bot.send_calls[1:]:
+        assert call["reply_to_message_id"] == 10
 
 
 @pytest.mark.anyio

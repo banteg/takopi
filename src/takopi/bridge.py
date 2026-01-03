@@ -16,6 +16,7 @@ from .render import (
     MarkdownParts,
     assemble_markdown_parts,
     prepare_telegram,
+    prepare_telegram_split,
     render_event_cli,
 )
 from .router import AutoRouter, RunnerUnavailableError
@@ -457,17 +458,48 @@ async def send_result_message(
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
     delete_tag: str = "final",
 ) -> None:
-    final_msg, edited = await _send_or_edit_markdown(
-        cfg.bot,
-        chat_id=chat_id,
-        parts=parts,
-        edit_message_id=edit_message_id,
-        reply_to_message_id=user_msg_id,
-        disable_notification=disable_notification,
-        prepared=prepared,
-    )
-    if final_msg is None:
+    # Prepare all message chunks (handles splitting if needed)
+    if prepared is not None:
+        # Use pre-prepared single message (backwards compatibility)
+        message_chunks = [prepared]
+    else:
+        message_chunks = prepare_telegram_split(parts)
+
+    if not message_chunks:
         return
+
+    sent_any = False
+    edited = False
+
+    for i, (rendered, entities) in enumerate(message_chunks):
+        if i == 0 and edit_message_id is not None:
+            # First message: try to edit the progress message
+            edit_result = await cfg.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=edit_message_id,
+                text=rendered,
+                entities=entities,
+            )
+            if edit_result is not None:
+                edited = True
+                sent_any = True
+                continue
+
+        # Send as new message (either edit failed, or this is a continuation chunk)
+        msg = await cfg.bot.send_message(
+            chat_id=chat_id,
+            text=rendered,
+            entities=entities,
+            reply_to_message_id=user_msg_id,
+            disable_notification=disable_notification if i == 0 else True,
+        )
+        if msg is not None:
+            sent_any = True
+
+    if not sent_any:
+        return
+
+    # Delete progress message if we sent new messages (not just edited)
     if progress_id is not None and (edit_message_id is None or not edited):
         logger.debug(
             "telegram.delete_message",
@@ -672,9 +704,14 @@ async def handle_message(
         status=status,
     )
 
-    final_rendered, final_entities = prepare_telegram(final_parts)
     can_edit_final = progress_id is not None
     edit_message_id = None if cfg.final_notify or not can_edit_final else progress_id
+
+    logger.debug(
+        "[final] send/edit reply_to=%s edit_message_id=%s",
+        user_msg_id,
+        edit_message_id,
+    )
 
     await send_result_message(
         cfg,
@@ -684,7 +721,6 @@ async def handle_message(
         parts=final_parts,
         disable_notification=False,
         edit_message_id=edit_message_id,
-        prepared=(final_rendered, final_entities),
         delete_tag="final",
     )
 
