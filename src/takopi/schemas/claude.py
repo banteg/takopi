@@ -218,9 +218,12 @@ class SDKUserMessage(msgspec.Struct, forbid_unknown_fields=False):
     tool_use_result: Optional[Dict[str, Any]] = None
 
 
-class SDKResultSuccess(msgspec.Struct, forbid_unknown_fields=False):
+class _ResultTagged(msgspec.Struct, tag_field="subtype", forbid_unknown_fields=False):
+    pass
+
+
+class SDKResultSuccess(_ResultTagged, tag="success"):
     type: Literal["result"]
-    subtype: Literal["success"]
     uuid: UUID
     session_id: str
     duration_ms: int
@@ -235,9 +238,8 @@ class SDKResultSuccess(msgspec.Struct, forbid_unknown_fields=False):
     structured_output: Any = None
 
 
-class SDKResultError(msgspec.Struct, forbid_unknown_fields=False):
+class SDKResultErrorBase(_ResultTagged):
     type: Literal["result"]
-    subtype: str
     uuid: UUID
     session_id: str
     duration_ms: int
@@ -248,7 +250,35 @@ class SDKResultError(msgspec.Struct, forbid_unknown_fields=False):
     usage: Usage
     modelUsage: Dict[str, ModelUsage]
     permission_denials: List[SDKPermissionDenial]
-    errors: Optional[List[str]] = None
+    errors: List[str]
+
+
+class SDKResultErrorMaxTurns(SDKResultErrorBase, tag="error_max_turns"):
+    pass
+
+
+class SDKResultErrorDuringExecution(SDKResultErrorBase, tag="error_during_execution"):
+    pass
+
+
+class SDKResultErrorMaxBudgetUsd(SDKResultErrorBase, tag="error_max_budget_usd"):
+    pass
+
+
+class SDKResultErrorMaxStructuredOutputRetries(
+    SDKResultErrorBase, tag="error_max_structured_output_retries"
+):
+    pass
+
+
+SDKResultError = Union[
+    SDKResultErrorMaxTurns,
+    SDKResultErrorDuringExecution,
+    SDKResultErrorMaxBudgetUsd,
+    SDKResultErrorMaxStructuredOutputRetries,
+]
+
+SDKResult = Union[SDKResultSuccess, SDKResultError]
 
 
 SDKMessage = Union[
@@ -328,14 +358,7 @@ def decode_stream_json_line(line: Union[str, bytes]) -> DecodedLine:
             return msgspec.convert(obj, type=SDKUserMessage)
 
         if t == "result":
-            if st == "success":
-                return msgspec.convert(obj, type=SDKResultSuccess)
-            if obj.get("is_error") is True or (
-                isinstance(st, str) and st.startswith("error")
-            ):
-                return msgspec.convert(obj, type=SDKResultError)
-            # Unknown result subtype: keep raw
-            return UnknownSDKLine(raw=obj)
+            return msgspec.convert(obj, type=SDKResult)
 
         return UnknownSDKLine(raw=obj)
 

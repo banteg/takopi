@@ -181,10 +181,10 @@ def _tool_result_event(
 
 
 def _extract_error(
-    event: claude_schema.SDKResultSuccess | claude_schema.SDKResultError,
+    event: claude_schema.SDKResultSuccess | claude_schema.SDKResultErrorBase,
 ) -> str | None:
-    if isinstance(event, claude_schema.SDKResultError):
-        for item in event.errors or []:
+    if isinstance(event, claude_schema.SDKResultErrorBase):
+        for item in event.errors:
             if isinstance(item, str) and item:
                 return item
     if event.is_error:
@@ -193,7 +193,7 @@ def _extract_error(
 
 
 def _usage_payload(
-    event: claude_schema.SDKResultSuccess | claude_schema.SDKResultError,
+    event: claude_schema.SDKResultSuccess | claude_schema.SDKResultErrorBase,
 ) -> dict[str, Any]:
     usage: dict[str, Any] = {}
     for key in (
@@ -318,7 +318,7 @@ def translate_claude_event(
                     )
                 )
             return out
-        case claude_schema.SDKResultSuccess() | claude_schema.SDKResultError():
+        case claude_schema.SDKResultSuccess() | claude_schema.SDKResultErrorBase():
             out: list[TakopiEvent] = []
             for idx, denial in enumerate(event.permission_denials):
                 tool_name = denial.tool_name
