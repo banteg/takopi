@@ -6,7 +6,6 @@ import json
 import logging
 import re
 import subprocess
-from collections import deque
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
@@ -132,8 +131,6 @@ class JsonlRunState:
 
 
 class JsonlSubprocessRunner(BaseRunner):
-    stderr_tail_lines: int = 200
-
     def get_logger(self) -> logging.Logger:
         return getattr(self, "logger", logging.getLogger(__name__))
 
@@ -284,13 +281,12 @@ class JsonlSubprocessRunner(BaseRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: Any,
     ) -> list[TakopiEvent]:
         message = f"{self.tag()} failed (rc={rc})."
         resume_for_completed = found_session or resume
         return [
-            self.note_event(message, state=state, detail={"stderr_tail": stderr_tail}),
+            self.note_event(message, state=state),
             CompletedEvent(
                 engine=self.engine,
                 ok=False,
@@ -305,7 +301,6 @@ class JsonlSubprocessRunner(BaseRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: Any,
     ) -> list[TakopiEvent]:
         message = f"{self.tag()} finished without a result event"
@@ -390,7 +385,6 @@ class JsonlSubprocessRunner(BaseRunner):
             elif proc.stdin is not None:
                 await proc.stdin.aclose()
 
-            stderr_chunks: deque[str] = deque(maxlen=self.stderr_tail_lines)
             rc: int | None = None
             expected_session: ResumeToken | None = resume
             found_session: ResumeToken | None = None
@@ -400,7 +394,6 @@ class JsonlSubprocessRunner(BaseRunner):
                 tg.start_soon(
                     drain_stderr,
                     proc.stderr,
-                    stderr_chunks,
                     logger,
                     tag,
                 )
@@ -469,13 +462,11 @@ class JsonlSubprocessRunner(BaseRunner):
             logger.debug("[%s] process exit pid=%s rc=%s", tag, proc.pid, rc)
             if did_emit_completed:
                 return
-            stderr_tail = "".join(stderr_chunks)
             if rc is not None and rc != 0:
                 events = self.process_error_events(
                     rc,
                     resume=resume,
                     found_session=found_session,
-                    stderr_tail=stderr_tail,
                     state=state,
                 )
                 for evt in events:
@@ -485,7 +476,6 @@ class JsonlSubprocessRunner(BaseRunner):
             events = self.stream_end_events(
                 resume=resume,
                 found_session=found_session,
-                stderr_tail=stderr_tail,
                 state=state,
             )
             for evt in events:

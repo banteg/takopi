@@ -74,7 +74,6 @@ def test_translate_missing_reason_success() -> None:
     fallback = runner.stream_end_events(
         resume=None,
         found_session=started.resume,
-        stderr_tail="",
         state=state,
     )
 

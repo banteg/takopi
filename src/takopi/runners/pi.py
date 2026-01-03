@@ -29,7 +29,6 @@ from ..utils.paths import relativize_command, relativize_path
 logger = logging.getLogger(__name__)
 
 ENGINE: EngineId = EngineId("pi")
-STDERR_TAIL_LINES = 200
 
 _RESUME_RE = re.compile(r"(?im)^\s*`?pi\s+--session\s+(?P<token>.+?)`?\s*$")
 
@@ -246,7 +245,6 @@ def translate_pi_event(
 class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE
-    stderr_tail_lines = STDERR_TAIL_LINES
     logger = logger
 
     def __init__(
@@ -360,13 +358,12 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: PiStreamState,
     ) -> list[TakopiEvent]:
         message = f"pi failed (rc={rc})."
         resume_for_completed = found_session or resume or state.resume
         return [
-            self.note_event(message, state=state, detail={"stderr_tail": stderr_tail}),
+            self.note_event(message, state=state),
             CompletedEvent(
                 engine=ENGINE,
                 ok=False,
@@ -382,10 +379,8 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: PiStreamState,
     ) -> list[TakopiEvent]:
-        _ = stderr_tail
         resume_for_completed = found_session or resume or state.resume
         message = "pi finished without an agent_end event"
         return [

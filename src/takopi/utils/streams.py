@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import AsyncIterator
 import logging
 import sys
@@ -22,7 +21,6 @@ async def iter_bytes_lines(stream: ByteReceiveStream) -> AsyncIterator[bytes]:
 
 async def drain_stderr(
     stream: ByteReceiveStream,
-    chunks: deque[str],
     logger: logging.Logger,
     tag: str,
 ) -> None:
@@ -30,6 +28,5 @@ async def drain_stderr(
         async for line in iter_bytes_lines(stream):
             text = line.decode("utf-8", errors="replace")
             logger.debug("[%s][stderr] %s", tag, text)
-            chunks.append(text)
     except Exception as e:
         logger.debug("[%s][stderr] drain error: %s", tag, e)

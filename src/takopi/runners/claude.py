@@ -24,7 +24,6 @@ from ..utils.paths import relativize_command, relativize_path
 logger = logging.getLogger(__name__)
 
 ENGINE: EngineId = EngineId("claude")
-STDERR_TAIL_LINES = 200
 DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Edit", "Write"]
 
 _RESUME_RE = re.compile(
@@ -377,7 +376,6 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     dangerously_skip_permissions: bool = False
     use_api_billing: bool = False
     session_title: str = "claude"
-    stderr_tail_lines = STDERR_TAIL_LINES
     logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
@@ -481,7 +479,6 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: ClaudeStreamState,
     ) -> list[TakopiEvent]:
         message = f"claude failed (rc={rc})."
@@ -491,7 +488,6 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                 message,
                 state=state,
                 ok=False,
-                detail={"stderr_tail": stderr_tail},
             ),
             CompletedEvent(
                 engine=ENGINE,
@@ -507,10 +503,8 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: ClaudeStreamState,
     ) -> list[TakopiEvent]:
-        _ = stderr_tail
         if not found_session:
             message = "claude finished but no session_id was captured"
             resume_for_completed = resume

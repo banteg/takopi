@@ -37,7 +37,6 @@ from ..utils.paths import relativize_command, relativize_path
 logger = logging.getLogger(__name__)
 
 ENGINE: EngineId = EngineId("opencode")
-STDERR_TAIL_LINES = 200
 
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?opencode(?:\s+run)?\s+(?:--session|-s)\s+(?P<token>ses_[A-Za-z0-9]+)`?\s*$"
@@ -384,7 +383,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     opencode_cmd: str = "opencode"
     model: str | None = None
     session_title: str = "opencode"
-    stderr_tail_lines: int = STDERR_TAIL_LINES
     logger: logging.Logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
@@ -471,7 +469,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: OpenCodeStreamState,
     ) -> list[TakopiEvent]:
         message = f"opencode failed (rc={rc})."
@@ -481,7 +478,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                 message,
                 state=state,
                 ok=False,
-                detail={"stderr_tail": stderr_tail},
             ),
             CompletedEvent(
                 engine=ENGINE,
@@ -497,10 +493,8 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: OpenCodeStreamState,
     ) -> list[TakopiEvent]:
-        _ = stderr_tail
         if not found_session:
             message = "opencode finished but no session_id was captured"
             resume_for_completed = resume
