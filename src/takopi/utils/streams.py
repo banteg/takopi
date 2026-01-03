@@ -8,27 +8,6 @@ import sys
 import anyio
 from anyio.abc import ByteReceiveStream
 from anyio.streams.buffered import BufferedByteReceiveStream
-from anyio.streams.text import TextReceiveStream
-
-
-async def iter_text_lines(stream: ByteReceiveStream) -> AsyncIterator[str]:
-    text_stream = TextReceiveStream(stream, errors="replace")
-    buffer = ""
-    while True:
-        try:
-            chunk = await text_stream.receive()
-        except anyio.EndOfStream:
-            if buffer:
-                yield buffer
-            return
-        buffer += chunk
-        while True:
-            split_at = buffer.find("\n")
-            if split_at < 0:
-                break
-            line = buffer[: split_at + 1]
-            buffer = buffer[split_at + 1 :]
-            yield line
 
 
 async def iter_bytes_lines(stream: ByteReceiveStream) -> AsyncIterator[bytes]:
@@ -37,21 +16,7 @@ async def iter_bytes_lines(stream: ByteReceiveStream) -> AsyncIterator[bytes]:
         try:
             line = await buffered.receive_until(b"\n", sys.maxsize)
         except anyio.IncompleteRead:
-            try:
-                remainder = await buffered.receive(sys.maxsize)
-            except anyio.EndOfStream:
-                remainder = b""
-            if remainder:
-                yield remainder
             return
-        except anyio.DelimiterNotFound:
-            try:
-                remainder = await buffered.receive(sys.maxsize)
-            except anyio.EndOfStream:
-                remainder = b""
-            if remainder:
-                yield remainder
-            continue
         yield line
 
 
@@ -62,8 +27,9 @@ async def drain_stderr(
     tag: str,
 ) -> None:
     try:
-        async for line in iter_text_lines(stream):
-            logger.debug("[%s][stderr] %s", tag, line.rstrip())
-            chunks.append(line)
+        async for line in iter_bytes_lines(stream):
+            text = line.decode("utf-8", errors="replace")
+            logger.debug("[%s][stderr] %s", tag, text)
+            chunks.append(text)
     except Exception as e:
         logger.debug("[%s][stderr] drain error: %s", tag, e)
