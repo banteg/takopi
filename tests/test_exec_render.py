@@ -1,18 +1,24 @@
-from typing import cast
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
+
+import pytest
 
 from takopi.model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
+
 from takopi.render import (
     ExecProgressRenderer,
+    MarkdownParts,
     STATUS,
     action_status,
     assemble_markdown_parts,
     format_elapsed,
     format_file_change_title,
+    prepare_telegram_split,
     render_event_cli,
     render_markdown,
     shorten,
+    split_body,
 )
 from tests.factories import (
     action_completed,
@@ -336,89 +342,67 @@ def test_progress_renderer_ignores_missing_action_id() -> None:
 
 
 # --- Tests for split_body and prepare_telegram_split ---
+# These functions handle splitting long final messages into multiple Telegram messages.
+# Progress messages still use trim_body() via prepare_telegram() (see test_exec_bridge.py).
 
 
-def test_split_body_returns_single_chunk_when_short() -> None:
-    from takopi.render import split_body
+@pytest.mark.parametrize(
+    "text,max_len,min_chunks",
+    [
+        ("short text", 100, 1),  # Short text fits in single chunk
+        ("", 100, 0),  # Empty string returns empty list
+        ("First paragraph.\n\nSecond paragraph.\n\nThird.", 30, 2),  # Paragraph split
+        ("Line one\nLine two\nLine three\nLine four", 20, 2),  # Newline split
+        ("word " * 20, 25, 2),  # Space split (100 chars total)
+        ("x" * 100, 30, 4),  # Hard cut (no break points)
+    ],
+)
+def test_split_body_chunking(text: str, max_len: int, min_chunks: int) -> None:
+    result = split_body(text, max_len=max_len)
+    assert len(result) >= min_chunks
+    for chunk in result:
+        assert len(chunk) <= max_len
 
-    result = split_body("short text", max_len=100)
-    assert result == ["short text"]
 
-
-def test_split_body_returns_empty_list_for_empty_input() -> None:
-    from takopi.render import split_body
-
-    assert split_body("", max_len=100) == []
+def test_split_body_returns_empty_list_for_none() -> None:
     assert split_body(None, max_len=100) == []  # type: ignore
 
 
-def test_split_body_splits_at_paragraph_boundaries() -> None:
-    from takopi.render import split_body
-
-    text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+def test_split_body_hard_cut_exact_values() -> None:
+    """Hard cuts produce exact chunk sizes when no break points exist."""
+    text = "x" * 100
     result = split_body(text, max_len=30)
 
-    assert len(result) >= 2
-    # Each chunk should be <= max_len
-    for chunk in result:
-        assert len(chunk) <= 30
-    # All content should be preserved
-    assert "".join(result).replace(" ", "").replace("\n", "") == text.replace(
-        " ", ""
-    ).replace("\n", "")
-
-
-def test_split_body_splits_at_newlines_when_no_paragraph_break() -> None:
-    from takopi.render import split_body
-
-    text = "Line one\nLine two\nLine three\nLine four"
-    result = split_body(text, max_len=20)
-
-    assert len(result) >= 2
-    for chunk in result:
-        assert len(chunk) <= 20
-
-
-def test_split_body_splits_at_spaces_when_no_newlines() -> None:
-    from takopi.render import split_body
-
-    text = "word " * 20  # 100 chars
-    result = split_body(text, max_len=25)
-
-    assert len(result) >= 2
-    for chunk in result:
-        assert len(chunk) <= 25
-
-
-def test_split_body_hard_cuts_when_no_break_points() -> None:
-    from takopi.render import split_body
-
-    text = "x" * 100  # No spaces, newlines, or paragraph breaks
-    result = split_body(text, max_len=30)
-
-    assert len(result) == 4  # 100 chars / 30 = 4 chunks (last one shorter)
+    assert len(result) == 4
     assert result[0] == "x" * 30
     assert result[1] == "x" * 30
     assert result[2] == "x" * 30
     assert result[3] == "x" * 10
 
 
-def test_prepare_telegram_split_single_message_when_short() -> None:
-    from takopi.render import MarkdownParts, prepare_telegram_split
+def test_split_body_preserves_all_content() -> None:
+    """Splitting preserves all content (nothing lost)."""
+    text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+    result = split_body(text, max_len=30)
 
+    # All content should be preserved (ignoring whitespace changes from strip)
+    assert "".join(result).replace(" ", "").replace("\n", "") == text.replace(
+        " ", ""
+    ).replace("\n", "")
+
+
+def test_prepare_telegram_split_single_message_when_short() -> None:
     parts = MarkdownParts(header="Header", body="Short body", footer="Footer")
     result = prepare_telegram_split(parts)
 
     assert len(result) == 1
-    text, entities = result[0]
+    text, _ = result[0]
     assert "Header" in text
     assert "Short body" in text
     assert "Footer" in text
 
 
 def test_prepare_telegram_split_multiple_messages_when_long() -> None:
-    from takopi.render import MarkdownParts, prepare_telegram_split
-
     long_body = "Q" * 8000  # Well over 4096 limit
     parts = MarkdownParts(header="done · 1s", body=long_body, footer="resume token")
     result = prepare_telegram_split(parts)
@@ -443,8 +427,6 @@ def test_prepare_telegram_split_multiple_messages_when_long() -> None:
 
 
 def test_prepare_telegram_split_respects_max_message_length() -> None:
-    from takopi.render import MarkdownParts, prepare_telegram_split
-
     long_body = "word " * 2000  # Long text with spaces
     parts = MarkdownParts(header="Header", body=long_body, footer="Footer")
     result = prepare_telegram_split(parts, max_message_len=4096)
