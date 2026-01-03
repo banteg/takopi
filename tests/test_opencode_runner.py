@@ -74,9 +74,6 @@ def test_translate_success_fixture() -> None:
     assert completed.resume == started.resume
     assert completed.answer == "```\nhello\n```"
 
-    assert completed.usage is not None
-    assert "tokens" in completed.usage
-
 
 def test_translate_missing_reason_success() -> None:
     state = OpenCodeStreamState()
@@ -96,7 +93,6 @@ def test_translate_missing_reason_success() -> None:
     assert completed.ok is True
     assert completed.resume == started.resume
     assert completed.answer == "All done."
-    assert completed.usage is not None
 
 
 def test_translate_accumulates_text() -> None:

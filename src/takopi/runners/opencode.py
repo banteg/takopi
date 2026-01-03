@@ -56,8 +56,6 @@ class OpenCodeStreamState:
     session_id: str | None = None
     emitted_started: bool = False
     saw_step_finish: bool = False
-    total_cost: float = 0.0
-    total_tokens: dict[str, int] = field(default_factory=dict)
 
 
 def _action_event(
@@ -183,16 +181,6 @@ def _extract_tool_action(part: dict[str, Any]) -> Action | None:
     return Action(id=call_id, kind=kind, title=title, detail=detail)
 
 
-def _usage_from_tokens(tokens: dict[str, int], cost: float) -> dict[str, Any]:
-    """Build usage payload from accumulated token counts."""
-    usage: dict[str, Any] = {}
-    if cost > 0:
-        usage["total_cost_usd"] = cost
-    if tokens:
-        usage["tokens"] = tokens
-    return usage
-
-
 def translate_opencode_event(
     event: opencode_schema.OpenCodeEvent,
     *,
@@ -302,33 +290,10 @@ def translate_opencode_event(
             reason = part.get("reason")
             state.saw_step_finish = True
 
-            tokens = part.get("tokens") or {}
-            if isinstance(tokens, dict):
-                for key in ("input", "output", "reasoning"):
-                    value = tokens.get(key)
-                    if isinstance(value, int):
-                        state.total_tokens[key] = state.total_tokens.get(key, 0) + value
-                cache = tokens.get("cache") or {}
-                if isinstance(cache, dict):
-                    for key in ("read", "write"):
-                        value = cache.get(key)
-                        if not isinstance(value, int):
-                            continue
-                        cache_key = f"cache_{key}"
-                        state.total_tokens[cache_key] = (
-                            state.total_tokens.get(cache_key, 0) + value
-                        )
-
-            cost = part.get("cost")
-            if isinstance(cost, (int, float)):
-                state.total_cost += cost
-
             if reason == "stop":
                 resume = None
                 if state.session_id:
                     resume = ResumeToken(engine=ENGINE, value=state.session_id)
-
-                usage = _usage_from_tokens(state.total_tokens, state.total_cost)
 
                 return [
                     CompletedEvent(
@@ -336,7 +301,6 @@ def translate_opencode_event(
                         ok=True,
                         answer=state.last_text or "",
                         resume=resume,
-                        usage=usage or None,
                     )
                 ]
             return []
@@ -536,14 +500,12 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             ]
 
         if state.saw_step_finish:
-            usage = _usage_from_tokens(state.total_tokens, state.total_cost)
             return [
                 CompletedEvent(
                     engine=ENGINE,
                     ok=True,
                     answer=state.last_text or "",
                     resume=found_session,
-                    usage=usage or None,
                 )
             ]
 
