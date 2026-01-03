@@ -13,9 +13,14 @@ from takopi.runners.claude import (
 )
 
 
-def _load_fixture(name: str) -> list[dict]:
+def _load_fixture(name: str, *, session_id: str | None = None) -> list[dict]:
     path = Path(__file__).parent / "fixtures" / name
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    events = [
+        json.loads(line) for line in path.read_text().splitlines() if line.strip()
+    ]
+    if session_id is None:
+        return events
+    return [event for event in events if event.get("session_id") == session_id]
 
 
 def test_claude_resume_format_and_extract() -> None:
@@ -33,7 +38,10 @@ def test_claude_resume_format_and_extract() -> None:
 def test_translate_success_fixture() -> None:
     state = ClaudeStreamState()
     events: list = []
-    for event in _load_fixture("claude_stream_success.jsonl"):
+    for event in _load_fixture(
+        "claude_streamjson_session.jsonl",
+        session_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    ):
         events.extend(translate_claude_event(event, title="claude", state=state))
 
     assert isinstance(events[0], StartedEvent)
@@ -47,8 +55,10 @@ def test_translate_success_fixture() -> None:
         for evt in action_events
         if evt.phase == "started"
     }
-    assert started_actions[("toolu_1", "started")].action.kind == "command"
-    write_action = started_actions[("toolu_2", "started")].action
+    assert (
+        started_actions[("toolu_01BASH_LS_EXAMPLE", "started")].action.kind == "command"
+    )
+    write_action = started_actions[("toolu_02", "started")].action
     assert write_action.kind == "file_change"
     assert write_action.detail["changes"][0]["path"] == "notes.md"
 
@@ -57,20 +67,23 @@ def test_translate_success_fixture() -> None:
         for evt in action_events
         if evt.phase == "completed"
     }
-    assert completed_actions[("toolu_1", "completed")].ok is True
-    assert completed_actions[("toolu_2", "completed")].ok is True
+    assert completed_actions[("toolu_01BASH_LS_EXAMPLE", "completed")].ok is True
+    assert completed_actions[("toolu_02", "completed")].ok is True
 
     completed = next(evt for evt in events if isinstance(evt, CompletedEvent))
     assert events[-1] == completed
     assert completed.ok is True
     assert completed.resume == started.resume
-    assert completed.answer == "Done. Added notes.md."
+    assert completed.answer == "I see README.md, pyproject.toml, and src/."
 
 
 def test_translate_error_fixture_permission_denials() -> None:
     state = ClaudeStreamState()
     events: list = []
-    for event in _load_fixture("claude_stream_error.jsonl"):
+    for event in _load_fixture(
+        "claude_streamjson_session.jsonl",
+        session_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    ):
         events.extend(translate_claude_event(event, title="claude", state=state))
 
     started = next(evt for evt in events if isinstance(evt, StartedEvent))
@@ -84,7 +97,8 @@ def test_translate_error_fixture_permission_denials() -> None:
     assert warnings
     assert events.index(warnings[0]) < events.index(completed)
     assert completed.ok is False
-    assert completed.error == "Permission denied"
+    assert completed.error is not None
+    assert "Permission denied" in completed.error
     assert completed.resume == started.resume
 
 
