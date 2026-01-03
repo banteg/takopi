@@ -472,8 +472,8 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     def decode_jsonl(
         self,
         *,
-        raw: str,
-        line: str,
+        raw: bytes,
+        line: bytes,
         state: CodexRunState,
     ) -> dict[str, Any] | None:
         _ = raw, state

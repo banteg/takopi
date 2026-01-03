@@ -29,6 +29,27 @@ async def iter_text_lines(stream: ByteReceiveStream) -> AsyncIterator[str]:
             yield line
 
 
+async def iter_bytes_lines(stream: ByteReceiveStream) -> AsyncIterator[bytes]:
+    buffer = bytearray()
+    while True:
+        try:
+            chunk = await stream.receive()
+        except anyio.EndOfStream:
+            if buffer:
+                yield bytes(buffer)
+            return
+        if not chunk:
+            continue
+        buffer.extend(chunk)
+        while True:
+            split_at = buffer.find(b"\n")
+            if split_at < 0:
+                break
+            line = bytes(buffer[: split_at + 1])
+            del buffer[: split_at + 1]
+            yield line
+
+
 async def drain_stderr(
     stream: ByteReceiveStream,
     chunks: deque[str],
