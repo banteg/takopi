@@ -56,26 +56,17 @@ def _load_and_validate_config(
     return config, config_path, token.strip(), chat_id_value
 
 
-def _echo_error(message: str) -> None:
-    lines = message.splitlines()
-    if not lines:
-        typer.secho("error: unknown error", fg=typer.colors.RED, err=True)
-        return
-    first = lines[0]
-    if not first.lower().startswith("error:"):
-        first = f"error: {first}"
-    typer.secho(first, fg=typer.colors.RED, err=True)
-    if len(lines) > 1:
-        typer.echo("\n".join(lines[1:]), err=True)
-
-
 def _remove_lock_file(path: Path) -> None:
     try:
         path.unlink()
     except FileNotFoundError:
         return
     except OSError as exc:
-        _echo_error(f"failed to remove lock file {path}: {exc}")
+        typer.secho(
+            f"error: failed to remove lock file {path}: {exc}",
+            fg=typer.colors.RED,
+            err=True,
+        )
         raise typer.Exit(code=1) from exc
 
 
@@ -89,7 +80,13 @@ def _acquire_lock(config_path: Path, token: str) -> LockHandle:
                 token_fingerprint=fingerprint,
             )
         except LockError as retry_exc:
-            _echo_error(str(retry_exc))
+            lines = str(retry_exc).splitlines()
+            if lines:
+                typer.secho(lines[0], fg=typer.colors.RED, err=True)
+                if len(lines) > 1:
+                    typer.echo("\n".join(lines[1:]), err=True)
+            else:
+                typer.secho("error: unknown error", fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1) from retry_exc
 
     try:
@@ -105,7 +102,13 @@ def _acquire_lock(config_path: Path, token: str) -> LockHandle:
                 return _retry_or_exit()
 
         if exc.state == "running":
-            _echo_error(str(exc))
+            lines = str(exc).splitlines()
+            if lines:
+                typer.secho(lines[0], fg=typer.colors.RED, err=True)
+                if len(lines) > 1:
+                    typer.echo("\n".join(lines[1:]), err=True)
+            else:
+                typer.secho("error: unknown error", fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1) from exc
 
         _remove_lock_file(exc.path)
@@ -271,7 +274,7 @@ def _run_auto_router(
         default_engine = _default_engine_for_setup(default_engine_override)
         backend = get_backend(default_engine)
     except ConfigError as e:
-        _echo_error(str(e))
+        typer.secho(f"error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
     setup = check_setup(backend)
     if not setup.ok:
@@ -290,7 +293,7 @@ def _run_auto_router(
         )
         anyio.run(run_main_loop, cfg)
     except ConfigError as e:
-        _echo_error(str(e))
+        typer.secho(f"error: {e}", fg=typer.colors.RED, err=True)
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
         logger.info("[shutdown] interrupted")
