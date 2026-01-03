@@ -240,6 +240,9 @@ def interactive_setup(*, force: bool) -> bool:
     except KeyboardInterrupt:
         console.print("  cancelled")
         return False
+    if chat is None:
+        console.print("  cancelled")
+        return False
     console.print(f"  got chat_id {chat.chat_id} from {chat.display}")
 
     sent = anyio.run(_send_confirmation, token, chat.chat_id)

@@ -257,6 +257,9 @@ class _FakeBot:
     async def close(self) -> None:
         return None
 
+    async def get_me(self) -> dict | None:
+        return {"id": 1}
+
 
 class _FakeClock:
     def __init__(self, start: float = 0.0) -> None:
