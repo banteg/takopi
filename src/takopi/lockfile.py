@@ -88,9 +88,10 @@ def acquire_lock(
     )
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("x", encoding="utf-8") as handle:
-            json.dump(asdict(info), handle, indent=2, sort_keys=True)
-            handle.write("\n")
+        if lock_path.exists():
+            raise FileExistsError(lock_path)
+        payload = json.dumps(asdict(info), indent=2, sort_keys=True) + "\n"
+        lock_path.write_text(payload, encoding="utf-8")
     except FileExistsError:
         existing = _read_lock_info(lock_path)
         state = _lock_state(existing)
