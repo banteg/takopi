@@ -10,16 +10,12 @@ import msgspec
 class StreamTextBlock(
     msgspec.Struct, tag="text", tag_field="type", forbid_unknown_fields=False
 ):
-    """Text content block."""
-
     text: str
 
 
 class StreamThinkingBlock(
     msgspec.Struct, tag="thinking", tag_field="type", forbid_unknown_fields=False
 ):
-    """Thinking content block."""
-
     thinking: str
     signature: str
 
@@ -27,8 +23,6 @@ class StreamThinkingBlock(
 class StreamToolUseBlock(
     msgspec.Struct, tag="tool_use", tag_field="type", forbid_unknown_fields=False
 ):
-    """Tool use content block."""
-
     id: str
     name: str
     input: dict[str, Any]
@@ -37,8 +31,6 @@ class StreamToolUseBlock(
 class StreamToolResultBlock(
     msgspec.Struct, tag="tool_result", tag_field="type", forbid_unknown_fields=False
 ):
-    """Tool result content block."""
-
     tool_use_id: str
     content: str | list[dict[str, Any]] | None = None
     is_error: bool | None = None
@@ -50,15 +42,11 @@ StreamContentBlock: TypeAlias = (
 
 
 class StreamUserMessageBody(msgspec.Struct, forbid_unknown_fields=False):
-    """User message body."""
-
     role: Literal["user"]
     content: str | list[StreamContentBlock]
 
 
 class StreamAssistantMessageBody(msgspec.Struct, forbid_unknown_fields=False):
-    """Assistant message body."""
-
     role: Literal["assistant"]
     content: list[StreamContentBlock]
     model: str
@@ -68,8 +56,6 @@ class StreamAssistantMessageBody(msgspec.Struct, forbid_unknown_fields=False):
 class StreamUserMessage(
     msgspec.Struct, tag="user", tag_field="type", forbid_unknown_fields=False
 ):
-    """User message."""
-
     message: StreamUserMessageBody
     uuid: str | None = None
     parent_tool_use_id: str | None = None
@@ -79,8 +65,6 @@ class StreamUserMessage(
 class StreamAssistantMessage(
     msgspec.Struct, tag="assistant", tag_field="type", forbid_unknown_fields=False
 ):
-    """Assistant message."""
-
     message: StreamAssistantMessageBody
     parent_tool_use_id: str | None = None
     uuid: str | None = None
@@ -90,8 +74,6 @@ class StreamAssistantMessage(
 class StreamSystemMessage(
     msgspec.Struct, tag="system", tag_field="type", forbid_unknown_fields=False
 ):
-    """System message."""
-
     subtype: str
     session_id: str | None = None
     uuid: str | None = None
@@ -107,8 +89,6 @@ class StreamSystemMessage(
 class StreamResultMessage(
     msgspec.Struct, tag="result", tag_field="type", forbid_unknown_fields=False
 ):
-    """Result message."""
-
     subtype: str
     duration_ms: int
     duration_api_ms: int
@@ -124,8 +104,6 @@ class StreamResultMessage(
 class StreamEventMessage(
     msgspec.Struct, tag="stream_event", tag_field="type", forbid_unknown_fields=False
 ):
-    """Stream event message for partial updates."""
-
     uuid: str
     session_id: str
     event: dict[str, Any]
@@ -135,14 +113,10 @@ class StreamEventMessage(
 class ControlInterruptRequest(
     msgspec.Struct, tag="interrupt", tag_field="subtype", forbid_unknown_fields=False
 ):
-    """Control request to interrupt generation."""
-
 
 class ControlCanUseToolRequest(
     msgspec.Struct, tag="can_use_tool", tag_field="subtype", forbid_unknown_fields=False
 ):
-    """Control request for tool permission."""
-
     tool_name: str
     input: dict[str, Any]
     permission_suggestions: list[Any] | None = None
@@ -152,8 +126,6 @@ class ControlCanUseToolRequest(
 class ControlInitializeRequest(
     msgspec.Struct, tag="initialize", tag_field="subtype", forbid_unknown_fields=False
 ):
-    """Control request to initialize streaming control protocol."""
-
     hooks: dict[str, Any] | None = None
 
 
@@ -163,8 +135,6 @@ class ControlSetPermissionModeRequest(
     tag_field="subtype",
     forbid_unknown_fields=False,
 ):
-    """Control request to update permission mode."""
-
     mode: str
 
 
@@ -174,8 +144,6 @@ class ControlHookCallbackRequest(
     tag_field="subtype",
     forbid_unknown_fields=False,
 ):
-    """Control request to execute a hook callback."""
-
     callback_id: str
     input: Any
     tool_use_id: str | None = None
@@ -184,8 +152,6 @@ class ControlHookCallbackRequest(
 class ControlMcpMessageRequest(
     msgspec.Struct, tag="mcp_message", tag_field="subtype", forbid_unknown_fields=False
 ):
-    """Control request to forward an MCP message."""
-
     server_name: str
     message: Any
 
@@ -193,8 +159,6 @@ class ControlMcpMessageRequest(
 class ControlRewindFilesRequest(
     msgspec.Struct, tag="rewind_files", tag_field="subtype", forbid_unknown_fields=False
 ):
-    """Control request to rewind files to a checkpoint."""
-
     user_message_id: str
 
 
@@ -212,8 +176,6 @@ ControlRequest: TypeAlias = (
 class StreamControlRequest(
     msgspec.Struct, tag="control_request", tag_field="type", forbid_unknown_fields=False
 ):
-    """Envelope for control requests emitted by the CLI."""
-
     request_id: str
     request: ControlRequest
 
