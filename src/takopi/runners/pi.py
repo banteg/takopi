@@ -24,6 +24,7 @@ from ..model import (
     TakopiEvent,
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from ..schemas import pi as pi_schema
 from ..utils.paths import relativize_command, relativize_path
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,7 @@ def _last_assistant_message(messages: Any) -> dict[str, Any] | None:
 
 
 def translate_pi_event(
-    event: dict[str, Any],
+    event: pi_schema.PiEvent,
     *,
     title: str,
     meta: dict[str, Any] | None,
@@ -149,97 +150,94 @@ def translate_pi_event(
         )
         state.started = True
 
-    etype = event.get("type")
+    match event:
+        case pi_schema.ToolExecutionStart(
+            toolCallId=tool_id, toolName=tool_name, args=args
+        ):
+            if not isinstance(args, dict):
+                args = {}
+            if isinstance(tool_id, str) and tool_id:
+                name = str(tool_name or "tool")
+                kind, title_str = _tool_kind_and_title(name, args)
+                detail: dict[str, Any] = {"tool_name": name, "args": args}
+                if kind == "file_change":
+                    path = args.get("path")
+                    if path:
+                        detail["changes"] = [{"path": str(path), "kind": "update"}]
+                action = Action(id=tool_id, kind=kind, title=title_str, detail=detail)
+                state.pending_actions[action.id] = action
+                out.append(_action_event(phase="started", action=action))
+            return out
 
-    if etype == "tool_execution_start":
-        tool_id = event.get("toolCallId")
-        tool_name = event.get("toolName")
-        args = event.get("args") or {}
-        if not isinstance(args, dict):
-            args = {}
-        if isinstance(tool_id, str) and tool_id:
-            name = str(tool_name or "tool")
-            kind, title_str = _tool_kind_and_title(name, args)
-            detail: dict[str, Any] = {"tool_name": name, "args": args}
-            if kind == "file_change":
-                path = args.get("path")
-                if path:
-                    detail["changes"] = [{"path": str(path), "kind": "update"}]
-            action = Action(id=tool_id, kind=kind, title=title_str, detail=detail)
-            state.pending_actions[action.id] = action
-            out.append(_action_event(phase="started", action=action))
-        return out
+        case pi_schema.ToolExecutionEnd(
+            toolCallId=tool_id, toolName=tool_name, result=result, isError=is_error
+        ):
+            if isinstance(tool_id, str) and tool_id:
+                action = state.pending_actions.pop(tool_id, None)
+                name = str(tool_name or "tool")
+                if action is None:
+                    action = Action(id=tool_id, kind="tool", title=name, detail={})
+                detail = dict(action.detail)
+                detail["result"] = result
+                detail["is_error"] = is_error
+                out.append(
+                    _action_event(
+                        phase="completed",
+                        action=Action(
+                            id=action.id,
+                            kind=action.kind,
+                            title=action.title,
+                            detail=detail,
+                        ),
+                        ok=not is_error,
+                    )
+                )
+            return out
 
-    if etype == "tool_execution_end":
-        tool_id = event.get("toolCallId")
-        tool_name = event.get("toolName")
-        if isinstance(tool_id, str) and tool_id:
-            action = state.pending_actions.pop(tool_id, None)
-            name = str(tool_name or "tool")
-            if action is None:
-                action = Action(id=tool_id, kind="tool", title=name, detail={})
-            detail = dict(action.detail)
-            detail["result"] = event.get("result")
-            detail["is_error"] = event.get("isError")
-            is_error = event.get("isError") is True
+        case pi_schema.MessageEnd(message=message):
+            if isinstance(message, dict) and message.get("role") == "assistant":
+                text = _extract_text_blocks(message.get("content"))
+                if text:
+                    state.last_assistant_text = text
+                usage = message.get("usage")
+                if isinstance(usage, dict):
+                    state.last_usage = usage
+                error = _assistant_error(message)
+                if error:
+                    state.last_assistant_error = error
+            return out
+
+        case pi_schema.AgentEnd(messages=messages):
+            assistant = _last_assistant_message(messages)
+            if assistant:
+                text = _extract_text_blocks(assistant.get("content"))
+                if text:
+                    state.last_assistant_text = text
+                usage = assistant.get("usage")
+                if isinstance(usage, dict):
+                    state.last_usage = usage
+                error = _assistant_error(assistant)
+                if error:
+                    state.last_assistant_error = error
+
+            ok = state.last_assistant_error is None
+            error = state.last_assistant_error
+            answer = state.last_assistant_text or ""
+
             out.append(
-                _action_event(
-                    phase="completed",
-                    action=Action(
-                        id=action.id,
-                        kind=action.kind,
-                        title=action.title,
-                        detail=detail,
-                    ),
-                    ok=not is_error,
+                CompletedEvent(
+                    engine=ENGINE,
+                    ok=ok,
+                    answer=answer,
+                    resume=state.resume,
+                    error=error,
+                    usage=state.last_usage,
                 )
             )
-        return out
+            return out
 
-    if etype == "message_end":
-        message = event.get("message")
-        if isinstance(message, dict) and message.get("role") == "assistant":
-            text = _extract_text_blocks(message.get("content"))
-            if text:
-                state.last_assistant_text = text
-            usage = message.get("usage")
-            if isinstance(usage, dict):
-                state.last_usage = usage
-            error = _assistant_error(message)
-            if error:
-                state.last_assistant_error = error
-        return out
-
-    if etype == "agent_end":
-        assistant = _last_assistant_message(event.get("messages"))
-        if assistant:
-            text = _extract_text_blocks(assistant.get("content"))
-            if text:
-                state.last_assistant_text = text
-            usage = assistant.get("usage")
-            if isinstance(usage, dict):
-                state.last_usage = usage
-            error = _assistant_error(assistant)
-            if error:
-                state.last_assistant_error = error
-
-        ok = state.last_assistant_error is None
-        error = state.last_assistant_error
-        answer = state.last_assistant_text or ""
-
-        out.append(
-            CompletedEvent(
-                engine=ENGINE,
-                ok=ok,
-                answer=answer,
-                resume=state.resume,
-                error=error,
-                usage=state.last_usage,
-            )
-        )
-        return out
-
-    return out
+        case _:
+            return out
 
 
 class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
@@ -333,13 +331,15 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
     def translate(
         self,
-        data: dict[str, Any],
+        data: pi_schema.PiEvent | pi_schema.UnknownLine,
         *,
         state: PiStreamState,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
     ) -> list[TakopiEvent]:
         _ = resume, found_session
+        if isinstance(data, pi_schema.UnknownLine):
+            return []
         meta: dict[str, Any] = {"cwd": os.getcwd()}
         if self.model:
             meta["model"] = self.model
@@ -351,6 +351,16 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             meta=meta or None,
             state=state,
         )
+
+    def decode_jsonl(
+        self,
+        *,
+        line: bytes,
+    ) -> pi_schema.PiEvent | pi_schema.UnknownLine | None:
+        decoded = pi_schema.decode_event(line)
+        if isinstance(decoded, pi_schema.NonJsonLine):
+            return None
+        return decoded
 
     def process_error_events(
         self,
