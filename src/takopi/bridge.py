@@ -853,12 +853,16 @@ async def _send_runner_unavailable(
     final_parts = progress_renderer.render_final_parts(
         0.0, f"error:\n{reason}", status="error"
     )
-    await _send_or_edit_markdown(
-        cfg.bot,
+    # Use send_result_message for consistency with final messages (supports splitting)
+    await send_result_message(
+        cfg,
         chat_id=chat_id,
+        user_msg_id=user_msg_id,
+        progress_id=None,
         parts=final_parts,
-        reply_to_message_id=user_msg_id,
         disable_notification=False,
+        edit_message_id=None,
+        delete_tag="error",
     )
 
 

@@ -65,11 +65,17 @@ The orchestrator module containing:
 | Function/Class | Purpose |
 |----------------|---------|
 | `render_markdown()` | Markdown → Telegram text + entities |
-| `trim_body()` | Trim body to 3500 chars (header/footer preserved) |
-| `prepare_telegram()` | Trim + render Markdown parts for Telegram |
+| `trim_body()` | Trim body to 3500 chars (used by progress messages) |
+| `split_body()` | Split body into chunks at safe boundaries (paragraphs, newlines, spaces) |
+| `prepare_telegram()` | Trim + render Markdown parts (used for progress messages) |
+| `prepare_telegram_split()` | Split + render Markdown parts into multiple messages (used for final answers) |
 | `ExecProgressRenderer` | Stateful renderer tracking recent actions for progress display |
 | `render_event_cli()` | Format a takopi event for CLI logs |
 | `format_elapsed()` | Formats seconds as `Xh Ym`, `Xm Ys`, or `Xs` |
+
+**Message length handling:**
+- Progress messages use `prepare_telegram()` which truncates at 3500 chars (progress is transient)
+- Final answer messages use `prepare_telegram_split()` which splits into multiple Telegram messages (preserves all content)
 
 ### `telegram.py` - Telegram API wrapper
 

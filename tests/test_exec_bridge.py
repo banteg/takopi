@@ -96,6 +96,11 @@ def test_codex_extract_resume_accepts_uuid7() -> None:
 
 
 def test_prepare_telegram_trims_body_preserves_footer() -> None:
+    """prepare_telegram() truncates at 3500 chars - used for progress messages only.
+
+    Final answer messages use prepare_telegram_split() which splits instead of truncating.
+    See test_exec_render.py for split_body and prepare_telegram_split tests.
+    """
     body_limit = 3500
     parts = MarkdownParts(
         header="header",
@@ -113,6 +118,11 @@ def test_prepare_telegram_trims_body_preserves_footer() -> None:
 
 
 def test_prepare_telegram_preserves_entities_on_truncate() -> None:
+    """Markdown entities are preserved even when body is truncated.
+
+    This tests prepare_telegram() which is used for progress messages.
+    Final messages use prepare_telegram_split() (see test_exec_render.py).
+    """
     body_limit = 3500
     parts = MarkdownParts(
         header="h",
