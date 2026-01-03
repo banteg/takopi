@@ -231,6 +231,16 @@ class JsonlSubprocessRunner(BaseRunner):
         _ = state
         return json_line.data
 
+    async def iter_json_lines(
+        self,
+        stream: Any,
+        *,
+        logger: logging.Logger,
+        tag: str,
+    ) -> AsyncIterator[JsonLine]:
+        async for json_line in iter_jsonl(stream, logger=logger, tag=tag):
+            yield json_line
+
     def decode_error_events(
         self,
         *,
@@ -385,7 +395,9 @@ class JsonlSubprocessRunner(BaseRunner):
                     logger,
                     tag,
                 )
-                async for json_line in iter_jsonl(proc.stdout, logger=logger, tag=tag):
+                async for json_line in self.iter_json_lines(
+                    proc.stdout, logger=logger, tag=tag
+                ):
                     if did_emit_completed:
                         continue
                     try:

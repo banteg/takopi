@@ -4,7 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, AsyncIterator, cast
 
 import msgspec
 
@@ -24,7 +24,7 @@ from ..model import (
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import codex as codex_schema
-from ..utils.streams import JsonLine
+from ..utils.streams import JsonLine, iter_text_lines
 from ..utils.paths import relativize_command
 
 logger = logging.getLogger(__name__)
@@ -479,6 +479,21 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         _ = state
         event = codex_schema.decode_event(json_line.line)
         return cast(dict[str, Any], msgspec.to_builtins(event))
+
+    async def iter_json_lines(
+        self,
+        stream: Any,
+        *,
+        logger: logging.Logger,
+        tag: str,
+    ) -> AsyncIterator[JsonLine]:
+        async for raw_line in iter_text_lines(stream):
+            raw = raw_line.rstrip("\n")
+            logger.debug("[%s][jsonl] %s", tag, raw)
+            line = raw.strip()
+            if not line:
+                continue
+            yield JsonLine(raw=raw, line=line, data=None)
 
     def decode_error_events(
         self,
