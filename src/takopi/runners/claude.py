@@ -112,7 +112,7 @@ def _tool_kind_and_title(
         return "note", "ask user"
     if name in {"Task", "Agent"}:
         desc = tool_input.get("description") or tool_input.get("prompt")
-        return "tool", str(desc or name)
+        return "subagent", str(desc or name)
     return "tool", name
 
 
