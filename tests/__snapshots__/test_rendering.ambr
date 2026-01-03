@@ -1,0 +1,44 @@
+# serializer version: 1
+# name: test_render_markdown_basic_entities
+  tuple(
+    '''
+      bold and code
+      
+  
+    ''',
+    list([
+      dict({
+        'length': 4,
+        'offset': 0,
+        'type': 'bold',
+      }),
+      dict({
+        'length': 4,
+        'offset': 9,
+        'type': 'code',
+      }),
+    ]),
+  )
+# ---
+# name: test_render_markdown_code_fence_language_is_string
+  tuple(
+    '''
+      print('x')
+      
+  
+    ''',
+    list([
+      dict({
+        'length': 11,
+        'offset': 0,
+        'type': 'code',
+      }),
+      dict({
+        'language': 'py',
+        'length': 11,
+        'offset': 0,
+        'type': 'pre',
+      }),
+    ]),
+  )
+# ---
