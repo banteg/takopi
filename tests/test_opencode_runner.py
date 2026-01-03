@@ -11,11 +11,26 @@ from takopi.runners.opencode import (
     ENGINE,
     translate_opencode_event,
 )
+from takopi.schemas import opencode as opencode_schema
 
 
-def _load_fixture(name: str) -> list[dict]:
+def _load_fixture(name: str) -> list[opencode_schema.OpenCodeEvent]:
     path = Path(__file__).parent / "fixtures" / name
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    events: list[opencode_schema.OpenCodeEvent] = []
+    for line in path.read_bytes().splitlines():
+        if not line.strip():
+            continue
+        try:
+            events.append(opencode_schema.decode_event(line))
+        except Exception as exc:
+            raise AssertionError(
+                f"{name} contained unparseable line: {line!r}"
+            ) from exc
+    return events
+
+
+def _decode_event(payload: dict) -> opencode_schema.OpenCodeEvent:
+    return opencode_schema.decode_event(json.dumps(payload).encode("utf-8"))
 
 
 def test_opencode_resume_format_and_extract() -> None:
@@ -88,7 +103,7 @@ def test_translate_accumulates_text() -> None:
     state = OpenCodeStreamState()
 
     events = translate_opencode_event(
-        {"type": "step_start", "sessionID": "ses_test123", "part": {}},
+        _decode_event({"type": "step_start", "sessionID": "ses_test123", "part": {}}),
         title="opencode",
         state=state,
     )
@@ -96,20 +111,24 @@ def test_translate_accumulates_text() -> None:
     assert isinstance(events[0], StartedEvent)
 
     translate_opencode_event(
-        {
-            "type": "text",
-            "sessionID": "ses_test123",
-            "part": {"type": "text", "text": "Hello "},
-        },
+        _decode_event(
+            {
+                "type": "text",
+                "sessionID": "ses_test123",
+                "part": {"type": "text", "text": "Hello "},
+            }
+        ),
         title="opencode",
         state=state,
     )
     translate_opencode_event(
-        {
-            "type": "text",
-            "sessionID": "ses_test123",
-            "part": {"type": "text", "text": "World"},
-        },
+        _decode_event(
+            {
+                "type": "text",
+                "sessionID": "ses_test123",
+                "part": {"type": "text", "text": "World"},
+            }
+        ),
         title="opencode",
         state=state,
     )
@@ -117,11 +136,13 @@ def test_translate_accumulates_text() -> None:
     assert state.last_text == "Hello World"
 
     events = translate_opencode_event(
-        {
-            "type": "step_finish",
-            "sessionID": "ses_test123",
-            "part": {"reason": "stop", "tokens": {"input": 100, "output": 10}},
-        },
+        _decode_event(
+            {
+                "type": "step_finish",
+                "sessionID": "ses_test123",
+                "part": {"reason": "stop", "tokens": {"input": 100, "output": 10}},
+            }
+        ),
         title="opencode",
         state=state,
     )
@@ -139,22 +160,24 @@ def test_translate_tool_use_completed() -> None:
     state.emitted_started = True
 
     events = translate_opencode_event(
-        {
-            "type": "tool_use",
-            "sessionID": "ses_test123",
-            "part": {
-                "id": "prt_123",
-                "callID": "call_abc",
-                "tool": "bash",
-                "state": {
-                    "status": "completed",
-                    "input": {"command": "ls -la"},
-                    "output": "file1.txt\nfile2.txt",
-                    "title": "List files",
-                    "metadata": {"exit": 0},
+        _decode_event(
+            {
+                "type": "tool_use",
+                "sessionID": "ses_test123",
+                "part": {
+                    "id": "prt_123",
+                    "callID": "call_abc",
+                    "tool": "bash",
+                    "state": {
+                        "status": "completed",
+                        "input": {"command": "ls -la"},
+                        "output": "file1.txt\nfile2.txt",
+                        "title": "List files",
+                        "metadata": {"exit": 0},
+                    },
                 },
-            },
-        },
+            }
+        ),
         title="opencode",
         state=state,
     )
@@ -174,22 +197,24 @@ def test_translate_tool_use_with_error() -> None:
     state.emitted_started = True
 
     events = translate_opencode_event(
-        {
-            "type": "tool_use",
-            "sessionID": "ses_test123",
-            "part": {
-                "id": "prt_123",
-                "callID": "call_abc",
-                "tool": "bash",
-                "state": {
-                    "status": "completed",
-                    "input": {"command": "exit 1"},
-                    "output": "error",
-                    "title": "Run failing command",
-                    "metadata": {"exit": 1},
+        _decode_event(
+            {
+                "type": "tool_use",
+                "sessionID": "ses_test123",
+                "part": {
+                    "id": "prt_123",
+                    "callID": "call_abc",
+                    "tool": "bash",
+                    "state": {
+                        "status": "completed",
+                        "input": {"command": "exit 1"},
+                        "output": "error",
+                        "title": "Run failing command",
+                        "metadata": {"exit": 1},
+                    },
                 },
-            },
-        },
+            }
+        ),
         title="opencode",
         state=state,
     )
@@ -208,21 +233,23 @@ def test_translate_tool_use_read_title_wraps_path() -> None:
     path = Path.cwd() / "src" / "takopi" / "runners" / "opencode.py"
 
     events = translate_opencode_event(
-        {
-            "type": "tool_use",
-            "sessionID": "ses_test123",
-            "part": {
-                "id": "prt_123",
-                "callID": "call_abc",
-                "tool": "read",
-                "state": {
-                    "status": "completed",
-                    "input": {"filePath": str(path)},
-                    "output": "file contents",
-                    "title": "src/takopi/runners/opencode.py",
+        _decode_event(
+            {
+                "type": "tool_use",
+                "sessionID": "ses_test123",
+                "part": {
+                    "id": "prt_123",
+                    "callID": "call_abc",
+                    "tool": "read",
+                    "state": {
+                        "status": "completed",
+                        "input": {"filePath": str(path)},
+                        "output": "file contents",
+                        "title": "src/takopi/runners/opencode.py",
+                    },
                 },
-            },
-        },
+            }
+        ),
         title="opencode",
         state=state,
     )
@@ -254,11 +281,16 @@ def test_step_finish_tool_calls_does_not_complete() -> None:
     state.emitted_started = True
 
     events = translate_opencode_event(
-        {
-            "type": "step_finish",
-            "sessionID": "ses_test123",
-            "part": {"reason": "tool-calls", "tokens": {"input": 100, "output": 10}},
-        },
+        _decode_event(
+            {
+                "type": "step_finish",
+                "sessionID": "ses_test123",
+                "part": {
+                    "reason": "tool-calls",
+                    "tokens": {"input": 100, "output": 10},
+                },
+            }
+        ),
         title="opencode",
         state=state,
     )
