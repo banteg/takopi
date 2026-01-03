@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, TypeAlias
 
 import msgspec
@@ -41,39 +40,8 @@ PiEvent: TypeAlias = (
     AgentStart | AgentEnd | MessageEnd | ToolExecutionStart | ToolExecutionEnd
 )
 
-
-@dataclass(frozen=True)
-class NonJsonLine:
-    text: str
+_DECODER = msgspec.json.Decoder(PiEvent)
 
 
-@dataclass(frozen=True)
-class UnknownLine:
-    raw: Any
-
-
-DecodedLine: TypeAlias = PiEvent | NonJsonLine | UnknownLine
-
-
-def decode_event(line: str | bytes) -> DecodedLine:
-    if isinstance(line, str):
-        raw_bytes = line.encode("utf-8", errors="replace")
-    else:
-        raw_bytes = line
-
-    raw_bytes = raw_bytes.strip()
-    if not raw_bytes:
-        return NonJsonLine(text="")
-
-    try:
-        obj = msgspec.json.decode(raw_bytes)
-    except Exception:
-        return NonJsonLine(text=raw_bytes.decode("utf-8", errors="replace"))
-
-    if not isinstance(obj, dict):
-        return UnknownLine(raw=obj)
-
-    try:
-        return msgspec.convert(obj, type=PiEvent)
-    except (msgspec.ValidationError, TypeError):
-        return UnknownLine(raw=obj)
+def decode_event(line: str | bytes) -> PiEvent:
+    return _DECODER.decode(line)

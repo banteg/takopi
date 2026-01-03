@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import msgspec
+
 from ..backends import EngineBackend, EngineConfig
 from ..events import EventFactory
 from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
@@ -199,15 +201,13 @@ def _usage_payload(event: claude_schema.StreamResultMessage) -> dict[str, Any]:
 
 
 def translate_claude_event(
-    event: claude_schema.DecodedLine,
+    event: claude_schema.StreamJsonMessage,
     *,
     title: str,
     state: ClaudeStreamState,
     factory: EventFactory,
 ) -> list[TakopiEvent]:
     match event:
-        case claude_schema.NonJsonLine() | claude_schema.UnknownSDKLine():
-            return []
         case claude_schema.StreamSystemMessage(subtype=subtype):
             if subtype != "init":
                 return []
@@ -410,13 +410,29 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         self,
         *,
         line: bytes,
-    ) -> claude_schema.DecodedLine | None:
-        decoded = claude_schema.decode_stream_json_line(line)
-        if isinstance(
-            decoded, (claude_schema.NonJsonLine, claude_schema.UnknownSDKLine)
-        ):
-            return None
-        return decoded
+    ) -> claude_schema.StreamJsonMessage:
+        return claude_schema.decode_stream_json_line(line)
+
+    def decode_error_events(
+        self,
+        *,
+        raw: str,
+        line: str,
+        error: Exception,
+        state: ClaudeStreamState,
+    ) -> list[TakopiEvent]:
+        _ = raw, line, state
+        if isinstance(error, msgspec.DecodeError):
+            self.get_logger().warning(
+                "[%s] invalid msgspec event: %s", self.tag(), error
+            )
+            return []
+        return super().decode_error_events(
+            raw=raw,
+            line=line,
+            error=error,
+            state=state,
+        )
 
     def invalid_json_events(
         self,
@@ -430,7 +446,7 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
     def translate(
         self,
-        data: claude_schema.DecodedLine,
+        data: claude_schema.StreamJsonMessage,
         *,
         state: ClaudeStreamState,
         resume: ResumeToken | None,

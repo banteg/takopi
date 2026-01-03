@@ -14,9 +14,10 @@ def _load_fixture(name: str) -> list[pi_schema.PiEvent]:
     for line in path.read_text().splitlines():
         if not line.strip():
             continue
-        decoded = pi_schema.decode_event(line)
-        if isinstance(decoded, (pi_schema.NonJsonLine, pi_schema.UnknownLine)):
-            raise AssertionError(f"{name} contained unparseable line: {line}")
+        try:
+            decoded = pi_schema.decode_event(line)
+        except Exception as exc:
+            raise AssertionError(f"{name} contained unparseable line: {line}") from exc
         events.append(decoded)
     return events
 

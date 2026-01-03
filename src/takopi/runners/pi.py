@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import msgspec
+
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
 from ..model import (
@@ -331,15 +333,13 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
     def translate(
         self,
-        data: pi_schema.PiEvent | pi_schema.UnknownLine,
+        data: pi_schema.PiEvent,
         *,
         state: PiStreamState,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
     ) -> list[TakopiEvent]:
         _ = resume, found_session
-        if isinstance(data, pi_schema.UnknownLine):
-            return []
         meta: dict[str, Any] = {"cwd": os.getcwd()}
         if self.model:
             meta["model"] = self.model
@@ -356,11 +356,29 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         self,
         *,
         line: bytes,
-    ) -> pi_schema.PiEvent | pi_schema.UnknownLine | None:
-        decoded = pi_schema.decode_event(line)
-        if isinstance(decoded, pi_schema.NonJsonLine):
-            return None
-        return decoded
+    ) -> pi_schema.PiEvent:
+        return pi_schema.decode_event(line)
+
+    def decode_error_events(
+        self,
+        *,
+        raw: str,
+        line: str,
+        error: Exception,
+        state: PiStreamState,
+    ) -> list[TakopiEvent]:
+        _ = raw, line, state
+        if isinstance(error, msgspec.DecodeError):
+            self.get_logger().warning(
+                "[%s] invalid msgspec event: %s", self.tag(), error
+            )
+            return []
+        return super().decode_error_events(
+            raw=raw,
+            line=line,
+            error=error,
+            state=state,
+        )
 
     def process_error_events(
         self,

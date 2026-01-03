@@ -18,17 +18,10 @@ def _decode_fixture(name: str) -> list[str]:
     for lineno, line in enumerate(path.read_text().splitlines(), 1):
         if not line.strip():
             continue
-        decoded = pi_schema.decode_event(line)
-        if isinstance(decoded, pi_schema.NonJsonLine):
-            errors.append(f"line {lineno}: non-json line")
-        elif isinstance(decoded, pi_schema.UnknownLine):
-            raw = decoded.raw
-            if isinstance(raw, dict):
-                kind = raw.get("type")
-                detail = f"type={kind!r}"
-            else:
-                detail = f"type={type(raw).__name__}"
-            errors.append(f"line {lineno}: unknown line ({detail})")
+        try:
+            pi_schema.decode_event(line)
+        except Exception as exc:
+            errors.append(f"line {lineno}: {exc.__class__.__name__}: {exc}")
 
     return errors
 

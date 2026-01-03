@@ -16,7 +16,7 @@ from takopi.schemas import claude as claude_schema
 
 def _load_fixture(
     name: str, *, session_id: str | None = None
-) -> list[claude_schema.DecodedLine]:
+) -> list[claude_schema.StreamJsonMessage]:
     path = Path(__file__).parent / "fixtures" / name
     events = [
         claude_schema.decode_stream_json_line(line)
@@ -30,7 +30,7 @@ def _load_fixture(
     ]
 
 
-def _decode_event(payload: dict) -> claude_schema.DecodedLine:
+def _decode_event(payload: dict) -> claude_schema.StreamJsonMessage:
     data_payload = dict(payload)
     data_payload.setdefault("uuid", "uuid")
     data_payload.setdefault("session_id", "session")
