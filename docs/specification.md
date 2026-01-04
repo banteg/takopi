@@ -15,7 +15,7 @@ Takopi v0.8.0 specifies:
 - **Automatic runner selection** among multiple engines based on ResumeLine (with a configurable default for new threads)
 - A Takopi-owned **normalized event model** produced by runners and consumed by renderers/bridge
 
-Out of scope for v0.5.0:
+Out of scope for v0.8.0:
 
 - Non-Telegram clients (Slack/Discord/etc.)
 - Token-by-token streaming of the assistant’s final answer
@@ -409,7 +409,7 @@ Takopi MUST prevent multiple instances from racing `getUpdates` offsets for the 
 
 ### 10.1 Lock file location
 
-The lock file MUST be stored at `~/.takopi/takopi.lock` (derived from the config path).
+The lock file MUST be stored at `<config_path>.lock`. For the default config path, this resolves to `~/.takopi/takopi.lock`.
 
 ### 10.2 Lock file format
 

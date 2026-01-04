@@ -165,7 +165,7 @@ Self-documenting msgspec schemas for decoding engine JSONL streams.
 | Component | Purpose |
 |-----------|---------|
 | `EventFactory` | Helper class for creating takopi events with consistent engine/resume |
-| Builder methods | `started()`, `action()`, `action_started()`, `action_completed()`, `completed_ok()`, `completed_error()` |
+| Builder methods | `started()`, `action()`, `action_started()`, `action_updated()`, `action_completed()`, `completed()`, `completed_ok()`, `completed_error()` |
 
 ### `lockfile.py` - Single-instance enforcement
 

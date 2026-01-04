@@ -32,7 +32,7 @@ Emitted for **everything that is progress / updates / warnings / per-item lifecy
   "engine": "codex",
   "action": {
     "id": "item_5",
-    "kind": "tool",               // command | tool | file_change | web_search | note | turn | warning | telemetry
+    "kind": "tool",               // command | tool | file_change | web_search | subagent | note | turn | warning | telemetry
     "title": "docs.search",       // short label for renderer
     "detail": { ... }             // structured payload (freeform)
   },
