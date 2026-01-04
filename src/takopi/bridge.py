@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -10,6 +11,8 @@ from typing import Any
 
 import anyio
 
+from .commands import parse_daemon_command, strip_daemon_command
+from .daemon import DaemonConfig, handle_callback_query, handle_daemon_command
 from .model import CompletedEvent, EngineId, ResumeToken, StartedEvent, TakopiEvent
 from .render import (
     ExecProgressRenderer,
@@ -21,7 +24,7 @@ from .render import (
 from .router import AutoRouter, RunnerUnavailableError
 from .runner import Runner
 from .scheduler import ThreadJob, ThreadScheduler
-from .telegram import BotClient
+from .telegram import BotClient, parse_workspace_callback
 
 
 logger = logging.getLogger(__name__)
@@ -467,6 +470,7 @@ async def handle_message(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
+    workspace_name: str | None = None,
 ) -> None:
     logger.debug(
         "[handle] incoming chat_id=%s message_id=%s resume=%r text=%s",
@@ -682,6 +686,47 @@ async def poll_updates(cfg: BridgeConfig) -> AsyncIterator[dict[str, Any]]:
             if msg["chat"]["id"] != cfg.chat_id:
                 continue
             yield msg
+
+
+@dataclass(frozen=True, slots=True)
+class DaemonUpdate:
+    update_type: str
+    message: dict[str, Any] | None = None
+    callback_query: dict[str, Any] | None = None
+
+
+async def poll_daemon_updates(cfg: BridgeConfig) -> AsyncIterator[DaemonUpdate]:
+    offset: int | None = None
+    offset = await _drain_backlog(cfg, offset)
+    await _send_startup(cfg)
+
+    while True:
+        updates = await cfg.bot.get_updates(
+            offset=offset, timeout_s=50, allowed_updates=["message", "callback_query"]
+        )
+        if updates is None:
+            logger.info("[loop] getUpdates failed")
+            await anyio.sleep(2)
+            continue
+        logger.debug("[loop] updates: %s", updates)
+
+        for upd in updates:
+            offset = upd["update_id"] + 1
+
+            if "callback_query" in upd:
+                cq = upd["callback_query"]
+                if cq.get("message", {}).get("chat", {}).get("id") != cfg.chat_id:
+                    continue
+                yield DaemonUpdate(update_type="callback_query", callback_query=cq)
+                continue
+
+            if "message" in upd:
+                msg = upd["message"]
+                if "text" not in msg:
+                    continue
+                if msg["chat"]["id"] != cfg.chat_id:
+                    continue
+                yield DaemonUpdate(update_type="message", message=msg)
 
 
 async def _handle_cancel(
@@ -905,6 +950,246 @@ async def run_main_loop(
                 else:
                     await scheduler.enqueue_resume(
                         msg["chat"]["id"], user_msg_id, text, resume_token
+                    )
+    finally:
+        await cfg.bot.close()
+
+
+async def run_daemon_loop(
+    cfg: BridgeConfig,
+    daemon_cfg: DaemonConfig,
+) -> None:
+    running_tasks: dict[int, RunningTask] = {}
+
+    try:
+        await _set_command_menu(cfg)
+        async with anyio.create_task_group() as tg:
+
+            async def run_job(
+                chat_id: int,
+                user_msg_id: int,
+                text: str,
+                resume_token: ResumeToken | None,
+                on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
+                | None = None,
+                engine_override: EngineId | None = None,
+                workspace_name: str | None = None,
+            ) -> None:
+                try:
+                    if workspace_name:
+                        workspace = daemon_cfg.get_workspace(workspace_name)
+                        if workspace:
+                            os.chdir(workspace.path)
+                            logger.debug(
+                                "[daemon] switched to workspace: %s", workspace_name
+                            )
+
+                    try:
+                        entry = (
+                            cfg.router.entry_for_engine(engine_override)
+                            if resume_token is None
+                            else cfg.router.entry_for(resume_token)
+                        )
+                    except RunnerUnavailableError as exc:
+                        await _send_or_edit_markdown(
+                            cfg.bot,
+                            chat_id=chat_id,
+                            parts=MarkdownParts(header=f"error:\n{exc}"),
+                            reply_to_message_id=user_msg_id,
+                            disable_notification=False,
+                        )
+                        return
+                    if not entry.available:
+                        reason = entry.issue or "engine unavailable"
+                        await _send_runner_unavailable(
+                            cfg,
+                            chat_id=chat_id,
+                            user_msg_id=user_msg_id,
+                            resume_token=resume_token,
+                            runner=entry.runner,
+                            reason=reason,
+                        )
+                        return
+
+                    async def daemon_on_thread_known(
+                        token: ResumeToken, done: anyio.Event
+                    ) -> None:
+                        if workspace_name:
+                            daemon_cfg.state.update_session(
+                                workspace_name,
+                                entry.engine,
+                                token,
+                            )
+                            logger.debug(
+                                "[daemon] updated session for %s/%s: %s",
+                                workspace_name,
+                                entry.engine,
+                                token.value,
+                            )
+                        if on_thread_known:
+                            await on_thread_known(token, done)
+
+                    await handle_message(
+                        cfg,
+                        runner=entry.runner,
+                        chat_id=chat_id,
+                        user_msg_id=user_msg_id,
+                        text=text,
+                        resume_token=resume_token,
+                        strip_resume_line=cfg.router.is_resume_line,
+                        running_tasks=running_tasks,
+                        on_thread_known=daemon_on_thread_known,
+                        progress_edit_every=cfg.progress_edit_every,
+                        workspace_name=workspace_name,
+                    )
+                except Exception:
+                    logger.exception("[handle] worker failed")
+
+            async def run_thread_job(job: ThreadJob) -> None:
+                workspace = daemon_cfg.get_effective_workspace()
+                await run_job(
+                    job.chat_id,
+                    job.user_msg_id,
+                    job.text,
+                    job.resume_token,
+                    workspace_name=workspace.name if workspace else None,
+                )
+
+            scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
+
+            async for update in poll_daemon_updates(cfg):
+                if update.update_type == "callback_query" and update.callback_query:
+                    cq = update.callback_query
+                    cq_id = cq.get("id", "")
+                    cq_data = cq.get("data", "")
+                    cq_msg = cq.get("message", {})
+                    cq_chat_id = cq_msg.get("chat", {}).get("id", cfg.chat_id)
+                    cq_msg_id = cq_msg.get("message_id", 0)
+
+                    result = await handle_callback_query(
+                        cq_data, cq_id, daemon_cfg, cfg.bot, cq_chat_id, cq_msg_id
+                    )
+                    if result.switch_workspace:
+                        workspace = daemon_cfg.get_workspace(result.switch_workspace)
+                        if workspace:
+                            os.chdir(workspace.path)
+                            logger.info(
+                                "[daemon] switched to workspace: %s (%s)",
+                                workspace.name,
+                                workspace.path,
+                            )
+                    continue
+
+                if update.update_type != "message" or not update.message:
+                    continue
+
+                msg = update.message
+                text = msg["text"]
+                user_msg_id = msg["message_id"]
+                chat_id = msg["chat"]["id"]
+
+                if _is_cancel_command(text):
+                    tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
+                    continue
+
+                daemon_cmd = parse_daemon_command(text)
+                if daemon_cmd is not None:
+                    result = await handle_daemon_command(
+                        daemon_cmd, daemon_cfg, cfg.bot, chat_id, user_msg_id
+                    )
+                    if result.handled:
+                        if result.response_text:
+                            await cfg.bot.send_message(
+                                chat_id=chat_id,
+                                text=result.response_text,
+                                reply_to_message_id=user_msg_id,
+                                reply_markup=result.keyboard,
+                                parse_mode="Markdown",
+                            )
+                        if result.switch_workspace:
+                            workspace = daemon_cfg.get_workspace(
+                                result.switch_workspace
+                            )
+                            if workspace:
+                                os.chdir(workspace.path)
+                                logger.info(
+                                    "[daemon] switched to workspace: %s (%s)",
+                                    workspace.name,
+                                    workspace.path,
+                                )
+                        stripped_text, _ = strip_daemon_command(text)
+                        if not stripped_text.strip():
+                            continue
+                        text = stripped_text
+
+                text, engine_override = _strip_engine_command(
+                    text, engine_ids=cfg.router.engine_ids
+                )
+
+                r = msg.get("reply_to_message") or {}
+                resume_token = cfg.router.resolve_resume(text, r.get("text"))
+
+                # Resume engine session if one exists for this workspace.
+                # - If engine_override specified (/opencode), use that engine's session
+                # - If no engine_override, use active_engine or default_engine
+                if resume_token is None:
+                    workspace = daemon_cfg.get_effective_workspace()
+                    if workspace:
+                        session = daemon_cfg.state.get_session(workspace.name)
+                        target_engine = (
+                            engine_override
+                            or session.active_engine
+                            or cfg.router.default_engine
+                        )
+                        engine_token = session.get_resume_token(target_engine)
+                        if engine_token:
+                            resume_token = engine_token
+                            if engine_override is None:
+                                engine_override = target_engine
+                            logger.debug(
+                                "[daemon] resuming %s session: %s",
+                                target_engine,
+                                resume_token.value,
+                            )
+
+                reply_id = r.get("message_id")
+                if resume_token is None and reply_id is not None:
+                    running_task = running_tasks.get(int(reply_id))
+                    if running_task is not None:
+                        tg.start_soon(
+                            _send_with_resume,
+                            cfg.bot,
+                            scheduler.enqueue_resume,
+                            running_task,
+                            chat_id,
+                            user_msg_id,
+                            text,
+                        )
+                        continue
+
+                workspace = daemon_cfg.get_effective_workspace()
+                if workspace is None:
+                    await cfg.bot.send_message(
+                        chat_id=chat_id,
+                        text="No workspace selected. Use /workspaces to choose one.",
+                        reply_to_message_id=user_msg_id,
+                    )
+                    continue
+
+                if resume_token is None:
+                    tg.start_soon(
+                        run_job,
+                        chat_id,
+                        user_msg_id,
+                        text,
+                        None,
+                        scheduler.note_thread_known,
+                        engine_override,
+                        workspace.name,
+                    )
+                else:
+                    await scheduler.enqueue_resume(
+                        chat_id, user_msg_id, text, resume_token
                     )
     finally:
         await cfg.bot.close()

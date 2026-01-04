@@ -29,6 +29,7 @@ class BotClient(Protocol):
         disable_notification: bool | None = False,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
     ) -> dict | None: ...
 
     async def edit_message_text(
@@ -38,6 +39,7 @@ class BotClient(Protocol):
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
     ) -> dict | None: ...
 
     async def delete_message(self, chat_id: int, message_id: int) -> bool: ...
@@ -51,6 +53,12 @@ class BotClient(Protocol):
     ) -> bool: ...
 
     async def get_me(self) -> dict | None: ...
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+    ) -> bool: ...
 
 
 class TelegramClient:
@@ -151,6 +159,7 @@ class TelegramClient:
         disable_notification: bool | None = False,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
     ) -> dict | None:
         params: dict[str, Any] = {
             "chat_id": chat_id,
@@ -164,6 +173,8 @@ class TelegramClient:
             params["entities"] = entities
         if parse_mode is not None:
             params["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            params["reply_markup"] = reply_markup
         return await self._post("sendMessage", params)  # type: ignore[return-value]
 
     async def edit_message_text(
@@ -173,6 +184,7 @@ class TelegramClient:
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
     ) -> dict | None:
         params: dict[str, Any] = {
             "chat_id": chat_id,
@@ -183,6 +195,8 @@ class TelegramClient:
             params["entities"] = entities
         if parse_mode is not None:
             params["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            params["reply_markup"] = reply_markup
         return await self._post("editMessageText", params)  # type: ignore[return-value]
 
     async def delete_message(self, chat_id: int, message_id: int) -> bool:
@@ -213,3 +227,40 @@ class TelegramClient:
     async def get_me(self) -> dict | None:
         res = await self._post("getMe", {})
         return res if isinstance(res, dict) else None
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+    ) -> bool:
+        params: dict[str, Any] = {"callback_query_id": callback_query_id}
+        if text is not None:
+            params["text"] = text
+        res = await self._post("answerCallbackQuery", params)
+        return bool(res)
+
+
+WORKSPACE_CALLBACK_PREFIX = "ws:"
+
+
+def make_workspace_keyboard(
+    workspace_names: list[str], *, columns: int = 2
+) -> dict[str, Any]:
+    buttons: list[list[dict[str, str]]] = []
+    row: list[dict[str, str]] = []
+    for name in workspace_names:
+        row.append(
+            {"text": name, "callback_data": f"{WORKSPACE_CALLBACK_PREFIX}{name}"}
+        )
+        if len(row) >= columns:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    return {"inline_keyboard": buttons}
+
+
+def parse_workspace_callback(callback_data: str) -> str | None:
+    if callback_data.startswith(WORKSPACE_CALLBACK_PREFIX):
+        return callback_data[len(WORKSPACE_CALLBACK_PREFIX) :]
+    return None

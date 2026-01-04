@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
 EngineId: TypeAlias = str
+WorkspaceName: TypeAlias = str
+
+
+@dataclass(frozen=True, slots=True)
+class Workspace:
+    name: WorkspaceName
+    path: Path
+
 
 ActionKind: TypeAlias = Literal[
     "command",

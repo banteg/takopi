@@ -12,14 +12,32 @@ import typer
 
 from . import __version__
 from .backends import EngineBackend
-from .bridge import BridgeConfig, run_main_loop
-from .config import ConfigError, load_telegram_config
+from .bridge import BridgeConfig, run_daemon_loop, run_main_loop
+from .config import (
+    ConfigError,
+    get_default_workspace,
+    load_telegram_config,
+    parse_workspaces,
+)
+from .daemon import DEFAULT_STATE_PATH, DaemonConfig, DaemonState
 from .engines import get_backend, get_engine_config, list_backends
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import setup_logging
+from .model import Workspace
 from .onboarding import SetupResult, check_setup, interactive_setup
 from .router import AutoRouter, RunnerEntry
 from .telegram import TelegramClient
+from .workspaces import (
+    WORKSPACES_DIR,
+    WorkspaceError,
+    add_workspace,
+    get_workspace_status,
+    list_workspaces,
+    pull_workspace,
+    push_workspace,
+    remove_workspace,
+    reset_workspace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -387,6 +405,323 @@ def register_engine_commands() -> None:
 
 
 register_engine_commands()
+
+
+@app.command()
+def daemon(
+    state_file: Path = typer.Option(
+        DEFAULT_STATE_PATH,
+        "--state-file",
+        "-s",
+        help="Path to daemon state file.",
+    ),
+    final_notify: bool = typer.Option(
+        True,
+        "--final-notify/--no-final-notify",
+        help="Send the final response as a new message (not an edit).",
+    ),
+    debug: bool = typer.Option(
+        False,
+        "--debug/--no-debug",
+        help="Log engine JSONL, Telegram requests, and rendered messages.",
+    ),
+) -> None:
+    """Run in daemon mode with multi-workspace support."""
+    setup_logging(debug=debug)
+
+    try:
+        config, config_path = load_telegram_config()
+    except ConfigError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+
+    try:
+        config_workspaces = parse_workspaces(config, config_path)
+    except ConfigError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+
+    discovered_workspaces = [
+        Workspace(name=ws.name, path=ws.path) for ws in list_workspaces()
+    ]
+
+    workspace_map: dict[str, Workspace] = {}
+    for ws in discovered_workspaces:
+        workspace_map[ws.name] = ws
+    for ws in config_workspaces:
+        workspace_map[ws.name] = ws
+
+    if not workspace_map:
+        typer.echo(
+            f"No workspaces found. Either:\n"
+            f"  - Add workspaces with: takopi workspace add <repo>\n"
+            f"  - Configure in {config_path} with a [workspaces] section",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    workspaces = list(workspace_map.values())
+
+    try:
+        default_ws = get_default_workspace(config, config_path, workspaces)
+    except ConfigError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+
+    config_workspace_map = {ws.name: ws for ws in config_workspaces}
+
+    state = DaemonState.load(state_file)
+    daemon_cfg = DaemonConfig(
+        workspaces=workspace_map,
+        state=state,
+        default_workspace=default_ws,
+        config_workspaces=config_workspace_map,
+    )
+
+    active_ws = daemon_cfg.get_effective_workspace()
+    if active_ws is not None:
+        os.chdir(active_ws.path)
+        logger.info(
+            "[daemon] working in workspace: %s (%s)", active_ws.name, active_ws.path
+        )
+
+    try:
+        token = config["bot_token"]
+    except KeyError:
+        raise ConfigError(f"Missing key `bot_token` in {config_path}.") from None
+    if not isinstance(token, str) or not token.strip():
+        raise ConfigError(
+            f"Invalid `bot_token` in {config_path}; expected a non-empty string."
+        ) from None
+    try:
+        chat_id_value = config["chat_id"]
+    except KeyError:
+        raise ConfigError(f"Missing key `chat_id` in {config_path}.") from None
+    if isinstance(chat_id_value, bool) or not isinstance(chat_id_value, int):
+        raise ConfigError(
+            f"Invalid `chat_id` in {config_path}; expected an integer."
+        ) from None
+    chat_id = chat_id_value
+
+    backends = list_backends()
+    default_engine = config.get("default_engine") or "codex"
+    if not isinstance(default_engine, str) or not default_engine.strip():
+        raise ConfigError(
+            f"Invalid `default_engine` in {config_path}; expected a non-empty string."
+        )
+    default_engine = default_engine.strip()
+
+    router = _build_router(
+        config=config,
+        config_path=config_path,
+        backends=backends,
+        default_engine=default_engine,
+    )
+
+    available_engines = [entry.engine for entry in router.available_entries]
+    missing_engines = [entry.engine for entry in router.entries if not entry.available]
+    engine_list = ", ".join(available_engines) if available_engines else "none"
+    if missing_engines:
+        engine_list = f"{engine_list} (unavailable: {', '.join(missing_engines)})"
+
+    workspace_list = ", ".join(f"`{ws.name}`" for ws in workspaces)
+    active_info = f" (active: `{active_ws.name}`)" if active_ws else ""
+    startup_msg = (
+        f"\N{OCTOPUS} **takopi daemon mode**\n\n"
+        f"workspaces: {workspace_list}{active_info}\n"
+        f"default: `{router.default_engine}` | agents: {engine_list}\n\n"
+        f"Commands: `/workspaces`, `/workspace <name>`, `/new`"
+    )
+
+    bot = TelegramClient(token)
+
+    cfg = BridgeConfig(
+        bot=bot,
+        router=router,
+        chat_id=chat_id,
+        final_notify=final_notify,
+        startup_msg=startup_msg,
+    )
+
+    typer.echo(f"Starting daemon with {len(workspaces)} workspace(s)...")
+
+    async def _run() -> None:
+        await run_daemon_loop(cfg, daemon_cfg)
+
+    anyio.run(_run)
+
+
+workspace_app = typer.Typer(help="Manage workspaces for daemon mode.")
+app.add_typer(workspace_app, name="workspace")
+
+
+@workspace_app.command("add")
+def workspace_add(
+    source: str = typer.Argument(..., help="Git URL or local path to repository."),
+    name: str = typer.Option(
+        None,
+        "--name",
+        "-n",
+        help="Name for the workspace (derived from repo if not set).",
+    ),
+    branch: str = typer.Option(
+        None, "--branch", "-b", help="Branch name (defaults to takopi/<name>)."
+    ),
+) -> None:
+    """Add a new workspace from a git repository."""
+    try:
+        info = add_workspace(source, name=name, branch=branch)
+        typer.echo(f"Created workspace: {info.name}")
+        typer.echo(f"  Path: {info.path}")
+        typer.echo(f"  Branch: {info.branch}")
+        typer.echo(f"  Remote: {info.remote_url}")
+    except WorkspaceError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+
+@workspace_app.command("list")
+def workspace_list() -> None:
+    """List all workspaces."""
+    workspaces = list_workspaces()
+    if not workspaces:
+        typer.echo("No workspaces configured.")
+        typer.echo(f"Add one with: takopi workspace add <repo-url>")
+        return
+
+    typer.echo(f"Workspaces ({WORKSPACES_DIR}):\n")
+    for ws in workspaces:
+        typer.echo(f"  {ws.name}")
+        typer.echo(f"    Branch: {ws.branch}")
+        typer.echo(f"    Remote: {ws.remote_url}")
+        typer.echo()
+
+
+@workspace_app.command("remove")
+def workspace_remove(
+    name: str = typer.Argument(..., help="Name of the workspace to remove."),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Remove even if there are uncommitted changes."
+    ),
+) -> None:
+    """Remove a workspace."""
+    try:
+        remove_workspace(name, force=force)
+        typer.echo(f"Removed workspace: {name}")
+    except WorkspaceError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+
+@workspace_app.command("pull")
+def workspace_pull(
+    name: str = typer.Argument(..., help="Name of the workspace to pull."),
+) -> None:
+    """Pull latest changes from origin."""
+    try:
+        result = pull_workspace(name)
+        typer.echo(result)
+    except WorkspaceError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+
+@workspace_app.command("push")
+def workspace_push(
+    name: str = typer.Argument(..., help="Name of the workspace to push."),
+) -> None:
+    """Push changes to origin."""
+    try:
+        result = push_workspace(name)
+        typer.echo(result)
+    except WorkspaceError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+
+@workspace_app.command("reset")
+def workspace_reset(
+    name: str = typer.Argument(..., help="Name of the workspace to reset."),
+    soft: bool = typer.Option(
+        False, "--soft", help="Soft reset (keep changes staged)."
+    ),
+) -> None:
+    """Reset workspace to origin, discarding local changes."""
+    try:
+        result = reset_workspace(name, hard=not soft)
+        typer.echo(result)
+    except WorkspaceError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+
+@workspace_app.command("status")
+def workspace_status(
+    name: str = typer.Argument(None, help="Workspace name (all if not specified)."),
+) -> None:
+    """Show status of workspaces."""
+    try:
+        if name:
+            names = [name]
+        else:
+            workspaces = list_workspaces()
+            if not workspaces:
+                typer.echo("No workspaces configured.")
+                return
+            names = [ws.name for ws in workspaces]
+
+        for ws_name in names:
+            status = get_workspace_status(ws_name)
+            state_parts = []
+            if status.ahead:
+                state_parts.append(f"{status.ahead} ahead")
+            if status.behind:
+                state_parts.append(f"{status.behind} behind")
+            if status.dirty:
+                state_parts.append("modified")
+            if status.untracked:
+                state_parts.append(f"{status.untracked} untracked")
+
+            state_str = ", ".join(state_parts) if state_parts else "clean"
+            typer.echo(f"{status.name}: {status.branch} [{state_str}]")
+    except WorkspaceError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+
+@workspace_app.command("pr")
+def workspace_pr(
+    name: str = typer.Argument(..., help="Name of the workspace."),
+    title: str = typer.Option(None, "--title", "-t", help="PR title."),
+    draft: bool = typer.Option(False, "--draft", "-d", help="Create as draft PR."),
+) -> None:
+    """Create a pull request for the workspace branch."""
+    import subprocess
+
+    workspace_path = WORKSPACES_DIR / name
+    if not workspace_path.exists():
+        typer.echo(f"Error: Workspace not found: {name}", err=True)
+        raise typer.Exit(code=1)
+
+    cmd = ["gh", "pr", "create", "--fill"]
+    if title:
+        cmd.extend(["--title", title])
+    if draft:
+        cmd.append("--draft")
+
+    try:
+        result = subprocess.run(
+            cmd, cwd=workspace_path, check=True, capture_output=True, text=True
+        )
+        typer.echo(result.stdout)
+    except subprocess.CalledProcessError as e:
+        typer.echo(f"Error creating PR: {e.stderr}", err=True)
+        raise typer.Exit(code=1)
+    except FileNotFoundError:
+        typer.echo(
+            "Error: gh CLI not found. Install it from https://cli.github.com/", err=True
+        )
+        raise typer.Exit(code=1)
 
 
 def main() -> None:
