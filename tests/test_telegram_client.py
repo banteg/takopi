@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from takopi.logging import setup_logging
-from takopi.telegram import TelegramClient
+from takopi.telegram import TelegramClient, TelegramRetryAfter
 
 
 @pytest.mark.anyio
@@ -26,11 +26,12 @@ async def test_telegram_429_no_retry() -> None:
     client = httpx.AsyncClient(transport=transport)
     try:
         tg = TelegramClient("123:abcDEF_ghij", client=client)
-        result = await tg._post("sendMessage", {"chat_id": 1, "text": "hi"})
+        with pytest.raises(TelegramRetryAfter) as exc:
+            await tg._post("sendMessage", {"chat_id": 1, "text": "hi"})
     finally:
         await client.aclose()
 
-    assert result is None
+    assert exc.value.retry_after == 3
     assert len(calls) == 1
 
 

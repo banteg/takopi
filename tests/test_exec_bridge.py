@@ -8,6 +8,7 @@ from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.render import MarkdownParts, prepare_telegram
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.codex import CodexRunner
+from takopi.telegram import QueuedTelegramClient, TelegramPriority
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
 from tests.factories import action_completed, action_started
 
@@ -189,7 +190,12 @@ class _FakeBot:
         disable_notification: bool | None = False,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        *,
+        priority: TelegramPriority = TelegramPriority.NORMAL,
+        not_before: float | None = None,
     ) -> dict:
+        _ = priority
+        _ = not_before
         self.send_calls.append(
             {
                 "chat_id": chat_id,
@@ -211,7 +217,12 @@ class _FakeBot:
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        *,
+        priority: TelegramPriority = TelegramPriority.NORMAL,
+        not_before: float | None = None,
     ) -> dict:
+        _ = priority
+        _ = not_before
         self.edit_calls.append(
             {
                 "chat_id": chat_id,
@@ -223,7 +234,14 @@ class _FakeBot:
         )
         return {"message_id": message_id}
 
-    async def delete_message(self, chat_id: int, message_id: int) -> bool:
+    async def delete_message(
+        self,
+        chat_id: int,
+        message_id: int,
+        *,
+        priority: TelegramPriority = TelegramPriority.NORMAL,
+    ) -> bool:
+        _ = priority
         self.delete_calls.append({"chat_id": chat_id, "message_id": message_id})
         return True
 
@@ -231,9 +249,11 @@ class _FakeBot:
         self,
         commands: list[dict],
         *,
+        priority: TelegramPriority = TelegramPriority.NORMAL,
         scope: dict | None = None,
         language_code: str | None = None,
     ) -> bool:
+        _ = priority
         self.command_calls.append(
             {
                 "commands": commands,
@@ -257,7 +277,10 @@ class _FakeBot:
     async def close(self) -> None:
         return None
 
-    async def get_me(self) -> dict | None:
+    async def get_me(
+        self, *, priority: TelegramPriority = TelegramPriority.NORMAL
+    ) -> dict | None:
+        _ = priority
         return {"id": 1}
 
 
@@ -281,13 +304,33 @@ class _FakeClock:
             self._sleep_event = None
 
     async def sleep(self, delay: float) -> None:
-        self.sleep_calls += 1
         if delay <= 0:
             await anyio.sleep(0)
             return
+        self.sleep_calls += 1
         self._sleep_until = self._now + delay
         self._sleep_event = anyio.Event()
         await self._sleep_event.wait()
+
+
+def _queued_bot(
+    bot: "_FakeBot", *, clock: "_FakeClock | None" = None
+) -> QueuedTelegramClient:
+    if clock is None:
+        return QueuedTelegramClient(
+            bot,
+            global_rps=0.0,
+            private_chat_rps=0.0,
+            group_chat_rps=0.0,
+        )
+    return QueuedTelegramClient(
+        bot,
+        clock=clock,
+        sleep=clock.sleep,
+        global_rps=0.0,
+        private_chat_rps=0.0,
+        group_chat_rps=0.0,
+    )
 
 
 def _return_runner(
@@ -307,7 +350,7 @@ async def test_final_notify_sends_loud_final_message() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -335,7 +378,7 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
     bot = _FakeBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -366,7 +409,7 @@ async def test_long_final_message_edits_progress_message() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="x" * 10_000)
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=False,
@@ -408,7 +451,7 @@ async def test_progress_edits_are_rate_limited() -> None:
         advance=clock.set,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot, clock=clock),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -453,7 +496,7 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
         advance=clock.set,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot, clock=clock),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -529,7 +572,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
         resume_value=session_id,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot, clock=clock),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -564,7 +607,7 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -586,7 +629,7 @@ async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> 
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -612,7 +655,7 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -639,7 +682,7 @@ async def test_handle_cancel_cancels_running_task() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -669,7 +712,7 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     bot = _FakeBot()
     runner = _return_runner(answer="ok")
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -714,7 +757,7 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
         resume_value=session_id,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -764,7 +807,7 @@ async def test_handle_message_error_preserves_resume_token() -> None:
         resume_value=session_id,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,
@@ -873,6 +916,9 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
             disable_notification: bool | None = False,
             entities: list[dict] | None = None,
             parse_mode: str | None = None,
+            *,
+            priority: TelegramPriority = TelegramPriority.NORMAL,
+            not_before: float | None = None,
         ) -> dict:
             msg = await super().send_message(
                 chat_id=chat_id,
@@ -881,6 +927,8 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
                 disable_notification=disable_notification,
                 entities=entities,
                 parse_mode=parse_mode,
+                priority=priority,
+                not_before=not_before,
             )
             if self.progress_id is None and reply_to_message_id is not None:
                 self.progress_id = int(msg["message_id"])
@@ -895,7 +943,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
         resume_value=resume_value,
     )
     cfg = BridgeConfig(
-        bot=bot,
+        bot=_queued_bot(bot),
         router=_make_router(runner),
         chat_id=123,
         final_notify=True,

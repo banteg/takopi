@@ -21,7 +21,7 @@ from .render import (
 from .router import AutoRouter, RunnerUnavailableError
 from .runner import Runner
 from .scheduler import ThreadJob, ThreadScheduler
-from .telegram import BotClient
+from .telegram import BotClient, TelegramPriority
 
 
 logger = get_logger(__name__)
@@ -166,6 +166,7 @@ async def _send_or_edit_markdown(
     reply_to_message_id: int | None = None,
     disable_notification: bool = False,
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
+    priority: TelegramPriority = TelegramPriority.NORMAL,
 ) -> tuple[dict[str, Any] | None, bool]:
     if prepared is None:
         rendered, entities = prepare_telegram(parts)
@@ -183,6 +184,7 @@ async def _send_or_edit_markdown(
             message_id=edit_message_id,
             text=rendered,
             entities=entities,
+            priority=priority,
         )
         if edited is not None:
             return (edited, True)
@@ -200,6 +202,7 @@ async def _send_or_edit_markdown(
             entities=entities,
             reply_to_message_id=reply_to_message_id,
             disable_notification=disable_notification,
+            priority=priority,
         ),
         False,
     )
@@ -243,7 +246,6 @@ class ProgressEdits:
                     await self.signal_recv.receive()
                 except anyio.EndOfStream:
                     return
-
             await self.sleep(
                 max(
                     0.0,
@@ -262,15 +264,16 @@ class ProgressEdits:
                     message_id=self.progress_id,
                     rendered=rendered,
                 )
-                self.last_edit_at = now
                 edited = await self.bot.edit_message_text(
                     chat_id=self.chat_id,
                     message_id=self.progress_id,
                     text=rendered,
                     entities=entities,
+                    priority=TelegramPriority.LOW,
                 )
                 if edited is not None:
                     self.last_rendered = rendered
+                    self.last_edit_at = self.clock()
 
             self.rendered_seq = seq_at_render
 
@@ -369,6 +372,7 @@ async def send_initial_progress(
         entities=initial_entities,
         reply_to_message_id=user_msg_id,
         disable_notification=True,
+        priority=TelegramPriority.HIGH,
     )
     if progress_msg is not None:
         progress_id = int(progress_msg["message_id"])
@@ -456,6 +460,7 @@ async def send_result_message(
     edit_message_id: int | None,
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
     delete_tag: str = "final",
+    priority: TelegramPriority = TelegramPriority.HIGH,
 ) -> None:
     final_msg, edited = await _send_or_edit_markdown(
         cfg.bot,
@@ -465,6 +470,7 @@ async def send_result_message(
         reply_to_message_id=user_msg_id,
         disable_notification=disable_notification,
         prepared=prepared,
+        priority=priority,
     )
     if final_msg is None:
         return
@@ -728,6 +734,7 @@ async def _handle_cancel(
             chat_id=chat_id,
             text="reply to the progress message to cancel.",
             reply_to_message_id=user_msg_id,
+            priority=TelegramPriority.HIGH,
         )
         return
 
@@ -737,6 +744,7 @@ async def _handle_cancel(
             chat_id=chat_id,
             text="nothing is currently running for that message.",
             reply_to_message_id=user_msg_id,
+            priority=TelegramPriority.HIGH,
         )
         return
 
@@ -746,6 +754,7 @@ async def _handle_cancel(
             chat_id=chat_id,
             text="nothing is currently running for that message.",
             reply_to_message_id=user_msg_id,
+            priority=TelegramPriority.HIGH,
         )
         return
 
@@ -795,6 +804,7 @@ async def _send_with_resume(
             text="resume token not ready yet; try replying to the final message.",
             reply_to_message_id=user_msg_id,
             disable_notification=True,
+            priority=TelegramPriority.HIGH,
         )
         return
     await enqueue(chat_id, user_msg_id, text, resume)
@@ -823,6 +833,7 @@ async def _send_runner_unavailable(
         parts=final_parts,
         reply_to_message_id=user_msg_id,
         disable_notification=False,
+        priority=TelegramPriority.HIGH,
     )
 
 
@@ -859,6 +870,7 @@ async def run_main_loop(
                             parts=MarkdownParts(header=f"error:\n{exc}"),
                             reply_to_message_id=user_msg_id,
                             disable_notification=False,
+                            priority=TelegramPriority.HIGH,
                         )
                         return
                     if not entry.available:
@@ -926,6 +938,9 @@ async def run_main_loop(
                 reply_id = r.get("message_id")
                 if resume_token is None and reply_id is not None:
                     running_task = running_tasks.get(int(reply_id))
+                    if running_task is None:
+                        await anyio.sleep(0)
+                        running_task = running_tasks.get(int(reply_id))
                     if running_task is not None:
                         tg.start_soon(
                             _send_with_resume,

@@ -25,7 +25,7 @@ from .backends_helpers import install_issue
 from .config import ConfigError, HOME_CONFIG_PATH, load_telegram_config
 from .engines import list_backends
 from .logging import suppress_logs
-from .telegram import TelegramClient
+from .telegram import TelegramClient, TelegramRetryAfter
 
 
 @dataclass(slots=True)
@@ -132,7 +132,12 @@ def _render_config(token: str, chat_id: int, default_engine: str | None) -> str:
 async def _get_bot_info(token: str) -> dict[str, Any] | None:
     bot = TelegramClient(token)
     try:
-        return await bot.get_me()
+        for _ in range(3):
+            try:
+                return await bot.get_me()
+            except TelegramRetryAfter as exc:
+                await anyio.sleep(exc.retry_after)
+        return None
     finally:
         await bot.close()
 
@@ -148,9 +153,13 @@ async def _wait_for_chat(token: str) -> ChatInfo:
         if drained:
             offset = drained[-1]["update_id"] + 1
         while True:
-            updates = await bot.get_updates(
-                offset=offset, timeout_s=50, allowed_updates=allowed_updates
-            )
+            try:
+                updates = await bot.get_updates(
+                    offset=offset, timeout_s=50, allowed_updates=allowed_updates
+                )
+            except TelegramRetryAfter as exc:
+                await anyio.sleep(exc.retry_after)
+                continue
             if updates is None:
                 await anyio.sleep(1)
                 continue
