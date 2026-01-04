@@ -505,6 +505,12 @@ def daemon(
         ) from None
     chat_id = chat_id_value
 
+    try:
+        lock_handle = acquire_config_lock(config_path, token)
+    except LockError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(code=1)
+
     backends = list_backends()
     default_engine = config.get("default_engine") or "codex"
     if not isinstance(default_engine, str) or not default_engine.strip():
@@ -550,7 +556,10 @@ def daemon(
     async def _run() -> None:
         await run_daemon_loop(cfg, daemon_cfg)
 
-    anyio.run(_run)
+    try:
+        anyio.run(_run)
+    finally:
+        lock_handle.release()
 
 
 workspace_app = typer.Typer(help="Manage workspaces for daemon mode.")
