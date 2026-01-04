@@ -191,7 +191,7 @@ class _FakeBot:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict:
         _ = priority
@@ -218,7 +218,7 @@ class _FakeBot:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict:
         _ = priority
@@ -239,7 +239,7 @@ class _FakeBot:
         chat_id: int,
         message_id: int,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
         _ = priority
         self.delete_calls.append({"chat_id": chat_id, "message_id": message_id})
@@ -249,7 +249,7 @@ class _FakeBot:
         self,
         commands: list[dict],
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         scope: dict | None = None,
         language_code: str | None = None,
     ) -> bool:
@@ -278,7 +278,7 @@ class _FakeBot:
         return None
 
     async def get_me(
-        self, *, priority: TelegramPriority = TelegramPriority.NORMAL
+        self, *, priority: TelegramPriority = TelegramPriority.HIGH
     ) -> dict | None:
         _ = priority
         return {"id": 1}
@@ -915,7 +915,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
             entities: list[dict] | None = None,
             parse_mode: str | None = None,
             *,
-            priority: TelegramPriority = TelegramPriority.NORMAL,
+            priority: TelegramPriority = TelegramPriority.HIGH,
             not_before: float | None = None,
         ) -> dict:
             msg = await super().send_message(

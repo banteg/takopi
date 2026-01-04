@@ -24,8 +24,7 @@ else:
 
 class TelegramPriority(enum.IntEnum):
     HIGH = 0
-    NORMAL = 1
-    LOW = 2
+    LOW = 1
 
 
 class TelegramRetryAfter(Exception):
@@ -58,7 +57,7 @@ class BotClient(Protocol):
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict | None: ...
 
@@ -70,7 +69,7 @@ class BotClient(Protocol):
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict | None: ...
 
@@ -79,20 +78,20 @@ class BotClient(Protocol):
         chat_id: int,
         message_id: int,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool: ...
 
     async def set_my_commands(
         self,
         commands: list[dict[str, Any]],
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool: ...
 
     async def get_me(
-        self, *, priority: TelegramPriority = TelegramPriority.NORMAL
+        self, *, priority: TelegramPriority = TelegramPriority.HIGH
     ) -> dict | None: ...
 
 
@@ -257,7 +256,7 @@ class TelegramClient:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict | None:
         _ = priority
@@ -284,7 +283,7 @@ class TelegramClient:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict | None:
         _ = priority
@@ -305,7 +304,7 @@ class TelegramClient:
         chat_id: int,
         message_id: int,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
         _ = priority
         res = await self._post(
@@ -321,7 +320,7 @@ class TelegramClient:
         self,
         commands: list[dict[str, Any]],
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool:
@@ -335,7 +334,7 @@ class TelegramClient:
         return bool(res)
 
     async def get_me(
-        self, *, priority: TelegramPriority = TelegramPriority.NORMAL
+        self, *, priority: TelegramPriority = TelegramPriority.HIGH
     ) -> dict | None:
         _ = priority
         res = await self._post("getMe", {})
@@ -428,7 +427,6 @@ class QueuedTelegramClient:
         )
         self._queues: dict[TelegramPriority, deque[_QueuedRequest]] = {
             TelegramPriority.HIGH: deque(),
-            TelegramPriority.NORMAL: deque(),
             TelegramPriority.LOW: deque(),
         }
         self._pending_by_key: dict[tuple[Any, ...], _QueuedRequest] = {}
@@ -478,11 +476,7 @@ class QueuedTelegramClient:
             while True:
                 if self._closed and all(not queue for queue in self._queues.values()):
                     return None
-                for priority in (
-                    TelegramPriority.HIGH,
-                    TelegramPriority.NORMAL,
-                    TelegramPriority.LOW,
-                ):
+                for priority in (TelegramPriority.HIGH, TelegramPriority.LOW):
                     queue = self._queues[priority]
                     if queue:
                         return queue.popleft()
@@ -593,7 +587,7 @@ class QueuedTelegramClient:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict | None:
         request = _QueuedRequest(
@@ -622,7 +616,7 @@ class QueuedTelegramClient:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict | None:
         coalesce_key = None
@@ -650,7 +644,7 @@ class QueuedTelegramClient:
         chat_id: int,
         message_id: int,
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
         request = _QueuedRequest(
             method="delete_message",
@@ -667,7 +661,7 @@ class QueuedTelegramClient:
         self,
         commands: list[dict[str, Any]],
         *,
-        priority: TelegramPriority = TelegramPriority.NORMAL,
+        priority: TelegramPriority = TelegramPriority.HIGH,
         scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool:
@@ -687,7 +681,7 @@ class QueuedTelegramClient:
         return bool(await self._enqueue(request))
 
     async def get_me(
-        self, *, priority: TelegramPriority = TelegramPriority.NORMAL
+        self, *, priority: TelegramPriority = TelegramPriority.HIGH
     ) -> dict | None:
         request = _QueuedRequest(
             method="get_me",

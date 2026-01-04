@@ -166,7 +166,7 @@ async def _send_or_edit_markdown(
     reply_to_message_id: int | None = None,
     disable_notification: bool = False,
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
-    priority: TelegramPriority = TelegramPriority.NORMAL,
+    priority: TelegramPriority = TelegramPriority.HIGH,
 ) -> tuple[dict[str, Any] | None, bool]:
     if prepared is None:
         rendered, entities = prepare_telegram(parts)
