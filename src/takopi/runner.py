@@ -12,6 +12,7 @@ from typing import Any, Protocol, cast
 from weakref import WeakValueDictionary
 
 import anyio
+import structlog
 
 from .model import (
     Action,
@@ -131,8 +132,10 @@ class JsonlRunState:
 
 
 class JsonlSubprocessRunner(BaseRunner):
-    def get_logger(self) -> logging.Logger:
-        return getattr(self, "logger", logging.getLogger(__name__))
+    stderr_tail_lines: int = 200
+
+    def get_logger(self):
+        return getattr(self, "logger", structlog.get_logger(__name__))
 
     def command(self) -> str:
         raise NotImplementedError

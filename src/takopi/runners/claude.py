@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -9,6 +8,8 @@ from typing import Any
 
 import msgspec
 
+import structlog
+
 from ..backends import EngineBackend, EngineConfig
 from ..events import EventFactory
 from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
@@ -16,7 +17,7 @@ from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import claude as claude_schema
 from ..utils.paths import relativize_command, relativize_path
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 ENGINE: EngineId = EngineId("claude")
 DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Edit", "Write"]

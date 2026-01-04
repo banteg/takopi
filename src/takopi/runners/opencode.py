@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import msgspec
+import structlog
 
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
@@ -37,7 +38,7 @@ from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import opencode as opencode_schema
 from ..utils.paths import relativize_command, relativize_path
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 ENGINE: EngineId = EngineId("opencode")
 
@@ -350,7 +351,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     opencode_cmd: str = "opencode"
     model: str | None = None
     session_title: str = "opencode"
-    logger: logging.Logger = logger
+    logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:

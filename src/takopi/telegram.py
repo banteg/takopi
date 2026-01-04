@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import logging
 from typing import Any, Protocol
 
 import httpx
+import structlog
 
-from .logging import RedactTokenFilter
-
-logger = logging.getLogger(__name__)
-logger.addFilter(RedactTokenFilter())
+logger = structlog.get_logger(__name__)
 
 
 class BotClient(Protocol):

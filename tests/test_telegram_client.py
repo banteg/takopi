@@ -2,8 +2,9 @@ import logging
 
 import httpx
 import pytest
+import structlog
 
-from takopi.logging import RedactTokenFilter
+from takopi.logging import redact_token_processor, setup_logging
 from takopi.telegram import TelegramClient
 
 
@@ -36,29 +37,15 @@ async def test_telegram_429_no_retry() -> None:
     assert len(calls) == 1
 
 
-@pytest.mark.anyio
-async def test_no_token_in_logs_on_http_error(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    token = "123:abcDEF_ghij"
-    redactor = RedactTokenFilter()
-    root_logger = logging.getLogger()
-    root_logger.addFilter(redactor)
+def test_redact_token_processor():
+    event_dict = {"event": "error bot123:abcDEF_ghij message"}
+    result = redact_token_processor(None, None, event_dict)
+    assert result["event"] == "error bot[REDACTED] message"
+    assert "123:abcDEF_ghij" not in result["event"]
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, text="oops", request=request)
 
-    transport = httpx.MockTransport(handler)
-
-    caplog.set_level(logging.ERROR)
-    client = httpx.AsyncClient(transport=transport)
-    try:
-        tg = TelegramClient(token, client=client)
-        await tg._post("getUpdates", {"timeout": 1})
-    finally:
-        await client.aclose()
-
-    root_logger.removeFilter(redactor)
-
-    assert token not in caplog.text
-    assert "bot[REDACTED]" in caplog.text
+def test_redact_bare_token_processor():
+    event_dict = {"event": "error 123:ABCdefGHIjklMNOpqrsTUVwxyz message"}
+    result = redact_token_processor(None, None, event_dict)
+    assert result["event"] == "error [REDACTED_TOKEN] message"
+    assert "123:ABCdefGHIjklMNOpqrsTUVwxyz" not in result["event"]

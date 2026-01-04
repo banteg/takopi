@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import shutil
 import sys
@@ -8,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import anyio
+import structlog
 import typer
 
 from . import __version__
@@ -21,7 +21,7 @@ from .onboarding import SetupResult, check_setup, interactive_setup
 from .router import AutoRouter, RunnerEntry
 from .telegram import TelegramClient
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _print_version_and_exit() -> None:
