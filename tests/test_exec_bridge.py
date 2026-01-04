@@ -319,7 +319,6 @@ def _queued_bot(
     if clock is None:
         return QueuedTelegramClient(
             bot,
-            global_rps=0.0,
             private_chat_rps=0.0,
             group_chat_rps=0.0,
         )
@@ -327,7 +326,6 @@ def _queued_bot(
         bot,
         clock=clock,
         sleep=clock.sleep,
-        global_rps=0.0,
         private_chat_rps=0.0,
         group_chat_rps=0.0,
     )

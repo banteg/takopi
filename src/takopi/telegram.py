@@ -368,19 +368,16 @@ class TelegramRateLimiter:
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-        global_rps: float = 0.0,
         private_chat_rps: float = 1.0,
         group_chat_rps: float = 20.0 / 60.0,
     ) -> None:
         self._clock = clock
         self._sleep = sleep
 
-        self._g_interval = 0.0 if global_rps <= 0 else 1.0 / global_rps
         self._p_interval = 0.0 if private_chat_rps <= 0 else 1.0 / private_chat_rps
         self._gr_interval = 0.0 if group_chat_rps <= 0 else 1.0 / group_chat_rps
 
         self._lock = anyio.Lock()
-        self._global_next_at: float = 0.0
         self._chat_next_at: dict[int, float] = defaultdict(float)
 
     def _chat_interval(self, chat_id: int) -> float:
@@ -392,11 +389,10 @@ class TelegramRateLimiter:
     ) -> None:
         async with self._lock:
             now = self._clock()
-            target = max(now, not_before or now, self._global_next_at)
+            target = max(now, not_before or now)
             if chat_id is not None:
                 target = max(target, self._chat_next_at[chat_id])
 
-            self._global_next_at = target + self._g_interval
             if chat_id is not None:
                 self._chat_next_at[chat_id] = target + self._chat_interval(chat_id)
 
@@ -410,7 +406,6 @@ class TelegramRateLimiter:
         async with self._lock:
             now = self._clock()
             until = now + delay
-            self._global_next_at = max(self._global_next_at, until)
             if chat_id is not None:
                 self._chat_next_at[chat_id] = max(self._chat_next_at[chat_id], until)
         await self._sleep(delay)
@@ -423,7 +418,6 @@ class QueuedTelegramClient:
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-        global_rps: float = 0.0,
         private_chat_rps: float = 1.0,
         group_chat_rps: float = 20.0 / 60.0,
     ) -> None:
@@ -431,7 +425,6 @@ class QueuedTelegramClient:
         self._limiter = TelegramRateLimiter(
             clock=clock,
             sleep=sleep,
-            global_rps=global_rps,
             private_chat_rps=private_chat_rps,
             group_chat_rps=group_chat_rps,
         )
