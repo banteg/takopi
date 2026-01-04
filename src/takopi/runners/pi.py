@@ -245,6 +245,7 @@ def translate_pi_event(
 class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE
+    session_title: str = "pi"
     logger = logger
 
     def __init__(
