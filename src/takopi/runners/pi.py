@@ -250,19 +250,13 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     def __init__(
         self,
         *,
-        pi_cmd: str,
         extra_args: list[str],
         model: str | None,
         provider: str | None,
-        session_title: str,
-        session_dir: Path | None,
     ) -> None:
-        self.pi_cmd = pi_cmd
         self.extra_args = extra_args
         self.model = model
         self.provider = provider
-        self.session_title = session_title
-        self.session_dir = session_dir
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
@@ -286,7 +280,7 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         return ResumeToken(engine=self.engine, value=found)
 
     def command(self) -> str:
-        return self.pi_cmd
+        return "pi"
 
     def build_args(
         self,
@@ -426,7 +420,7 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         ]
 
     def _new_session_path(self) -> str:
-        session_dir = self.session_dir or _default_session_dir(Path.cwd())
+        session_dir = _default_session_dir(Path.cwd())
         session_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).isoformat()
         safe_timestamp = timestamp.replace(":", "-").replace(".", "-")
@@ -457,10 +451,6 @@ def _default_session_dir(cwd: Path) -> Path:
 
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
-    cmd = config.get("cmd") or "pi"
-    if not isinstance(cmd, str):
-        raise ConfigError(f"Invalid `pi.cmd` in {config_path}; expected a string.")
-
     extra_args_value = config.get("extra_args")
     if extra_args_value is None:
         extra_args = []
@@ -481,24 +471,10 @@ def build_runner(config: EngineConfig, config_path: Path) -> Runner:
     if provider is not None and not isinstance(provider, str):
         raise ConfigError(f"Invalid `pi.provider` in {config_path}; expected a string.")
 
-    session_dir_value = config.get("session_dir")
-    session_dir: Path | None = None
-    if session_dir_value is not None:
-        if not isinstance(session_dir_value, str):
-            raise ConfigError(
-                f"Invalid `pi.session_dir` in {config_path}; expected a string."
-            )
-        session_dir = Path(session_dir_value).expanduser()
-
-    title = str(config.get("session_title") or (model if model else "pi"))
-
     return PiRunner(
-        pi_cmd=cmd,
         extra_args=extra_args,
         model=model,
         provider=provider,
-        session_title=title,
-        session_dir=session_dir,
     )
 
 

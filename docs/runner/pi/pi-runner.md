@@ -54,7 +54,7 @@ Takopi config lives at `~/.takopi/takopi.toml`.
 
 Add a new optional `[pi]` section.
 
-Recommended v1 schema:
+Recommended schema:
 
 ```toml
 # ~/.takopi/takopi.toml
@@ -62,18 +62,15 @@ Recommended v1 schema:
 default_engine = "pi"
 
 [pi]
-cmd = "pi"                 # optional; defaults to "pi"
-extra_args = []             # optional list of strings, appended verbatim
 model = "..."               # optional; passed as --model
 provider = "..."            # optional; passed as --provider
-session_dir = "..."         # optional; directory for session files
-session_title = "pi"        # optional; defaults to model or "pi"
+extra_args = []             # optional list of strings, appended verbatim
 ```
 
 Notes:
 
 * `extra_args` lets you pass new Pi flags without changing Takopi.
-* If `session_dir` is omitted, Takopi uses Pi's default session dir:
+* Session files are stored under Pi's default session dir:
   `~/.pi/agent/sessions/--<cwd>--` (with path separators replaced by `-`).
 
 ---

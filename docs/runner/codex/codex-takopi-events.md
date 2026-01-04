@@ -1,8 +1,12 @@
-Here’s a clean way to make “Takopi events” just **3 shapes** while still covering **every `codex exec --json` line type** and preserving the invariants you care about (stable IDs, resume/thread ownership, final answer delivery).  
+# Codex -> Takopi event mapping
+
+This document describes how Codex exec --json events are translated to Takopi's normalized event model.
+
+> **Authoritative source:** The schema definitions are in `src/takopi/schemas/codex.py` and the translation logic is in `src/takopi/runners/codex.py`. When in doubt, refer to the code.
 
 ## The 3-event Takopi schema
 
-I’d model it like this (JSON-ish). The important trick is: **your single `action` event needs a `phase`**, otherwise you can’t represent started/updated/completed lifecycles.
+The Takopi event model uses 3 event types. The `action` event includes a `phase` field to represent started/updated/completed lifecycles.
 
 ### 1) `started`
 

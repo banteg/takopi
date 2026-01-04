@@ -66,9 +66,14 @@ dangerously_skip_permissions = false
 # uses subscription by default, override to use api billing
 use_api_billing = false
 
+[opencode]
+model = "claude-sonnet-4-20250514"
+
 [pi]
 model = "gpt-4.1"
 provider = "openai"
+# optional: additional CLI arguments
+extra_args = ["--no-color"]
 ```
 
 ## usage

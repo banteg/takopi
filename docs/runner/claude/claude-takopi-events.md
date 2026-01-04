@@ -1,16 +1,10 @@
 # Claude Code -> Takopi event mapping (spec)
 
-This document specifies how the Claude Code runner (implemented in Takopi v0.3.0)
-translates Claude CLI `--output-format stream-json` JSONL events into Takopi events.
-It is based on the reverse-engineered schema in `humanlayer/claudecode-go`:
+This document describes how the Claude Code runner translates Claude CLI JSONL events into Takopi events.
 
-- `claudecode-go/types.go` (StreamEvent, Message, Content, Result)
-- `claudecode-go/client.go` (CLI flags, stream parsing)
-- `claudecode-go/client_test.go` (schema validation + permission_denials)
+> **Authoritative source:** The schema definitions are in `src/takopi/schemas/claude.py` and the translation logic is in `src/takopi/runners/claude.py`. When in doubt, refer to the code.
 
-The goal is to make a Claude runner feel identical to the Codex runner from the
-bridge/renderer point of view while preserving Takopi invariants (stable action
-ids, per-session serialization, single completed event).
+The goal is to make a Claude runner feel identical to the Codex runner from the bridge/renderer point of view while preserving Takopi invariants (stable action ids, per-session serialization, single completed event).
 
 ---
 

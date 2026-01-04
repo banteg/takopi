@@ -1,12 +1,10 @@
 # Pi -> Takopi event mapping (spec)
 
-This document specifies how the Pi runner shipped in Takopi v0.5.0 translates
-Pi CLI `--mode json` JSONL events into Takopi events. The Pi JSONL stream is
-`AgentSessionEvent` from `@mariozechner/pi-agent-core`.
+This document describes how the Pi runner translates Pi CLI `--mode json` JSONL events into Takopi events.
 
-The goal is to make Pi feel identical to the Codex/Claude runners from the
-bridge/renderer point of view while preserving Takopi invariants (stable action
-ids, per-session serialization, single completed event).
+> **Authoritative source:** The schema definitions are in `src/takopi/schemas/pi.py` and the translation logic is in `src/takopi/runners/pi.py`. When in doubt, refer to the code.
+
+The goal is to make Pi feel identical to the Codex/Claude runners from the bridge/renderer point of view while preserving Takopi invariants (stable action ids, per-session serialization, single completed event).
 
 ---
 
@@ -145,10 +143,9 @@ A minimal TOML config for Pi:
 
 ```toml
 [pi]
-cmd = "pi"
 model = "..."
 provider = "..."
 extra_args = []
 ```
 
-Use `extra_args` for any newer Pi CLI flags not explicitly mapped.
+Use `extra_args` for any Pi CLI flags not explicitly mapped.

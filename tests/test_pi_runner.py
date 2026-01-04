@@ -24,12 +24,9 @@ def _load_fixture(name: str) -> list[pi_schema.PiEvent]:
 
 def test_pi_resume_format_and_extract() -> None:
     runner = PiRunner(
-        pi_cmd="pi",
         extra_args=[],
         model=None,
         provider=None,
-        session_title="pi",
-        session_dir=None,
     )
     token = ResumeToken(engine=ENGINE, value="/tmp/pi/session.jsonl")
 
@@ -95,12 +92,9 @@ def test_translate_error_fixture() -> None:
 @pytest.mark.anyio
 async def test_run_serializes_same_session() -> None:
     runner = PiRunner(
-        pi_cmd="pi",
         extra_args=[],
         model=None,
         provider=None,
-        session_title="pi",
-        session_dir=None,
     )
     gate = anyio.Event()
     in_flight = 0
@@ -136,93 +130,3 @@ async def test_run_serializes_same_session() -> None:
     assert max_in_flight == 1
 
 
-@pytest.mark.anyio
-async def test_run_serializes_new_session_after_session_is_known(
-    tmp_path, monkeypatch
-) -> None:
-    gate_path = tmp_path / "gate"
-    resume_marker = tmp_path / "resume_started"
-
-    pi_path = tmp_path / "pi"
-    pi_path.write_text(
-        "#!/usr/bin/env python3\n"
-        "import json\n"
-        "import os\n"
-        "import sys\n"
-        "import time\n"
-        "\n"
-        "gate = os.environ['PI_TEST_GATE']\n"
-        "resume_marker = os.environ['PI_TEST_RESUME_MARKER']\n"
-        "resume_value = os.environ.get('PI_TEST_RESUME_VALUE')\n"
-        "\n"
-        "args = sys.argv[1:]\n"
-        "session_path = None\n"
-        "if '--session' in args:\n"
-        "    idx = args.index('--session')\n"
-        "    if idx + 1 < len(args):\n"
-        "        session_path = args[idx + 1]\n"
-        "\n"
-        "print(json.dumps({'type': 'agent_start'}), flush=True)\n"
-        "\n"
-        "if resume_value and session_path == resume_value:\n"
-        "    with open(resume_marker, 'w', encoding='utf-8') as f:\n"
-        "        f.write('started')\n"
-        "        f.flush()\n"
-        "    print(json.dumps({'type': 'agent_end', 'messages': []}), flush=True)\n"
-        "    sys.exit(0)\n"
-        "\n"
-        "while not os.path.exists(gate):\n"
-        "    time.sleep(0.001)\n"
-        "print(json.dumps({'type': 'agent_end', 'messages': []}), flush=True)\n"
-        "sys.exit(0)\n",
-        encoding="utf-8",
-    )
-    pi_path.chmod(0o755)
-
-    monkeypatch.setenv("PI_TEST_GATE", str(gate_path))
-    monkeypatch.setenv("PI_TEST_RESUME_MARKER", str(resume_marker))
-
-    runner = PiRunner(
-        pi_cmd=str(pi_path),
-        extra_args=[],
-        model=None,
-        provider=None,
-        session_title="pi",
-        session_dir=tmp_path / "sessions",
-    )
-
-    session_started = anyio.Event()
-    resume_value: str | None = None
-    new_done = anyio.Event()
-
-    async def run_new() -> None:
-        nonlocal resume_value
-        async for event in runner.run("hello", None):
-            if isinstance(event, StartedEvent):
-                resume_value = event.resume.value
-                session_started.set()
-        new_done.set()
-
-    async def run_resume() -> None:
-        assert resume_value is not None
-        monkeypatch.setenv("PI_TEST_RESUME_VALUE", resume_value)
-        async for _event in runner.run(
-            "resume", ResumeToken(engine=ENGINE, value=resume_value)
-        ):
-            pass
-
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(run_new)
-        await session_started.wait()
-
-        tg.start_soon(run_resume)
-        await anyio.sleep(0.01)
-
-        assert not resume_marker.exists()
-
-        gate_path.write_text("go", encoding="utf-8")
-        await new_done.wait()
-
-        with anyio.fail_after(2):
-            while not resume_marker.exists():
-                await anyio.sleep(0.001)

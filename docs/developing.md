@@ -121,8 +121,66 @@ Auto-discovers runner modules in `takopi.runners` that export `BACKEND`.
 |------|---------|
 | `codex.py` | Codex runner (JSONL → takopi events) + per-resume locks |
 | `claude.py` | Claude runner (JSONL → takopi events) + per-resume locks |
+| `opencode.py` | OpenCode runner (JSONL → takopi events) + per-resume locks |
 | `pi.py` | Pi runner (JSONL → takopi events) + per-resume locks |
 | `mock.py` | Mock runner for tests/demos |
+
+### `schemas/` - JSONL decoding schemas
+
+Self-documenting msgspec schemas for decoding engine JSONL streams.
+
+| File | Purpose |
+|------|---------|
+| `codex.py` | Codex exec --json event schemas |
+| `claude.py` | Claude stream-json event schemas |
+| `opencode.py` | OpenCode run --format json event schemas |
+| `pi.py` | Pi --mode json event schemas |
+
+### `utils/` - Utility modules
+
+| File | Purpose |
+|------|---------|
+| `paths.py` | `relativize_path()`, `relativize_command()` helpers |
+| `streams.py` | `iter_bytes_lines()`, `drain_stderr()` for async stream handling |
+| `subprocess.py` | `manage_subprocess()`, `terminate_process()`, `kill_process()` |
+
+### `router.py` - Auto-router
+
+| Component | Purpose |
+|-----------|---------|
+| `AutoRouter` | Resolves resume tokens by polling all runners, routes to matching engine |
+| `RunnerEntry` | Dataclass holding runner + backend metadata |
+| `RunnerUnavailableError` | Raised when requested engine is not available |
+
+### `scheduler.py` - Thread scheduling
+
+| Component | Purpose |
+|-----------|---------|
+| `ThreadScheduler` | Per-thread FIFO job queuing with serialization |
+| `ThreadJob` | Dataclass representing a queued job |
+| `note_thread_known()` | Registers a thread as busy when token discovered mid-run |
+
+### `events.py` - Event factory
+
+| Component | Purpose |
+|-----------|---------|
+| `EventFactory` | Helper class for creating takopi events with consistent engine/resume |
+| Builder methods | `started()`, `action()`, `action_started()`, `action_completed()`, `completed_ok()`, `completed_error()` |
+
+### `lockfile.py` - Single-instance enforcement
+
+| Component | Purpose |
+|-----------|---------|
+| `acquire_lock()` | Acquire lock for bot token, returns `LockHandle` context manager |
+| `LockHandle` | Context manager for automatic lock release |
+| `LockInfo` | Dataclass with `pid` and `token_fingerprint` |
+| `token_fingerprint()` | SHA256 hash of bot token, truncated to 10 chars |
+
+### `backends_helpers.py` - Backend utilities
+
+| Function | Purpose |
+|----------|---------|
+| `install_issue()` | Creates `SetupIssue` with install instructions for missing CLI |
 
 ### `config.py` - Configuration loading
 
@@ -145,6 +203,10 @@ Environment flags:
 - `TAKOPI_LOG_COLOR` (`1/true/yes/on` to force color, `0/false/no/off` to disable)
 - `TAKOPI_LOG_FILE` (append JSON lines to a file)
 - `TAKOPI_TRACE_PIPELINE` (log pipeline events at info instead of debug)
+- `TAKOPI_NO_INTERACTIVE` (disable interactive prompts for CI/non-TTY environments)
+- `PI_CODING_AGENT_DIR` (override Pi agent session directory base path)
+
+CLI flag: `--debug` enables debug logging (overrides `TAKOPI_LOG_LEVEL`).
 
 ### `onboarding.py` - Setup validation
 
@@ -173,7 +235,7 @@ run_main_loop() spawns tasks in TaskGroup
     ↓
 router.resolve_resume(text, reply_text) → ResumeToken | None
     ↓
-router.runner_for(resume_token) → selects runner (default engine if None)
+router.entry_for(resume_token) or router.entry_for_engine(default) → RunnerEntry
     ↓
 handle_message() spawned as task with selected runner
     ↓

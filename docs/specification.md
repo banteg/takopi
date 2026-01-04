@@ -1,10 +1,10 @@
-# Takopi Specification v0.5.0 [2026-01-02]
+# Takopi Specification v0.8.0 [2026-01-04]
 
 This document is **normative**. The words **MUST**, **SHOULD**, and **MAY** express requirements.
 
 ## 1. Scope
 
-Takopi v0.5.0 specifies:
+Takopi v0.8.0 specifies:
 
 - A **Telegram** bot bridge that runs an agent **Runner** and posts:
   - a throttled, edited **progress message**
@@ -173,7 +173,7 @@ Stability requirements:
 
 Action kinds SHOULD come from an extensible stable set, e.g.:
 
-* `command`, `tool`, `file_change`, `web_search`, `turn`, `warning`, `telemetry`, `note`
+* `command`, `tool`, `file_change`, `web_search`, `subagent`, `turn`, `warning`, `telemetry`, `note`
 
 Unknown kinds MAY be rendered as `note`.
 
@@ -403,7 +403,46 @@ Tests MUST cover:
 
 Test tooling SHOULD include event factories, deterministic/fake time, and a script/mock runner.
 
-## 10. Changelog
+## 10. Lockfile (single-instance enforcement)
+
+Takopi MUST prevent multiple instances from racing `getUpdates` offsets for the same bot token.
+
+### 10.1 Lock file location
+
+The lock file MUST be stored at `~/.takopi/takopi.lock` (derived from the config path).
+
+### 10.2 Lock file format
+
+The lock file MUST contain JSON with:
+
+* `pid: int` — the process ID holding the lock
+* `token_fingerprint: str` — SHA256 hash of the bot token, truncated to 10 characters
+
+### 10.3 Lock acquisition rules
+
+* If the lock file does not exist, acquire and write the lock.
+* If the lock file exists and the PID is dead (not running), replace the lock.
+* If the lock file exists and the token fingerprint differs (different bot), replace the lock.
+* If the lock file exists, the PID is alive, and the fingerprint matches, fail with an error instructing the user to stop the other instance.
+
+### 10.4 Lock release
+
+The lock file SHOULD be removed on clean shutdown. Stale locks from crashed processes are handled by the acquisition rules above.
+
+## 11. Changelog
+
+### v0.8.0 (2026-01-04)
+
+- Add `subagent` action kind for agent/task delegation tools.
+- Add lockfile specification for single-instance enforcement (§10).
+
+### v0.7.0 (2026-01-04)
+
+- No normative changes; implementation migrated to structlog and msgspec schemas.
+
+### v0.6.0 (2026-01-03)
+
+- No normative changes; added interactive onboarding and lockfile implementation.
 
 ### v0.5.0 (2026-01-02)
 
