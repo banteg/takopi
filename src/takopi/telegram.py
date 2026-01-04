@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 from typing import Any, Protocol
 
 import httpx
@@ -9,6 +11,10 @@ from .logging import RedactTokenFilter
 
 logger = logging.getLogger(__name__)
 logger.addFilter(RedactTokenFilter())
+
+MAX_RETRIES = 3
+BASE_RETRY_DELAY = 1.0
+JITTER_FACTOR = 0.1
 
 
 class BotClient(Protocol):
@@ -70,33 +76,19 @@ class TelegramClient:
         if self._owns_client:
             await self._client.aclose()
 
-    async def _post(self, method: str, json_data: dict[str, Any]) -> Any | None:
-        logger.debug("[telegram] request %s: %s", method, json_data)
-        try:
-            resp = await self._client.post(f"{self._base}/{method}", json=json_data)
-        except httpx.HTTPError as e:
-            url = getattr(e.request, "url", None)
-            logger.error(
-                "[telegram] network error method=%s url=%s: %s", method, url, e
-            )
-            return None
+    async def _should_retry(self, attempt: int) -> bool:
+        return attempt < MAX_RETRIES - 1
 
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            body = resp.text
-            logger.error(
-                "[telegram] http error method=%s status=%s url=%s: %s body=%r",
-                method,
-                resp.status_code,
-                resp.request.url,
-                e,
-                body,
-            )
-            return None
+    async def _wait_with_backoff(self, delay: float, use_jitter: bool = False) -> None:
+        if use_jitter:
+            jitter = delay * JITTER_FACTOR * random.random()
+            await asyncio.sleep(delay + jitter)
+        else:
+            await asyncio.sleep(delay)
 
+    async def _parse_response(self, resp: httpx.Response, method: str) -> Any | None:
         try:
-            payload = resp.json()
+            return resp.json()
         except Exception as e:
             body = resp.text
             logger.error(
@@ -109,26 +101,70 @@ class TelegramClient:
             )
             return None
 
-        if not isinstance(payload, dict):
-            logger.error(
-                "[telegram] invalid response method=%s url=%s: %r",
-                method,
-                resp.request.url,
-                payload,
-            )
-            return None
+    async def _post(self, method: str, json_data: dict[str, Any]) -> Any | None:
+        retry_delay = BASE_RETRY_DELAY
 
-        if not payload.get("ok"):
-            logger.error(
-                "[telegram] api error method=%s url=%s: %s",
-                method,
-                resp.request.url,
-                payload,
-            )
-            return None
+        for attempt in range(MAX_RETRIES):
+            logger.debug("[telegram] request %s: %s", method, json_data)
 
-        logger.debug("[telegram] response %s: %s", method, payload)
-        return payload.get("result")
+            try:
+                resp = await self._client.post(f"{self._base}/{method}", json=json_data)
+            except httpx.HTTPError as e:
+                url = getattr(e.request, "url", None)
+                logger.error(
+                    "[telegram] network error method=%s url=%s: %s", method, url, e
+                )
+                if not await self._should_retry(attempt):
+                    return None
+                await self._wait_with_backoff(retry_delay, use_jitter=False)
+                retry_delay *= 2
+                continue
+
+            payload = await self._parse_response(resp, method)
+            if payload is None:
+                if not await self._should_retry(attempt):
+                    return None
+                await self._wait_with_backoff(retry_delay, use_jitter=False)
+                retry_delay *= 2
+                continue
+
+            if not isinstance(payload, dict):
+                logger.error(
+                    "[telegram] invalid response method=%s url=%s: %r",
+                    method,
+                    resp.request.url,
+                    payload,
+                )
+                return None
+
+            if not payload.get("ok"):
+                logger.error(
+                    "[telegram] api error method=%s url=%s: %s",
+                    method,
+                    resp.request.url,
+                    payload,
+                )
+
+                if resp.status_code == 429:
+                    retry_after = payload.get("parameters", {}).get("retry_after")
+                    if retry_after:
+                        logger.info(
+                            "[telegram] rate limited, retrying after %s seconds",
+                            retry_after,
+                        )
+                        await asyncio.sleep(retry_after)
+                        continue
+
+                if not await self._should_retry(attempt):
+                    return None
+                await self._wait_with_backoff(retry_delay, use_jitter=True)
+                retry_delay *= 2
+                continue
+
+            logger.debug("[telegram] response %s: %s", method, payload)
+            return payload.get("result")
+
+        return None
 
     async def get_updates(
         self,
