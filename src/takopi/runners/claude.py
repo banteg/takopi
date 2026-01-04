@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+
+import structlog
 
 from ..backends import EngineBackend, EngineConfig
 from ..model import (
@@ -21,7 +22,7 @@ from ..model import (
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..utils.paths import relativize_command, relativize_path
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 ENGINE: EngineId = EngineId("claude")
 STDERR_TAIL_LINES = 200

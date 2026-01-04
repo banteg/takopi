@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -8,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+import structlog
 import questionary
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import to_formatted_text
@@ -225,6 +225,8 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
 
 @contextmanager
 def _suppress_logging():
+    import logging
+
     prev_disable = logging.root.manager.disable
     logging.disable(logging.INFO)
     try:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import re
 import subprocess
 from collections import deque
@@ -12,6 +11,7 @@ from typing import Any, Protocol
 from weakref import WeakValueDictionary
 
 import anyio
+import structlog
 
 from .model import (
     Action,
@@ -133,8 +133,8 @@ class JsonlRunState:
 class JsonlSubprocessRunner(BaseRunner):
     stderr_tail_lines: int = 200
 
-    def get_logger(self) -> logging.Logger:
-        return getattr(self, "logger", logging.getLogger(__name__))
+    def get_logger(self):
+        return getattr(self, "logger", structlog.get_logger(__name__))
 
     def command(self) -> str:
         raise NotImplementedError

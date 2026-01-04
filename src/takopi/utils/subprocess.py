@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import signal
 from collections.abc import AsyncIterator, Sequence
@@ -9,8 +8,9 @@ from typing import Any
 
 import anyio
 from anyio.abc import Process
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 async def wait_for_process(proc: Process, timeout: float) -> bool:

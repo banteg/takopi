@@ -4,12 +4,12 @@ from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 import json
-import logging
 from typing import Any
 
 import anyio
 from anyio.abc import ByteReceiveStream
 from anyio.streams.text import TextReceiveStream
+import structlog
 
 
 async def iter_text_lines(stream: ByteReceiveStream) -> AsyncIterator[str]:
@@ -42,7 +42,7 @@ class JsonLine:
 async def iter_jsonl(
     stream: ByteReceiveStream,
     *,
-    logger: logging.Logger,
+    logger,
     tag: str,
 ) -> AsyncIterator[JsonLine]:
     async for raw_line in iter_text_lines(stream):
@@ -62,7 +62,7 @@ async def iter_jsonl(
 async def drain_stderr(
     stream: ByteReceiveStream,
     chunks: deque[str],
-    logger: logging.Logger,
+    logger,
     tag: str,
 ) -> None:
     try:

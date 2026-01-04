@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 import anyio
+import structlog
 
 from .model import CompletedEvent, EngineId, ResumeToken, StartedEvent, TakopiEvent
 from .render import (
@@ -24,7 +24,7 @@ from .scheduler import ThreadJob, ThreadScheduler
 from .telegram import BotClient
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _log_runner_event(evt: TakopiEvent) -> None:

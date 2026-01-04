@@ -12,6 +12,7 @@ dependencies = [
   "markdown-it-py",
   "questionary>=2.1.1",
   "rich>=14.2.0",
+  "structlog>=24.0.0",
   "sulguk>=0.11.1",
   "typer>=0.21.0",
 ]

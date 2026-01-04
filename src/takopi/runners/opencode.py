@@ -13,11 +13,12 @@ Session IDs use the format: ses_XXXX (e.g., ses_494719016ffe85dkDMj0FPRbHK)
 
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+
+import structlog
 
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
@@ -34,7 +35,7 @@ from ..model import (
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..utils.paths import relativize_command, relativize_path
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 ENGINE: EngineId = EngineId("opencode")
 STDERR_TAIL_LINES = 200
@@ -385,7 +386,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     model: str | None = None
     session_title: str = "opencode"
     stderr_tail_lines: int = STDERR_TAIL_LINES
-    logger: logging.Logger = logger
+    logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -8,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+
+import structlog
 
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
@@ -26,7 +27,7 @@ from ..model import (
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..utils.paths import relativize_command, relativize_path
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 ENGINE: EngineId = EngineId("pi")
 STDERR_TAIL_LINES = 200
