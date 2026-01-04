@@ -150,7 +150,7 @@ def _format_error(error: Exception) -> str:
     return "\n".join(messages)
 
 
-PROGRESS_EDIT_EVERY_S = 2.0
+PROGRESS_EDIT_EVERY_S = 1.0
 
 
 async def _send_or_edit_markdown(
