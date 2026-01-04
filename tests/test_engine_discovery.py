@@ -1,9 +1,12 @@
+from pathlib import Path
 from typing import cast
 
 import click
+import pytest
 import typer
 
 from takopi import cli, engines
+from takopi.config import ConfigError
 
 
 def test_engine_discovery_skips_non_backend() -> None:
@@ -37,3 +40,38 @@ def test_engine_commands_do_not_expose_engine_id_option() -> None:
         assert "--final-notify" in options
         assert "--debug" in options
         assert not any(opt.lstrip("-") == "engine-id" for opt in options)
+
+
+def test_get_backend_known() -> None:
+    backend = engines.get_backend("codex")
+    assert backend.id == "codex"
+
+
+def test_get_backend_unknown_raises() -> None:
+    with pytest.raises(ConfigError, match="Unknown engine"):
+        engines.get_backend("nonexistent_engine_xyz")
+
+
+def test_list_backends() -> None:
+    backends = engines.list_backends()
+    assert len(backends) > 0
+    ids = [b.id for b in backends]
+    assert "codex" in ids
+
+
+def test_get_engine_config_valid(tmp_path: Path) -> None:
+    config = {"codex": {"profile": "default"}}
+    result = engines.get_engine_config(config, "codex", tmp_path / "config.toml")
+    assert result == {"profile": "default"}
+
+
+def test_get_engine_config_missing(tmp_path: Path) -> None:
+    config: dict = {}
+    result = engines.get_engine_config(config, "codex", tmp_path / "config.toml")
+    assert result == {}
+
+
+def test_get_engine_config_invalid_type(tmp_path: Path) -> None:
+    config = {"codex": "not a dict"}
+    with pytest.raises(ConfigError, match="expected a table"):
+        engines.get_engine_config(config, "codex", tmp_path / "config.toml")

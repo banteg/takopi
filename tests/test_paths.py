@@ -33,3 +33,13 @@ def test_relativize_path_inside_base(tmp_path: Path) -> None:
     base.mkdir()
     value = str(base / "src" / "app.py")
     assert relativize_path(value, base_dir=base) == "src/app.py"
+
+
+def test_relativize_path_empty_value() -> None:
+    assert relativize_path("") == ""
+
+
+def test_relativize_path_equals_base(tmp_path: Path) -> None:
+    base = tmp_path / "repo"
+    base.mkdir()
+    assert relativize_path(str(base), base_dir=base) == "."
