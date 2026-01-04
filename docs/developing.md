@@ -131,10 +131,10 @@ Self-documenting msgspec schemas for decoding engine JSONL streams.
 
 | File | Purpose |
 |------|---------|
-| `codex.py` | Codex exec --json event schemas |
-| `claude.py` | Claude stream-json event schemas |
-| `opencode.py` | OpenCode run --format json event schemas |
-| `pi.py` | Pi --mode json event schemas |
+| `codex.py` | `codex exec --json` event schemas |
+| `claude.py` | `claude -p --output-format stream-json --verbose` event schemas |
+| `opencode.py` | `opencode run --format json` event schemas |
+| `pi.py` | `pi --print --mode json` event schemas |
 
 ### `utils/` - Utility modules
 
