@@ -162,6 +162,9 @@ def format_action_title(action: Action, *, command_width: int | None) -> str:
     if kind == "web_search":
         title = shorten(title, command_width)
         return f"searched: {title}"
+    if kind == "subagent":
+        title = shorten(title, command_width)
+        return f"subagent: {title}"
     if kind == "file_change":
         return format_file_change_title(action, command_width=command_width)
     if kind in {"note", "warning"}:

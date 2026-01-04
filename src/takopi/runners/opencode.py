@@ -13,11 +13,13 @@ Session IDs use the format: ses_XXXX (e.g., ses_494719016ffe85dkDMj0FPRbHK)
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+import msgspec
 import structlog
 
 from ..backends import EngineBackend, EngineConfig
@@ -33,12 +35,12 @@ from ..model import (
     TakopiEvent,
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from ..schemas import opencode as opencode_schema
 from ..utils.paths import relativize_command, relativize_path
 
 logger = structlog.get_logger(__name__)
 
 ENGINE: EngineId = EngineId("opencode")
-STDERR_TAIL_LINES = 200
 
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?opencode(?:\s+run)?\s+(?:--session|-s)\s+(?P<token>ses_[A-Za-z0-9]+)`?\s*$"
@@ -55,8 +57,6 @@ class OpenCodeStreamState:
     session_id: str | None = None
     emitted_started: bool = False
     saw_step_finish: bool = False
-    total_cost: float = 0.0
-    total_tokens: dict[str, int] = field(default_factory=dict)
 
 
 def _action_event(
@@ -147,9 +147,8 @@ def _normalize_tool_title(
     return title
 
 
-def _extract_tool_action(event: dict[str, Any]) -> Action | None:
-    """Extract an Action from an OpenCode tool_use event."""
-    part = event.get("part") or {}
+def _extract_tool_action(part: dict[str, Any]) -> Action | None:
+    """Extract an Action from an OpenCode tool_use part."""
     state = part.get("state") or {}
 
     call_id = part.get("callID")
@@ -183,196 +182,163 @@ def _extract_tool_action(event: dict[str, Any]) -> Action | None:
     return Action(id=call_id, kind=kind, title=title, detail=detail)
 
 
-def _usage_from_tokens(tokens: dict[str, int], cost: float) -> dict[str, Any]:
-    """Build usage payload from accumulated token counts."""
-    usage: dict[str, Any] = {}
-    if cost > 0:
-        usage["total_cost_usd"] = cost
-    if tokens:
-        usage["tokens"] = tokens
-    return usage
-
-
 def translate_opencode_event(
-    event: dict[str, Any],
+    event: opencode_schema.OpenCodeEvent,
     *,
     title: str,
     state: OpenCodeStreamState,
 ) -> list[TakopiEvent]:
     """Translate an OpenCode JSON event into Takopi events."""
-    etype = event.get("type")
-    session_id = event.get("sessionID")
+    session_id = event.sessionID
 
     if isinstance(session_id, str) and session_id:
         if state.session_id is None:
             state.session_id = session_id
 
-    if etype == "step_start":
-        if not state.emitted_started and state.session_id:
-            state.emitted_started = True
-            return [
-                StartedEvent(
-                    engine=ENGINE,
-                    resume=ResumeToken(engine=ENGINE, value=state.session_id),
-                    title=title,
-                )
-            ]
-        return []
-
-    if etype == "tool_use":
-        part = event.get("part") or {}
-        tool_state = part.get("state") or {}
-        status = tool_state.get("status")
-
-        action = _extract_tool_action(event)
-        if action is None:
+    match event:
+        case opencode_schema.StepStart():
+            if not state.emitted_started and state.session_id:
+                state.emitted_started = True
+                return [
+                    StartedEvent(
+                        engine=ENGINE,
+                        resume=ResumeToken(engine=ENGINE, value=state.session_id),
+                        title=title,
+                    )
+                ]
             return []
 
-        if status == "completed":
-            output = tool_state.get("output")
-            metadata = tool_state.get("metadata") or {}
-            exit_code = metadata.get("exit")
+        case opencode_schema.ToolUse(part=part):
+            part = part or {}
+            tool_state = part.get("state") or {}
+            status = tool_state.get("status")
 
-            is_error = False
-            if isinstance(exit_code, int) and exit_code != 0:
-                is_error = True
+            action = _extract_tool_action(part)
+            if action is None:
+                return []
 
-            detail = dict(action.detail)
-            if output is not None:
-                detail["output_preview"] = (
-                    str(output)[:500] if len(str(output)) > 500 else str(output)
-                )
-            detail["exit_code"] = exit_code
+            if status == "completed":
+                output = tool_state.get("output")
+                metadata = tool_state.get("metadata") or {}
+                exit_code = metadata.get("exit")
 
-            state.pending_actions.pop(action.id, None)
+                is_error = False
+                if isinstance(exit_code, int) and exit_code != 0:
+                    is_error = True
 
-            return [
-                _action_event(
-                    phase="completed",
-                    action=Action(
-                        id=action.id,
-                        kind=action.kind,
-                        title=action.title,
-                        detail=detail,
-                    ),
-                    ok=not is_error,
-                )
-            ]
-        if status == "error":
-            error = tool_state.get("error")
-            metadata = tool_state.get("metadata") or {}
-            exit_code = metadata.get("exit")
-
-            detail = dict(action.detail)
-            if error is not None:
-                detail["error"] = error
-            detail["exit_code"] = exit_code
-
-            state.pending_actions.pop(action.id, None)
-
-            return [
-                _action_event(
-                    phase="completed",
-                    action=Action(
-                        id=action.id,
-                        kind=action.kind,
-                        title=action.title,
-                        detail=detail,
-                    ),
-                    ok=False,
-                    message=str(error) if error is not None else None,
-                )
-            ]
-        else:
-            state.pending_actions[action.id] = action
-            return [_action_event(phase="started", action=action)]
-
-    if etype == "text":
-        part = event.get("part") or {}
-        text = part.get("text")
-        if isinstance(text, str) and text:
-            if state.last_text is None:
-                state.last_text = text
-            else:
-                state.last_text += text
-        return []
-
-    if etype == "step_finish":
-        part = event.get("part") or {}
-        reason = part.get("reason")
-        state.saw_step_finish = True
-
-        tokens = part.get("tokens") or {}
-        if isinstance(tokens, dict):
-            for key in ("input", "output", "reasoning"):
-                value = tokens.get(key)
-                if isinstance(value, int):
-                    state.total_tokens[key] = state.total_tokens.get(key, 0) + value
-            cache = tokens.get("cache") or {}
-            if isinstance(cache, dict):
-                for key in ("read", "write"):
-                    value = cache.get(key)
-                    if not isinstance(value, int):
-                        continue
-                    cache_key = f"cache_{key}"
-                    state.total_tokens[cache_key] = (
-                        state.total_tokens.get(cache_key, 0) + value
+                detail = dict(action.detail)
+                if output is not None:
+                    detail["output_preview"] = (
+                        str(output)[:500] if len(str(output)) > 500 else str(output)
                     )
+                detail["exit_code"] = exit_code
 
-        cost = part.get("cost")
-        if isinstance(cost, (int, float)):
-            state.total_cost += cost
+                state.pending_actions.pop(action.id, None)
 
-        if reason == "stop":
+                return [
+                    _action_event(
+                        phase="completed",
+                        action=Action(
+                            id=action.id,
+                            kind=action.kind,
+                            title=action.title,
+                            detail=detail,
+                        ),
+                        ok=not is_error,
+                    )
+                ]
+            if status == "error":
+                error = tool_state.get("error")
+                metadata = tool_state.get("metadata") or {}
+                exit_code = metadata.get("exit")
+
+                detail = dict(action.detail)
+                if error is not None:
+                    detail["error"] = error
+                detail["exit_code"] = exit_code
+
+                state.pending_actions.pop(action.id, None)
+
+                return [
+                    _action_event(
+                        phase="completed",
+                        action=Action(
+                            id=action.id,
+                            kind=action.kind,
+                            title=action.title,
+                            detail=detail,
+                        ),
+                        ok=False,
+                        message=str(error) if error is not None else None,
+                    )
+                ]
+            else:
+                state.pending_actions[action.id] = action
+                return [_action_event(phase="started", action=action)]
+
+        case opencode_schema.Text(part=part):
+            part = part or {}
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                if state.last_text is None:
+                    state.last_text = text
+                else:
+                    state.last_text += text
+            return []
+
+        case opencode_schema.StepFinish(part=part):
+            part = part or {}
+            reason = part.get("reason")
+            state.saw_step_finish = True
+
+            if reason == "stop":
+                resume = None
+                if state.session_id:
+                    resume = ResumeToken(engine=ENGINE, value=state.session_id)
+
+                return [
+                    CompletedEvent(
+                        engine=ENGINE,
+                        ok=True,
+                        answer=state.last_text or "",
+                        resume=resume,
+                    )
+                ]
+            return []
+
+        case opencode_schema.Error(error=error_value, message=message_value):
+            raw_message = message_value if message_value is not None else error_value
+
+            message = raw_message
+            if isinstance(message, dict):
+                data = message.get("data")
+                if isinstance(data, dict) and data.get("message"):
+                    message = data.get("message")
+                else:
+                    message = (
+                        message.get("message")
+                        or message.get("name")
+                        or "opencode error"
+                    )
+            elif message is None:
+                message = "opencode error"
+
             resume = None
             if state.session_id:
                 resume = ResumeToken(engine=ENGINE, value=state.session_id)
 
-            usage = _usage_from_tokens(state.total_tokens, state.total_cost)
-
             return [
                 CompletedEvent(
                     engine=ENGINE,
-                    ok=True,
+                    ok=False,
                     answer=state.last_text or "",
                     resume=resume,
-                    usage=usage or None,
+                    error=str(message),
                 )
             ]
-        return []
 
-    if etype == "error":
-        raw_message = event.get("message")
-        if raw_message is None:
-            raw_message = event.get("error")
-
-        message = raw_message
-        if isinstance(message, dict):
-            data = message.get("data")
-            if isinstance(data, dict) and data.get("message"):
-                message = data.get("message")
-            else:
-                message = (
-                    message.get("message") or message.get("name") or "opencode error"
-                )
-        elif message is None:
-            message = "opencode error"
-
-        resume = None
-        if state.session_id:
-            resume = ResumeToken(engine=ENGINE, value=state.session_id)
-
-        return [
-            CompletedEvent(
-                engine=ENGINE,
-                ok=False,
-                answer=state.last_text or "",
-                resume=resume,
-                error=str(message),
-            )
-        ]
-
-    return []
+        case _:
+            return []
 
 
 @dataclass
@@ -385,7 +351,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     opencode_cmd: str = "opencode"
     model: str | None = None
     session_title: str = "opencode"
-    stderr_tail_lines: int = STDERR_TAIL_LINES
     logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
@@ -453,7 +418,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
     def translate(
         self,
-        data: dict[str, Any],
+        data: opencode_schema.OpenCodeEvent,
         *,
         state: OpenCodeStreamState,
         resume: ResumeToken | None,
@@ -466,13 +431,36 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             state=state,
         )
 
+    def decode_jsonl(self, *, line: bytes) -> opencode_schema.OpenCodeEvent:
+        return opencode_schema.decode_event(line)
+
+    def decode_error_events(
+        self,
+        *,
+        raw: str,
+        line: str,
+        error: Exception,
+        state: OpenCodeStreamState,
+    ) -> list[TakopiEvent]:
+        _ = raw, line, state
+        if isinstance(error, msgspec.DecodeError):
+            self.get_logger().warning(
+                "[%s] invalid msgspec event: %s", self.tag(), error
+            )
+            return []
+        return super().decode_error_events(
+            raw=raw,
+            line=line,
+            error=error,
+            state=state,
+        )
+
     def process_error_events(
         self,
         rc: int,
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: OpenCodeStreamState,
     ) -> list[TakopiEvent]:
         message = f"opencode failed (rc={rc})."
@@ -482,7 +470,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                 message,
                 state=state,
                 ok=False,
-                detail={"stderr_tail": stderr_tail},
             ),
             CompletedEvent(
                 engine=ENGINE,
@@ -498,10 +485,8 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: OpenCodeStreamState,
     ) -> list[TakopiEvent]:
-        _ = stderr_tail
         if not found_session:
             message = "opencode finished but no session_id was captured"
             resume_for_completed = resume
@@ -516,14 +501,12 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             ]
 
         if state.saw_step_finish:
-            usage = _usage_from_tokens(state.total_tokens, state.total_cost)
             return [
                 CompletedEvent(
                     engine=ENGINE,
                     ok=True,
                     answer=state.last_text or "",
                     resume=found_session,
-                    usage=usage or None,
                 )
             ]
 

@@ -12,6 +12,7 @@ ActionKind: TypeAlias = Literal[
     "tool",
     "file_change",
     "web_search",
+    "subagent",
     "note",
     "turn",
     "warning",

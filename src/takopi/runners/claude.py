@@ -4,28 +4,22 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
+
+import msgspec
 
 import structlog
 
 from ..backends import EngineBackend, EngineConfig
-from ..model import (
-    Action,
-    ActionEvent,
-    ActionKind,
-    CompletedEvent,
-    EngineId,
-    ResumeToken,
-    StartedEvent,
-    TakopiEvent,
-)
+from ..events import EventFactory
+from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from ..schemas import claude as claude_schema
 from ..utils.paths import relativize_command, relativize_path
 
 logger = structlog.get_logger(__name__)
 
 ENGINE: EngineId = EngineId("claude")
-STDERR_TAIL_LINES = 200
 DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Edit", "Write"]
 
 _RESUME_RE = re.compile(
@@ -35,45 +29,31 @@ _RESUME_RE = re.compile(
 
 @dataclass(slots=True)
 class ClaudeStreamState:
+    factory: EventFactory = field(default_factory=lambda: EventFactory(ENGINE))
     pending_actions: dict[str, Action] = field(default_factory=dict)
     last_assistant_text: str | None = None
     note_seq: int = 0
 
 
-def _action_event(
-    *,
-    phase: Literal["started", "updated", "completed"],
-    action: Action,
-    ok: bool | None = None,
-    message: str | None = None,
-    level: Literal["debug", "info", "warning", "error"] | None = None,
-) -> ActionEvent:
-    return ActionEvent(
-        engine=ENGINE,
-        action=action,
-        phase=phase,
-        ok=ok,
-        message=message,
-        level=level,
-    )
-
-
 def _normalize_tool_result(content: Any) -> str:
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict):
-                if item.get("type") == "text" and isinstance(item.get("text"), str):
-                    parts.append(item["text"])
-                elif isinstance(item.get("text"), str):
-                    parts.append(item["text"])
-            elif isinstance(item, str):
-                parts.append(item)
-        return "\n".join(part for part in parts if part)
     if content is None:
         return ""
     if isinstance(content, str):
         return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str) and text:
+                    parts.append(text)
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(part for part in parts if part)
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
     return str(content)
 
 
@@ -135,19 +115,18 @@ def _tool_kind_and_title(
         return "note", "ask user"
     if name in {"Task", "Agent"}:
         desc = tool_input.get("description") or tool_input.get("prompt")
-        return "tool", str(desc or name)
+        return "subagent", str(desc or name)
     return "tool", name
 
 
 def _tool_action(
-    content: dict[str, Any],
+    content: claude_schema.StreamToolUseBlock,
     *,
-    message_id: str | None,
     parent_tool_use_id: str | None,
 ) -> Action:
-    tool_id = content["id"]
-    tool_name = str(content.get("name") or "tool")
-    tool_input = content["input"]
+    tool_id = content.id
+    tool_name = str(content.name or "tool")
+    tool_input = content.input
 
     kind, title = _tool_kind_and_title(tool_name, tool_input)
 
@@ -155,8 +134,6 @@ def _tool_action(
         "name": tool_name,
         "input": tool_input,
     }
-    if message_id:
-        detail["message_id"] = message_id
     if parent_tool_use_id:
         detail["parent_tool_use_id"] = parent_tool_use_id
 
@@ -169,59 +146,46 @@ def _tool_action(
 
 
 def _tool_result_event(
-    content: dict[str, Any],
+    content: claude_schema.StreamToolResultBlock,
     *,
     action: Action,
-    message_id: str | None,
-) -> ActionEvent:
-    is_error = content.get("is_error") is True
-    raw_result = content.get("content")
+    factory: EventFactory,
+) -> TakopiEvent:
+    is_error = content.is_error is True
+    raw_result = content.content
     normalized = _normalize_tool_result(raw_result)
     preview = normalized
 
     detail = dict(action.detail)
     detail.update(
         {
-            "tool_use_id": content.get("tool_use_id"),
+            "tool_use_id": content.tool_use_id,
             "result_preview": preview,
             "result_len": len(normalized),
             "is_error": is_error,
         }
     )
-    if message_id:
-        detail["message_id"] = message_id
-
-    return _action_event(
-        phase="completed",
-        action=Action(
-            id=action.id,
-            kind=action.kind,
-            title=action.title,
-            detail=detail,
-        ),
+    return factory.action_completed(
+        action_id=action.id,
+        kind=action.kind,
+        title=action.title,
         ok=not is_error,
+        detail=detail,
     )
 
 
-def _extract_error(event: dict[str, Any]) -> str | None:
-    error = event.get("error")
-    if isinstance(error, str) and error:
-        return error
-    errors = event.get("errors")
-    if isinstance(errors, list):
-        for item in errors:
-            if isinstance(item, dict):
-                message = item.get("message") or item.get("error")
-                if isinstance(message, str) and message:
-                    return message
-            elif isinstance(item, str) and item:
-                return item
-    if event.get("is_error"):
+def _extract_error(event: claude_schema.StreamResultMessage) -> str | None:
+    if event.is_error:
+        if isinstance(event.result, str) and event.result:
+            return event.result
+        subtype = event.subtype
+        if subtype:
+            return f"claude run failed ({subtype})"
         return "claude run failed"
     return None
 
 
-def _usage_payload(event: dict[str, Any]) -> dict[str, Any]:
+def _usage_payload(event: claude_schema.StreamResultMessage) -> dict[str, Any]:
     usage: dict[str, Any] = {}
     for key in (
         "total_cost_usd",
@@ -229,28 +193,28 @@ def _usage_payload(event: dict[str, Any]) -> dict[str, Any]:
         "duration_api_ms",
         "num_turns",
     ):
-        value = event.get(key)
+        value = getattr(event, key, None)
         if value is not None:
             usage[key] = value
-    for key in ("usage", "modelUsage"):
-        value = event.get(key)
-        if value is not None:
-            usage[key] = value
+    if event.usage is not None:
+        usage["usage"] = event.usage
     return usage
 
 
 def translate_claude_event(
-    event: dict[str, Any],
+    event: claude_schema.StreamJsonMessage,
     *,
     title: str,
     state: ClaudeStreamState,
+    factory: EventFactory,
 ) -> list[TakopiEvent]:
-    etype = event["type"]
-    match etype:
-        case "system" if event.get("subtype") == "init":
-            session_id = event["session_id"]
-            model = event.get("model")
-            event_title = str(model) if model else title
+    match event:
+        case claude_schema.StreamSystemMessage(subtype=subtype):
+            if subtype != "init":
+                return []
+            session_id = event.session_id
+            if not session_id:
+                return []
             meta: dict[str, Any] = {}
             for key in (
                 "cwd",
@@ -258,52 +222,70 @@ def translate_claude_event(
                 "permissionMode",
                 "output_style",
                 "apiKeySource",
+                "mcp_servers",
             ):
-                if key in event:
-                    meta[key] = event.get(key)
-            if "mcp_servers" in event:
-                meta["mcp_servers"] = event.get("mcp_servers")
-
-            return [
-                StartedEvent(
-                    engine=ENGINE,
-                    resume=ResumeToken(engine=ENGINE, value=str(session_id)),
-                    title=event_title,
-                    meta=meta or None,
-                )
-            ]
-        case "assistant":
-            message = event["message"]
-            message_id = message.get("id")
-            parent_tool_use_id = event.get("parent_tool_use_id")
-            content_blocks = message["content"]
+                value = getattr(event, key, None)
+                if value is not None:
+                    meta[key] = value
+            model = event.model
+            token = ResumeToken(engine=ENGINE, value=session_id)
+            event_title = str(model) if isinstance(model, str) and model else title
+            return [factory.started(token, title=event_title, meta=meta or None)]
+        case claude_schema.StreamAssistantMessage(
+            message=message, parent_tool_use_id=parent_tool_use_id
+        ):
             out: list[TakopiEvent] = []
-            for content in content_blocks:
-                match content["type"]:
-                    case "tool_use":
+            for content in message.content:
+                match content:
+                    case claude_schema.StreamToolUseBlock():
                         action = _tool_action(
                             content,
-                            message_id=message_id,
                             parent_tool_use_id=parent_tool_use_id,
                         )
                         state.pending_actions[action.id] = action
-                        out.append(_action_event(phase="started", action=action))
-                    case "text":
-                        text = content["text"]
+                        out.append(
+                            factory.action_started(
+                                action_id=action.id,
+                                kind=action.kind,
+                                title=action.title,
+                                detail=action.detail,
+                            )
+                        )
+                    case claude_schema.StreamThinkingBlock(
+                        thinking=thinking, signature=signature
+                    ):
+                        if not thinking:
+                            continue
+                        state.note_seq += 1
+                        action_id = f"claude.thinking.{state.note_seq}"
+                        detail: dict[str, Any] = {}
+                        if parent_tool_use_id:
+                            detail["parent_tool_use_id"] = parent_tool_use_id
+                        if signature:
+                            detail["signature"] = signature
+                        out.append(
+                            factory.action_completed(
+                                action_id=action_id,
+                                kind="note",
+                                title=thinking,
+                                ok=True,
+                                detail=detail,
+                            )
+                        )
+                    case claude_schema.StreamTextBlock(text=text):
                         if text:
                             state.last_assistant_text = text
                     case _:
                         continue
             return out
-        case "user":
-            message = event["message"]
-            message_id = message.get("id")
-            content_blocks = message["content"]
+        case claude_schema.StreamUserMessage(message=message):
+            if not isinstance(message.content, list):
+                return []
             out: list[TakopiEvent] = []
-            for content in content_blocks:
-                if content["type"] != "tool_result":
+            for content in message.content:
+                if not isinstance(content, claude_schema.StreamToolResultBlock):
                     continue
-                tool_use_id = content["tool_use_id"]
+                tool_use_id = content.tool_use_id
                 action = state.pending_actions.pop(tool_use_id, None)
                 if action is None:
                     action = Action(
@@ -313,56 +295,32 @@ def translate_claude_event(
                         detail={},
                     )
                 out.append(
-                    _tool_result_event(content, action=action, message_id=message_id)
-                )
-            return out
-        case "result":
-            out: list[TakopiEvent] = []
-            for idx, denial in enumerate(event.get("permission_denials", [])):
-                tool_name = denial.get("tool_name")
-                denial_title = "permission denied"
-                if tool_name:
-                    denial_title = f"permission denied: {tool_name}"
-                tool_use_id = denial.get("tool_use_id")
-                action_id = (
-                    f"claude.permission.{tool_use_id}"
-                    if tool_use_id
-                    else f"claude.permission.{idx}"
-                )
-                out.append(
-                    _action_event(
-                        phase="completed",
-                        action=Action(
-                            id=action_id,
-                            kind="warning",
-                            title=denial_title,
-                            detail=denial,
-                        ),
-                        ok=False,
-                        level="warning",
+                    _tool_result_event(
+                        content,
+                        action=action,
+                        factory=factory,
                     )
                 )
-
-            ok = not event.get("is_error", False)
-            result_text = event["result"]
+            return out
+        case claude_schema.StreamResultMessage():
+            ok = not event.is_error
+            result_text = event.result or ""
             if ok and not result_text and state.last_assistant_text:
                 result_text = state.last_assistant_text
 
-            resume = ResumeToken(engine=ENGINE, value=str(event["session_id"]))
+            resume = ResumeToken(engine=ENGINE, value=event.session_id)
             error = None if ok else _extract_error(event)
             usage = _usage_payload(event)
 
-            out.append(
-                CompletedEvent(
-                    engine=ENGINE,
+            return [
+                factory.completed(
                     ok=ok,
                     answer=result_text,
                     resume=resume,
                     error=error,
                     usage=usage or None,
                 )
-            )
-            return out
+            ]
         case _:
             return []
 
@@ -378,7 +336,6 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     dangerously_skip_permissions: bool = False
     use_api_billing: bool = False
     session_title: str = "claude"
-    stderr_tail_lines = STDERR_TAIL_LINES
     logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
@@ -450,6 +407,34 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         )
         logger.debug("[claude] prompt: %s", prompt)
 
+    def decode_jsonl(
+        self,
+        *,
+        line: bytes,
+    ) -> claude_schema.StreamJsonMessage:
+        return claude_schema.decode_stream_json_line(line)
+
+    def decode_error_events(
+        self,
+        *,
+        raw: str,
+        line: str,
+        error: Exception,
+        state: ClaudeStreamState,
+    ) -> list[TakopiEvent]:
+        _ = raw, line, state
+        if isinstance(error, msgspec.DecodeError):
+            self.get_logger().warning(
+                "[%s] invalid msgspec event: %s", self.tag(), error
+            )
+            return []
+        return super().decode_error_events(
+            raw=raw,
+            line=line,
+            error=error,
+            state=state,
+        )
+
     def invalid_json_events(
         self,
         *,
@@ -457,13 +442,12 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         line: str,
         state: ClaudeStreamState,
     ) -> list[TakopiEvent]:
-        _ = line
-        message = "invalid JSON from claude; ignoring line"
-        return [self.note_event(message, state=state, detail={"line": raw})]
+        _ = raw, line, state
+        return []
 
     def translate(
         self,
-        data: dict[str, Any],
+        data: claude_schema.StreamJsonMessage,
         *,
         state: ClaudeStreamState,
         resume: ResumeToken | None,
@@ -474,6 +458,7 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             data,
             title=self.session_title,
             state=state,
+            factory=state.factory,
         )
 
     def process_error_events(
@@ -482,24 +467,15 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: ClaudeStreamState,
     ) -> list[TakopiEvent]:
         message = f"claude failed (rc={rc})."
         resume_for_completed = found_session or resume
         return [
-            self.note_event(
-                message,
-                state=state,
-                ok=False,
-                detail={"stderr_tail": stderr_tail},
-            ),
-            CompletedEvent(
-                engine=ENGINE,
-                ok=False,
-                answer="",
-                resume=resume_for_completed,
+            self.note_event(message, state=state, ok=False),
+            state.factory.completed_error(
                 error=message,
+                resume=resume_for_completed,
             ),
         ]
 
@@ -508,31 +484,24 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: ClaudeStreamState,
     ) -> list[TakopiEvent]:
-        _ = stderr_tail
         if not found_session:
             message = "claude finished but no session_id was captured"
             resume_for_completed = resume
             return [
-                CompletedEvent(
-                    engine=ENGINE,
-                    ok=False,
-                    answer="",
-                    resume=resume_for_completed,
+                state.factory.completed_error(
                     error=message,
+                    resume=resume_for_completed,
                 )
             ]
 
         message = "claude finished without a result event"
         return [
-            CompletedEvent(
-                engine=ENGINE,
-                ok=False,
+            state.factory.completed_error(
+                error=message,
                 answer=state.last_assistant_text or "",
                 resume=found_session,
-                error=message,
             )
         ]
 

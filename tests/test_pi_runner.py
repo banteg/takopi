@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import anyio
@@ -6,11 +5,21 @@ import pytest
 
 from takopi.model import ActionEvent, CompletedEvent, ResumeToken, StartedEvent
 from takopi.runners.pi import ENGINE, PiRunner, PiStreamState, translate_pi_event
+from takopi.schemas import pi as pi_schema
 
 
-def _load_fixture(name: str) -> list[dict]:
+def _load_fixture(name: str) -> list[pi_schema.PiEvent]:
     path = Path(__file__).parent / "fixtures" / name
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    events: list[pi_schema.PiEvent] = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            decoded = pi_schema.decode_event(line)
+        except Exception as exc:
+            raise AssertionError(f"{name} contained unparseable line: {line}") from exc
+        events.append(decoded)
+    return events
 
 
 def test_pi_resume_format_and_extract() -> None:

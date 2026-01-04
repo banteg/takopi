@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 import subprocess
-from collections import deque
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from weakref import WeakValueDictionary
 
 import anyio
@@ -22,7 +23,7 @@ from .model import (
     StartedEvent,
     TakopiEvent,
 )
-from .utils.streams import drain_stderr, iter_jsonl
+from .utils.streams import drain_stderr, iter_bytes_lines
 from .utils.subprocess import manage_subprocess
 
 
@@ -222,19 +223,66 @@ class JsonlSubprocessRunner(BaseRunner):
         message = f"invalid JSON from {self.tag()}; ignoring line"
         return [self.note_event(message, state=state, detail={"line": line})]
 
+    def decode_jsonl(self, *, line: bytes) -> Any | None:
+        text = line.decode("utf-8", errors="replace")
+        try:
+            return cast(dict[str, Any], json.loads(text))
+        except json.JSONDecodeError:
+            return None
+
+    async def iter_json_lines(
+        self,
+        stream: Any,
+        *,
+        logger: logging.Logger,
+        tag: str,
+    ) -> AsyncIterator[bytes]:
+        async for raw_line in iter_bytes_lines(stream):
+            raw = raw_line.rstrip(b"\n")
+            text = raw.decode("utf-8", errors="replace")
+            logger.debug("[%s][jsonl] %s", tag, text)
+            yield raw
+
+    def decode_error_events(
+        self,
+        *,
+        raw: str,
+        line: str,
+        error: Exception,
+        state: Any,
+    ) -> list[TakopiEvent]:
+        message = f"invalid event from {self.tag()}; ignoring line"
+        detail = {"line": line, "error": str(error)}
+        return [self.note_event(message, state=state, detail=detail)]
+
+    def translate_error_events(
+        self,
+        *,
+        data: Any,
+        error: Exception,
+        state: Any,
+    ) -> list[TakopiEvent]:
+        message = f"{self.tag()} translation error; ignoring event"
+        detail: dict[str, Any] = {"error": str(error)}
+        if isinstance(data, dict):
+            detail["type"] = data.get("type")
+            item = data.get("item")
+            if isinstance(item, dict):
+                detail["item_type"] = item.get("type") or item.get("item_type")
+        return [self.note_event(message, state=state, detail=detail)]
+
     def process_error_events(
         self,
         rc: int,
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: Any,
     ) -> list[TakopiEvent]:
         message = f"{self.tag()} failed (rc={rc})."
         resume_for_completed = found_session or resume
         return [
-            self.note_event(message, state=state, detail={"stderr_tail": stderr_tail}),
+            self.note_event(message, state=state),
             CompletedEvent(
                 engine=self.engine,
                 ok=False,
@@ -249,7 +297,6 @@ class JsonlSubprocessRunner(BaseRunner):
         *,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
-        stderr_tail: str,
         state: Any,
     ) -> list[TakopiEvent]:
         message = f"{self.tag()} finished without a result event"
@@ -266,7 +313,7 @@ class JsonlSubprocessRunner(BaseRunner):
 
     def translate(
         self,
-        data: dict[str, Any],
+        data: Any,
         *,
         state: Any,
         resume: ResumeToken | None,
@@ -334,7 +381,6 @@ class JsonlSubprocessRunner(BaseRunner):
             elif proc.stdin is not None:
                 await proc.stdin.aclose()
 
-            stderr_chunks: deque[str] = deque(maxlen=self.stderr_tail_lines)
             rc: int | None = None
             expected_session: ResumeToken | None = resume
             found_session: ResumeToken | None = None
@@ -344,26 +390,49 @@ class JsonlSubprocessRunner(BaseRunner):
                 tg.start_soon(
                     drain_stderr,
                     proc.stderr,
-                    stderr_chunks,
                     logger,
                     tag,
                 )
-                async for json_line in iter_jsonl(proc.stdout, logger=logger, tag=tag):
+                async for raw_line in self.iter_json_lines(
+                    proc.stdout, logger=logger, tag=tag
+                ):
                     if did_emit_completed:
                         continue
-                    if json_line.data is None:
-                        events = self.invalid_json_events(
-                            raw=json_line.raw,
-                            line=json_line.line,
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    raw_text = raw_line.decode("utf-8", errors="replace")
+                    line_text = line.decode("utf-8", errors="replace")
+                    try:
+                        decoded = self.decode_jsonl(line=line)
+                    except Exception as exc:
+                        events = self.decode_error_events(
+                            raw=raw_text,
+                            line=line_text,
+                            error=exc,
                             state=state,
                         )
                     else:
-                        events = self.translate(
-                            json_line.data,
-                            state=state,
-                            resume=resume,
-                            found_session=found_session,
-                        )
+                        if decoded is None:
+                            events = self.invalid_json_events(
+                                raw=raw_text,
+                                line=line_text,
+                                state=state,
+                            )
+                        else:
+                            try:
+                                events = self.translate(
+                                    decoded,
+                                    state=state,
+                                    resume=resume,
+                                    found_session=found_session,
+                                )
+                            except Exception as exc:
+                                events = self.translate_error_events(
+                                    data=decoded,
+                                    error=exc,
+                                    state=state,
+                                )
 
                     for evt in events:
                         if isinstance(evt, StartedEvent):
@@ -385,13 +454,11 @@ class JsonlSubprocessRunner(BaseRunner):
             logger.debug("[%s] process exit pid=%s rc=%s", tag, proc.pid, rc)
             if did_emit_completed:
                 return
-            stderr_tail = "".join(stderr_chunks)
             if rc is not None and rc != 0:
                 events = self.process_error_events(
                     rc,
                     resume=resume,
                     found_session=found_session,
-                    stderr_tail=stderr_tail,
                     state=state,
                 )
                 for evt in events:
@@ -401,7 +468,6 @@ class JsonlSubprocessRunner(BaseRunner):
             events = self.stream_end_events(
                 resume=resume,
                 found_session=found_session,
-                stderr_tail=stderr_tail,
                 state=state,
             )
             for evt in events:
