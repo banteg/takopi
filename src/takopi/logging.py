@@ -1,62 +1,257 @@
 from __future__ import annotations
 
 import errno
-import logging
+import io
+import os
 import re
 import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
+from typing import Any, TextIO, cast
+
+import structlog
+from structlog.types import Processor
 
 TELEGRAM_TOKEN_RE = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
 TELEGRAM_BARE_TOKEN_RE = re.compile(r"\b\d+:[A-Za-z0-9_-]{10,}\b")
 
+_LEVELS: dict[str, int] = {
+    "debug": 10,
+    "info": 20,
+    "warning": 30,
+    "error": 40,
+    "exception": 40,
+    "critical": 50,
+}
 
-class RedactTokenFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
+_MIN_LEVEL = _LEVELS["info"]
+_PIPELINE_LEVEL_NAME = "debug"
+
+_suppress_below: ContextVar[int | None] = ContextVar(
+    "takopi_suppress_below", default=None
+)
+_log_file_handle: TextIO | None = None
+
+
+def _truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _level_value(value: str | None, *, default: str = "info") -> int:
+    if not value:
+        return _LEVELS[default]
+    level = _LEVELS.get(value.strip().lower())
+    return level if level is not None else _LEVELS[default]
+
+
+def pipeline_log_level() -> str:
+    return _PIPELINE_LEVEL_NAME
+
+
+def log_pipeline(logger: Any, event: str, **fields: Any) -> None:
+    if _PIPELINE_LEVEL_NAME == "info":
+        logger.info(event, **fields)
+    else:
+        logger.debug(event, **fields)
+
+
+def _drop_below_level(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    level_value = _LEVELS.get(method_name, 0)
+    if level_value < _MIN_LEVEL:
+        raise structlog.DropEvent
+    suppress = _suppress_below.get()
+    if suppress is not None and level_value < suppress:
+        raise structlog.DropEvent
+    return event_dict
+
+
+def _redact_text(value: str) -> str:
+    redacted = TELEGRAM_TOKEN_RE.sub("bot[REDACTED]", value)
+    return TELEGRAM_BARE_TOKEN_RE.sub("[REDACTED_TOKEN]", redacted)
+
+
+def _redact_value(value: Any, seen: set[int]) -> Any:
+    if isinstance(value, str):
+        return _redact_text(value)
+    if isinstance(value, (bytes, bytearray)):
+        return _redact_text(value.decode("utf-8", errors="replace"))
+    obj_id = id(value)
+    if obj_id in seen:
+        return value
+    if isinstance(value, dict):
+        seen.add(obj_id)
+        return {key: _redact_value(val, seen) for key, val in value.items()}
+    if isinstance(value, list):
+        seen.add(obj_id)
+        return [_redact_value(item, seen) for item in value]
+    if isinstance(value, tuple):
+        seen.add(obj_id)
+        return tuple(_redact_value(item, seen) for item in value)
+    if isinstance(value, set):
+        seen.add(obj_id)
+        return {_redact_value(item, seen) for item in value}
+    return value
+
+
+def _redact_event_dict(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    _ = logger, method_name
+    return _redact_value(event_dict, seen=set())
+
+
+def _file_sink(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    if _log_file_handle is None:
+        return event_dict
+    try:
+        payload = structlog.processors.JSONRenderer(default=str)(
+            logger, method_name, dict(event_dict)
+        )
+        if isinstance(payload, bytes):
+            payload = payload.decode("utf-8", errors="replace")
+        _log_file_handle.write(payload + "\n")
+        _log_file_handle.flush()
+    except Exception:
+        pass
+    return event_dict
+
+
+def _add_logger_name(
+    logger: Any, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    if "logger" in event_dict:
+        return event_dict
+    name = event_dict.pop("logger_name", None)
+    if isinstance(name, str) and name:
+        event_dict["logger"] = name
+        return event_dict
+    fallback = getattr(logger, "name", None)
+    if isinstance(fallback, str) and fallback:
+        event_dict["logger"] = fallback
+    return event_dict
+
+
+def get_logger(name: str | None = None) -> Any:
+    if name:
+        return structlog.get_logger(logger_name=name)
+    return structlog.get_logger()
+
+
+def bind_run_context(**fields: Any) -> None:
+    structlog.contextvars.bind_contextvars(**fields)
+
+
+def clear_context() -> None:
+    structlog.contextvars.clear_contextvars()
+
+
+class SafeWriter(io.TextIOBase):
+    def __init__(self, stream: Any) -> None:
+        self._stream = stream
+
+    def write(self, message: str) -> int:
         try:
-            message = record.getMessage()
-        except (TypeError, ValueError):
-            return True
+            return self._stream.write(message)
+        except BrokenPipeError:
+            self._close()
+            return 0
+        except OSError as exc:
+            if exc.errno == errno.EPIPE:
+                self._close()
+                return 0
+            raise
 
-        redacted = TELEGRAM_TOKEN_RE.sub("bot[REDACTED]", message)
-        redacted = TELEGRAM_BARE_TOKEN_RE.sub("[REDACTED_TOKEN]", redacted)
-        if redacted != message:
-            record.msg = redacted
-            record.args = ()
-        return True
+    def flush(self) -> None:
+        try:
+            self._stream.flush()
+        except BrokenPipeError:
+            self._close()
+        except OSError as exc:
+            if exc.errno == errno.EPIPE:
+                self._close()
+                return
+            raise
 
+    def isatty(self) -> bool:
+        isatty = getattr(self._stream, "isatty", None)
+        return bool(isatty()) if callable(isatty) else False
 
-class SafeStreamHandler(logging.StreamHandler):
-    def handleError(self, record: logging.LogRecord) -> None:
-        exc = sys.exc_info()[1]
-        if isinstance(exc, BrokenPipeError):
-            try:
-                self.stream.close()
-            except Exception:
-                pass
-            return
-        if isinstance(exc, OSError) and exc.errno == errno.EPIPE:
-            try:
-                self.stream.close()
-            except Exception:
-                pass
-            return
-        super().handleError(record)
+    def _close(self) -> None:
+        try:
+            self._stream.close()
+        except Exception:
+            pass
 
 
 def setup_logging(*, debug: bool = False) -> None:
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    logging.getLogger("markdown_it").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-        handler.close()
+    global _MIN_LEVEL, _PIPELINE_LEVEL_NAME
+    global _log_file_handle
 
-    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    redactor = RedactTokenFilter()
+    level_name = os.environ.get("TAKOPI_LOG_LEVEL")
+    if debug:
+        level_name = "debug"
+    _MIN_LEVEL = _level_value(level_name, default="info")
 
-    console = SafeStreamHandler(sys.stdout)
-    console.setLevel(logging.DEBUG if debug else logging.INFO)
-    console.setFormatter(fmt)
-    console.addFilter(redactor)
-    root_logger.addFilter(redactor)
-    root_logger.addHandler(console)
+    trace_pipeline = _truthy(os.environ.get("TAKOPI_TRACE_PIPELINE"))
+    _PIPELINE_LEVEL_NAME = "info" if trace_pipeline else "debug"
+
+    format_value = os.environ.get("TAKOPI_LOG_FORMAT", "console").strip().lower()
+    color_override = os.environ.get("TAKOPI_LOG_COLOR")
+    if color_override is None:
+        is_tty = sys.stdout.isatty()
+    else:
+        is_tty = _truthy(color_override)
+    if format_value == "json":
+        renderer: Any = structlog.processors.JSONRenderer(default=str)
+    else:
+        renderer = structlog.dev.ConsoleRenderer(colors=is_tty)
+
+    safe_stream = cast(TextIO, SafeWriter(sys.stdout))
+    log_file = os.environ.get("TAKOPI_LOG_FILE")
+    if _log_file_handle is not None:
+        try:
+            _log_file_handle.close()
+        except Exception:
+            pass
+        _log_file_handle = None
+    if log_file:
+        try:
+            _log_file_handle = open(log_file, "a", encoding="utf-8")
+        except Exception:
+            _log_file_handle = None
+
+    processors = cast(
+        list[Processor],
+        [
+            _drop_below_level,
+            structlog.contextvars.merge_contextvars,
+            structlog.processors.TimeStamper(fmt="iso", utc=True),
+            structlog.processors.add_log_level,
+            _add_logger_name,
+            structlog.processors.format_exc_info,
+            _redact_event_dict,
+            _file_sink,
+            cast(Processor, renderer),
+        ],
+    )
+
+    structlog.configure(
+        processors=processors,
+        logger_factory=structlog.PrintLoggerFactory(file=safe_stream),
+        cache_logger_on_first_use=True,
+    )
+
+
+@contextmanager
+def suppress_logs(level: str = "warning"):
+    token = _suppress_below.set(_level_value(level, default="warning"))
+    try:
+        yield
+    finally:
+        _suppress_below.reset(token)

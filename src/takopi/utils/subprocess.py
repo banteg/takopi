@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import signal
 from collections.abc import AsyncIterator, Sequence
@@ -10,7 +9,9 @@ from typing import Any
 import anyio
 from anyio.abc import Process
 
-logger = logging.getLogger(__name__)
+from ..logging import get_logger
+
+logger = get_logger(__name__)
 
 
 async def wait_for_process(proc: Process, timeout: float) -> bool:
@@ -29,7 +30,12 @@ def terminate_process(proc: Process) -> None:
         except ProcessLookupError:
             return
         except Exception as e:
-            logger.debug("[subprocess] failed to terminate process group: %s", e)
+            logger.debug(
+                "subprocess.terminate.failed",
+                error=str(e),
+                error_type=e.__class__.__name__,
+                pid=proc.pid,
+            )
     try:
         proc.terminate()
     except ProcessLookupError:
@@ -46,7 +52,12 @@ def kill_process(proc: Process) -> None:
         except ProcessLookupError:
             return
         except Exception as e:
-            logger.debug("[subprocess] failed to kill process group: %s", e)
+            logger.debug(
+                "subprocess.kill.failed",
+                error=str(e),
+                error_type=e.__class__.__name__,
+                pid=proc.pid,
+            )
     try:
         proc.kill()
     except ProcessLookupError:
