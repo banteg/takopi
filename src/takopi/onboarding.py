@@ -239,7 +239,7 @@ def _confirm(message: str, *, default: bool = True) -> bool | None:
             ("class:question", f" {message} "),
         ]
         if not status["complete"]:
-            tokens.append(("class:instruction", "(yes/no) "))
+            tokens.append(("class:instruction", "(y/n) "))
         if status["answer"] is not None:
             tokens.append(("class:answer", "yes" if status["answer"] else "no"))
         return to_formatted_text(tokens)
