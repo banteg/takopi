@@ -1,5 +1,16 @@
 # changelog
 
+## v0.9.0 (unreleased)
+
+### breaking
+
+- remove `takopi.bridge`; Telegram bridge now lives in `takopi.bridges.telegram`
+
+### changes
+
+- add transport/presenter protocols plus transport-agnostic `exec_bridge`
+- move Telegram polling + wiring into `takopi.bridges.telegram` with transport/presenter adapters
+
 ## v0.8.0 (2026-01-05)
 
 ### changes

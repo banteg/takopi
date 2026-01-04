@@ -31,34 +31,58 @@ the engine for new threads; engine subcommands override that default for the pro
 
 ## Module Responsibilities
 
-### `bridge.py` - Telegram bridge loop
+### `exec_bridge.py` - Transport-agnostic orchestration
 
-The orchestrator module containing:
+The core handler module containing:
 
 | Component | Purpose |
 |-----------|---------|
-| `BridgeConfig` | Frozen dataclass holding runtime config |
-| `poll_updates()` | Async generator that drains backlog, long-polls updates, filters messages |
-| `run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
+| `ExecBridgeConfig` | Frozen dataclass holding transport + presenter config |
+| `IncomingMessage` | Normalized incoming message shape |
 | `handle_message()` | Per-message handler with progress updates and final render |
 | `ProgressEdits` | Throttled progress edit worker |
+| `RunningTask` | Cancellation + resume coordination for in-flight runs |
+
+**Key patterns:**
+- Progress edits are best-effort and only run when new events arrive (Telegram outbox handles rate limiting/coalescing)
+- Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``, `` `claude --resume <token>` ``, `` `pi --session <path>` ``)
+- Resume lines are stripped from the prompt before invoking the runner
+- Errors/cancellation render final status while preserving resume tokens when known
+
+### `bridges/telegram.py` - Telegram bridge loop
+
+The Telegram adapter module containing:
+
+| Component | Purpose |
+|-----------|---------|
+| `TelegramBridgeConfig` | Frozen dataclass holding bot + router + exec config |
+| `TelegramTransport` | `BotClient` → `Transport` adapter |
+| `TelegramPresenter` | `MarkdownParts` → `RenderedMessage` adapter |
+| `poll_updates()` | Async generator that drains backlog, long-polls updates, filters messages |
+| `run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
 | `_handle_cancel()` | `/cancel` routing |
 
 **Key patterns:**
 - Bridge schedules runs FIFO per thread to avoid concurrent progress messages; runner locks enforce per-thread serialization
 - `/cancel` routes by reply-to progress message id (accepts extra text)
 - `/{engine}` on the first line selects the engine for new threads
-- Progress edits are throttled to 2s intervals and only run when new events arrive
-- Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``, `` `claude --resume <token>` ``, `` `pi --session <path>` ``)
 - Resume parsing polls all runners via `AutoRouter.resolve_resume()` and routes to the first match
 - Bot command menu is synced on startup (`cancel` + engine commands)
+
+### `transport.py` - Transport protocol
+
+Defines `Transport`, `MessageRef`, `RenderedMessage`, and `SendOptions`.
+
+### `presenter.py` - Presenter protocol
+
+Defines a renderer that converts `MarkdownParts` into a `RenderedMessage`.
 
 ### `cli.py` - CLI entry point
 
 | Component | Purpose |
 |-----------|---------|
 | `run()` / `main()` | Typer CLI entry points |
-| `_parse_bridge_config()` | Reads config + builds `BridgeConfig` |
+| `_parse_bridge_config()` | Reads config + builds `TelegramBridgeConfig` + `ExecBridgeConfig` |
 
 ### `render.py` - Takopi event + Markdown helpers
 
@@ -231,15 +255,15 @@ See `docs/adding-a-runner.md` for the full guide and a worked example.
 ```
 Telegram Update
     ↓
-poll_updates() drains backlog, long-polls, filters chat_id == cfg.chat_id
+bridges/telegram.poll_updates() drains backlog, long-polls, filters chat_id == cfg.chat_id
     ↓
-run_main_loop() spawns tasks in TaskGroup
+bridges/telegram.run_main_loop() spawns tasks in TaskGroup
     ↓
 router.resolve_resume(text, reply_text) → ResumeToken | None
     ↓
-router.entry_for(resume_token) or router.entry_for_engine(default) → RunnerEntry
+router.entry_for(resume_token) or router.entry_for_engine(override/default) → RunnerEntry
     ↓
-handle_message() spawned as task with selected runner
+exec_bridge.handle_message() spawned as task with selected runner
     ↓
 Send initial progress message (silent)
     ↓
@@ -251,12 +275,12 @@ runner.run(prompt, resume_token)
     │       ↓
     │   ExecProgressRenderer.note_event()
     │       ↓
-    │   ProgressEdits throttled edit_message_text()
+    │   ProgressEdits best-effort transport.edit(wait=False)
     └── Ends with completed(resume, ok, answer)
     ↓
 render_final() with resume line (runner-formatted)
     ↓
-Send/edit final message
+transport.send()/edit() final message, delete progress if needed
 ```
 
 ### Resume Flow
