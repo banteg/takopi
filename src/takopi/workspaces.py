@@ -395,9 +395,9 @@ def get_workspace_status(name: str) -> WorkspaceStatus:
             behind = int(parts[1])
 
     status_result = _run_git(["status", "--porcelain"], cwd=workspace_path)
-    lines = [l for l in status_result.stdout.strip().split("\n") if l]
-    dirty = any(not l.startswith("??") for l in lines)
-    untracked = sum(1 for l in lines if l.startswith("??"))
+    lines = [ln for ln in status_result.stdout.strip().split("\n") if ln]
+    dirty = any(not ln.startswith("??") for ln in lines)
+    untracked = sum(1 for ln in lines if ln.startswith("??"))
 
     return WorkspaceStatus(
         name=name,

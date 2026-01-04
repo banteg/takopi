@@ -586,7 +586,7 @@ def workspace_list() -> None:
     workspaces = list_workspaces()
     if not workspaces:
         typer.echo("No workspaces configured.")
-        typer.echo(f"Add one with: takopi workspace add <repo-url>")
+        typer.echo("Add one with: takopi workspace add <repo-url>")
         return
 
     typer.echo(f"Workspaces ({WORKSPACES_DIR}):\n")
