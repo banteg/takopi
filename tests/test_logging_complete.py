@@ -1,102 +1,23 @@
 import logging
-from typing import Any, cast
 
-from takopi.logging import RedactTokenFilter, setup_logging
-
-
-def test_redact_token_filter_redacts_bot_token() -> None:
-    redactor = RedactTokenFilter()
-    record = logging.LogRecord(
-        name="test",
-        level=logging.INFO,
-        pathname="test.py",
-        lineno=1,
-        msg="Token: bot123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
-        args=(),
-        exc_info=None,
-    )
-
-    result = redactor.filter(record)
-    assert result is True
-    # The token gets redacted, either as bot[REDACTED] or [REDACTED_TOKEN]
-    assert "bot[REDACTED]" in record.msg or "[REDACTED_TOKEN]" in record.msg
-    assert "123456789:ABCdefGHIjklMNOpqrsTUVwxyz" not in record.msg
+from takopi.logging import _redact_text, setup_logging
 
 
-def test_redact_token_filter_redacts_bare_token() -> None:
-    redactor = RedactTokenFilter()
-    record = logging.LogRecord(
-        name="test",
-        level=logging.INFO,
-        pathname="test.py",
-        lineno=1,
-        msg="Bare token: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
-        args=(),
-        exc_info=None,
-    )
-
-    result = redactor.filter(record)
-    assert result is True
-    assert "[REDACTED_TOKEN]" in record.msg
-    assert "123456789:ABCdefGHIjklMNOpqrsTUVwxyz" not in record.msg
+def test_redact_text_redacts_bot_token() -> None:
+    result = _redact_text("Token: bot123456789:ABCdefGHIjklMNOpqrsTUVwxyz")
+    assert "bot[REDACTED]" in result
+    assert "123456789:ABCdefGHIjklMNOpqrsTUVwxyz" not in result
 
 
-def test_redact_token_filter_handles_type_error() -> None:
-    redactor = RedactTokenFilter()
-
-    class BadRecord:
-        def getMessage(self):
-            raise TypeError("bad")
-
-    result = redactor.filter(cast(Any, BadRecord()))
-    assert result is True
+def test_redact_text_redacts_bare_token() -> None:
+    result = _redact_text("Bare token: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz")
+    assert "[REDACTED_TOKEN]" in result
+    assert "123456789:ABCdefGHIjklMNOpqrsTUVwxyz" not in result
 
 
-def test_redact_token_filter_handles_value_error() -> None:
-    redactor = RedactTokenFilter()
-
-    class BadRecord:
-        def getMessage(self):
-            raise ValueError("bad")
-
-    result = redactor.filter(cast(Any, BadRecord()))
-    assert result is True
-
-
-def test_redact_token_filter_preserves_message_without_token() -> None:
-    redactor = RedactTokenFilter()
-    record = logging.LogRecord(
-        name="test",
-        level=logging.INFO,
-        pathname="test.py",
-        lineno=1,
-        msg="No token here",
-        args=(),
-        exc_info=None,
-    )
-
-    result = redactor.filter(record)
-    assert result is True
-    assert record.msg == "No token here"
-
-
-def test_redact_token_filter_clears_args_when_redacted() -> None:
-    redactor = RedactTokenFilter()
-    record = logging.LogRecord(
-        name="test",
-        level=logging.INFO,
-        pathname="test.py",
-        lineno=1,
-        msg="Token: bot%s",
-        args=("123456789:ABCdefGHIjklMNOpqrsTUVwxyz",),
-        exc_info=None,
-    )
-
-    result = redactor.filter(record)
-    assert result is True
-    # The token gets redacted
-    assert "bot[REDACTED]" in record.msg or "[REDACTED_TOKEN]" in record.msg
-    assert record.args == ()
+def test_redact_text_preserves_message_without_token() -> None:
+    result = _redact_text("No token here")
+    assert result == "No token here"
 
 
 def test_setup_logging_debug_mode() -> None:
