@@ -109,6 +109,11 @@ class DaemonState:
         session.set_resume_token(engine, token)
         self._save()
 
+    def set_active_engine(self, workspace: WorkspaceName, engine: EngineId) -> None:
+        session = self.get_session(workspace)
+        session.active_engine = engine
+        self._save()
+
     def get_engine_session(
         self, workspace: WorkspaceName, engine: EngineId
     ) -> ResumeToken | None:

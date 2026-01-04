@@ -83,7 +83,9 @@ def _strip_engine_command(
     return "\n".join(lines).strip(), engine
 
 
-def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
+def _build_bot_commands(
+    router: AutoRouter, *, daemon_mode: bool = False
+) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     seen: set[str] = set()
     for entry in router.available_entries:
@@ -94,11 +96,22 @@ def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
         seen.add(cmd)
     if "cancel" not in seen:
         commands.append({"command": "cancel", "description": "cancel run"})
+    if daemon_mode:
+        commands.extend(
+            [
+                {"command": "workspaces", "description": "list workspaces"},
+                {"command": "workspace", "description": "switch workspace"},
+                {"command": "new", "description": "start new session"},
+                {"command": "sessions", "description": "list active sessions"},
+                {"command": "drop", "description": "drop engine session"},
+                {"command": "commit", "description": "commit changes"},
+            ]
+        )
     return commands
 
 
-async def _set_command_menu(cfg: BridgeConfig) -> None:
-    commands = _build_bot_commands(cfg.router)
+async def _set_command_menu(cfg: BridgeConfig, *, daemon_mode: bool = False) -> None:
+    commands = _build_bot_commands(cfg.router, daemon_mode=daemon_mode)
     if not commands:
         return
     try:
@@ -1008,7 +1021,7 @@ async def run_daemon_loop(
     running_tasks: dict[int, RunningTask] = {}
 
     try:
-        await _set_command_menu(cfg)
+        await _set_command_menu(cfg, daemon_mode=True)
         async with anyio.create_task_group() as tg:
 
             async def run_job(
@@ -1187,11 +1200,13 @@ async def run_daemon_loop(
                             or session.active_engine
                             or cfg.router.default_engine
                         )
+                        # Set engine_override to target_engine so new sessions
+                        # use the active engine, not just resumed sessions
+                        if engine_override is None and target_engine:
+                            engine_override = target_engine
                         engine_token = session.get_resume_token(target_engine)
                         if engine_token:
                             resume_token = engine_token
-                            if engine_override is None:
-                                engine_override = target_engine
                             logger.debug(
                                 "[daemon] resuming %s session: %s",
                                 target_engine,
@@ -1223,6 +1238,19 @@ async def run_daemon_loop(
                     continue
 
                 if resume_token is None:
+                    if not text.strip():
+                        engine_name = engine_override or cfg.router.default_engine
+                        if engine_name:
+                            daemon_cfg.state.set_active_engine(
+                                workspace.name, engine_name
+                            )
+                        await cfg.bot.send_message(
+                            chat_id=chat_id,
+                            text=f"Send a message to start a new `{engine_name}` session.",
+                            reply_to_message_id=user_msg_id,
+                            parse_mode="Markdown",
+                        )
+                        continue
                     tg.start_soon(
                         run_job,
                         chat_id,
