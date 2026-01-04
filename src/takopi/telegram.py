@@ -368,7 +368,7 @@ class TelegramRateLimiter:
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-        global_rps: float = 28.0,
+        global_rps: float = 0.0,
         private_chat_rps: float = 1.0,
         group_chat_rps: float = 20.0 / 60.0,
     ) -> None:
@@ -423,7 +423,7 @@ class QueuedTelegramClient:
         *,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-        global_rps: float = 28.0,
+        global_rps: float = 0.0,
         private_chat_rps: float = 1.0,
         group_chat_rps: float = 20.0 / 60.0,
     ) -> None:
