@@ -168,7 +168,7 @@ def prepare_telegram_split(
         first_chunk_parts = split_body(body, first_body_max)
         if first_chunk_parts:
             body_chunks.append(first_chunk_parts[0])
-            remaining = body[len(first_chunk_parts[0]):].lstrip()
+            remaining = body[len(first_chunk_parts[0]) :].lstrip()
 
             # Remaining chunks use cont_body_max
             if remaining:
