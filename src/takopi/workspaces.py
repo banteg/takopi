@@ -105,6 +105,23 @@ def _get_remote_url(repo_path: Path) -> str | None:
     return result.stdout.strip()
 
 
+def _get_default_branch(cwd: Path) -> str | None:
+    result = _run_git(
+        ["ls-remote", "--symref", "origin", "HEAD"],
+        cwd=cwd,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        if line.startswith("ref:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                ref = parts[1]
+                return ref.replace("refs/heads/", "")
+    return None
+
+
 def _sanitize_branch_name(name: str) -> str:
     sanitized = re.sub(r"[^a-zA-Z0-9_-]", "-", name)
     return sanitized.strip("-")
@@ -285,33 +302,21 @@ def pull_workspace(name: str) -> str:
     if not workspace_path.exists():
         raise WorkspaceError(f"Workspace not found: {name}")
 
-    _run_git(["fetch", "origin"], cwd=workspace_path)
+    info = get_workspace_info(name)
+    if not info:
+        raise WorkspaceError(f"Invalid workspace: {name}")
+
+    _run_git(["fetch", "origin"], cwd=info.repo_path)
 
     result = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=workspace_path)
     current_branch = result.stdout.strip()
 
-    upstream_result = _run_git(
-        ["rev-parse", "--abbrev-ref", f"{current_branch}@{{upstream}}"],
-        cwd=workspace_path,
-        check=False,
-    )
+    default_branch = _get_default_branch(workspace_path)
+    if default_branch:
+        _run_git(["rebase", default_branch], cwd=workspace_path)
+        return f"Rebased {name} ({current_branch}) onto {default_branch}"
 
-    if upstream_result.returncode == 0:
-        _run_git(["pull", "--rebase"], cwd=workspace_path)
-        return f"Pulled and rebased {name} on {current_branch}"
-    else:
-        result = _run_git(
-            ["symbolic-ref", "refs/remotes/origin/HEAD"],
-            cwd=workspace_path,
-            check=False,
-        )
-        if result.returncode == 0:
-            default_ref = result.stdout.strip()
-            default_branch = default_ref.split("/")[-1]
-            _run_git(["rebase", f"origin/{default_branch}"], cwd=workspace_path)
-            return f"Rebased {name} ({current_branch}) onto origin/{default_branch}"
-
-        return f"Fetched {name}, but no upstream configured for {current_branch}"
+    return f"Fetched {name}, but could not determine default branch"
 
 
 def push_workspace(name: str, set_upstream: bool = True) -> str:
@@ -335,27 +340,21 @@ def reset_workspace(name: str, hard: bool = True) -> str:
     if not workspace_path.exists():
         raise WorkspaceError(f"Workspace not found: {name}")
 
-    _run_git(["fetch", "origin"], cwd=workspace_path)
+    info = get_workspace_info(name)
+    if not info:
+        raise WorkspaceError(f"Invalid workspace: {name}")
 
-    result = _run_git(
-        ["symbolic-ref", "refs/remotes/origin/HEAD"],
-        cwd=workspace_path,
-        check=False,
-    )
-    if result.returncode == 0:
-        default_ref = result.stdout.strip()
-        default_branch = default_ref.split("/")[-1]
-        target = f"origin/{default_branch}"
-    else:
-        target = "origin/main"
+    _run_git(["fetch", "origin"], cwd=info.repo_path)
+
+    default_branch = _get_default_branch(workspace_path) or "main"
 
     if hard:
-        _run_git(["reset", "--hard", target], cwd=workspace_path)
+        _run_git(["reset", "--hard", default_branch], cwd=workspace_path)
         _run_git(["clean", "-fd"], cwd=workspace_path)
-        return f"Reset {name} to {target} (hard)"
+        return f"Reset {name} to {default_branch} (hard)"
     else:
-        _run_git(["reset", target], cwd=workspace_path)
-        return f"Reset {name} to {target} (soft)"
+        _run_git(["reset", default_branch], cwd=workspace_path)
+        return f"Reset {name} to {default_branch} (soft)"
 
 
 @dataclass(frozen=True, slots=True)
@@ -373,15 +372,19 @@ def get_workspace_status(name: str) -> WorkspaceStatus:
     if not workspace_path.exists():
         raise WorkspaceError(f"Workspace not found: {name}")
 
+    info = get_workspace_info(name)
+
     result = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=workspace_path)
     branch = result.stdout.strip()
 
-    _run_git(["fetch", "origin"], cwd=workspace_path, check=False)
+    if info:
+        _run_git(["fetch", "origin"], cwd=info.repo_path, check=False)
 
     ahead = 0
     behind = 0
+    default_branch = _get_default_branch(workspace_path) or "main"
     rev_list_result = _run_git(
-        ["rev-list", "--left-right", "--count", f"{branch}...origin/main"],
+        ["rev-list", "--left-right", "--count", f"{branch}...{default_branch}"],
         cwd=workspace_path,
         check=False,
     )
