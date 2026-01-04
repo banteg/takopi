@@ -220,9 +220,11 @@ class _FakeBot:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
+        wait: bool = True,
     ) -> dict:
         _ = priority
         _ = not_before
+        _ = wait
         self.edit_calls.append(
             {
                 "chat_id": chat_id,
@@ -465,7 +467,6 @@ async def test_progress_edits_are_rate_limited() -> None:
         text="hi",
         resume_token=None,
         clock=clock,
-        sleep=clock.sleep,
     )
 
     assert bot.edit_calls
@@ -510,7 +511,6 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
             text="hi",
             resume_token=None,
             clock=clock,
-            sleep=clock.sleep,
         )
 
     async with anyio.create_task_group() as tg:
@@ -571,7 +571,6 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
         text="do it",
         resume_token=None,
         clock=clock,
-        sleep=clock.sleep,
     )
 
     assert bot.send_calls[0]["reply_to_message_id"] == 42

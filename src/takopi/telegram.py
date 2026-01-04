@@ -3,23 +3,16 @@ from __future__ import annotations
 import enum
 import re
 import time
-from collections import defaultdict, deque
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol
+from typing import Any, Awaitable, Callable, Protocol
 
 import httpx
 
 import anyio
 
 from .logging import get_logger
+from .transports import KeyedRateLimiter, PumpRequest, RequestPump, RetryAfter
 
 logger = get_logger(__name__)
-
-
-if TYPE_CHECKING:
-    from anyio.abc import TaskGroup
-else:
-    TaskGroup = object
 
 
 class TelegramPriority(enum.IntEnum):
@@ -27,11 +20,8 @@ class TelegramPriority(enum.IntEnum):
     LOW = 1
 
 
-class TelegramRetryAfter(Exception):
-    def __init__(self, retry_after: float, description: str | None = None) -> None:
-        super().__init__(description or f"retry after {retry_after}")
-        self.retry_after = float(retry_after)
-        self.description = description
+class TelegramRetryAfter(RetryAfter):
+    pass
 
 
 def is_group_chat_id(chat_id: int) -> bool:
@@ -71,6 +61,7 @@ class BotClient(Protocol):
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
+        wait: bool = True,
     ) -> dict | None: ...
 
     async def delete_message(
@@ -285,9 +276,11 @@ class TelegramClient:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
+        wait: bool = True,
     ) -> dict | None:
         _ = priority
         _ = not_before
+        _ = wait
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
@@ -341,73 +334,6 @@ class TelegramClient:
         return res if isinstance(res, dict) else None
 
 
-@dataclass(slots=True)
-class _QueuedRequest:
-    method: str
-    args: tuple[Any, ...]
-    kwargs: dict[str, Any]
-    priority: TelegramPriority
-    chat_id: int | None
-    not_before: float | None
-    coalesce_key: tuple[Any, ...] | None
-    done: anyio.Event = field(default_factory=anyio.Event)
-    result: Any = None
-
-    def set_result(self, result: Any) -> None:
-        if self.done.is_set():
-            return
-        self.result = result
-        self.done.set()
-
-
-class TelegramRateLimiter:
-    def __init__(
-        self,
-        *,
-        clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-        private_chat_rps: float = 1.0,
-        group_chat_rps: float = 20.0 / 60.0,
-    ) -> None:
-        self._clock = clock
-        self._sleep = sleep
-
-        self._p_interval = 0.0 if private_chat_rps <= 0 else 1.0 / private_chat_rps
-        self._gr_interval = 0.0 if group_chat_rps <= 0 else 1.0 / group_chat_rps
-
-        self._lock = anyio.Lock()
-        self._chat_next_at: dict[int, float] = defaultdict(float)
-
-    def _chat_interval(self, chat_id: int) -> float:
-        # Heuristic: group/supergroup/channel chat IDs are negative.
-        return self._gr_interval if is_group_chat_id(chat_id) else self._p_interval
-
-    async def wait_turn(
-        self, *, chat_id: int | None, not_before: float | None = None
-    ) -> None:
-        async with self._lock:
-            now = self._clock()
-            target = max(now, not_before or now)
-            if chat_id is not None:
-                target = max(target, self._chat_next_at[chat_id])
-
-            if chat_id is not None:
-                self._chat_next_at[chat_id] = target + self._chat_interval(chat_id)
-
-        await self._sleep(max(0.0, target - now))
-
-    async def apply_retry_after(
-        self, *, chat_id: int | None, retry_after: float
-    ) -> None:
-        delay = max(0.0, retry_after)
-        async with self._lock:
-            now = self._clock()
-            until = now + delay
-            if chat_id is not None:
-                self._chat_next_at[chat_id] = max(self._chat_next_at[chat_id], until)
-        await self._sleep(delay)
-
-
 class QueuedTelegramClient:
     def __init__(
         self,
@@ -419,161 +345,72 @@ class QueuedTelegramClient:
         group_chat_rps: float = 20.0 / 60.0,
     ) -> None:
         self._client = client
-        self._limiter = TelegramRateLimiter(
+        self._private_interval = (
+            0.0 if private_chat_rps <= 0 else 1.0 / private_chat_rps
+        )
+        self._group_interval = 0.0 if group_chat_rps <= 0 else 1.0 / group_chat_rps
+
+        def interval_for_chat(chat_id: int) -> float:
+            return (
+                self._group_interval
+                if is_group_chat_id(chat_id)
+                else self._private_interval
+            )
+
+        self._limiter = KeyedRateLimiter(
+            interval_for_key=interval_for_chat,
             clock=clock,
             sleep=sleep,
-            private_chat_rps=private_chat_rps,
-            group_chat_rps=group_chat_rps,
         )
-        self._queues: dict[TelegramPriority, deque[_QueuedRequest]] = {
-            TelegramPriority.HIGH: deque(),
-            TelegramPriority.LOW: deque(),
-        }
-        self._pending_by_key: dict[tuple[Any, ...], _QueuedRequest] = {}
-        self._cond = anyio.Condition()
-        self._start_lock = anyio.Lock()
-        self._closed = False
-        self._tg: TaskGroup | None = None
+        self._pump = RequestPump(
+            limiter=self._limiter,
+            priorities=[TelegramPriority.HIGH, TelegramPriority.LOW],
+            clock=clock,
+            on_error=self._log_request_error,
+            on_pump_error=self._log_pump_failure,
+        )
 
-    async def _ensure_worker(self) -> None:
-        async with self._start_lock:
-            if self._tg is not None:
-                return
-            self._tg = await anyio.create_task_group().__aenter__()
-            self._tg.start_soon(self._run)
+    def _log_request_error(self, request: PumpRequest, exc: Exception) -> None:
+        logger.error(
+            "telegram.pump.request_failed",
+            method=request.label,
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
 
-    async def _enqueue(self, request: _QueuedRequest) -> Any:
-        await self._ensure_worker()
-        async with self._cond:
-            if self._closed:
-                request.set_result(None)
-                return request.result
-            if request.method == "edit_message_text" and request.chat_id is not None:
-                if request.priority != TelegramPriority.LOW:
-                    message_id = request.kwargs.get("message_id")
-                    if isinstance(message_id, int):
-                        self._drop_pending_edits(
-                            chat_id=request.chat_id, message_id=message_id
-                        )
-            if request.method == "delete_message" and request.chat_id is not None:
-                message_id = request.kwargs.get("message_id")
-                if isinstance(message_id, int):
-                    self._drop_pending_edits(
-                        chat_id=request.chat_id, message_id=message_id
-                    )
-            if request.coalesce_key is not None:
-                previous = self._pending_by_key.get(request.coalesce_key)
-                if previous is not None:
-                    previous.set_result(None)
-                self._pending_by_key[request.coalesce_key] = request
-            self._queues[request.priority].append(request)
-            self._cond.notify()
-        await request.done.wait()
-        return request.result
+    def _log_pump_failure(self, exc: Exception) -> None:
+        logger.error(
+            "telegram.pump.failed",
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
 
-    async def _next_request(self) -> _QueuedRequest | None:
-        async with self._cond:
-            while True:
-                if self._closed and all(not queue for queue in self._queues.values()):
-                    return None
-                for priority in (TelegramPriority.HIGH, TelegramPriority.LOW):
-                    queue = self._queues[priority]
-                    if queue:
-                        return queue.popleft()
-                await self._cond.wait()
+    async def _drop_pending_edits(self, *, chat_id: int, message_id: int) -> None:
+        await self._pump.drop_pending(coalesce_key=("edit", chat_id, message_id))
 
-    async def _execute(self, request: _QueuedRequest) -> Any:
-        while True:
-            await self._limiter.wait_turn(
-                chat_id=request.chat_id, not_before=request.not_before
-            )
-            if not await self._should_send(request):
-                return None
-            try:
-                method = getattr(self._client, request.method)
-                return await method(*request.args, **request.kwargs)
-            except TelegramRetryAfter as exc:
-                await self._limiter.apply_retry_after(
-                    chat_id=request.chat_id, retry_after=exc.retry_after
-                )
-                continue
-            except Exception as exc:
-                logger.error(
-                    "telegram.pump.request_failed",
-                    method=request.method,
-                    error=str(exc),
-                    error_type=exc.__class__.__name__,
-                )
-                return None
-
-    async def _should_send(self, request: _QueuedRequest) -> bool:
-        if request.coalesce_key is None:
-            return True
-        async with self._cond:
-            return self._pending_by_key.get(request.coalesce_key) is request
-
-    async def _run(self) -> None:
-        cancel_exc = anyio.get_cancelled_exc_class()
-        try:
-            while True:
-                request = await self._next_request()
-                if request is None:
-                    return
-                if request.coalesce_key is not None:
-                    if self._pending_by_key.get(request.coalesce_key) is not request:
-                        continue
-                result = await self._execute(request)
-                request.set_result(result)
-                if request.coalesce_key is not None:
-                    if self._pending_by_key.get(request.coalesce_key) is request:
-                        self._pending_by_key.pop(request.coalesce_key, None)
-        except cancel_exc:
-            return
-        except Exception as exc:
-            logger.exception(
-                "telegram.pump.failed",
-                error=str(exc),
-                error_type=exc.__class__.__name__,
-            )
-            self._fail_pending()
-
-    def _fail_pending(self) -> None:
-        for queue in self._queues.values():
-            while queue:
-                queue.popleft().set_result(None)
-        for pending in list(self._pending_by_key.values()):
-            pending.set_result(None)
-        self._pending_by_key.clear()
-
-    def _drop_pending_edits(self, *, chat_id: int, message_id: int) -> None:
-        coalesce_key = ("edit", chat_id, message_id)
-        pending = self._pending_by_key.pop(coalesce_key, None)
-        if pending is not None:
-            pending.set_result(None)
-        for queue in self._queues.values():
-            if not queue:
-                continue
-            kept: deque[_QueuedRequest] = deque()
-            while queue:
-                req = queue.popleft()
-                if (
-                    req.method == "edit_message_text"
-                    and req.chat_id == chat_id
-                    and req.kwargs.get("message_id") == message_id
-                ):
-                    req.set_result(None)
-                    continue
-                kept.append(req)
-            queue.extend(kept)
+    async def _enqueue(
+        self,
+        *,
+        label: str,
+        execute: Callable[[], Awaitable[Any]],
+        priority: TelegramPriority,
+        chat_id: int | None,
+        not_before: float | None,
+        coalesce_key: tuple[Any, ...] | None,
+        wait: bool = True,
+    ) -> Any:
+        request = PumpRequest(
+            execute=execute,
+            priority=int(priority),
+            scope=chat_id,
+            not_before=not_before,
+            coalesce_key=coalesce_key,
+            label=label,
+        )
+        return await self._pump.enqueue(request, wait=wait)
 
     async def close(self) -> None:
-        async with self._cond:
-            self._closed = True
-            self._fail_pending()
-            self._cond.notify_all()
-        if self._tg is not None:
-            await self._tg.__aexit__(None, None, None)
-            self._tg = None
+        await self._pump.close()
         await self._client.close()
 
     async def get_updates(
@@ -598,23 +435,26 @@ class QueuedTelegramClient:
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict | None:
-        request = _QueuedRequest(
-            method="send_message",
-            args=(),
-            kwargs={
-                "chat_id": chat_id,
-                "text": text,
-                "reply_to_message_id": reply_to_message_id,
-                "disable_notification": disable_notification,
-                "entities": entities,
-                "parse_mode": parse_mode,
-            },
+        async def execute() -> dict | None:
+            return await self._client.send_message(
+                chat_id=chat_id,
+                text=text,
+                reply_to_message_id=reply_to_message_id,
+                disable_notification=disable_notification,
+                entities=entities,
+                parse_mode=parse_mode,
+                priority=priority,
+                not_before=not_before,
+            )
+
+        return await self._enqueue(
+            label="send_message",
+            execute=execute,
             priority=priority,
             chat_id=chat_id,
             not_before=not_before,
             coalesce_key=None,
         )
-        return await self._enqueue(request)
 
     async def edit_message_text(
         self,
@@ -626,26 +466,34 @@ class QueuedTelegramClient:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
+        wait: bool = True,
     ) -> dict | None:
-        coalesce_key = None
-        if priority == TelegramPriority.LOW:
-            coalesce_key = ("edit", chat_id, message_id)
-        request = _QueuedRequest(
-            method="edit_message_text",
-            args=(),
-            kwargs={
-                "chat_id": chat_id,
-                "message_id": message_id,
-                "text": text,
-                "entities": entities,
-                "parse_mode": parse_mode,
-            },
+        if priority != TelegramPriority.LOW:
+            await self._drop_pending_edits(chat_id=chat_id, message_id=message_id)
+        coalesce_key = (
+            ("edit", chat_id, message_id) if priority == TelegramPriority.LOW else None
+        )
+
+        async def execute() -> dict | None:
+            return await self._client.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                entities=entities,
+                parse_mode=parse_mode,
+                priority=priority,
+                not_before=not_before,
+            )
+
+        return await self._enqueue(
+            label="edit_message_text",
+            execute=execute,
             priority=priority,
             chat_id=chat_id,
             not_before=not_before,
             coalesce_key=coalesce_key,
+            wait=wait,
         )
-        return await self._enqueue(request)
 
     async def delete_message(
         self,
@@ -654,16 +502,25 @@ class QueuedTelegramClient:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
-        request = _QueuedRequest(
-            method="delete_message",
-            args=(),
-            kwargs={"chat_id": chat_id, "message_id": message_id},
-            priority=priority,
-            chat_id=chat_id,
-            not_before=None,
-            coalesce_key=None,
+        await self._drop_pending_edits(chat_id=chat_id, message_id=message_id)
+
+        async def execute() -> bool:
+            return await self._client.delete_message(
+                chat_id=chat_id,
+                message_id=message_id,
+                priority=priority,
+            )
+
+        return bool(
+            await self._enqueue(
+                label="delete_message",
+                execute=execute,
+                priority=priority,
+                chat_id=chat_id,
+                not_before=None,
+                coalesce_key=None,
+            )
         )
-        return bool(await self._enqueue(request))
 
     async def set_my_commands(
         self,
@@ -673,31 +530,36 @@ class QueuedTelegramClient:
         scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool:
-        request = _QueuedRequest(
-            method="set_my_commands",
-            args=(),
-            kwargs={
-                "commands": commands,
-                "scope": scope,
-                "language_code": language_code,
-            },
-            priority=priority,
-            chat_id=None,
-            not_before=None,
-            coalesce_key=None,
+        async def execute() -> bool:
+            return await self._client.set_my_commands(
+                commands,
+                priority=priority,
+                scope=scope,
+                language_code=language_code,
+            )
+
+        return bool(
+            await self._enqueue(
+                label="set_my_commands",
+                execute=execute,
+                priority=priority,
+                chat_id=None,
+                not_before=None,
+                coalesce_key=None,
+            )
         )
-        return bool(await self._enqueue(request))
 
     async def get_me(
         self, *, priority: TelegramPriority = TelegramPriority.HIGH
     ) -> dict | None:
-        request = _QueuedRequest(
-            method="get_me",
-            args=(),
-            kwargs={"priority": priority},
+        async def execute() -> dict | None:
+            return await self._client.get_me(priority=priority)
+
+        return await self._enqueue(
+            label="get_me",
+            execute=execute,
             priority=priority,
             chat_id=None,
             not_before=None,
             coalesce_key=None,
         )
-        return await self._enqueue(request)

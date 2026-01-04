@@ -23,20 +23,6 @@ from .telegram import QueuedTelegramClient, TelegramClient
 logger = get_logger(__name__)
 
 
-def _env_float(name: str) -> float | None:
-    value = os.environ.get(name)
-    if value is None:
-        return None
-    value = value.strip()
-    if not value:
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        logger.warning("config.env_invalid_float", name=name, value=value)
-        return None
-
-
 def _print_version_and_exit() -> None:
     typer.echo(__version__)
     raise typer.Exit()
@@ -226,11 +212,7 @@ def _parse_bridge_config(
         f"working in: `{startup_pwd}`"
     )
 
-    group_rps = _env_float("TAKOPI_GROUP_RPS")
-    if group_rps is None:
-        bot = QueuedTelegramClient(TelegramClient(token))
-    else:
-        bot = QueuedTelegramClient(TelegramClient(token), group_chat_rps=group_rps)
+    bot = QueuedTelegramClient(TelegramClient(token))
 
     return BridgeConfig(
         bot=bot,

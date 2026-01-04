@@ -215,8 +215,6 @@ class ProgressEdits:
         renderer: ExecProgressRenderer,
         started_at: float,
         clock: Callable[[], float],
-        sleep: Callable[[float], Awaitable[None]],
-        last_edit_at: float,
         last_rendered: str | None,
     ) -> None:
         self.bot = bot
@@ -225,8 +223,6 @@ class ProgressEdits:
         self.renderer = renderer
         self.started_at = started_at
         self.clock = clock
-        self.sleep = sleep
-        self.last_edit_at = last_edit_at
         self.last_rendered = last_rendered
         self.event_seq = 0
         self.rendered_seq = 0
@@ -253,16 +249,15 @@ class ProgressEdits:
                     message_id=self.progress_id,
                     rendered=rendered,
                 )
-                edited = await self.bot.edit_message_text(
+                await self.bot.edit_message_text(
                     chat_id=self.chat_id,
                     message_id=self.progress_id,
                     text=rendered,
                     entities=entities,
                     priority=TelegramPriority.LOW,
+                    wait=False,
                 )
-                if edited is not None:
-                    self.last_rendered = rendered
-                    self.last_edit_at = self.clock()
+                self.last_rendered = rendered
 
             self.rendered_seq = seq_at_render
 
@@ -329,7 +324,6 @@ async def _drain_backlog(cfg: BridgeConfig, offset: int | None) -> int | None:
 @dataclass(frozen=True, slots=True)
 class ProgressMessageState:
     message_id: int | None
-    last_edit_at: float
     last_rendered: str | None
 
 
@@ -343,7 +337,6 @@ async def send_initial_progress(
     clock: Callable[[], float],
 ) -> ProgressMessageState:
     progress_id: int | None = None
-    last_edit_at = 0.0
     last_rendered: str | None = None
 
     initial_parts = renderer.render_progress_parts(0.0, label=label)
@@ -364,7 +357,6 @@ async def send_initial_progress(
     )
     if progress_msg is not None:
         progress_id = int(progress_msg["message_id"])
-        last_edit_at = clock()
         last_rendered = initial_rendered
         logger.debug(
             "progress.sent",
@@ -374,7 +366,6 @@ async def send_initial_progress(
 
     return ProgressMessageState(
         message_id=progress_id,
-        last_edit_at=last_edit_at,
         last_rendered=last_rendered,
     )
 
@@ -485,7 +476,6 @@ async def handle_message(
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
     | None = None,
     clock: Callable[[], float] = time.monotonic,
-    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
 ) -> None:
     logger.info(
         "handle.incoming",
@@ -520,8 +510,6 @@ async def handle_message(
         renderer=progress_renderer,
         started_at=started_at,
         clock=clock,
-        sleep=sleep,
-        last_edit_at=progress_state.last_edit_at,
         last_rendered=progress_state.last_rendered,
     )
 
