@@ -487,6 +487,8 @@ class QueuedTelegramClient:
             await self._limiter.wait_turn(
                 chat_id=request.chat_id, not_before=request.not_before
             )
+            if not await self._should_send(request):
+                return None
             try:
                 method = getattr(self._client, request.method)
                 return await method(*request.args, **request.kwargs)
@@ -503,6 +505,12 @@ class QueuedTelegramClient:
                     error_type=exc.__class__.__name__,
                 )
                 return None
+
+    async def _should_send(self, request: _QueuedRequest) -> bool:
+        if request.coalesce_key is None:
+            return True
+        async with self._cond:
+            return self._pending_by_key.get(request.coalesce_key) is request
 
     async def _run(self) -> None:
         cancel_exc = anyio.get_cancelled_exc_class()

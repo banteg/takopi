@@ -246,12 +246,6 @@ class ProgressEdits:
                     await self.signal_recv.receive()
                 except anyio.EndOfStream:
                     return
-            await self.sleep(
-                max(
-                    0.0,
-                    self.last_edit_at + self.progress_edit_every - self.clock(),
-                )
-            )
 
             seq_at_render = self.event_seq
             now = self.clock()
