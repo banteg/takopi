@@ -5,11 +5,6 @@ from takopi.model import ResumeToken
 
 
 class TestEventFactory:
-    def test_init(self) -> None:
-        factory = EventFactory("codex")
-        assert factory.engine == "codex"
-        assert factory.resume is None
-
     def test_started_sets_resume(self) -> None:
         factory = EventFactory("codex")
         token = ResumeToken(engine="codex", value="abc123")

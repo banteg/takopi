@@ -86,34 +86,38 @@ class TestWorkspaceSession:
         assert not session.has_sessions()
         assert session.active_engine is None
 
-    def test_to_dict(self) -> None:
+    def test_roundtrip_single_engine(self) -> None:
         session = WorkspaceSession()
         token = ResumeToken(engine="codex", value="abc123")
         session.set_resume_token("codex", token)
 
-        data = session.to_dict()
+        restored = WorkspaceSession.from_dict(session.to_dict())
 
-        assert "engine_sessions" in data
-        assert "codex" in data["engine_sessions"]
-        assert data["active_engine"] == "codex"
+        assert restored.session_count() == 1
+        assert restored.active_engine == "codex"
+        assert restored.get_resume_token("codex") == token
 
-    def test_from_dict(self) -> None:
-        data = {
-            "engine_sessions": {"codex": {"engine": "codex", "value": "abc123"}},
-            "active_engine": "codex",
-        }
+    def test_roundtrip_multiple_engines(self) -> None:
+        session = WorkspaceSession()
+        session.set_resume_token("codex", ResumeToken(engine="codex", value="abc"))
+        session.set_resume_token("claude", ResumeToken(engine="claude", value="def"))
 
-        session = WorkspaceSession.from_dict(data)
+        restored = WorkspaceSession.from_dict(session.to_dict())
 
-        assert session.session_count() == 1
-        assert session.active_engine == "codex"
-        token = session.get_resume_token("codex")
-        assert token is not None
-        assert token.value == "abc123"
+        assert restored.session_count() == 2
+        assert restored.active_engine == "claude"
+        codex_token = restored.get_resume_token("codex")
+        claude_token = restored.get_resume_token("claude")
+        assert codex_token is not None and codex_token.value == "abc"
+        assert claude_token is not None and claude_token.value == "def"
 
-    def test_from_dict_empty(self) -> None:
-        session = WorkspaceSession.from_dict({})
-        assert not session.has_sessions()
+    def test_roundtrip_empty(self) -> None:
+        session = WorkspaceSession()
+
+        restored = WorkspaceSession.from_dict(session.to_dict())
+
+        assert not restored.has_sessions()
+        assert restored.active_engine is None
 
 
 class TestDaemonState:
@@ -192,33 +196,46 @@ class TestDaemonState:
         session = state.get_session("myproject")
         assert not session.has_sessions()
 
-    def test_to_dict(self) -> None:
+    def test_roundtrip_preserves_active_workspace(self) -> None:
+        state = DaemonState(active_workspace="myproject")
+
+        restored = DaemonState.from_dict(state.to_dict())
+
+        assert restored.active_workspace == "myproject"
+
+    def test_roundtrip_preserves_sessions(self) -> None:
         state = DaemonState(active_workspace="myproject")
         state.update_session(
             "myproject", "codex", ResumeToken(engine="codex", value="abc")
         )
+        state.update_session(
+            "myproject", "claude", ResumeToken(engine="claude", value="def")
+        )
 
-        data = state.to_dict()
+        restored = DaemonState.from_dict(state.to_dict())
 
-        assert data["active_workspace"] == "myproject"
-        assert "myproject" in data["workspace_sessions"]
+        session = restored.get_session("myproject")
+        assert session.session_count() == 2
+        assert session.active_engine == "claude"
+        codex_token = session.get_resume_token("codex")
+        assert codex_token is not None and codex_token.value == "abc"
 
-    def test_from_dict(self) -> None:
-        data = {
-            "active_workspace": "myproject",
-            "workspace_sessions": {
-                "myproject": {
-                    "engine_sessions": {"codex": {"engine": "codex", "value": "abc"}},
-                    "active_engine": "codex",
-                }
-            },
-        }
+    def test_roundtrip_multiple_workspaces(self) -> None:
+        state = DaemonState(active_workspace="project2")
+        state.update_session(
+            "project1", "codex", ResumeToken(engine="codex", value="abc")
+        )
+        state.update_session(
+            "project2", "claude", ResumeToken(engine="claude", value="def")
+        )
 
-        state = DaemonState.from_dict(data)
+        restored = DaemonState.from_dict(state.to_dict())
 
-        assert state.active_workspace == "myproject"
-        session = state.get_session("myproject")
-        assert session.active_engine == "codex"
+        assert restored.active_workspace == "project2"
+        p1_token = restored.get_engine_session("project1", "codex")
+        p2_token = restored.get_engine_session("project2", "claude")
+        assert p1_token is not None and p1_token.value == "abc"
+        assert p2_token is not None and p2_token.value == "def"
 
     def test_load_creates_new_if_missing(self, tmp_path: Path) -> None:
         state_file = tmp_path / "nonexistent.json"
@@ -615,6 +632,196 @@ class TestHandleCallbackQuery:
         assert result.handled
         call_args = bot.answer_callback_query.call_args
         assert "has sessions" in call_args.kwargs.get("text", "")
+
+
+class TestMalformedStateFiles:
+    """Test DaemonState.load handles corrupted/malformed state files gracefully."""
+
+    def test_load_invalid_json(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        state_file.write_text("not valid json {{{")
+
+        state = DaemonState.load(state_file)
+
+        assert state.active_workspace is None
+        assert not state.workspace_sessions
+
+    def test_load_truncated_json(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        state_file.write_text('{"active_workspace": "test", "workspace_sess')
+
+        state = DaemonState.load(state_file)
+
+        assert state.active_workspace is None
+
+    def test_load_empty_file(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        state_file.write_text("")
+
+        state = DaemonState.load(state_file)
+
+        assert state.active_workspace is None
+
+    def test_load_null_json(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        state_file.write_text("null")
+
+        state = DaemonState.load(state_file)
+
+        assert state.active_workspace is None
+
+    def test_load_array_instead_of_object(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        state_file.write_text("[]")
+
+        state = DaemonState.load(state_file)
+
+        assert state.active_workspace is None
+
+    def test_load_wrong_type_active_workspace(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        state_file.write_text('{"active_workspace": 123, "workspace_sessions": {}}')
+
+        state = DaemonState.load(state_file)
+
+        assert state.active_workspace == 123  # from_dict doesn't type-check
+
+    def test_load_wrong_type_workspace_sessions(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        state_file.write_text(
+            '{"active_workspace": null, "workspace_sessions": "not a dict"}'
+        )
+
+        state = DaemonState.load(state_file)
+
+        assert not state.workspace_sessions
+
+    def test_load_missing_token_fields(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        data = {
+            "active_workspace": "test",
+            "workspace_sessions": {
+                "test": {
+                    "engine_sessions": {
+                        "codex": {"engine": "codex"}  # missing "value"
+                    }
+                }
+            },
+        }
+        state_file.write_text(json.dumps(data))
+
+        with pytest.raises(KeyError):
+            DaemonState.load(state_file)
+
+    def test_load_unicode_workspace_name(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        data = {
+            "active_workspace": "日本語プロジェクト",
+            "workspace_sessions": {},
+        }
+        state_file.write_text(json.dumps(data, ensure_ascii=False))
+
+        state = DaemonState.load(state_file)
+
+        assert state.active_workspace == "日本語プロジェクト"
+
+    def test_load_emoji_workspace_name(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        data = {
+            "active_workspace": "🚀project",
+            "workspace_sessions": {},
+        }
+        state_file.write_text(json.dumps(data))
+
+        state = DaemonState.load(state_file)
+
+        assert state.active_workspace == "🚀project"
+
+    def test_load_unreadable_file(self, tmp_path: Path) -> None:
+        state_file = tmp_path / "state.json"
+        state_file.write_text('{"active_workspace": "test"}')
+        state_file.chmod(0o000)
+
+        try:
+            state = DaemonState.load(state_file)
+            assert state.active_workspace is None
+        finally:
+            state_file.chmod(0o644)
+
+
+class TestNastyCallbackData:
+    """Test callback query handling with malformed data."""
+
+    @pytest.mark.anyio
+    async def test_empty_callback_data(self) -> None:
+        state = DaemonState()
+        cfg = DaemonConfig(workspaces={}, state=state)
+        bot = AsyncMock()
+
+        result = await handle_callback_query(
+            callback_data="",
+            callback_query_id="query123",
+            daemon_cfg=cfg,
+            bot=bot,
+            chat_id=123,
+            message_id=1,
+        )
+
+        assert not result.handled
+
+    @pytest.mark.anyio
+    async def test_unicode_callback_data(self) -> None:
+        ws = Workspace(name="日本語", path=Path("/tmp/jp"))
+        state = DaemonState()
+        cfg = DaemonConfig(workspaces={"日本語": ws}, state=state)
+        bot = AsyncMock()
+
+        result = await handle_callback_query(
+            callback_data="ws:日本語",
+            callback_query_id="query123",
+            daemon_cfg=cfg,
+            bot=bot,
+            chat_id=123,
+            message_id=1,
+        )
+
+        assert result.handled
+        assert result.switch_workspace == "日本語"
+
+    @pytest.mark.anyio
+    async def test_null_byte_callback_data(self) -> None:
+        state = DaemonState()
+        cfg = DaemonConfig(workspaces={}, state=state)
+        bot = AsyncMock()
+
+        result = await handle_callback_query(
+            callback_data="ws:test\x00extra",
+            callback_query_id="query123",
+            daemon_cfg=cfg,
+            bot=bot,
+            chat_id=123,
+            message_id=1,
+        )
+
+        assert result.handled
+
+    @pytest.mark.anyio
+    async def test_very_long_callback_data(self) -> None:
+        state = DaemonState()
+        cfg = DaemonConfig(workspaces={}, state=state)
+        cfg.refresh_workspaces = lambda: None
+        bot = AsyncMock()
+
+        result = await handle_callback_query(
+            callback_data="ws:" + "a" * 10000,
+            callback_query_id="query123",
+            daemon_cfg=cfg,
+            bot=bot,
+            chat_id=123,
+            message_id=1,
+        )
+
+        assert result.handled
 
 
 class TestGetWorkspaceCwd:

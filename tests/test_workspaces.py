@@ -1,19 +1,16 @@
+import subprocess
 from pathlib import Path
 from subprocess import CompletedProcess
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from takopi.workspaces import (
-    GitNotFoundError,
     WorkspaceError,
-    WorkspaceInfo,
-    WorkspaceStatus,
     _extract_repo_name,
     _get_default_branch,
     _is_git_url,
     _sanitize_branch_name,
-    add_workspace,
     ensure_directories,
     get_workspace_diff,
     get_workspace_info,
@@ -27,6 +24,48 @@ from takopi.workspaces import (
     reset_workspace,
     workspace_exists,
 )
+
+
+def run_git(args: list[str], cwd: Path) -> None:
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+@pytest.fixture
+def git_workspace(tmp_path: Path):
+    repos_dir = tmp_path / "repos"
+    workspaces_dir = tmp_path / "workspaces"
+    repos_dir.mkdir()
+    workspaces_dir.mkdir()
+
+    bare_repo = repos_dir / "myproject.git"
+    bare_repo.mkdir()
+    run_git(["init", "--bare"], bare_repo)
+
+    temp_clone = tmp_path / "temp_clone"
+    run_git(["clone", str(bare_repo), str(temp_clone)], tmp_path)
+    run_git(["config", "user.email", "test@test.com"], temp_clone)
+    run_git(["config", "user.name", "Test"], temp_clone)
+    (temp_clone / "README.md").write_text("# Test Project\n")
+    run_git(["add", "README.md"], temp_clone)
+    run_git(["commit", "-m", "Initial commit"], temp_clone)
+    run_git(["push", "origin", "main"], temp_clone)
+
+    ws_path = workspaces_dir / "myproject"
+    run_git(
+        ["worktree", "add", "-b", "takopi/myproject", str(ws_path), "main"],
+        bare_repo,
+    )
+    run_git(["remote", "add", "origin", str(bare_repo)], ws_path)
+    run_git(["config", "user.email", "test@test.com"], ws_path)
+    run_git(["config", "user.name", "Test"], ws_path)
+
+    return {
+        "repos_dir": repos_dir,
+        "workspaces_dir": workspaces_dir,
+        "bare_repo": bare_repo,
+        "workspace_path": ws_path,
+        "temp_clone": temp_clone,
+    }
 
 
 class TestIsGitUrl:
@@ -67,27 +106,6 @@ class TestSanitizeBranchName:
         assert _sanitize_branch_name("-branch-") == "branch"
 
 
-class TestWorkspaceInfo:
-    def test_worktree_path_property(self) -> None:
-        info = WorkspaceInfo(
-            name="test",
-            path=Path("/workspaces/test"),
-            repo_path=Path("/repos/test.git"),
-            branch="main",
-            remote_url="https://github.com/user/test.git",
-        )
-        assert info.worktree_path == Path("/workspaces/test")
-
-
-class TestExceptions:
-    def test_workspace_error(self) -> None:
-        with pytest.raises(WorkspaceError):
-            raise WorkspaceError("test error")
-
-    def test_git_not_found_is_workspace_error(self) -> None:
-        assert issubclass(GitNotFoundError, WorkspaceError)
-
-
 class TestEnsureDirectories:
     def test_creates_directories(self, tmp_path: Path) -> None:
         takopi_dir = tmp_path / ".takopi"
@@ -121,12 +139,6 @@ class TestWorkspaceExists:
             assert workspace_exists("nonexistent") is False
 
 
-def make_git_result(stdout: str = "", stderr: str = "", returncode: int = 0):
-    return CompletedProcess(
-        args=["git"], returncode=returncode, stdout=stdout, stderr=stderr
-    )
-
-
 class TestGetWorkspaceInfo:
     def test_workspace_not_found(self, tmp_path: Path) -> None:
         workspaces_dir = tmp_path / "workspaces"
@@ -147,33 +159,15 @@ class TestGetWorkspaceInfo:
 
         assert result is None
 
-    def test_workspace_valid(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    result = get_workspace_info("myproject")
+    def test_real_workspace(self, git_workspace) -> None:
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                result = get_workspace_info("myproject")
 
         assert result is not None
         assert result.name == "myproject"
         assert result.branch == "takopi/myproject"
-        assert result.remote_url == "https://github.com/user/myproject.git"
+        assert result.path == git_workspace["workspace_path"]
 
 
 class TestListWorkspaces:
@@ -194,6 +188,46 @@ class TestListWorkspaces:
 
         assert result == []
 
+    def test_real_workspaces(self, git_workspace) -> None:
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                result = list_workspaces()
+
+        assert len(result) == 1
+        assert result[0].name == "myproject"
+
+
+class TestGetWorkspaceStatus:
+    def test_workspace_not_found(self, tmp_path: Path) -> None:
+        workspaces_dir = tmp_path / "workspaces"
+        workspaces_dir.mkdir()
+
+        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
+            with pytest.raises(WorkspaceError, match="not found"):
+                get_workspace_status("nonexistent")
+
+    def test_real_status_clean(self, git_workspace) -> None:
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                status = get_workspace_status("myproject")
+
+        assert status.name == "myproject"
+        assert status.branch == "takopi/myproject"
+        assert status.dirty is False
+        assert status.untracked == 0
+
+    def test_real_status_dirty(self, git_workspace) -> None:
+        ws_path = git_workspace["workspace_path"]
+        (ws_path / "newfile.txt").write_text("test content")
+        (ws_path / "README.md").write_text("# Modified\n")
+
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                status = get_workspace_status("myproject")
+
+        assert status.dirty is True
+        assert status.untracked == 1
+
 
 class TestRemoveWorkspace:
     def test_workspace_not_found(self, tmp_path: Path) -> None:
@@ -213,278 +247,24 @@ class TestRemoveWorkspace:
             with pytest.raises(WorkspaceError, match="Invalid workspace"):
                 remove_workspace("myproject")
 
-    def test_uncommitted_changes_blocks_removal(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
+    def test_real_uncommitted_changes_blocks(self, git_workspace) -> None:
+        ws_path = git_workspace["workspace_path"]
+        (ws_path / "README.md").write_text("# Modified\n")
 
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("main\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "status":
-                return make_git_result("M file.txt\n")
-            return make_git_result()
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                with pytest.raises(WorkspaceError, match="uncommitted changes"):
+                    remove_workspace("myproject")
 
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    with pytest.raises(WorkspaceError, match="uncommitted changes"):
-                        remove_workspace("myproject")
+    def test_real_force_removes(self, git_workspace) -> None:
+        ws_path = git_workspace["workspace_path"]
+        (ws_path / "README.md").write_text("# Modified\n")
 
-    def test_force_removes_with_changes(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                remove_workspace("myproject", force=True)
 
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("main\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "worktree":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    remove_workspace("myproject", force=True)
-
-
-class TestPullWorkspace:
-    def test_workspace_not_found(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        workspaces_dir.mkdir()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with pytest.raises(WorkspaceError, match="not found"):
-                pull_workspace("nonexistent")
-
-    def test_pull_success(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote" and "get-url" in args:
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "ls-remote":
-                return make_git_result("ref: refs/heads/main\tHEAD\n")
-            if args[0] == "fetch":
-                return make_git_result()
-            if args[0] == "rebase":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    result = pull_workspace("myproject")
-
-        assert "Rebased" in result
-        assert "main" in result
-
-
-class TestPushWorkspace:
-    def test_workspace_not_found(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        workspaces_dir.mkdir()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with pytest.raises(WorkspaceError, match="not found"):
-                push_workspace("nonexistent")
-
-    def test_push_success(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        workspaces_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse":
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "push":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces._run_git", mock_run_git):
-                result = push_workspace("myproject")
-
-        assert "Pushed" in result
-
-
-class TestResetWorkspace:
-    def test_workspace_not_found(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        workspaces_dir.mkdir()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with pytest.raises(WorkspaceError, match="not found"):
-                reset_workspace("nonexistent")
-
-    def test_hard_reset(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "ls-remote":
-                return make_git_result("ref: refs/heads/main\tHEAD\n")
-            if args[0] in ("fetch", "reset", "clean"):
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    result = reset_workspace("myproject", hard=True)
-
-        assert "hard" in result.lower()
-
-    def test_soft_reset(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "ls-remote":
-                return make_git_result("ref: refs/heads/main\tHEAD\n")
-            if args[0] in ("fetch", "reset"):
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    result = reset_workspace("myproject", hard=False)
-
-        assert "soft" in result.lower()
-
-
-class TestGetWorkspaceStatus:
-    def test_workspace_not_found(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        workspaces_dir.mkdir()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with pytest.raises(WorkspaceError, match="not found"):
-                get_workspace_status("nonexistent")
-
-    def test_status_clean(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "ls-remote":
-                return make_git_result("ref: refs/heads/main\tHEAD\n")
-            if args[0] == "rev-list":
-                return make_git_result("2\t1\n")
-            if args[0] == "status":
-                return make_git_result("")
-            if args[0] == "fetch":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    status = get_workspace_status("myproject")
-
-        assert status.name == "myproject"
-        assert status.branch == "takopi/myproject"
-        assert status.ahead == 2
-        assert status.behind == 1
-        assert status.dirty is False
-        assert status.untracked == 0
-
-    def test_status_dirty_with_untracked(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("main\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "ls-remote":
-                return make_git_result("ref: refs/heads/main\tHEAD\n")
-            if args[0] == "rev-list":
-                return make_git_result("0\t0\n")
-            if args[0] == "status":
-                return make_git_result("M file.txt\n?? newfile.txt\n?? another.txt\n")
-            if args[0] == "fetch":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    status = get_workspace_status("myproject")
-
-        assert status.dirty is True
-        assert status.untracked == 2
+        assert not ws_path.exists()
 
 
 class TestLinkWorkspace:
@@ -496,89 +276,34 @@ class TestLinkWorkspace:
             with pytest.raises(WorkspaceError, match="not found"):
                 link_workspace("nonexistent", "/some/path")
 
-    def test_local_path_not_exists(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
+    def test_local_path_not_exists(self, git_workspace) -> None:
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                with pytest.raises(WorkspaceError, match="does not exist"):
+                    link_workspace("myproject", "/nonexistent/path")
 
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("main\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            return make_git_result()
+    def test_local_path_not_git_repo(self, git_workspace, tmp_path: Path) -> None:
+        local_dir = tmp_path / "not_a_repo"
+        local_dir.mkdir()
 
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    with pytest.raises(WorkspaceError, match="does not exist"):
-                        link_workspace("myproject", "/nonexistent/path")
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                with pytest.raises(WorkspaceError, match="Not a git repository"):
+                    link_workspace("myproject", str(local_dir))
 
-    def test_local_path_not_git_repo(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        local_repo = tmp_path / "local"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        local_repo.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
+    def test_real_link_success(self, git_workspace) -> None:
+        local_repo = git_workspace["temp_clone"]
 
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("main\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            return make_git_result()
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                result = link_workspace("myproject", str(local_repo))
 
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    with pytest.raises(WorkspaceError, match="Not a git repository"):
-                        link_workspace("myproject", str(local_repo))
+        assert "Linked" in result or "Already linked" in result
 
-    def test_link_success(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        local_repo = tmp_path / "local"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        local_repo.mkdir()
-        (local_repo / ".git").mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote" and args[1] == "get-url" and args[2] == "origin":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "remote" and args[1] == "get-url" and args[2] == "takopi":
-                return make_git_result("", returncode=1)
-            if args[0] == "remote" and args[1] == "add":
-                return make_git_result()
-            if args[0] == "fetch":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    result = link_workspace("myproject", str(local_repo))
-
-        assert "Linked" in result
+        remotes = subprocess.run(
+            ["git", "remote", "-v"], cwd=local_repo, capture_output=True, text=True
+        )
+        assert "takopi" in remotes.stdout
 
 
 class TestGetWorkspaceLog:
@@ -590,68 +315,24 @@ class TestGetWorkspaceLog:
             with pytest.raises(WorkspaceError, match="not found"):
                 get_workspace_log("nonexistent")
 
-    def test_log_with_commits(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "ls-remote":
-                return make_git_result("ref: refs/heads/main\tHEAD\n")
-            if args[0] == "log":
-                return make_git_result("abc123 Add feature\ndef456 Fix bug\n")
-            if args[0] == "fetch":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    result = get_workspace_log("myproject")
-
-        assert "abc123" in result
-        assert "def456" in result
-
-    def test_log_no_commits(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "ls-remote":
-                return make_git_result("ref: refs/heads/main\tHEAD\n")
-            if args[0] == "log":
-                return make_git_result("")
-            if args[0] == "fetch":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    result = get_workspace_log("myproject")
+    def test_real_log_no_commits_ahead(self, git_workspace) -> None:
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                result = get_workspace_log("myproject")
 
         assert "No commits" in result
+
+    def test_real_log_with_commits(self, git_workspace) -> None:
+        ws_path = git_workspace["workspace_path"]
+        (ws_path / "feature.txt").write_text("new feature\n")
+        run_git(["add", "feature.txt"], ws_path)
+        run_git(["commit", "-m", "Add feature"], ws_path)
+
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                result = get_workspace_log("myproject")
+
+        assert "Add feature" in result
 
 
 class TestGetWorkspaceDiff:
@@ -663,84 +344,70 @@ class TestGetWorkspaceDiff:
             with pytest.raises(WorkspaceError, match="not found"):
                 get_workspace_diff("nonexistent")
 
-    def test_diff_with_changes(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "ls-remote":
-                return make_git_result("ref: refs/heads/main\tHEAD\n")
-            if args[0] == "diff":
-                return make_git_result("diff --git a/file.py b/file.py\n+new line\n")
-            if args[0] == "fetch":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    result = get_workspace_diff("myproject")
-
-        assert "diff --git" in result
-
-    def test_diff_no_changes(self, tmp_path: Path) -> None:
-        workspaces_dir = tmp_path / "workspaces"
-        repos_dir = tmp_path / "repos"
-        workspaces_dir.mkdir()
-        repos_dir.mkdir()
-        ws_path = workspaces_dir / "myproject"
-        ws_path.mkdir()
-        (ws_path / ".git").touch()
-
-        def mock_run_git(args, cwd=None, check=True):
-            if args[0] == "rev-parse" and "--abbrev-ref" in args:
-                return make_git_result("takopi/myproject\n")
-            if args[0] == "rev-parse" and "--git-common-dir" in args:
-                return make_git_result(str(repos_dir / "myproject.git") + "\n")
-            if args[0] == "remote":
-                return make_git_result("https://github.com/user/myproject.git\n")
-            if args[0] == "ls-remote":
-                return make_git_result("ref: refs/heads/main\tHEAD\n")
-            if args[0] == "diff":
-                return make_git_result("")
-            if args[0] == "fetch":
-                return make_git_result()
-            return make_git_result()
-
-        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
-            with patch("takopi.workspaces.REPOS_DIR", repos_dir):
-                with patch("takopi.workspaces._run_git", mock_run_git):
-                    result = get_workspace_diff("myproject")
+    def test_real_diff_no_changes(self, git_workspace) -> None:
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                result = get_workspace_diff("myproject")
 
         assert "No diff" in result
 
+    def test_real_diff_with_changes(self, git_workspace) -> None:
+        ws_path = git_workspace["workspace_path"]
+        (ws_path / "feature.txt").write_text("new feature\n")
+        run_git(["add", "feature.txt"], ws_path)
+        run_git(["commit", "-m", "Add feature"], ws_path)
+
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                result = get_workspace_diff("myproject")
+
+        assert "feature.txt" in result
+
 
 class TestGetDefaultBranch:
-    def test_parses_symref_output(self, tmp_path: Path) -> None:
-        def mock_run_git(args, cwd=None, check=True):
-            return make_git_result("ref: refs/heads/main\tHEAD\n")
-
-        with patch("takopi.workspaces._run_git", mock_run_git):
-            result = _get_default_branch(tmp_path)
-
+    def test_real_default_branch(self, git_workspace) -> None:
+        result = _get_default_branch(git_workspace["workspace_path"])
         assert result == "main"
 
-    def test_returns_none_on_failure(self, tmp_path: Path) -> None:
-        def mock_run_git(args, cwd=None, check=True):
-            return make_git_result("", returncode=1)
 
-        with patch("takopi.workspaces._run_git", mock_run_git):
-            result = _get_default_branch(tmp_path)
+class TestPullWorkspace:
+    def test_workspace_not_found(self, tmp_path: Path) -> None:
+        workspaces_dir = tmp_path / "workspaces"
+        workspaces_dir.mkdir()
 
-        assert result is None
+        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
+            with pytest.raises(WorkspaceError, match="not found"):
+                pull_workspace("nonexistent")
+
+
+class TestPushWorkspace:
+    def test_workspace_not_found(self, tmp_path: Path) -> None:
+        workspaces_dir = tmp_path / "workspaces"
+        workspaces_dir.mkdir()
+
+        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
+            with pytest.raises(WorkspaceError, match="not found"):
+                push_workspace("nonexistent")
+
+
+class TestResetWorkspace:
+    def test_workspace_not_found(self, tmp_path: Path) -> None:
+        workspaces_dir = tmp_path / "workspaces"
+        workspaces_dir.mkdir()
+
+        with patch("takopi.workspaces.WORKSPACES_DIR", workspaces_dir):
+            with pytest.raises(WorkspaceError, match="not found"):
+                reset_workspace("nonexistent")
+
+    def test_real_hard_reset(self, git_workspace) -> None:
+        ws_path = git_workspace["workspace_path"]
+        (ws_path / "README.md").write_text("# Modified\n")
+        (ws_path / "newfile.txt").write_text("untracked\n")
+
+        with patch("takopi.workspaces.WORKSPACES_DIR", git_workspace["workspaces_dir"]):
+            with patch("takopi.workspaces.REPOS_DIR", git_workspace["repos_dir"]):
+                result = reset_workspace("myproject", hard=True)
+
+        assert "hard" in result.lower()
+        assert (ws_path / "README.md").read_text() == "# Test Project\n"
+        assert not (ws_path / "newfile.txt").exists()

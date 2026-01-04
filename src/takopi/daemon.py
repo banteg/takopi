@@ -147,8 +147,10 @@ class DaemonState:
     @classmethod
     def from_dict(cls, data: dict[str, Any], path: Path | None = None) -> DaemonState:
         workspace_sessions: dict[WorkspaceName, WorkspaceSession] = {}
-        for name, session_data in data.get("workspace_sessions", {}).items():
-            workspace_sessions[name] = WorkspaceSession.from_dict(session_data)
+        raw_sessions = data.get("workspace_sessions", {})
+        if isinstance(raw_sessions, dict):
+            for name, session_data in raw_sessions.items():
+                workspace_sessions[name] = WorkspaceSession.from_dict(session_data)
         return cls(
             active_workspace=data.get("active_workspace"),
             workspace_sessions=workspace_sessions,
@@ -162,6 +164,11 @@ class DaemonState:
             return cls(_path=path)
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                logger.warning(
+                    "[daemon] state file %s has invalid format, starting fresh", path
+                )
+                return cls(_path=path)
         except (OSError, json.JSONDecodeError) as e:
             logger.warning(
                 "[daemon] failed to load state from %s: %s, starting fresh", path, e

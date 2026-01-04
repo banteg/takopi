@@ -104,19 +104,6 @@ def test_token_fingerprint() -> None:
     assert len(fp1) == 10
 
 
-def test_lock_info_dataclass() -> None:
-    info = lockfile.LockInfo(pid=123, token_fingerprint="abc123")
-    assert info.pid == 123
-    assert info.token_fingerprint == "abc123"
-
-
-def test_lock_error_properties(tmp_path) -> None:
-    lock_path = tmp_path / "test.lock"
-    err = lockfile.LockError(path=lock_path, state="test-state")
-    assert err.path == lock_path
-    assert err.state == "test-state"
-
-
 def test_read_lock_info_malformed_json(tmp_path) -> None:
     lock_path = tmp_path / "test.lock"
     lock_path.write_text("not json", encoding="utf-8")

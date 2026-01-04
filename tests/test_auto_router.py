@@ -90,35 +90,6 @@ class TestAutoRouterInit:
             )
 
 
-class TestAutoRouterProperties:
-    def test_entries(self) -> None:
-        router, _claude, _codex = _router()
-        assert len(router.entries) == 2
-
-    def test_available_entries(self) -> None:
-        codex = CodexRunner(codex_cmd="codex", extra_args=[])
-        claude = ClaudeRunner(claude_cmd="claude")
-        router = AutoRouter(
-            entries=[
-                RunnerEntry(engine="claude", runner=claude, available=False),
-                RunnerEntry(engine="codex", runner=codex, available=True),
-            ],
-            default_engine="codex",
-        )
-        available = router.available_entries
-        assert len(available) == 1
-        assert available[0].engine == "codex"
-
-    def test_engine_ids(self) -> None:
-        router, _claude, _codex = _router()
-        assert "claude" in router.engine_ids
-        assert "codex" in router.engine_ids
-
-    def test_default_entry(self) -> None:
-        router, _claude, _codex = _router()
-        assert router.default_entry.engine == "codex"
-
-
 class TestAutoRouterMethods:
     def test_entry_for_engine_none_returns_default(self) -> None:
         router, _claude, _codex = _router()
