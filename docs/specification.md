@@ -280,7 +280,7 @@ Runs that start as new threads:
 ### 6.3 Progress message behavior
 
 * The bridge SHOULD send an initial progress message quickly (e.g., “Running…”).
-* The bridge SHOULD edit the progress message no more frequently than every **2 seconds**.
+* The bridge SHOULD rate-limit progress edits to avoid Telegram flood control (per-chat limits apply).
 * The bridge SHOULD skip edits when rendered content is unchanged.
 * Once `started` is observed, the progress view SHOULD include the canonical ResumeLine.
 

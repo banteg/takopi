@@ -154,9 +154,6 @@ def _format_error(error: Exception) -> str:
     return "\n".join(messages)
 
 
-PROGRESS_EDIT_EVERY_S = 2.0
-
-
 async def _send_or_edit_markdown(
     bot: BotClient,
     *,
@@ -217,7 +214,6 @@ class ProgressEdits:
         progress_id: int | None,
         renderer: ExecProgressRenderer,
         started_at: float,
-        progress_edit_every: float,
         clock: Callable[[], float],
         sleep: Callable[[float], Awaitable[None]],
         last_edit_at: float,
@@ -228,7 +224,6 @@ class ProgressEdits:
         self.progress_id = progress_id
         self.renderer = renderer
         self.started_at = started_at
-        self.progress_edit_every = progress_edit_every
         self.clock = clock
         self.sleep = sleep
         self.last_edit_at = last_edit_at
@@ -292,7 +287,6 @@ class BridgeConfig:
     chat_id: int
     final_notify: bool
     startup_msg: str
-    progress_edit_every: float = PROGRESS_EDIT_EVERY_S
 
 
 @dataclass
@@ -492,7 +486,6 @@ async def handle_message(
     | None = None,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-    progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
 ) -> None:
     logger.info(
         "handle.incoming",
@@ -526,7 +519,6 @@ async def handle_message(
         progress_id=progress_id,
         renderer=progress_renderer,
         started_at=started_at,
-        progress_edit_every=progress_edit_every,
         clock=clock,
         sleep=sleep,
         last_edit_at=progress_state.last_edit_at,
@@ -894,7 +886,6 @@ async def run_main_loop(
                         strip_resume_line=cfg.router.is_resume_line,
                         running_tasks=running_tasks,
                         on_thread_known=on_thread_known,
-                        progress_edit_every=cfg.progress_edit_every,
                     )
                 except Exception as exc:
                     logger.exception(

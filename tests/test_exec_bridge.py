@@ -466,7 +466,6 @@ async def test_progress_edits_are_rate_limited() -> None:
         resume_token=None,
         clock=clock,
         sleep=clock.sleep,
-        progress_edit_every=1.0,
     )
 
     assert bot.edit_calls
@@ -512,7 +511,6 @@ async def test_progress_edits_do_not_sleep_again_without_new_events() -> None:
             resume_token=None,
             clock=clock,
             sleep=clock.sleep,
-            progress_edit_every=1.0,
         )
 
     async with anyio.create_task_group() as tg:
@@ -574,7 +572,6 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
         resume_token=None,
         clock=clock,
         sleep=clock.sleep,
-        progress_edit_every=1.0,
     )
 
     assert bot.send_calls[0]["reply_to_message_id"] == 42
