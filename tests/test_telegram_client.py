@@ -1,9 +1,7 @@
-import logging
-
 import httpx
 import pytest
 
-from takopi.logging import RedactTokenFilter
+from takopi.logging import setup_logging
 from takopi.telegram import TelegramClient
 
 
@@ -38,19 +36,16 @@ async def test_telegram_429_no_retry() -> None:
 
 @pytest.mark.anyio
 async def test_no_token_in_logs_on_http_error(
-    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     token = "123:abcDEF_ghij"
-    redactor = RedactTokenFilter()
-    root_logger = logging.getLogger()
-    root_logger.addFilter(redactor)
+    setup_logging(debug=True)
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, text="oops", request=request)
 
     transport = httpx.MockTransport(handler)
 
-    caplog.set_level(logging.ERROR)
     client = httpx.AsyncClient(transport=transport)
     try:
         tg = TelegramClient(token, client=client)
@@ -58,7 +53,6 @@ async def test_no_token_in_logs_on_http_error(
     finally:
         await client.aclose()
 
-    root_logger.removeFilter(redactor)
-
-    assert token not in caplog.text
-    assert "bot[REDACTED]" in caplog.text
+    out = capsys.readouterr().out
+    assert token not in out
+    assert "bot[REDACTED]" in out
