@@ -31,7 +31,10 @@ from .workspaces import (
     WORKSPACES_DIR,
     WorkspaceError,
     add_workspace,
+    get_workspace_diff,
+    get_workspace_log,
     get_workspace_status,
+    link_workspace,
     list_workspaces,
     pull_workspace,
     push_workspace,
@@ -575,6 +578,11 @@ def workspace_add(
         typer.echo(f"  Path: {info.path}")
         typer.echo(f"  Branch: {info.branch}")
         typer.echo(f"  Remote: {info.remote_url}")
+        if info.linked_repo:
+            typer.echo(f"  Linked: {info.linked_repo}")
+            typer.echo("\nTo sync changes later:")
+            typer.echo(f"  cd {info.linked_repo}")
+            typer.echo(f"  git fetch takopi && git merge takopi/{info.branch}")
     except WorkspaceError as e:
         typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1)
@@ -721,6 +729,55 @@ def workspace_pr(
         typer.echo(
             "Error: gh CLI not found. Install it from https://cli.github.com/", err=True
         )
+        raise typer.Exit(code=1)
+
+
+@workspace_app.command("link")
+def workspace_link_cmd(
+    name: str = typer.Argument(..., help="Name of the workspace."),
+    local_repo: str = typer.Argument(..., help="Path to local repository to link."),
+) -> None:
+    """Link a workspace to a local repository for syncing changes."""
+    try:
+        result = link_workspace(name, local_repo)
+        typer.echo(result)
+        from .workspaces import get_workspace_info
+
+        info = get_workspace_info(name)
+        if info:
+            typer.echo("\nTo merge changes:")
+            typer.echo(f"  cd {local_repo}")
+            typer.echo(f"  git merge takopi/{info.branch}")
+    except WorkspaceError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+
+@workspace_app.command("log")
+def workspace_log_cmd(
+    name: str = typer.Argument(..., help="Name of the workspace."),
+    max_count: int = typer.Option(20, "--max", "-n", help="Maximum commits to show."),
+) -> None:
+    """Show commits on the workspace branch ahead of upstream."""
+    try:
+        result = get_workspace_log(name, max_count=max_count)
+        typer.echo(result)
+    except WorkspaceError as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+
+@workspace_app.command("diff")
+def workspace_diff_cmd(
+    name: str = typer.Argument(..., help="Name of the workspace."),
+    stat: bool = typer.Option(False, "--stat", "-s", help="Show diffstat only."),
+) -> None:
+    """Show diff between workspace branch and upstream."""
+    try:
+        result = get_workspace_diff(name, stat_only=stat)
+        typer.echo(result)
+    except WorkspaceError as e:
+        typer.echo(f"Error: {e}", err=True)
         raise typer.Exit(code=1)
 
 

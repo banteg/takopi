@@ -49,6 +49,7 @@ class WorkspaceInfo:
     repo_path: Path
     branch: str
     remote_url: str
+    linked_repo: Path | None = None
 
     @property
     def worktree_path(self) -> Path:
@@ -193,19 +194,21 @@ def add_workspace(
 ) -> WorkspaceInfo:
     ensure_directories()
 
+    source_local_path: Path | None = None
+
     if _is_git_url(source):
         remote_url = source
     else:
-        local_path = Path(source).expanduser().resolve()
-        if not local_path.exists():
-            raise WorkspaceError(f"Path does not exist: {local_path}")
-        if not (local_path / ".git").exists():
-            raise WorkspaceError(f"Not a git repository: {local_path}")
+        source_local_path = Path(source).expanduser().resolve()
+        if not source_local_path.exists():
+            raise WorkspaceError(f"Path does not exist: {source_local_path}")
+        if not (source_local_path / ".git").exists():
+            raise WorkspaceError(f"Not a git repository: {source_local_path}")
 
-        remote_url = _get_remote_url(local_path)
+        remote_url = _get_remote_url(source_local_path)
         if not remote_url:
             raise WorkspaceError(
-                f"Repository has no remote 'origin' configured: {local_path}\n"
+                f"Repository has no remote 'origin' configured: {source_local_path}\n"
                 "Please push to a remote first, or provide a URL directly."
             )
 
@@ -267,12 +270,35 @@ def add_workspace(
         "[workspace] created workspace %s at %s", workspace_name, workspace_path
     )
 
+    linked_repo: Path | None = None
+    if source_local_path is not None:
+        link_result = _run_git(
+            ["remote", "add", "takopi", str(bare_repo_path)],
+            cwd=source_local_path,
+            check=False,
+        )
+        if link_result.returncode == 0:
+            linked_repo = source_local_path
+            logger.info("[workspace] linked takopi remote to %s", source_local_path)
+        else:
+            existing = _run_git(
+                ["remote", "get-url", "takopi"],
+                cwd=source_local_path,
+                check=False,
+            )
+            if existing.returncode == 0:
+                linked_repo = source_local_path
+                logger.debug(
+                    "[workspace] takopi remote already exists in %s", source_local_path
+                )
+
     return WorkspaceInfo(
         name=workspace_name,
         path=workspace_path,
         repo_path=bare_repo_path,
         branch=worktree_branch,
         remote_url=remote_url,
+        linked_repo=linked_repo,
     )
 
 
@@ -407,3 +433,96 @@ def get_workspace_status(name: str) -> WorkspaceStatus:
         dirty=dirty,
         untracked=untracked,
     )
+
+
+def link_workspace(name: str, local_repo: str) -> str:
+    workspace_path = WORKSPACES_DIR / name
+    if not workspace_path.exists():
+        raise WorkspaceError(f"Workspace not found: {name}")
+
+    info = get_workspace_info(name)
+    if not info:
+        raise WorkspaceError(f"Invalid workspace: {name}")
+
+    local_path = Path(local_repo).expanduser().resolve()
+    if not local_path.exists():
+        raise WorkspaceError(f"Path does not exist: {local_path}")
+    if not (local_path / ".git").exists():
+        raise WorkspaceError(f"Not a git repository: {local_path}")
+
+    existing = _run_git(
+        ["remote", "get-url", "takopi"],
+        cwd=local_path,
+        check=False,
+    )
+    if existing.returncode == 0:
+        current_url = existing.stdout.strip()
+        if current_url == str(info.repo_path):
+            _run_git(["fetch", "takopi"], cwd=local_path)
+            return f"Already linked. Fetched latest from takopi/{info.branch}"
+        else:
+            raise WorkspaceError(
+                f"Remote 'takopi' already exists with different URL:\n"
+                f"  current: {current_url}\n"
+                f"  expected: {info.repo_path}"
+            )
+
+    _run_git(["remote", "add", "takopi", str(info.repo_path)], cwd=local_path)
+    _run_git(["fetch", "takopi"], cwd=local_path)
+
+    return f"Linked. Branch available at takopi/{info.branch}"
+
+
+def get_workspace_log(name: str, max_count: int = 20) -> str:
+    workspace_path = WORKSPACES_DIR / name
+    if not workspace_path.exists():
+        raise WorkspaceError(f"Workspace not found: {name}")
+
+    info = get_workspace_info(name)
+    if not info:
+        raise WorkspaceError(f"Invalid workspace: {name}")
+
+    _run_git(["fetch", "origin"], cwd=info.repo_path, check=False)
+
+    default_branch = _get_default_branch(workspace_path) or "main"
+
+    result = _run_git(
+        [
+            "log",
+            "--oneline",
+            f"--max-count={max_count}",
+            f"{default_branch}..{info.branch}",
+        ],
+        cwd=workspace_path,
+        check=False,
+    )
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return f"No commits on {info.branch} ahead of {default_branch}"
+
+    return result.stdout.strip()
+
+
+def get_workspace_diff(name: str, stat_only: bool = False) -> str:
+    workspace_path = WORKSPACES_DIR / name
+    if not workspace_path.exists():
+        raise WorkspaceError(f"Workspace not found: {name}")
+
+    info = get_workspace_info(name)
+    if not info:
+        raise WorkspaceError(f"Invalid workspace: {name}")
+
+    _run_git(["fetch", "origin"], cwd=info.repo_path, check=False)
+
+    default_branch = _get_default_branch(workspace_path) or "main"
+
+    args = ["diff", f"{default_branch}...{info.branch}"]
+    if stat_only:
+        args.append("--stat")
+
+    result = _run_git(args, cwd=workspace_path, check=False)
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return f"No diff between {default_branch} and {info.branch}"
+
+    return result.stdout
