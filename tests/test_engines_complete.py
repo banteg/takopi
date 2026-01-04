@@ -2,9 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from takopi.backends import EngineBackend, EngineConfig
+from takopi.backends import EngineBackend
 from takopi.config import ConfigError
-from takopi.engines import get_backend, list_backends, list_backend_ids, get_engine_config
+from takopi.engines import (
+    get_backend,
+    list_backends,
+    list_backend_ids,
+    get_engine_config,
+)
 
 
 def test_get_backend_known() -> None:

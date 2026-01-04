@@ -48,12 +48,12 @@ def test_relativize_path_not_matching_base() -> None:
 def test_relativize_command() -> None:
     cwd = Path.cwd()
     cmd = f"python {cwd / 'script.py'}"
-    expected = f"python script.py"
+    expected = "python script.py"
     assert relativize_command(cmd) == expected
 
 
 def test_relativize_command_with_custom_base() -> None:
     base = Path("/tmp")
     cmd = f"python {base / 'script.py'}"
-    expected = f"python script.py"
+    expected = "python script.py"
     assert relativize_command(cmd, base_dir=base) == expected

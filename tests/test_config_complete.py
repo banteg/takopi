@@ -19,9 +19,7 @@ def test_read_config_missing_file() -> None:
 
 
 def test_read_config_malformed_toml() -> None:
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".toml", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write("invalid [toml")
         f.flush()
         cfg_path = Path(f.name)
@@ -36,9 +34,7 @@ def test_read_config_malformed_toml() -> None:
 
 
 def test_read_config_valid() -> None:
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".toml", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write('[test]\nkey = "value"')
         f.flush()
         cfg_path = Path(f.name)
@@ -63,9 +59,7 @@ def test_read_config_os_error() -> None:
 
 
 def test_load_telegram_config_with_path() -> None:
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".toml", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write('[telegram]\nbot_token = "test"')
         f.flush()
         cfg_path = Path(f.name)
@@ -80,9 +74,7 @@ def test_load_telegram_config_with_path() -> None:
 
 def test_load_telegram_config_with_tilde() -> None:
     # This test uses the home directory, so we'll create a temp file in HOME
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".toml", delete=False
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
         f.write('[telegram]\nbot_token = "test"')
         f.flush()
         cfg_path = Path(f.name)

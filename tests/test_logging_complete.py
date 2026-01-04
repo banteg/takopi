@@ -1,4 +1,5 @@
 import logging
+from typing import Any, cast
 
 from takopi.logging import RedactTokenFilter, setup_logging
 
@@ -47,7 +48,7 @@ def test_redact_token_filter_handles_type_error() -> None:
         def getMessage(self):
             raise TypeError("bad")
 
-    result = redactor.filter(BadRecord())
+    result = redactor.filter(cast(Any, BadRecord()))
     assert result is True
 
 
@@ -58,7 +59,7 @@ def test_redact_token_filter_handles_value_error() -> None:
         def getMessage(self):
             raise ValueError("bad")
 
-    result = redactor.filter(BadRecord())
+    result = redactor.filter(cast(Any, BadRecord()))
     assert result is True
 
 
