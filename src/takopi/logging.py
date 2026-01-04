@@ -74,26 +74,35 @@ def _redact_text(value: str) -> str:
     return TELEGRAM_BARE_TOKEN_RE.sub("[REDACTED_TOKEN]", redacted)
 
 
-def _redact_value(value: Any, seen: set[int]) -> Any:
+def _redact_value(value: Any, memo: dict[int, Any]) -> Any:
     if isinstance(value, str):
         return _redact_text(value)
     if isinstance(value, (bytes, bytearray)):
         return _redact_text(value.decode("utf-8", errors="replace"))
     obj_id = id(value)
-    if obj_id in seen:
-        return value
+    if obj_id in memo:
+        return memo[obj_id]
     if isinstance(value, dict):
-        seen.add(obj_id)
-        return {key: _redact_value(val, seen) for key, val in value.items()}
+        redacted: dict[Any, Any] = {}
+        memo[obj_id] = redacted
+        for key, val in value.items():
+            redacted[key] = _redact_value(val, memo)
+        return redacted
     if isinstance(value, list):
-        seen.add(obj_id)
-        return [_redact_value(item, seen) for item in value]
+        redacted_list: list[Any] = []
+        memo[obj_id] = redacted_list
+        redacted_list.extend(_redact_value(item, memo) for item in value)
+        return redacted_list
     if isinstance(value, tuple):
-        seen.add(obj_id)
-        return tuple(_redact_value(item, seen) for item in value)
+        redacted_tuple: list[Any] = []
+        memo[obj_id] = redacted_tuple
+        redacted_tuple.extend(_redact_value(item, memo) for item in value)
+        return tuple(redacted_tuple)
     if isinstance(value, set):
-        seen.add(obj_id)
-        return {_redact_value(item, seen) for item in value}
+        redacted_set: set[Any] = set()
+        memo[obj_id] = redacted_set
+        redacted_set.update(_redact_value(item, memo) for item in value)
+        return redacted_set
     return value
 
 
@@ -101,7 +110,7 @@ def _redact_event_dict(
     logger: Any, method_name: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
     _ = logger, method_name
-    return _redact_value(event_dict, seen=set())
+    return _redact_value(event_dict, memo={})
 
 
 def _file_sink(
@@ -154,11 +163,14 @@ def clear_context() -> None:
 class SafeWriter(io.TextIOBase):
     def __init__(self, stream: Any) -> None:
         self._stream = stream
+        self._closed = False
 
     def write(self, message: str) -> int:
+        if self._closed:
+            return 0
         try:
             return self._stream.write(message)
-        except BrokenPipeError:
+        except (BrokenPipeError, ValueError):
             self._close()
             return 0
         except OSError as exc:
@@ -168,9 +180,11 @@ class SafeWriter(io.TextIOBase):
             raise
 
     def flush(self) -> None:
+        if self._closed:
+            return
         try:
             self._stream.flush()
-        except BrokenPipeError:
+        except (BrokenPipeError, ValueError):
             self._close()
         except OSError as exc:
             if exc.errno == errno.EPIPE:
@@ -183,6 +197,9 @@ class SafeWriter(io.TextIOBase):
         return bool(isatty()) if callable(isatty) else False
 
     def _close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         try:
             self._stream.close()
         except Exception:
