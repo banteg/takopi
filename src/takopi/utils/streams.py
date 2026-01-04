@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-import logging
 import sys
+from typing import Any
 
 import anyio
 from anyio.abc import ByteReceiveStream
 from anyio.streams.buffered import BufferedByteReceiveStream
+
+from ..logging import log_pipeline
 
 
 async def iter_bytes_lines(stream: ByteReceiveStream) -> AsyncIterator[bytes]:
@@ -21,12 +23,22 @@ async def iter_bytes_lines(stream: ByteReceiveStream) -> AsyncIterator[bytes]:
 
 async def drain_stderr(
     stream: ByteReceiveStream,
-    logger: logging.Logger,
+    logger: Any,
     tag: str,
 ) -> None:
     try:
         async for line in iter_bytes_lines(stream):
             text = line.decode("utf-8", errors="replace")
-            logger.debug("[%s][stderr] %s", tag, text)
-    except Exception as e:
-        logger.debug("[%s][stderr] drain error: %s", tag, e)
+            log_pipeline(
+                logger,
+                "subprocess.stderr",
+                tag=tag,
+                line=text,
+            )
+    except Exception as exc:
+        log_pipeline(
+            logger,
+            "subprocess.stderr.error",
+            tag=tag,
+            error=str(exc),
+        )

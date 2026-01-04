@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -11,6 +10,7 @@ from typing import Any
 import anyio
 
 from .model import CompletedEvent, EngineId, ResumeToken, StartedEvent, TakopiEvent
+from .logging import bind_run_context, clear_context, get_logger
 from .render import (
     ExecProgressRenderer,
     MarkdownParts,
@@ -24,17 +24,17 @@ from .scheduler import ThreadJob, ThreadScheduler
 from .telegram import BotClient
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _log_runner_event(evt: TakopiEvent) -> None:
     for line in render_event_cli(evt):
-        logger.info("[runner] %s", line)
-    if isinstance(evt, CompletedEvent):
-        if evt.ok:
-            logger.info("[runner] done")
-        else:
-            logger.info("[runner] error: %s", evt.error or "error")
+        logger.debug(
+            "runner.event.cli",
+            line=line,
+            event_type=getattr(evt, "type", None),
+            engine=getattr(evt, "engine", None),
+        )
 
 
 def _is_cancel_command(text: str) -> bool:
@@ -101,14 +101,18 @@ async def _set_command_menu(cfg: BridgeConfig) -> None:
     try:
         ok = await cfg.bot.set_my_commands(commands)
     except Exception as exc:
-        logger.info("[startup] command menu update failed: %s", exc)
+        logger.info(
+            "startup.command_menu.failed",
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
         return
     if not ok:
-        logger.info("[startup] command menu update rejected")
+        logger.info("startup.command_menu.rejected")
         return
     logger.info(
-        "[startup] command menu updated commands=%s",
-        ", ".join(cmd["command"] for cmd in commands),
+        "startup.command_menu.updated",
+        commands=[cmd["command"] for cmd in commands],
     )
 
 
@@ -168,6 +172,12 @@ async def _send_or_edit_markdown(
     else:
         rendered, entities = prepared
     if edit_message_id is not None:
+        logger.debug(
+            "telegram.edit_message",
+            chat_id=chat_id,
+            message_id=edit_message_id,
+            rendered=rendered,
+        )
         edited = await bot.edit_message_text(
             chat_id=chat_id,
             message_id=edit_message_id,
@@ -177,6 +187,12 @@ async def _send_or_edit_markdown(
         if edited is not None:
             return (edited, True)
 
+    logger.debug(
+        "telegram.send_message",
+        chat_id=chat_id,
+        reply_to_message_id=reply_to_message_id,
+        rendered=rendered,
+    )
     return (
         await bot.send_message(
             chat_id=chat_id,
@@ -238,11 +254,13 @@ class ProgressEdits:
             seq_at_render = self.event_seq
             now = self.clock()
             parts = self.renderer.render_progress_parts(now - self.started_at)
-            md = assemble_markdown_parts(parts)
             rendered, entities = prepare_telegram(parts)
             if rendered != self.last_rendered:
                 logger.debug(
-                    "[progress] edit message_id=%s md=%s", self.progress_id, md
+                    "telegram.edit_message",
+                    chat_id=self.chat_id,
+                    message_id=self.progress_id,
+                    rendered=rendered,
                 )
                 self.last_edit_at = now
                 edited = await self.bot.edit_message_text(
@@ -289,14 +307,14 @@ class RunningTask:
 
 
 async def _send_startup(cfg: BridgeConfig) -> None:
-    logger.debug("[startup] message: %s", cfg.startup_msg)
+    logger.debug("startup.message", text=cfg.startup_msg)
     sent, _ = await _send_or_edit_markdown(
         cfg.bot,
         chat_id=cfg.chat_id,
         parts=MarkdownParts(header=cfg.startup_msg),
     )
     if sent is not None:
-        logger.info("[startup] sent startup message to chat_id=%s", cfg.chat_id)
+        logger.info("startup.sent", chat_id=cfg.chat_id)
 
 
 async def _drain_backlog(cfg: BridgeConfig, offset: int | None) -> int | None:
@@ -306,12 +324,12 @@ async def _drain_backlog(cfg: BridgeConfig, offset: int | None) -> int | None:
             offset=offset, timeout_s=0, allowed_updates=["message"]
         )
         if updates is None:
-            logger.info("[startup] backlog drain failed")
+            logger.info("startup.backlog.failed")
             return offset
-        logger.debug("[startup] backlog updates: %s", updates)
+        logger.debug("startup.backlog.updates", updates=updates)
         if not updates:
             if drained:
-                logger.info("[startup] drained %s pending update(s)", drained)
+                logger.info("startup.backlog.drained", count=drained)
             return offset
         offset = updates[-1]["update_id"] + 1
         drained += len(updates)
@@ -338,14 +356,12 @@ async def send_initial_progress(
     last_rendered: str | None = None
 
     initial_parts = renderer.render_progress_parts(0.0, label=label)
-    initial_md = assemble_markdown_parts(initial_parts)
     initial_rendered, initial_entities = prepare_telegram(initial_parts)
     logger.debug(
-        "[progress] send reply_to=%s md=%s rendered=%s entities=%s",
-        user_msg_id,
-        initial_md,
-        initial_rendered,
-        initial_entities,
+        "telegram.send_message",
+        chat_id=chat_id,
+        reply_to_message_id=user_msg_id,
+        rendered=initial_rendered,
     )
     progress_msg = await cfg.bot.send_message(
         chat_id=chat_id,
@@ -358,7 +374,11 @@ async def send_initial_progress(
         progress_id = int(progress_msg["message_id"])
         last_edit_at = clock()
         last_rendered = initial_rendered
-        logger.debug("[progress] sent chat_id=%s message_id=%s", chat_id, progress_id)
+        logger.debug(
+            "progress.sent",
+            chat_id=chat_id,
+            message_id=progress_id,
+        )
 
     return ProgressMessageState(
         message_id=progress_id,
@@ -392,6 +412,7 @@ async def run_runner_with_cancel(
                     _log_runner_event(evt)
                     if isinstance(evt, StartedEvent):
                         outcome.resume = evt.resume
+                        bind_run_context(resume=evt.resume.value)
                         if running_task is not None and running_task.resume is None:
                             running_task.resume = evt.resume
                             running_task.resume_ready.set()
@@ -448,7 +469,12 @@ async def send_result_message(
     if final_msg is None:
         return
     if progress_id is not None and (edit_message_id is None or not edited):
-        logger.debug("[%s] delete progress message_id=%s", delete_tag, progress_id)
+        logger.debug(
+            "telegram.delete_message",
+            chat_id=chat_id,
+            message_id=progress_id,
+            tag=delete_tag,
+        )
         await cfg.bot.delete_message(chat_id=chat_id, message_id=progress_id)
 
 
@@ -468,12 +494,12 @@ async def handle_message(
     sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
     progress_edit_every: float = PROGRESS_EDIT_EVERY_S,
 ) -> None:
-    logger.debug(
-        "[handle] incoming chat_id=%s message_id=%s resume=%r text=%s",
-        chat_id,
-        user_msg_id,
-        resume_token,
-        text,
+    logger.info(
+        "handle.incoming",
+        chat_id=chat_id,
+        user_msg_id=user_msg_id,
+        resume=resume_token.value if resume_token else None,
+        text=text,
     )
     started_at = clock()
     is_resume_line = runner.is_resume_line
@@ -539,9 +565,13 @@ async def handle_message(
                 running_task=running_task,
                 on_thread_known=on_thread_known,
             )
-        except Exception as e:
-            error = e
-            logger.exception("[handle] runner failed")
+        except Exception as exc:
+            error = exc
+            logger.exception(
+                "handle.runner_failed",
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
         finally:
             if (
                 running_task is not None
@@ -564,8 +594,9 @@ async def handle_message(
             elapsed, err_body, status="error"
         )
         logger.debug(
-            "[error] markdown: %s",
-            assemble_markdown_parts(final_parts),
+            "handle.error.markdown",
+            error=err_body,
+            markdown=assemble_markdown_parts(final_parts),
         )
         await send_result_message(
             cfg,
@@ -582,9 +613,9 @@ async def handle_message(
     if outcome.cancelled:
         resume = sync_resume_token(progress_renderer, outcome.resume)
         logger.info(
-            "[handle] cancelled resume=%s elapsed=%.1fs",
-            resume.value if resume else None,
-            elapsed,
+            "handle.cancelled",
+            resume=resume.value if resume else None,
+            elapsed_s=elapsed,
         )
         final_parts = progress_renderer.render_progress_parts(
             elapsed, label="`cancelled`"
@@ -618,33 +649,32 @@ async def handle_message(
     status = (
         "error" if run_ok is False else ("done" if final_answer.strip() else "error")
     )
+    resume_value = None
+    resume_token = completed.resume or outcome.resume
+    if resume_token is not None:
+        resume_value = resume_token.value
+    logger.info(
+        "runner.completed",
+        ok=run_ok,
+        error=run_error,
+        answer_len=len(final_answer or ""),
+        elapsed_s=round(elapsed, 2),
+        action_count=progress_renderer.action_count,
+        resume=resume_value,
+    )
     sync_resume_token(progress_renderer, completed.resume or outcome.resume)
     final_parts = progress_renderer.render_final_parts(
         elapsed, final_answer, status=status
     )
     logger.debug(
-        "[final] markdown: %s",
-        assemble_markdown_parts(final_parts),
+        "handle.final.markdown",
+        markdown=assemble_markdown_parts(final_parts),
+        status=status,
     )
 
     final_rendered, final_entities = prepare_telegram(final_parts)
     can_edit_final = progress_id is not None
     edit_message_id = None if cfg.final_notify or not can_edit_final else progress_id
-
-    if edit_message_id is None:
-        logger.debug(
-            "[final] send reply_to=%s rendered=%s entities=%s",
-            user_msg_id,
-            final_rendered,
-            final_entities,
-        )
-    else:
-        logger.debug(
-            "[final] edit message_id=%s rendered=%s entities=%s",
-            edit_message_id,
-            final_rendered,
-            final_entities,
-        )
 
     await send_result_message(
         cfg,
@@ -669,10 +699,10 @@ async def poll_updates(cfg: BridgeConfig) -> AsyncIterator[dict[str, Any]]:
             offset=offset, timeout_s=50, allowed_updates=["message"]
         )
         if updates is None:
-            logger.info("[loop] getUpdates failed")
+            logger.info("loop.get_updates.failed")
             await anyio.sleep(2)
             continue
-        logger.debug("[loop] updates: %s", updates)
+        logger.debug("loop.updates", updates=updates)
 
         for upd in updates:
             offset = upd["update_id"] + 1
@@ -719,7 +749,11 @@ async def _handle_cancel(
         )
         return
 
-    logger.info("[cancel] cancelling progress_message_id=%s", progress_id)
+    logger.info(
+        "cancel.requested",
+        chat_id=chat_id,
+        progress_message_id=progress_id,
+    )
     running_task.cancel_requested.set()
 
 
@@ -838,6 +872,12 @@ async def run_main_loop(
                             reason=reason,
                         )
                         return
+                    bind_run_context(
+                        chat_id=chat_id,
+                        user_msg_id=user_msg_id,
+                        engine=entry.runner.engine,
+                        resume=resume_token.value if resume_token else None,
+                    )
                     await handle_message(
                         cfg,
                         runner=entry.runner,
@@ -850,8 +890,14 @@ async def run_main_loop(
                         on_thread_known=on_thread_known,
                         progress_edit_every=cfg.progress_edit_every,
                     )
-                except Exception:
-                    logger.exception("[handle] worker failed")
+                except Exception as exc:
+                    logger.exception(
+                        "handle.worker_failed",
+                        error=str(exc),
+                        error_type=exc.__class__.__name__,
+                    )
+                finally:
+                    clear_context()
 
             async def run_thread_job(job: ThreadJob) -> None:
                 await run_job(

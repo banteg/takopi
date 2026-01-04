@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,12 +10,13 @@ import msgspec
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
 from ..events import EventFactory
+from ..logging import get_logger
 from ..model import ActionPhase, EngineId, ResumeToken, TakopiEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import codex as codex_schema
 from ..utils.paths import relativize_command
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ENGINE: EngineId = EngineId("codex")
 
@@ -394,9 +394,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: CodexRunState,
     ) -> None:
-        _ = state
-        logger.info("[codex] start run resume=%r", resume.value if resume else None)
-        logger.debug("[codex] prompt: %s", prompt)
+        _ = state, prompt, resume
 
     def decode_jsonl(self, *, line: bytes) -> codex_schema.ThreadEvent:
         return codex_schema.decode_event(line)
@@ -412,7 +410,10 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         _ = raw, line
         if isinstance(error, msgspec.DecodeError):
             self.get_logger().warning(
-                "[%s] invalid msgspec event: %s", self.tag(), error
+                "jsonl.msgspec.invalid",
+                tag=self.tag(),
+                error=str(error),
+                error_type=error.__class__.__name__,
             )
             return []
         return super().decode_error_events(
@@ -485,9 +486,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                 if state.final_answer is None:
                     state.final_answer = text
                 else:
-                    logger.debug(
-                        "[codex] emitted multiple agent messages; using the last one"
-                    )
+                    logger.debug("codex.multiple_agent_messages")
                     state.final_answer = text
             case _:
                 pass
@@ -538,7 +537,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                     resume=resume_for_completed,
                 )
             ]
-        logger.info("[codex] done run session=%s", found_session.value)
+        logger.info("codex.session.completed", resume=found_session.value)
         return [
             state.factory.completed_ok(
                 answer=state.final_answer or "",

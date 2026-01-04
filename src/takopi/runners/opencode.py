@@ -13,7 +13,6 @@ Session IDs use the format: ses_XXXX (e.g., ses_494719016ffe85dkDMj0FPRbHK)
 
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,6 +22,7 @@ import msgspec
 
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
+from ..logging import get_logger
 from ..model import (
     Action,
     ActionEvent,
@@ -37,7 +37,7 @@ from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import opencode as opencode_schema
 from ..utils.paths import relativize_command, relativize_path
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ENGINE: EngineId = EngineId("opencode")
 
@@ -350,7 +350,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     opencode_cmd: str = "opencode"
     model: str | None = None
     session_title: str = "opencode"
-    logger: logging.Logger = logger
+    logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
@@ -397,12 +397,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: OpenCodeStreamState,
     ) -> None:
-        _ = state
-        logger.info(
-            "[opencode] start run resume=%r",
-            resume.value if resume else None,
-        )
-        logger.debug("[opencode] prompt: %s", prompt)
+        _ = state, prompt, resume
 
     def invalid_json_events(
         self,
@@ -444,7 +439,10 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         _ = raw, line, state
         if isinstance(error, msgspec.DecodeError):
             self.get_logger().warning(
-                "[%s] invalid msgspec event: %s", self.tag(), error
+                "jsonl.msgspec.invalid",
+                tag=self.tag(),
+                error=str(error),
+                error_type=error.__class__.__name__,
             )
             return []
         return super().decode_error_events(

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -13,6 +12,7 @@ import msgspec
 
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
+from ..logging import get_logger
 from ..model import (
     Action,
     ActionEvent,
@@ -29,7 +29,7 @@ from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import pi as pi_schema
 from ..utils.paths import relativize_command, relativize_path
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ENGINE: EngineId = EngineId("pi")
 
@@ -370,7 +370,10 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         _ = raw, line, state
         if isinstance(error, msgspec.DecodeError):
             self.get_logger().warning(
-                "[%s] invalid msgspec event: %s", self.tag(), error
+                "jsonl.msgspec.invalid",
+                tag=self.tag(),
+                error=str(error),
+                error_type=error.__class__.__name__,
             )
             return []
         return super().decode_error_events(
