@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import enum
-import random
 import re
 import time
 from collections import defaultdict, deque
@@ -401,8 +400,7 @@ class TelegramRateLimiter:
     async def apply_retry_after(
         self, *, chat_id: int | None, retry_after: float
     ) -> None:
-        jitter = random.uniform(0.0, min(0.25, retry_after * 0.25))
-        delay = max(0.0, retry_after + jitter)
+        delay = max(0.0, retry_after)
         async with self._lock:
             now = self._clock()
             until = now + delay
