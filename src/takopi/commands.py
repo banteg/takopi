@@ -6,7 +6,7 @@ from typing import Literal
 
 from .model import EngineId, WorkspaceName
 
-CommandType = Literal["new", "workspace", "workspaces", "sessions", "drop"]
+CommandType = Literal["new", "workspace", "workspaces", "sessions", "drop", "commit"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,8 +36,19 @@ class DropCommand:
     type: Literal["drop"] = field(default="drop", init=False)
 
 
+@dataclass(frozen=True, slots=True)
+class CommitCommand:
+    message: str | None = None
+    type: Literal["commit"] = field(default="commit", init=False)
+
+
 DaemonCommand = (
-    NewCommand | WorkspaceCommand | WorkspacesCommand | SessionsCommand | DropCommand
+    NewCommand
+    | WorkspaceCommand
+    | WorkspacesCommand
+    | SessionsCommand
+    | DropCommand
+    | CommitCommand
 )
 
 _NEW_RE = re.compile(r"^/new(?:@\S+)?(?:\s|$)", re.IGNORECASE)
@@ -45,6 +56,7 @@ _WORKSPACE_RE = re.compile(r"^/workspace(?:@\S+)?\s+(\S+)", re.IGNORECASE)
 _WORKSPACES_RE = re.compile(r"^/workspaces(?:@\S+)?(?:\s|$)", re.IGNORECASE)
 _SESSIONS_RE = re.compile(r"^/sessions(?:@\S+)?(?:\s|$)", re.IGNORECASE)
 _DROP_RE = re.compile(r"^/drop(?:@\S+)?\s+(\S+)", re.IGNORECASE)
+_COMMIT_RE = re.compile(r"^/commit(?:@\S+)?(?:\s+(.+))?$", re.IGNORECASE)
 
 
 def parse_daemon_command(text: str) -> DaemonCommand | None:
@@ -69,6 +81,11 @@ def parse_daemon_command(text: str) -> DaemonCommand | None:
     if match:
         return DropCommand(engine=match.group(1))
 
+    match = _COMMIT_RE.match(stripped)
+    if match:
+        message = match.group(1)
+        return CommitCommand(message=message.strip() if message else None)
+
     return None
 
 
@@ -91,7 +108,7 @@ def strip_daemon_command(text: str) -> tuple[str, DaemonCommand | None]:
     if cmd is None:
         return text, None
 
-    if isinstance(cmd, (NewCommand, WorkspacesCommand, SessionsCommand)):
+    if isinstance(cmd, (NewCommand, WorkspacesCommand, SessionsCommand, CommitCommand)):
         lines.pop(idx)
         return "\n".join(lines).strip(), cmd
 

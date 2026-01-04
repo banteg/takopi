@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .commands import (
+    CommitCommand,
     DaemonCommand,
     DropCommand,
     NewCommand,
@@ -218,6 +219,62 @@ class DaemonConfig:
         self.workspaces = {**discovered, **self.config_workspaces}
 
 
+def _commit_workspace_changes(workspace_path: Path, message: str | None) -> str:
+    import subprocess
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=workspace_path,
+        capture_output=True,
+        text=True,
+    )
+    if status.returncode != 0:
+        return f"Error checking status: {status.stderr.strip()}"
+
+    if not status.stdout.strip():
+        return "No changes to commit."
+
+    add_result = subprocess.run(
+        ["git", "add", "-A"],
+        cwd=workspace_path,
+        capture_output=True,
+        text=True,
+    )
+    if add_result.returncode != 0:
+        return f"Error staging changes: {add_result.stderr.strip()}"
+
+    if not message:
+        diff_stat = subprocess.run(
+            ["git", "diff", "--cached", "--stat"],
+            cwd=workspace_path,
+            capture_output=True,
+            text=True,
+        )
+        files_changed = len(
+            [l for l in diff_stat.stdout.strip().split("\n") if l.strip()]
+        )
+        message = f"Update {files_changed} file(s)"
+
+    commit_result = subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=workspace_path,
+        capture_output=True,
+        text=True,
+    )
+    if commit_result.returncode != 0:
+        return f"Error committing: {commit_result.stderr.strip()}"
+
+    rev = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=workspace_path,
+        capture_output=True,
+        text=True,
+    )
+    short_hash = rev.stdout.strip() if rev.returncode == 0 else "unknown"
+
+    return f"Committed `{short_hash}`: {message}"
+
+
 @dataclass(frozen=True, slots=True)
 class CommandResult:
     handled: bool
@@ -333,6 +390,16 @@ async def handle_daemon_command(
             handled=True,
             response_text=f"Dropped `{cmd.engine}` session in `{workspace.name}`.",
         )
+
+    if isinstance(cmd, CommitCommand):
+        workspace = daemon_cfg.get_effective_workspace()
+        if workspace is None:
+            return CommandResult(
+                handled=True,
+                response_text="No active workspace. Use /workspaces to select one.",
+            )
+        result = _commit_workspace_changes(workspace.path, cmd.message)
+        return CommandResult(handled=True, response_text=result)
 
     return CommandResult(handled=False)
 

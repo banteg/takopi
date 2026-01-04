@@ -1,4 +1,5 @@
 from takopi.commands import (
+    CommitCommand,
     DropCommand,
     NewCommand,
     SessionsCommand,
@@ -79,6 +80,21 @@ class TestParseDaemonCommand:
         cmd = parse_daemon_command("/drop")
         assert cmd is None
 
+    def test_parse_commit_without_message(self) -> None:
+        cmd = parse_daemon_command("/commit")
+        assert isinstance(cmd, CommitCommand)
+        assert cmd.message is None
+
+    def test_parse_commit_with_message(self) -> None:
+        cmd = parse_daemon_command("/commit fix typo in readme")
+        assert isinstance(cmd, CommitCommand)
+        assert cmd.message == "fix typo in readme"
+
+    def test_parse_commit_with_bot_mention(self) -> None:
+        cmd = parse_daemon_command("/commit@mybot update docs")
+        assert isinstance(cmd, CommitCommand)
+        assert cmd.message == "update docs"
+
     def test_parse_case_insensitive(self) -> None:
         cmd = parse_daemon_command("/NEW")
         assert isinstance(cmd, NewCommand)
@@ -94,6 +110,8 @@ class TestIsDaemonCommand:
         assert is_daemon_command("/workspace foo")
         assert is_daemon_command("/sessions")
         assert is_daemon_command("/drop codex")
+        assert is_daemon_command("/commit")
+        assert is_daemon_command("/commit fix bug")
 
     def test_is_daemon_command_false(self) -> None:
         assert not is_daemon_command("")
