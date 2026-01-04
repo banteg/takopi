@@ -46,6 +46,18 @@ def _level_value(value: str | None, *, default: str = "info") -> int:
     return level if level is not None else _LEVELS[default]
 
 
+def _is_terminal() -> bool:
+    """Check if stdout is connected to a terminal.
+
+    This handles the case of running inside tmux, where isatty() may return False
+    but the terminal is still interactive.
+    """
+    # Check TMUX environment variable - when set, we're inside a tmux session
+    if os.environ.get("TMUX"):
+        return True
+    return sys.stdout.isatty()
+
+
 def pipeline_log_level() -> str:
     return _PIPELINE_LEVEL_NAME
 
@@ -221,7 +233,7 @@ def setup_logging(*, debug: bool = False) -> None:
     format_value = os.environ.get("TAKOPI_LOG_FORMAT", "console").strip().lower()
     color_override = os.environ.get("TAKOPI_LOG_COLOR")
     if color_override is None:
-        is_tty = sys.stdout.isatty()
+        is_tty = _is_terminal()
     else:
         is_tty = _truthy(color_override)
     if format_value == "json":

@@ -231,9 +231,18 @@ def _config_path_display(path: Path) -> str:
         return str(path)
 
 
-def _should_run_interactive() -> bool:
+def _is_interactive_terminal() -> bool:
+    """Check if we're running in an interactive terminal.
+
+    This handles the case of running inside tmux, where isatty() may return False
+    but the terminal is still interactive.
+    """
     if os.environ.get("TAKOPI_NO_INTERACTIVE"):
         return False
+    # Check TMUX environment variable - when set, we're inside a tmux session
+    # and should consider the terminal interactive even if isatty() returns False
+    if os.environ.get("TMUX"):
+        return True
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
@@ -262,7 +271,7 @@ def _run_auto_router(
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=1)
     if onboard:
-        if not _should_run_interactive():
+        if not _is_interactive_terminal():
             typer.echo("error: --onboard requires a TTY", err=True)
             raise typer.Exit(code=1)
         if not interactive_setup(force=True):
@@ -271,7 +280,7 @@ def _run_auto_router(
         backend = get_backend(default_engine)
     setup = check_setup(backend)
     if not setup.ok:
-        if _setup_needs_config(setup) and _should_run_interactive():
+        if _setup_needs_config(setup) and _is_interactive_terminal():
             if interactive_setup(force=False):
                 default_engine = _default_engine_for_setup(default_engine_override)
                 backend = get_backend(default_engine)
