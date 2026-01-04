@@ -9,7 +9,7 @@ Takopi is designed so that adding a runner usually means **adding one new module
 `src/takopi/runners/` plus a small **msgspec schema** module under `src/takopi/schemas/`—
 no changes to the bridge, renderer, or CLI.
 
-The walkthrough below uses an **imaginary engine** named **Pi** (`pi`) and intentionally mirrors
+The walkthrough below uses an **imaginary engine** named **Acme** (`acme`) and intentionally mirrors
 the patterns used in `runners/claude.py`.
 
 ---
@@ -18,8 +18,8 @@ the patterns used in `runners/claude.py`.
 
 After you add a runner, you should be able to:
 
-- Run `takopi pi` (CLI subcommand is auto-registered).
-- Start a new session and get a resume line like `` `pi --resume <token>` ``.
+- Run `takopi acme` (CLI subcommand is auto-registered).
+- Start a new session and get a resume line like `` `acme --resume <token>` ``.
 - Reply to any bot message containing that resume line and continue the same session.
 - See progress updates (optional) and always get a final completion event.
 
@@ -64,20 +64,20 @@ This matters because Takopi’s Telegram truncation logic preserves resume lines
 
 ---
 
-## Step-by-step: add the imaginary `pi` runner
+## Step-by-step: add the imaginary `acme` runner
 
 ### Step 1 — Pick an engine id + resume command
 
 Choose a stable engine id string. This string becomes:
 
-- The config table name (`[pi]` in `takopi.toml`)
-- The CLI subcommand (`takopi pi`)
+- The config table name (`[acme]` in `takopi.toml`)
+- The CLI subcommand (`takopi acme`)
 - The `ResumeToken.engine`
 
-For Pi we’ll use:
+For Acme we’ll use:
 
-- Engine id: `"pi"`
-- Canonical resume command embedded in chat: `` `pi --resume <token>` ``
+- Engine id: `"acme"`
+- Canonical resume command embedded in chat: `` `acme --resume <token>` ``
 
 #### Write a resume regex
 
@@ -86,7 +86,7 @@ match full line, and capture a group named `token`.
 
 ```py
 _RESUME_RE = re.compile(
-    r"(?im)^\s*`?pi\s+--resume\s+(?P<token>[^`\s]+)`?\s*$"
+    r"(?im)^\s*`?acme\s+--resume\s+(?P<token>[^`\s]+)`?\s*$"
 )
 ```
 
@@ -98,20 +98,20 @@ Why this shape?
 
 ---
 
-### Step 2 — Create `src/takopi/schemas/pi.py` + `src/takopi/runners/pi.py`
+### Step 2 — Create `src/takopi/schemas/acme.py` + `src/takopi/runners/acme.py`
 
 Create a new schema module and a runner module:
 
 ```
 src/takopi/schemas/
   codex.py
-  pi.py    # ← new
+  acme.py    # ← new
 
 src/takopi/runners/
   codex.py
   claude.py
   mock.py
-  pi.py    # ← new
+  acme.py    # ← new
 ```
 
 Takopi discovers engines by importing modules in `takopi.runners` and looking for a
@@ -119,7 +119,7 @@ module-level `BACKEND: EngineBackend` (see `takopi.engines`).
 
 ---
 
-### Step 3 — Translate Pi JSONL into Takopi events
+### Step 3 — Translate Acme JSONL into Takopi events
 
 Most CLIs we integrate are JSONL-streaming processes.
 
@@ -138,6 +138,7 @@ Copy the Claude pattern: create a small dataclass to hold streaming state.
 
 Common things to track:
 
+- `factory`: `EventFactory` instance for creating Takopi events and tracking resume
 - `pending_actions`: map tool_use_id → `Action` so tool results can complete them
 - `last_assistant_text`: fallback for final answer if the engine omits it
 - `note_seq`: counter used by `JsonlSubprocessRunner.note_event(...)`
@@ -145,8 +146,11 @@ Common things to track:
 ```py
 from dataclasses import dataclass, field
 
+from ..events import EventFactory
+
 @dataclass
-class PiStreamState:
+class AcmeStreamState:
+    factory: EventFactory = field(default_factory=lambda: EventFactory(ENGINE))
     pending_actions: dict[str, Action] = field(default_factory=dict)
     last_assistant_text: str | None = None
     note_seq: int = 0
@@ -192,31 +196,31 @@ class Final(msgspec.Struct, tag="final", kw_only=True):
     error: str | None = None
 
 
-PiEvent: TypeAlias = SessionStart | ToolUse | ToolResult | Final
+AcmeEvent: TypeAlias = SessionStart | ToolUse | ToolResult | Final
 
-_DECODER = msgspec.json.Decoder(PiEvent)
+_DECODER = msgspec.json.Decoder(AcmeEvent)
 
 
-def decode_event(data: bytes | str) -> PiEvent:
+def decode_event(data: bytes | str) -> AcmeEvent:
     return _DECODER.decode(data)
 ```
 
-#### Decide what Pi emits
+#### Decide what Acme emits
 
-For this guide, assume Pi outputs events like:
+For this guide, assume Acme outputs events like:
 
 ```json
-{"type":"session.start","session_id":"pi_01","model":"pi-large"}
+{"type":"session.start","session_id":"acme_01","model":"acme-large"}
 {"type":"tool.use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}
 {"type":"tool.result","tool_use_id":"toolu_1","content":"ok","is_error":false}
-{"type":"final","session_id":"pi_01","ok":true,"answer":"Done."}
+{"type":"final","session_id":"acme_01","ok":true,"answer":"Done."}
 ```
 
 #### Map them to Takopi events
 
 Use this mapping (mirrors Claude’s approach):
 
-- `session.start` → `StartedEvent(engine="pi", resume=ResumeToken("pi", session_id))`
+- `session.start` → `StartedEvent(engine="acme", resume=ResumeToken("acme", session_id))`
 - `tool.use` → `ActionEvent(phase="started")` and stash action in `pending_actions`
 - `tool.result` → `ActionEvent(phase="completed", ok=...)` and pop from `pending_actions`
 - `final` → `CompletedEvent(ok, answer, resume)`
@@ -228,132 +232,124 @@ Use this mapping (mirrors Claude’s approach):
 Claude keeps translation logic in a standalone function (`translate_claude_event(...)`).
 This makes it easy to unit test without spawning a subprocess.
 
-Do the same for Pi:
+Do the same for Acme. Use pattern matching against msgspec shapes, and rely on the
+`EventFactory` (as in Codex/Claude) to standardize event creation:
 
 ```py
-def translate_pi_event(
-    event: dict[str, Any],
+def translate_acme_event(
+    event: acme_schema.AcmeEvent,
     *,
     title: str,
-    state: PiStreamState,
+    state: AcmeStreamState,
+    factory: EventFactory,
 ) -> list[TakopiEvent]:
-    etype = event.get("type")
+    match event:
+        case acme_schema.SessionStart(session_id=session_id, model=model):
+            if not session_id:
+                return []
+            event_title = str(model) if model else title
+            token = ResumeToken(engine=ENGINE, value=session_id)
+            return [factory.started(token, title=event_title)]
 
-    if etype == "session.start":
-        session_id = event.get("session_id")
-        if not session_id:
-            return []
-        model = event.get("model")
-        event_title = str(model) if model else title
-        return [
-            StartedEvent(
-                engine=ENGINE,
-                resume=ResumeToken(engine=ENGINE, value=str(session_id)),
-                title=event_title,
-            )
-        ]
+        case acme_schema.ToolUse(id=tool_id, name=name, input=tool_input):
+            if not tool_id:
+                return []
+            tool_input = tool_input or {}
+            name = str(name or "tool")
 
-    if etype == "tool.use":
-        tool_id = event.get("id")
-        if not isinstance(tool_id, str) or not tool_id:
-            return []
-        name = str(event.get("name") or "tool")
-        tool_input = event.get("input")
-        if not isinstance(tool_input, dict):
-            tool_input = {}
+            # Keep titles short and friendly.
+            # (Claude uses takopi.utils.paths.relativize_command / relativize_path)
+            kind: ActionKind = "tool"
+            title = name
+            if name in {"Bash", "Shell"}:
+                kind = "command"
+                title = relativize_command(str(tool_input.get("command") or name))
 
-        # Keep titles short and friendly.
-        # (Claude uses takopi.utils.paths.relativize_command / relativize_path)
-        kind: ActionKind = "tool"
-        title = name
-        if name in {"Bash", "Shell"}:
-            kind = "command"
-            title = relativize_command(str(tool_input.get("command") or name))
-
-        action = Action(
-            id=tool_id,
-            kind=kind,
-            title=title,
-            detail={"name": name, "input": tool_input},
-        )
-        state.pending_actions[action.id] = action
-        return [ActionEvent(engine=ENGINE, action=action, phase="started")]
-
-    if etype == "tool.result":
-        tool_use_id = event.get("tool_use_id")
-        if not isinstance(tool_use_id, str) or not tool_use_id:
-            return []
-        action = state.pending_actions.pop(tool_use_id, None)
-        if action is None:
             action = Action(
-                id=tool_use_id,
-                kind="tool",
-                title="tool result",
-                detail={},
+                id=tool_id,
+                kind=kind,
+                title=title,
+                detail={"name": name, "input": tool_input},
             )
-
-        is_error = event.get("is_error") is True
-        content = event.get("content")
-        result_text = "" if content is None else (content if isinstance(content, str) else str(content))
-
-        detail = dict(action.detail)
-        detail.update({"result_preview": result_text, "is_error": is_error})
-
-        return [
-            ActionEvent(
-                engine=ENGINE,
-                action=Action(
-                    id=action.id,
+            state.pending_actions[action.id] = action
+            return [
+                factory.action_started(
+                    action_id=action.id,
                     kind=action.kind,
                     title=action.title,
+                    detail=action.detail,
+                )
+            ]
+
+        case acme_schema.ToolResult(
+            tool_use_id=tool_use_id, content=content, is_error=is_error
+        ):
+            if not tool_use_id:
+                return []
+            action = state.pending_actions.pop(tool_use_id, None)
+            if action is None:
+                action = Action(
+                    id=tool_use_id,
+                    kind="tool",
+                    title="tool result",
+                    detail={},
+                )
+
+            result_text = (
+                ""
+                if content is None
+                else (content if isinstance(content, str) else str(content))
+            )
+            detail = dict(action.detail)
+            detail.update(
+                {"result_preview": result_text, "is_error": bool(is_error)}
+            )
+
+            return [
+                factory.action_completed(
+                    action_id=action.id,
+                    kind=action.kind,
+                    title=action.title,
+                    ok=not bool(is_error),
                     detail=detail,
-                ),
-                phase="completed",
-                ok=not is_error,
+                )
+            ]
+
+        case acme_schema.Final(session_id=session_id, ok=ok, answer=answer, error=error):
+            answer = answer or ""
+            if ok and not answer and state.last_assistant_text:
+                answer = state.last_assistant_text
+
+            resume = (
+                ResumeToken(engine=ENGINE, value=session_id) if session_id else None
             )
-        ]
 
-    if etype == "final":
-        ok = event.get("ok") is True
-        answer = event.get("answer")
-        if not isinstance(answer, str):
-            answer = ""
-        if ok and not answer and state.last_assistant_text:
-            answer = state.last_assistant_text
+            if ok:
+                return [factory.completed_ok(answer=answer, resume=resume)]
 
-        session_id = event.get("session_id")
-        resume = (
-            ResumeToken(engine=ENGINE, value=str(session_id)) if session_id else None
-        )
+            error_text = str(error) if error else "acme run failed"
+            return [
+                factory.completed_error(
+                    error=error_text,
+                    answer=answer,
+                    resume=resume,
+                )
+            ]
 
-        error = None
-        if not ok:
-            err = event.get("error")
-            error = str(err) if err else "pi run failed"
-
-        return [
-            CompletedEvent(
-                engine=ENGINE,
-                ok=ok,
-                answer=answer,
-                resume=resume,
-                error=error,
-            )
-        ]
-
-    return []
+        case _:
+            return []
 ```
 
 This is intentionally close to Claude’s structure:
 
-- Parse `type`
+- Match on the msgspec event type
 - Handle “init/session start” first
 - Emit action-start and action-complete events
 - Emit a final `CompletedEvent`
 
 ---
 
-### Step 4 — Implement the `PiRunner` class
+### Step 4 — Implement the `AcmeRunner` class
 
 Most engines can implement a runner by combining:
 
@@ -377,48 +373,45 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from ..backends import EngineBackend, EngineConfig
 from ..model import (
-    CompletedEvent,
     EngineId,
     ResumeToken,
-    StartedEvent,
     TakopiEvent,
 )
-import msgspec
 
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
-from ..schemas import pi as pi_schema
+from ..schemas import acme as acme_schema
 
 logger = logging.getLogger(__name__)
 
-ENGINE: EngineId = EngineId("pi")
+ENGINE: EngineId = EngineId("acme")
 _RESUME_RE = re.compile(
-    r"(?im)^\s*`?pi\s+--resume\s+(?P<token>[^`\s]+)`?\s*$"
+    r"(?im)^\s*`?acme\s+--resume\s+(?P<token>[^`\s]+)`?\s*$"
 )
 
 
 @dataclass
-class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
+class AcmeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE
 
-    pi_cmd: str = "pi"
+    acme_cmd: str = "acme"
     model: str | None = None
     allowed_tools: list[str] | None = None
-    session_title: str = "pi"
+    session_title: str = "acme"
     logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
-        # Override because our canonical resume command is "pi --resume ...".
+        # Override because our canonical resume command is "acme --resume ...".
         if token.engine != ENGINE:
             raise RuntimeError(f"resume token is for engine {token.engine!r}")
-        return f"`pi --resume {token.value}`"
+        return f"`acme --resume {token.value}`"
 
     def command(self) -> str:
-        return self.pi_cmd
+        return self.acme_cmd
 
     def build_args(
         self,
@@ -445,34 +438,38 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         state: Any,
     ) -> bytes | None:
         _ = resume, state
-        # Pi reads the prompt from stdin.
+        # Acme reads the prompt from stdin.
         return prompt.encode()
 
-    def new_state(self, prompt: str, resume: ResumeToken | None) -> PiStreamState:
+    def new_state(self, prompt: str, resume: ResumeToken | None) -> AcmeStreamState:
         _ = prompt, resume
-        return PiStreamState()
+        return AcmeStreamState()
 
     def decode_jsonl(
         self,
         *,
         raw: bytes,
         line: bytes,
-        state: PiStreamState,
-    ) -> dict[str, Any] | None:
+        state: AcmeStreamState,
+    ) -> acme_schema.AcmeEvent | None:
         _ = raw, state
-        event = pi_schema.decode_event(line)
-        return cast(dict[str, Any], msgspec.to_builtins(event))
+        return acme_schema.decode_event(line)
 
     def translate(
         self,
-        data: dict[str, Any],
+        data: acme_schema.AcmeEvent,
         *,
-        state: PiStreamState,
+        state: AcmeStreamState,
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
     ) -> list[TakopiEvent]:
         _ = resume, found_session
-        return translate_pi_event(data, title=self.session_title, state=state)
+        return translate_acme_event(
+            data,
+            title=self.session_title,
+            state=state,
+            factory=state.factory,
+        )
 ```
 
 Notes:
@@ -504,15 +501,15 @@ Follow the pattern in `runners/claude.py`:
 
 ```py
 def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
-    pi_cmd = "pi"
+    acme_cmd = "acme"
 
     model = config.get("model")
     allowed_tools = config.get("allowed_tools")
 
-    title = str(model) if model is not None else "pi"
+    title = str(model) if model is not None else "acme"
 
-    return PiRunner(
-        pi_cmd=pi_cmd,
+    return AcmeRunner(
+        acme_cmd=acme_cmd,
         model=model,
         allowed_tools=allowed_tools,
         session_title=title,
@@ -520,9 +517,9 @@ def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
 
 
 BACKEND = EngineBackend(
-    id="pi",
+    id="acme",
     build_runner=build_runner,
-    install_cmd="npm install -g @acme/pi-cli",
+    install_cmd="npm install -g @acme/acme-cli",
 )
 ```
 
@@ -533,7 +530,7 @@ to register the runner elsewhere.
 
 If the binary name differs from the engine id, set:
 
-- `EngineBackend(cli_cmd="pi-cli")`
+- `EngineBackend(cli_cmd="acme-cli")`
 
 so onboarding can find it on PATH.
 
@@ -547,7 +544,7 @@ A good runner PR usually contains 3 types of tests.
 
 Copy `tests/test_claude_runner.py::test_claude_resume_format_and_extract`.
 
-For Pi, assert:
+For Acme, assert:
 
 - `format_resume(...)` outputs the canonical resume line.
 - `extract_resume(...)` can parse it back out.
@@ -559,8 +556,8 @@ Claude’s translation tests load JSONL fixtures and feed them into the pure tra
 
 Do the same:
 
-- `tests/fixtures/pi_stream_success.jsonl`
-- `tests/fixtures/pi_stream_error.jsonl`
+- `tests/fixtures/acme_stream_success.jsonl`
+- `tests/fixtures/acme_stream_error.jsonl`
 
 Then assert:
 
@@ -617,7 +614,7 @@ one targeted test catches regressions.
 
 Before you call the runner “done”:
 
-- [ ] `takopi pi` appears automatically (module exports `BACKEND`).
+- [ ] `takopi acme` appears automatically (module exports `BACKEND`).
 - [ ] `format_resume()` matches `extract_resume()` + `is_resume_line()`.
 - [ ] Translation emits exactly one `StartedEvent` and one `CompletedEvent`.
 - [ ] `CompletedEvent.resume` matches `StartedEvent.resume`.

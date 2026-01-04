@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 import subprocess
 from collections.abc import AsyncIterator, Callable
@@ -13,6 +12,7 @@ from weakref import WeakValueDictionary
 
 import anyio
 
+from .logging import get_logger, log_pipeline
 from .model import (
     Action,
     ActionEvent,
@@ -131,8 +131,8 @@ class JsonlRunState:
 
 
 class JsonlSubprocessRunner(BaseRunner):
-    def get_logger(self) -> logging.Logger:
-        return getattr(self, "logger", logging.getLogger(__name__))
+    def get_logger(self) -> Any:
+        return getattr(self, "logger", get_logger(__name__))
 
     def command(self) -> str:
         raise NotImplementedError
@@ -230,15 +230,9 @@ class JsonlSubprocessRunner(BaseRunner):
     async def iter_json_lines(
         self,
         stream: Any,
-        *,
-        logger: logging.Logger,
-        tag: str,
     ) -> AsyncIterator[bytes]:
         async for raw_line in iter_bytes_lines(stream):
-            raw = raw_line.rstrip(b"\n")
-            text = raw.decode("utf-8", errors="replace")
-            logger.debug("[%s][jsonl] %s", tag, text)
-            yield raw
+            yield raw_line.rstrip(b"\n")
 
     def decode_error_events(
         self,
@@ -356,6 +350,13 @@ class JsonlSubprocessRunner(BaseRunner):
         cmd = [self.command(), *self.build_args(prompt, resume, state=state)]
         payload = self.stdin_payload(prompt, resume, state=state)
         env = self.env(state=state)
+        logger.info(
+            "runner.start",
+            engine=self.engine,
+            resume=resume.value if resume else None,
+            prompt=prompt,
+            prompt_len=len(prompt),
+        )
 
         async with manage_subprocess(
             cmd,
@@ -369,12 +370,23 @@ class JsonlSubprocessRunner(BaseRunner):
             if payload is not None and proc.stdin is None:
                 raise RuntimeError(self.pipes_error_message())
 
-            logger.debug("[%s] spawn pid=%s args=%r", tag, proc.pid, cmd)
+            logger.info(
+                "subprocess.spawn",
+                cmd=cmd[0] if cmd else None,
+                args=cmd[1:],
+                pid=proc.pid,
+            )
 
             if payload is not None:
                 assert proc.stdin is not None
                 await proc.stdin.send(payload)
                 await proc.stdin.aclose()
+                logger.info(
+                    "subprocess.stdin.send",
+                    pid=proc.pid,
+                    resume=resume.value if resume else None,
+                    bytes=len(payload),
+                )
             elif proc.stdin is not None:
                 await proc.stdin.aclose()
 
@@ -382,6 +394,8 @@ class JsonlSubprocessRunner(BaseRunner):
             expected_session: ResumeToken | None = resume
             found_session: ResumeToken | None = None
             did_emit_completed = False
+            ignored_after_completed = False
+            jsonl_seq = 0
 
             async with anyio.create_task_group() as tg:
                 tg.start_soon(
@@ -390,19 +404,34 @@ class JsonlSubprocessRunner(BaseRunner):
                     logger,
                     tag,
                 )
-                async for raw_line in self.iter_json_lines(
-                    proc.stdout, logger=logger, tag=tag
-                ):
+                async for raw_line in self.iter_json_lines(proc.stdout):
                     if did_emit_completed:
+                        if not ignored_after_completed:
+                            log_pipeline(
+                                logger,
+                                "runner.drop.jsonl_after_completed",
+                                pid=proc.pid,
+                            )
+                            ignored_after_completed = True
                         continue
                     line = raw_line.strip()
                     if not line:
                         continue
+                    jsonl_seq += 1
+                    seq = jsonl_seq
                     raw_text = raw_line.decode("utf-8", errors="replace")
                     line_text = line.decode("utf-8", errors="replace")
                     try:
                         decoded = self.decode_jsonl(line=line)
                     except Exception as exc:
+                        log_pipeline(
+                            logger,
+                            "jsonl.parse.error",
+                            pid=proc.pid,
+                            jsonl_seq=seq,
+                            line=line_text,
+                            error=str(exc),
+                        )
                         events = self.decode_error_events(
                             raw=raw_text,
                             line=line_text,
@@ -411,6 +440,19 @@ class JsonlSubprocessRunner(BaseRunner):
                         )
                     else:
                         if decoded is None:
+                            log_pipeline(
+                                logger,
+                                "jsonl.parse.invalid",
+                                pid=proc.pid,
+                                jsonl_seq=seq,
+                                line=line_text,
+                            )
+                            logger.info(
+                                "runner.jsonl.invalid",
+                                pid=proc.pid,
+                                jsonl_seq=seq,
+                                line=line_text,
+                            )
                             events = self.invalid_json_events(
                                 raw=raw_text,
                                 line=line_text,
@@ -425,6 +467,13 @@ class JsonlSubprocessRunner(BaseRunner):
                                     found_session=found_session,
                                 )
                             except Exception as exc:
+                                log_pipeline(
+                                    logger,
+                                    "runner.translate.error",
+                                    pid=proc.pid,
+                                    jsonl_seq=seq,
+                                    error=str(exc),
+                                )
                                 events = self.translate_error_events(
                                     data=decoded,
                                     error=exc,
@@ -433,22 +482,74 @@ class JsonlSubprocessRunner(BaseRunner):
 
                     for evt in events:
                         if isinstance(evt, StartedEvent):
-                            found_session, emit = self.handle_started_event(
-                                evt,
-                                expected_session=expected_session,
-                                found_session=found_session,
+                            prior_found = found_session
+                            try:
+                                found_session, emit = self.handle_started_event(
+                                    evt,
+                                    expected_session=expected_session,
+                                    found_session=found_session,
+                                )
+                            except Exception as exc:
+                                log_pipeline(
+                                    logger,
+                                    "runner.started.error",
+                                    pid=proc.pid,
+                                    jsonl_seq=seq,
+                                    resume=evt.resume.value,
+                                    expected_session=expected_session.value
+                                    if expected_session
+                                    else None,
+                                    found_session=prior_found.value
+                                    if prior_found
+                                    else None,
+                                    error=str(exc),
+                                )
+                                raise
+                            if prior_found is None and emit:
+                                reason = (
+                                    "matched_expected"
+                                    if expected_session is not None
+                                    else "first_seen"
+                                )
+                            elif prior_found is not None and not emit:
+                                reason = "duplicate"
+                            else:
+                                reason = "unknown"
+                            log_pipeline(
+                                logger,
+                                "runner.started.seen",
+                                pid=proc.pid,
+                                jsonl_seq=seq,
+                                resume=evt.resume.value,
+                                expected_session=expected_session.value
+                                if expected_session
+                                else None,
+                                found_session=found_session.value
+                                if found_session
+                                else None,
+                                emit=emit,
+                                reason=reason,
                             )
                             if not emit:
                                 continue
                         if isinstance(evt, CompletedEvent):
                             did_emit_completed = True
+                            log_pipeline(
+                                logger,
+                                "runner.completed.seen",
+                                pid=proc.pid,
+                                jsonl_seq=seq,
+                                ok=evt.ok,
+                                has_answer=bool(evt.answer.strip()),
+                                emit=True,
+                            )
                             yield evt
                             break
                         yield evt
 
                 rc = await proc.wait()
 
-            logger.debug("[%s] process exit pid=%s rc=%s", tag, proc.pid, rc)
+            logger.info("subprocess.exit", pid=proc.pid, rc=rc)
             if did_emit_completed:
                 return
             if rc is not None and rc != 0:
@@ -459,6 +560,16 @@ class JsonlSubprocessRunner(BaseRunner):
                     state=state,
                 )
                 for evt in events:
+                    if isinstance(evt, CompletedEvent):
+                        log_pipeline(
+                            logger,
+                            "runner.completed.seen",
+                            pid=proc.pid,
+                            ok=evt.ok,
+                            has_answer=bool(evt.answer.strip()),
+                            emit=True,
+                            source="process_error",
+                        )
                     yield evt
                 return
 
@@ -468,6 +579,16 @@ class JsonlSubprocessRunner(BaseRunner):
                 state=state,
             )
             for evt in events:
+                if isinstance(evt, CompletedEvent):
+                    log_pipeline(
+                        logger,
+                        "runner.completed.seen",
+                        pid=proc.pid,
+                        ok=evt.ok,
+                        has_answer=bool(evt.answer.strip()),
+                        emit=True,
+                        source="stream_end",
+                    )
                 yield evt
 
 

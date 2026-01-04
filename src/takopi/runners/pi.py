@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -13,6 +12,7 @@ import msgspec
 
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
+from ..logging import get_logger
 from ..model import (
     Action,
     ActionEvent,
@@ -29,7 +29,7 @@ from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import pi as pi_schema
 from ..utils.paths import relativize_command, relativize_path
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ENGINE: EngineId = EngineId("pi")
 
@@ -245,24 +245,19 @@ def translate_pi_event(
 class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE
+    session_title: str = "pi"
     logger = logger
 
     def __init__(
         self,
         *,
-        pi_cmd: str,
         extra_args: list[str],
         model: str | None,
         provider: str | None,
-        session_title: str,
-        session_dir: Path | None,
     ) -> None:
-        self.pi_cmd = pi_cmd
         self.extra_args = extra_args
         self.model = model
         self.provider = provider
-        self.session_title = session_title
-        self.session_dir = session_dir
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
@@ -286,7 +281,7 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         return ResumeToken(engine=self.engine, value=found)
 
     def command(self) -> str:
-        return self.pi_cmd
+        return "pi"
 
     def build_args(
         self,
@@ -370,7 +365,10 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         _ = raw, line, state
         if isinstance(error, msgspec.DecodeError):
             self.get_logger().warning(
-                "[%s] invalid msgspec event: %s", self.tag(), error
+                "jsonl.msgspec.invalid",
+                tag=self.tag(),
+                error=str(error),
+                error_type=error.__class__.__name__,
             )
             return []
         return super().decode_error_events(
@@ -423,7 +421,7 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         ]
 
     def _new_session_path(self) -> str:
-        session_dir = self.session_dir or _default_session_dir(Path.cwd())
+        session_dir = _default_session_dir(Path.cwd())
         session_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).isoformat()
         safe_timestamp = timestamp.replace(":", "-").replace(".", "-")
@@ -454,10 +452,6 @@ def _default_session_dir(cwd: Path) -> Path:
 
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
-    cmd = config.get("cmd") or "pi"
-    if not isinstance(cmd, str):
-        raise ConfigError(f"Invalid `pi.cmd` in {config_path}; expected a string.")
-
     extra_args_value = config.get("extra_args")
     if extra_args_value is None:
         extra_args = []
@@ -478,24 +472,10 @@ def build_runner(config: EngineConfig, config_path: Path) -> Runner:
     if provider is not None and not isinstance(provider, str):
         raise ConfigError(f"Invalid `pi.provider` in {config_path}; expected a string.")
 
-    session_dir_value = config.get("session_dir")
-    session_dir: Path | None = None
-    if session_dir_value is not None:
-        if not isinstance(session_dir_value, str):
-            raise ConfigError(
-                f"Invalid `pi.session_dir` in {config_path}; expected a string."
-            )
-        session_dir = Path(session_dir_value).expanduser()
-
-    title = str(config.get("session_title") or (model if model else "pi"))
-
     return PiRunner(
-        pi_cmd=cmd,
         extra_args=extra_args,
         model=model,
         provider=provider,
-        session_title=title,
-        session_dir=session_dir,
     )
 
 

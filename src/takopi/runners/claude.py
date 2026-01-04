@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -11,12 +10,13 @@ import msgspec
 
 from ..backends import EngineBackend, EngineConfig
 from ..events import EventFactory
+from ..logging import get_logger
 from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import claude as claude_schema
 from ..utils.paths import relativize_command, relativize_path
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ENGINE: EngineId = EngineId("claude")
 DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Edit", "Write"]
@@ -399,12 +399,7 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: ClaudeStreamState,
     ) -> None:
-        _ = state
-        logger.info(
-            "[claude] start run resume=%r",
-            resume.value if resume else None,
-        )
-        logger.debug("[claude] prompt: %s", prompt)
+        _ = state, prompt, resume
 
     def decode_jsonl(
         self,
@@ -424,7 +419,10 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         _ = raw, line, state
         if isinstance(error, msgspec.DecodeError):
             self.get_logger().warning(
-                "[%s] invalid msgspec event: %s", self.tag(), error
+                "jsonl.msgspec.invalid",
+                tag=self.tag(),
+                error=str(error),
+                error_type=error.__class__.__name__,
             )
             return []
         return super().decode_error_events(

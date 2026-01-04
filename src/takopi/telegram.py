@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import logging
 from typing import Any, Protocol
 
 import httpx
 
-from .logging import RedactTokenFilter
+from .logging import get_logger
 
-logger = logging.getLogger(__name__)
-logger.addFilter(RedactTokenFilter())
+logger = get_logger(__name__)
 
 
 class BotClient(Protocol):
@@ -79,13 +77,17 @@ class TelegramClient:
             await self._client.aclose()
 
     async def _post(self, method: str, json_data: dict[str, Any]) -> Any | None:
-        logger.debug("[telegram] request %s: %s", method, json_data)
+        logger.debug("telegram.request", method=method, payload=json_data)
         try:
             resp = await self._client.post(f"{self._base}/{method}", json=json_data)
         except httpx.HTTPError as e:
             url = getattr(e.request, "url", None)
             logger.error(
-                "[telegram] network error method=%s url=%s: %s", method, url, e
+                "telegram.network_error",
+                method=method,
+                url=str(url) if url is not None else None,
+                error=str(e),
+                error_type=e.__class__.__name__,
             )
             return None
 
@@ -94,12 +96,12 @@ class TelegramClient:
         except httpx.HTTPStatusError as e:
             body = resp.text
             logger.error(
-                "[telegram] http error method=%s status=%s url=%s: %s body=%r",
-                method,
-                resp.status_code,
-                resp.request.url,
-                e,
-                body,
+                "telegram.http_error",
+                method=method,
+                status=resp.status_code,
+                url=str(resp.request.url),
+                error=str(e),
+                body=body,
             )
             return None
 
@@ -108,34 +110,35 @@ class TelegramClient:
         except Exception as e:
             body = resp.text
             logger.error(
-                "[telegram] bad response method=%s status=%s url=%s: %s body=%r",
-                method,
-                resp.status_code,
-                resp.request.url,
-                e,
-                body,
+                "telegram.bad_response",
+                method=method,
+                status=resp.status_code,
+                url=str(resp.request.url),
+                error=str(e),
+                error_type=e.__class__.__name__,
+                body=body,
             )
             return None
 
         if not isinstance(payload, dict):
             logger.error(
-                "[telegram] invalid response method=%s url=%s: %r",
-                method,
-                resp.request.url,
-                payload,
+                "telegram.invalid_payload",
+                method=method,
+                url=str(resp.request.url),
+                payload=payload,
             )
             return None
 
         if not payload.get("ok"):
             logger.error(
-                "[telegram] api error method=%s url=%s: %s",
-                method,
-                resp.request.url,
-                payload,
+                "telegram.api_error",
+                method=method,
+                url=str(resp.request.url),
+                payload=payload,
             )
             return None
 
-        logger.debug("[telegram] response %s: %s", method, payload)
+        logger.debug("telegram.response", method=method, payload=payload)
         return payload.get("result")
 
     async def get_updates(

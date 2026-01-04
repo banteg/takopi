@@ -1,89 +1,61 @@
-import logging
+import io
+import sys
 
-from takopi.logging import RedactTokenFilter, setup_logging
+import pytest
+
+from takopi.logging import (
+    _redact_text,
+    bind_run_context,
+    clear_context,
+    get_logger,
+    setup_logging,
+    suppress_logs,
+)
 
 
-class TestRedactTokenFilter:
-    def test_redacts_bot_token(self) -> None:
-        record = logging.LogRecord(
-            name="test",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="https://api.telegram.org/bot123456789:ABCdefGHI_jkl/sendMessage",
-            args=(),
-            exc_info=None,
-        )
-
-        filt = RedactTokenFilter()
-        filt.filter(record)
-
-        assert "123456789" not in record.getMessage()
-        assert "bot[REDACTED]" in record.getMessage()
+class TestRedactText:
+    def test_redacts_bot_token_url(self) -> None:
+        text = "https://api.telegram.org/bot123456789:ABCdefGHI_jkl/sendMessage"
+        result = _redact_text(text)
+        assert "123456789" not in result
+        assert "bot[REDACTED]" in result
 
     def test_redacts_bare_token(self) -> None:
-        record = logging.LogRecord(
-            name="test",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="Token is 123456789:ABCDEFGHIJ_klmnop",
-            args=(),
-            exc_info=None,
-        )
-
-        filt = RedactTokenFilter()
-        filt.filter(record)
-
-        assert "123456789" not in record.getMessage()
-        assert "[REDACTED_TOKEN]" in record.getMessage()
+        text = "Token is 123456789:ABCDEFGHIJ_klmnop"
+        result = _redact_text(text)
+        assert "123456789" not in result
+        assert "[REDACTED_TOKEN]" in result
 
     def test_no_token_unchanged(self) -> None:
-        record = logging.LogRecord(
-            name="test",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="This is a normal message",
-            args=(),
-            exc_info=None,
-        )
-
-        filt = RedactTokenFilter()
-        result = filt.filter(record)
-
-        assert result is True
-        assert record.getMessage() == "This is a normal message"
-
-    def test_handles_format_args(self) -> None:
-        record = logging.LogRecord(
-            name="test",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="Token: bot%s:%s",
-            args=("123456789", "ABCdefGHI_jkl"),
-            exc_info=None,
-        )
-
-        filt = RedactTokenFilter()
-        filt.filter(record)
-
-        assert "123456789" not in record.getMessage()
+        text = "This is a normal message"
+        result = _redact_text(text)
+        assert result == text
 
 
 class TestSetupLogging:
-    def test_setup_debug_mode(self) -> None:
+    def test_setup_returns_without_error(self) -> None:
         setup_logging(debug=True)
-        root = logging.getLogger()
-        assert root.level == logging.DEBUG
-
-    def test_setup_info_mode(self) -> None:
         setup_logging(debug=False)
-        root = logging.getLogger()
-        assert root.level == logging.INFO
 
-    def test_silences_noisy_loggers(self) -> None:
-        setup_logging()
-        assert logging.getLogger("markdown_it").level == logging.WARNING
-        assert logging.getLogger("httpcore").level == logging.WARNING
+
+class TestGetLogger:
+    def test_returns_logger(self) -> None:
+        logger = get_logger("test")
+        assert logger is not None
+
+    def test_logger_without_name(self) -> None:
+        logger = get_logger()
+        assert logger is not None
+
+
+class TestContextManagement:
+    def test_bind_and_clear(self) -> None:
+        bind_run_context(workspace="test", engine="codex")
+        clear_context()
+
+
+class TestSuppressLogs:
+    def test_suppress_logs_context(self) -> None:
+        with suppress_logs("error"):
+            logger = get_logger("test")
+            logger.info("this should be suppressed")

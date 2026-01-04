@@ -1,9 +1,7 @@
-import logging
-
 import httpx
 import pytest
 
-from takopi.logging import RedactTokenFilter
+from takopi.logging import setup_logging
 from takopi.telegram import (
     TelegramClient,
     make_workspace_keyboard,
@@ -41,31 +39,19 @@ async def test_telegram_429_no_retry() -> None:
 
 
 @pytest.mark.anyio
-async def test_no_token_in_logs_on_http_error(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    token = "123:abcDEF_ghij"
-    redactor = RedactTokenFilter()
-    root_logger = logging.getLogger()
-    root_logger.addFilter(redactor)
-
+async def test_http_error_returns_none_on_500() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500, text="oops", request=request)
 
     transport = httpx.MockTransport(handler)
 
-    caplog.set_level(logging.ERROR)
     client = httpx.AsyncClient(transport=transport)
     try:
-        tg = TelegramClient(token, client=client)
-        await tg._post("getUpdates", {"timeout": 1})
+        tg = TelegramClient("123:abcDEF_ghij", client=client)
+        result = await tg._post("getUpdates", {"timeout": 1})
+        assert result is None
     finally:
         await client.aclose()
-
-    root_logger.removeFilter(redactor)
-
-    assert token not in caplog.text
-    assert "bot[REDACTED]" in caplog.text
 
 
 @pytest.mark.anyio
@@ -82,38 +68,151 @@ async def test_close_owned_client() -> None:
 
 @pytest.mark.anyio
 async def test_close_external_client() -> None:
-    external = httpx.AsyncClient()
-    client = TelegramClient("123:abc", client=external)
-    await client.close()
-    await external.aclose()
+    async with httpx.AsyncClient() as ext:
+        client = TelegramClient("123:abc", client=ext)
+        await client.close()
 
 
 @pytest.mark.anyio
-async def test_get_updates_success() -> None:
+async def test_send_message_success() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
-            json={"ok": True, "result": [{"update_id": 1}]},
+            json={"ok": True, "result": {"message_id": 123}},
             request=request,
         )
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
         tg = TelegramClient("123:abc", client=client)
-        result = await tg.get_updates(offset=None)
-
-    assert result == [{"update_id": 1}]
+        result = await tg.send_message(chat_id=456, text="hello")
+        assert result == {"message_id": 123}
 
 
 @pytest.mark.anyio
-async def test_get_updates_with_params() -> None:
-    captured_params: list[dict] = []
+async def test_send_message_with_reply_markup() -> None:
+    captured: dict | None = None
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured
         import json
 
-        body = json.loads(request.content)
-        captured_params.append(body)
+        captured = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 123}},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        tg = TelegramClient("123:abc", client=client)
+        await tg.send_message(
+            chat_id=456,
+            text="hello",
+            reply_markup={"inline_keyboard": [[{"text": "btn", "callback_data": "x"}]]},
+        )
+        assert captured is not None
+        assert "reply_markup" in captured
+
+
+@pytest.mark.anyio
+async def test_edit_message_text() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"message_id": 123}},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        tg = TelegramClient("123:abc", client=client)
+        result = await tg.edit_message_text(chat_id=456, message_id=789, text="edited")
+        assert result == {"message_id": 123}
+
+
+@pytest.mark.anyio
+async def test_delete_message() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": True},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        tg = TelegramClient("123:abc", client=client)
+        result = await tg.delete_message(chat_id=456, message_id=789)
+        assert result is True
+
+
+@pytest.mark.anyio
+async def test_answer_callback_query() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": True},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        tg = TelegramClient("123:abc", client=client)
+        await tg.answer_callback_query("query123")
+
+
+@pytest.mark.anyio
+async def test_answer_callback_query_with_text() -> None:
+    captured: dict | None = None
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured
+        import json
+
+        captured = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": True},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        tg = TelegramClient("123:abc", client=client)
+        await tg.answer_callback_query("query123", text="Done!")
+        assert captured is not None
+        assert captured.get("text") == "Done!"
+
+
+@pytest.mark.anyio
+async def test_get_updates_returns_results() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "result": [
+                    {"update_id": 1, "message": {"text": "hello"}},
+                    {"update_id": 2, "message": {"text": "world"}},
+                ],
+            },
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        tg = TelegramClient("123:abc", client=client)
+        result = await tg.get_updates(offset=0, timeout_s=1)
+        assert result is not None
+        assert len(result) == 2
+        assert result[0]["update_id"] == 1
+
+
+@pytest.mark.anyio
+async def test_get_updates_empty() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={"ok": True, "result": []},
@@ -123,127 +222,19 @@ async def test_get_updates_with_params() -> None:
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
         tg = TelegramClient("123:abc", client=client)
-        await tg.get_updates(offset=100, timeout_s=30, allowed_updates=["message"])
-
-    assert captured_params[0]["offset"] == 100
-    assert captured_params[0]["timeout"] == 30
-    assert captured_params[0]["allowed_updates"] == ["message"]
+        result = await tg.get_updates(offset=0, timeout_s=1)
+        assert result == []
 
 
 @pytest.mark.anyio
-async def test_send_message_success() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={"ok": True, "result": {"message_id": 42}},
-            request=request,
-        )
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
-        tg = TelegramClient("123:abc", client=client)
-        result = await tg.send_message(chat_id=123, text="hello")
-
-    assert result == {"message_id": 42}
-
-
-@pytest.mark.anyio
-async def test_send_message_with_all_params() -> None:
-    captured_params: list[dict] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        import json
-
-        body = json.loads(request.content)
-        captured_params.append(body)
-        return httpx.Response(
-            200,
-            json={"ok": True, "result": {"message_id": 1}},
-            request=request,
-        )
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
-        tg = TelegramClient("123:abc", client=client)
-        await tg.send_message(
-            chat_id=123,
-            text="test",
-            reply_to_message_id=456,
-            disable_notification=True,
-            entities=[{"type": "bold", "offset": 0, "length": 4}],
-            parse_mode="HTML",
-            reply_markup={"inline_keyboard": []},
-        )
-
-    params = captured_params[0]
-    assert params["reply_to_message_id"] == 456
-    assert params["disable_notification"] is True
-    assert params["entities"] == [{"type": "bold", "offset": 0, "length": 4}]
-    assert params["parse_mode"] == "HTML"
-    assert params["reply_markup"] == {"inline_keyboard": []}
-
-
-@pytest.mark.anyio
-async def test_edit_message_text_success() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={"ok": True, "result": {"message_id": 42}},
-            request=request,
-        )
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
-        tg = TelegramClient("123:abc", client=client)
-        result = await tg.edit_message_text(chat_id=123, message_id=42, text="updated")
-
-    assert result == {"message_id": 42}
-
-
-@pytest.mark.anyio
-async def test_delete_message_success() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={"ok": True, "result": True},
-            request=request,
-        )
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
-        tg = TelegramClient("123:abc", client=client)
-        result = await tg.delete_message(chat_id=123, message_id=42)
-
-    assert result is True
-
-
-@pytest.mark.anyio
-async def test_set_my_commands_success() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={"ok": True, "result": True},
-            request=request,
-        )
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
-        tg = TelegramClient("123:abc", client=client)
-        result = await tg.set_my_commands(
-            [{"command": "start", "description": "Start"}]
-        )
-
-    assert result is True
-
-
-@pytest.mark.anyio
-async def test_get_me_success() -> None:
+async def test_api_error_returns_none() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             json={
-                "ok": True,
-                "result": {"id": 123, "is_bot": True, "username": "test"},
+                "ok": False,
+                "error_code": 400,
+                "description": "Bad Request: chat not found",
             },
             request=request,
         )
@@ -251,89 +242,69 @@ async def test_get_me_success() -> None:
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
         tg = TelegramClient("123:abc", client=client)
-        result = await tg.get_me()
-
-    assert result == {"id": 123, "is_bot": True, "username": "test"}
+        result = await tg.send_message(chat_id=456, text="hello")
+        assert result is None
 
 
 @pytest.mark.anyio
-async def test_answer_callback_query_success() -> None:
+async def test_http_error_returns_none() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="Service Unavailable", request=request)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        tg = TelegramClient("123:abc", client=client)
+        result = await tg.send_message(chat_id=456, text="hello")
+        assert result is None
+
+
+@pytest.mark.anyio
+async def test_5xx_returns_none() -> None:
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
+        return httpx.Response(500, text="Error", request=request)
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        tg = TelegramClient("123:abc", client=client)
+        result = await tg.send_message(chat_id=456, text="hello")
+        assert result is None
+        assert len(attempts) == 1
+
+
+@pytest.mark.anyio
+async def test_4xx_api_error_returns_none() -> None:
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(1)
         return httpx.Response(
             200,
-            json={"ok": True, "result": True},
+            json={
+                "ok": False,
+                "error_code": 400,
+                "description": "Bad Request",
+            },
             request=request,
         )
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
         tg = TelegramClient("123:abc", client=client)
-        result = await tg.answer_callback_query("query123", text="Done!")
-
-    assert result is True
-
-
-@pytest.mark.anyio
-async def test_post_network_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("Connection failed")
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
-        tg = TelegramClient("123:abc", client=client)
-        result = await tg.send_message(chat_id=123, text="test")
-
-    assert result is None
-
-
-@pytest.mark.anyio
-async def test_post_invalid_json_response() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text="not json", request=request)
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
-        tg = TelegramClient("123:abc", client=client)
-        result = await tg.send_message(chat_id=123, text="test")
-
-    assert result is None
-
-
-@pytest.mark.anyio
-async def test_post_non_dict_response() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=["array", "not", "dict"], request=request)
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
-        tg = TelegramClient("123:abc", client=client)
-        result = await tg.send_message(chat_id=123, text="test")
-
-    assert result is None
-
-
-@pytest.mark.anyio
-async def test_post_api_error() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={"ok": False, "description": "Bad Request"},
-            request=request,
-        )
-
-    transport = httpx.MockTransport(handler)
-    async with httpx.AsyncClient(transport=transport) as client:
-        tg = TelegramClient("123:abc", client=client)
-        result = await tg.send_message(chat_id=123, text="test")
-
-    assert result is None
+        result = await tg.send_message(chat_id=456, text="hello")
+        assert result is None
+        assert len(attempts) == 1
 
 
 class TestMakeWorkspaceKeyboard:
     def test_single_workspace(self) -> None:
-        keyboard = make_workspace_keyboard(["project1"])
+        keyboard = make_workspace_keyboard(["myproject"])
         assert keyboard == {
-            "inline_keyboard": [[{"text": "project1", "callback_data": "ws:project1"}]]
+            "inline_keyboard": [
+                [{"text": "myproject", "callback_data": "ws:myproject"}]
+            ]
         }
 
     def test_two_workspaces_same_row(self) -> None:

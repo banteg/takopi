@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -25,6 +24,7 @@ from .backends import EngineBackend, SetupIssue
 from .backends_helpers import install_issue
 from .config import ConfigError, HOME_CONFIG_PATH, load_telegram_config
 from .engines import list_backends
+from .logging import suppress_logs
 from .telegram import TelegramClient
 
 
@@ -225,12 +225,8 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
 
 @contextmanager
 def _suppress_logging():
-    prev_disable = logging.root.manager.disable
-    logging.disable(logging.INFO)
-    try:
+    with suppress_logs():
         yield
-    finally:
-        logging.disable(prev_disable)
 
 
 def _confirm(message: str, *, default: bool = True) -> bool | None:

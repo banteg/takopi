@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from .logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -36,7 +37,12 @@ class LockHandle:
         try:
             self.path.unlink(missing_ok=True)
         except OSError as exc:
-            logger.warning("[lock] failed to remove lock file %s: %s", self.path, exc)
+            logger.warning(
+                "lock.release.failed",
+                path=str(self.path),
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
 
     def __enter__(self) -> "LockHandle":
         return self

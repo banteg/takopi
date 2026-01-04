@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import shutil
 import sys
@@ -22,7 +21,7 @@ from .config import (
 from .daemon import DEFAULT_STATE_PATH, DaemonConfig, DaemonState
 from .engines import get_backend, get_engine_config, list_backends
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
-from .logging import setup_logging
+from .logging import get_logger, setup_logging
 from .model import Workspace
 from .onboarding import SetupResult, check_setup, interactive_setup
 from .router import AutoRouter, RunnerEntry
@@ -42,7 +41,7 @@ from .workspaces import (
     reset_workspace,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _print_version_and_exit() -> None:
@@ -193,7 +192,7 @@ def _build_router(
         )
 
     for warning in warnings:
-        logger.warning("[setup] %s", warning)
+        logger.warning("setup.warning", issue=warning)
 
     return AutoRouter(entries=entries, default_engine=default_engine)
 
@@ -321,7 +320,7 @@ def _run_auto_router(
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=1)
     except KeyboardInterrupt:
-        logger.info("[shutdown] interrupted")
+        logger.info("shutdown.interrupted")
         raise typer.Exit(code=130)
     finally:
         if lock_handle is not None:
