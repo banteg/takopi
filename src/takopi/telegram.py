@@ -419,9 +419,13 @@ class QueuedTelegramClient:
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
     ) -> list[dict] | None:
-        return await self._client.get_updates(
-            offset=offset, timeout_s=timeout_s, allowed_updates=allowed_updates
-        )
+        while True:
+            try:
+                return await self._client.get_updates(
+                    offset=offset, timeout_s=timeout_s, allowed_updates=allowed_updates
+                )
+            except TelegramRetryAfter as exc:
+                await anyio.sleep(exc.retry_after)
 
     async def send_message(
         self,

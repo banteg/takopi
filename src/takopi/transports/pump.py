@@ -245,7 +245,10 @@ class RequestPump(Generic[K]):
         except cancel_exc:
             return
         except Exception as exc:
-            self._fail_pending()
+            async with self._cond:
+                self._closed = True
+                self._fail_pending()
+                self._cond.notify_all()
             if self._on_pump_error is not None:
                 self._on_pump_error(exc)
             return
