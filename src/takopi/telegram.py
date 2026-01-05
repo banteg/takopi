@@ -226,9 +226,7 @@ class TelegramOutbox:
                 try:
                     result = await self.execute_op(op)
                 except RetryAfter as exc:
-                    self.retry_at = max(
-                        self.retry_at, self._clock() + exc.retry_after
-                    )
+                    self.retry_at = max(self.retry_at, self._clock() + exc.retry_after)
                     async with self._cond:
                         if self._closed:
                             op.set_result(None)
