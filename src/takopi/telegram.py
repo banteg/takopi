@@ -128,8 +128,8 @@ class TelegramOutbox:
         self._start_lock = anyio.Lock()
         self._closed = False
         self._tg: TaskGroup | None = None
-        self._next_at = 0.0
-        self._retry_at = 0.0
+        self.next_at = 0.0
+        self.retry_at = 0.0
 
     async def ensure_worker(self) -> None:
         async with self._start_lock:
@@ -210,7 +210,7 @@ class TelegramOutbox:
                         await self._cond.wait()
                     if self._closed and not self._pending:
                         return
-                blocked_until = max(self._next_at, self._retry_at)
+                blocked_until = max(self.next_at, self.retry_at)
                 if self._clock() < blocked_until:
                     await self.sleep_until(blocked_until)
                     continue
@@ -226,8 +226,8 @@ class TelegramOutbox:
                 try:
                     result = await self.execute_op(op)
                 except RetryAfter as exc:
-                    self._retry_at = max(
-                        self._retry_at, self._clock() + exc.retry_after
+                    self.retry_at = max(
+                        self.retry_at, self._clock() + exc.retry_after
                     )
                     async with self._cond:
                         if self._closed:
@@ -238,7 +238,7 @@ class TelegramOutbox:
                         else:
                             op.set_result(None)
                     continue
-                self._next_at = started_at + self._interval_for_chat(op.chat_id)
+                self.next_at = started_at + self._interval_for_chat(op.chat_id)
                 op.set_result(result)
         except cancel_exc:
             return
