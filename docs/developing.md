@@ -49,7 +49,7 @@ The core handler module containing:
 - Resume lines are stripped from the prompt before invoking the runner
 - Errors/cancellation render final status while preserving resume tokens when known
 
-### `bridges/telegram.py` - Telegram bridge loop
+### `telegram/bridge.py` - Telegram bridge loop
 
 The Telegram adapter module containing:
 
@@ -88,14 +88,21 @@ Defines a renderer that converts `MarkdownParts` into a `RenderedMessage`.
 
 | Function/Class | Purpose |
 |----------------|---------|
-| `render_markdown()` | Markdown → Telegram text + entities |
-| `trim_body()` | Trim body to 3500 chars (header/footer preserved) |
-| `prepare_telegram()` | Trim + render Markdown parts for Telegram |
+| `MarkdownParts` | Header/body/footer building blocks for presenter output |
+| `assemble_markdown_parts()` | Join MarkdownParts into a single markdown string |
 | `ExecProgressRenderer` | Stateful renderer tracking recent actions for progress display |
 | `render_event_cli()` | Format a takopi event for CLI logs |
 | `format_elapsed()` | Formats seconds as `Xh Ym`, `Xm Ys`, or `Xs` |
 
-### `telegram.py` - Telegram API wrapper
+### `telegram/render.py` - Telegram markdown rendering
+
+| Function/Class | Purpose |
+|----------------|---------|
+| `render_markdown()` | Markdown → Telegram text + entities |
+| `trim_body()` | Trim body to 3500 chars (header/footer preserved) |
+| `prepare_telegram()` | Trim + render Markdown parts for Telegram |
+
+### `telegram/client.py` - Telegram API wrapper
 
 | Component | Purpose |
 |-----------|---------|
@@ -208,7 +215,13 @@ Self-documenting msgspec schemas for decoding engine JSONL streams.
 |----------|---------|
 | `install_issue()` | Creates `SetupIssue` with install instructions for missing CLI |
 
-### `config.py` - Configuration loading
+### `config.py` - Shared configuration errors
+
+```python
+class ConfigError(RuntimeError): ...
+```
+
+### `telegram/config.py` - Configuration loading
 
 ```python
 def load_telegram_config() -> tuple[dict, Path]:
@@ -234,7 +247,7 @@ Environment flags:
 
 CLI flag: `--debug` enables debug logging (overrides `TAKOPI_LOG_LEVEL`).
 
-### `onboarding.py` - Setup validation
+### `telegram/onboarding.py` - Setup validation
 
 ```python
 def check_setup(backend: EngineBackend) -> SetupResult:
@@ -255,9 +268,9 @@ See `docs/adding-a-runner.md` for the full guide and a worked example.
 ```
 Telegram Update
     ↓
-bridges/telegram.poll_updates() drains backlog, long-polls, filters chat_id == cfg.chat_id
+telegram/bridge.poll_updates() drains backlog, long-polls, filters chat_id == cfg.chat_id
     ↓
-bridges/telegram.run_main_loop() spawns tasks in TaskGroup
+telegram/bridge.run_main_loop() spawns tasks in TaskGroup
     ↓
 router.resolve_resume(text, reply_text) → ResumeToken | None
     ↓

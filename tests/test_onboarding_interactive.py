@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from takopi import onboarding
+from takopi.telegram import onboarding
 from takopi.backends import EngineBackend
 
 

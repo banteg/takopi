@@ -20,12 +20,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from .backends import EngineBackend, SetupIssue
-from .backends_helpers import install_issue
-from .config import ConfigError, HOME_CONFIG_PATH, load_telegram_config
-from .engines import list_backends
-from .logging import suppress_logs
-from .telegram import TelegramClient, TelegramRetryAfter
+from ..backends import EngineBackend, SetupIssue
+from ..backends_helpers import install_issue
+from ..config import ConfigError
+from ..engines import list_backends
+from ..logging import suppress_logs
+from .client import TelegramClient, TelegramRetryAfter
+from .config import HOME_CONFIG_PATH, load_telegram_config
 
 
 @dataclass(slots=True)

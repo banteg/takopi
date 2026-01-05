@@ -11,19 +11,20 @@ import typer
 
 from . import __version__
 from .backends import EngineBackend
-from .bridges.telegram import (
+from .config import ConfigError
+from .engines import get_backend, get_engine_config, list_backends
+from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
+from .logging import get_logger, setup_logging
+from .telegram.bridge import (
     TelegramBridgeConfig,
     TelegramPresenter,
     TelegramTransport,
     run_main_loop,
 )
-from .config import ConfigError, load_telegram_config
-from .engines import get_backend, get_engine_config, list_backends
-from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
-from .logging import get_logger, setup_logging
-from .onboarding import SetupResult, check_setup, interactive_setup
+from .telegram.client import TelegramClient
+from .telegram.config import load_telegram_config
+from .telegram.onboarding import SetupResult, check_setup, interactive_setup
 from .router import AutoRouter, RunnerEntry
-from .telegram import TelegramClient
 from .exec_bridge import ExecBridgeConfig
 
 logger = get_logger(__name__)

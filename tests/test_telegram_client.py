@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from takopi.logging import setup_logging
-from takopi.telegram import TelegramClient, TelegramRetryAfter
+from takopi.telegram.client import TelegramClient, TelegramRetryAfter
 
 
 @pytest.mark.anyio

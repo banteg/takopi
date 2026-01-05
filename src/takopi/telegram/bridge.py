@@ -15,12 +15,13 @@ from ..exec_bridge import (
 )
 from ..logging import bind_run_context, clear_context, get_logger
 from ..model import EngineId, ResumeToken
-from ..render import ExecProgressRenderer, MarkdownParts, prepare_telegram
+from ..render import ExecProgressRenderer, MarkdownParts
 from ..router import AutoRouter, RunnerUnavailableError
 from ..runner import Runner
 from ..scheduler import ThreadJob, ThreadScheduler
-from ..telegram import BotClient
 from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
+from .client import BotClient
+from .render import prepare_telegram
 
 logger = get_logger(__name__)
 
@@ -182,7 +183,7 @@ class TelegramTransport:
             wait=wait,
         )
         if edited is None:
-            return None
+            return ref if not wait else None
         message_id = edited.get("message_id", message_id)
         return MessageRef(
             channel_id=chat_id,

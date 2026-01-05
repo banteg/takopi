@@ -11,9 +11,9 @@ from takopi.render import (
     format_elapsed,
     format_file_change_title,
     render_event_cli,
-    render_markdown,
     shorten,
 )
+from takopi.telegram.render import render_markdown
 from tests.factories import (
     action_completed,
     action_started,

@@ -1,7 +1,7 @@
 import anyio
 import pytest
 
-from takopi.telegram import TelegramClient, TelegramRetryAfter
+from takopi.telegram.client import TelegramClient, TelegramRetryAfter
 
 
 class _FakeBot:

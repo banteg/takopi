@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from takopi import engines, onboarding
+from takopi import engines
+from takopi.telegram import onboarding
 
 
 def test_check_setup_marks_missing_codex(monkeypatch, tmp_path: Path) -> None:

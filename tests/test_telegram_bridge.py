@@ -1,7 +1,7 @@
 import anyio
 import pytest
 
-from takopi.bridges.telegram import (
+from takopi.telegram.bridge import (
     TelegramBridgeConfig,
     TelegramTransport,
     _build_bot_commands,
@@ -263,6 +263,54 @@ async def test_telegram_transport_passes_replace_and_wait() -> None:
         message=RenderedMessage(text="edit"),
         wait=False,
     )
+    assert bot.edit_calls
+    assert bot.edit_calls[0]["wait"] is False
+
+
+@pytest.mark.anyio
+async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
+    class _OutboxBot:
+        def __init__(self) -> None:
+            self.edit_calls: list[dict[str, object]] = []
+
+        async def edit_message_text(
+            self,
+            chat_id: int,
+            message_id: int,
+            text: str,
+            entities: list[dict] | None = None,
+            parse_mode: str | None = None,
+            *,
+            wait: bool = True,
+        ) -> dict | None:
+            self.edit_calls.append(
+                {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": text,
+                    "entities": entities,
+                    "parse_mode": parse_mode,
+                    "wait": wait,
+                }
+            )
+            if not wait:
+                return None
+            return {"message_id": message_id}
+
+        async def close(self) -> None:
+            return None
+
+    bot = _OutboxBot()
+    transport = TelegramTransport(bot)
+    ref = MessageRef(channel_id=123, message_id=1)
+
+    result = await transport.edit(
+        ref=ref,
+        message=RenderedMessage(text="edit"),
+        wait=False,
+    )
+
+    assert result == ref
     assert bot.edit_calls
     assert bot.edit_calls[0]["wait"] is False
 

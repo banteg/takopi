@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import re
 import textwrap
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-
-from markdown_it import MarkdownIt
-from sulguk import transform_html
 
 from .model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
 from .utils.paths import relativize_path
@@ -22,9 +17,6 @@ HARD_BREAK = "  \n"
 
 MAX_PROGRESS_CMD_LEN = 300
 MAX_FILE_CHANGES_INLINE = 3
-
-_MD_RENDERER = MarkdownIt("commonmark", {"html": False})
-_BULLET_RE = re.compile(r"(?m)^(\s*)•")
 
 
 @dataclass(frozen=True)
@@ -38,33 +30,6 @@ def assemble_markdown_parts(parts: MarkdownParts) -> str:
     return "\n\n".join(
         chunk for chunk in (parts.header, parts.body, parts.footer) if chunk
     )
-
-
-def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
-    html = _MD_RENDERER.render(md or "")
-    rendered = transform_html(html)
-
-    text = _BULLET_RE.sub(r"\1-", rendered.text)
-
-    entities = [dict(e) for e in rendered.entities]
-    return text, entities
-
-
-def trim_body(body: str | None) -> str | None:
-    if not body:
-        return None
-    if len(body) > 3500:
-        body = body[: 3500 - 1] + "…"
-    return body if body.strip() else None
-
-
-def prepare_telegram(parts: MarkdownParts) -> tuple[str, list[dict[str, Any]]]:
-    trimmed = MarkdownParts(
-        header=parts.header or "",
-        body=trim_body(parts.body),
-        footer=parts.footer,
-    )
-    return render_markdown(assemble_markdown_parts(trimmed))
 
 
 def format_changed_file_path(path: str, *, base_dir: Path | None = None) -> str:

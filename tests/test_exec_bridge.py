@@ -5,7 +5,8 @@ import pytest
 
 from takopi.exec_bridge import ExecBridgeConfig, IncomingMessage, handle_message
 from takopi.model import EngineId, ResumeToken, TakopiEvent
-from takopi.render import MarkdownParts, assemble_markdown_parts, prepare_telegram
+from takopi.render import MarkdownParts, assemble_markdown_parts
+from takopi.telegram.render import prepare_telegram
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Wait
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
