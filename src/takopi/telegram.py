@@ -262,24 +262,6 @@ class TelegramOutbox:
             return
 
 
-def _retry_after_from_payload(payload: dict[str, Any]) -> float | None:
-    params = payload.get("parameters")
-    if isinstance(params, dict):
-        retry_after = params.get("retry_after")
-        if isinstance(retry_after, (int, float)):
-            return float(retry_after)
-    return None
-
-def _retry_after_from_response(resp: httpx.Response) -> float | None:
-    try:
-        payload = resp.json()
-    except Exception:
-        payload = None
-    if isinstance(payload, dict):
-        return _retry_after_from_payload(payload)
-    return None
-
-
 class TelegramClient:
     def __init__(
         self,
@@ -316,16 +298,15 @@ class TelegramClient:
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
             if resp.status_code == 429:
-                retry_after = _retry_after_from_response(resp)
-                if retry_after is not None:
-                    logger.info(
-                        "telegram.rate_limited",
-                        method=method,
-                        status=resp.status_code,
-                        url=str(resp.request.url),
-                        retry_after=retry_after,
-                    )
-                    raise TelegramRetryAfter(retry_after) from e
+                retry_after = resp.json()["parameters"]["retry_after"]
+                logger.info(
+                    "telegram.rate_limited",
+                    method=method,
+                    status=resp.status_code,
+                    url=str(resp.request.url),
+                    retry_after=retry_after,
+                )
+                raise TelegramRetryAfter(retry_after) from e
             body = resp.text
             logger.error(
                 "telegram.http_error",
@@ -362,8 +343,8 @@ class TelegramClient:
             return None
 
         if not payload.get("ok"):
-            retry_after = _retry_after_from_payload(payload)
-            if retry_after is not None:
+            if payload.get("error_code") == 429:
+                retry_after = payload["parameters"]["retry_after"]
                 logger.info(
                     "telegram.rate_limited",
                     method=method,
