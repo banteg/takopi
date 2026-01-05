@@ -8,7 +8,7 @@ from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.render import MarkdownParts, prepare_telegram
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.codex import CodexRunner
-from takopi.telegram import QueuedTelegramClient, TelegramPriority
+from takopi.telegram import TelegramClient, TelegramPriority
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
 from tests.factories import action_completed, action_started
 
@@ -319,15 +319,15 @@ class _FakeClock:
 
 def _queued_bot(
     bot: "_FakeBot", *, clock: "_FakeClock | None" = None
-) -> QueuedTelegramClient:
+) -> TelegramClient:
     if clock is None:
-        return QueuedTelegramClient(
-            bot,
+        return TelegramClient(
+            client=bot,
             private_chat_rps=0.0,
             group_chat_rps=0.0,
         )
-    return QueuedTelegramClient(
-        bot,
+    return TelegramClient(
+        client=bot,
         clock=clock,
         sleep=clock.sleep,
         private_chat_rps=0.0,

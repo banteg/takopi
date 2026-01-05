@@ -275,7 +275,7 @@ def retry_after_from_payload(payload: dict[str, Any]) -> float | None:
     return None
 
 
-class TelegramClient:
+class RawTelegramClient:
     def __init__(
         self,
         token: str,
@@ -495,16 +495,25 @@ class TelegramClient:
         return res if isinstance(res, dict) else None
 
 
-class QueuedTelegramClient:
+class TelegramClient:
     def __init__(
         self,
-        client: BotClient,
+        token: str | None = None,
         *,
+        client: BotClient | None = None,
+        timeout_s: float = 120,
+        http_client: httpx.AsyncClient | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         private_chat_rps: float = 1.0,
         group_chat_rps: float = 20.0 / 60.0,
     ) -> None:
+        if client is not None and token is not None:
+            raise ValueError("Provide either token or client, not both.")
+        if client is None:
+            if token is None:
+                raise ValueError("Telegram token is empty")
+            client = RawTelegramClient(token, timeout_s=timeout_s, client=http_client)
         self._client = client
         self._clock = clock
         self._sleep = sleep

@@ -1,7 +1,7 @@
 import anyio
 import pytest
 
-from takopi.telegram import QueuedTelegramClient, TelegramPriority, TelegramRetryAfter
+from takopi.telegram import TelegramClient, TelegramPriority, TelegramRetryAfter
 
 
 class _FakeBot:
@@ -152,7 +152,7 @@ async def test_edits_coalesce_latest() -> None:
             )
 
     bot = _BlockingBot()
-    client = QueuedTelegramClient(bot, private_chat_rps=0.0, group_chat_rps=0.0)
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
     await client.edit_message_text(
         chat_id=1,
@@ -192,7 +192,7 @@ async def test_edits_coalesce_latest() -> None:
 @pytest.mark.anyio
 async def test_send_preempts_pending_edit() -> None:
     bot = _FakeBot()
-    client = QueuedTelegramClient(bot, private_chat_rps=10.0, group_chat_rps=10.0)
+    client = TelegramClient(client=bot, private_chat_rps=10.0, group_chat_rps=10.0)
 
     await client.edit_message_text(
         chat_id=1,
@@ -221,7 +221,7 @@ async def test_send_preempts_pending_edit() -> None:
 @pytest.mark.anyio
 async def test_delete_drops_pending_edits() -> None:
     bot = _FakeBot()
-    client = QueuedTelegramClient(bot, private_chat_rps=10.0, group_chat_rps=10.0)
+    client = TelegramClient(client=bot, private_chat_rps=10.0, group_chat_rps=10.0)
 
     await client.edit_message_text(
         chat_id=1,
@@ -254,7 +254,7 @@ async def test_delete_drops_pending_edits() -> None:
 async def test_retry_after_retries_once() -> None:
     bot = _FakeBot()
     bot.retry_after = 0.0
-    client = QueuedTelegramClient(bot, private_chat_rps=0.0, group_chat_rps=0.0)
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
     result = await client.edit_message_text(
         chat_id=1,
@@ -271,7 +271,7 @@ async def test_retry_after_retries_once() -> None:
 async def test_get_updates_retries_on_retry_after() -> None:
     bot = _FakeBot()
     bot.updates_retry_after = 0.0
-    client = QueuedTelegramClient(bot, private_chat_rps=0.0, group_chat_rps=0.0)
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
     with anyio.fail_after(1):
         updates = await client.get_updates(offset=None, timeout_s=0)

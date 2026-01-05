@@ -18,7 +18,7 @@ from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
 from .onboarding import SetupResult, check_setup, interactive_setup
 from .router import AutoRouter, RunnerEntry
-from .telegram import QueuedTelegramClient, TelegramClient
+from .telegram import TelegramClient
 
 logger = get_logger(__name__)
 
@@ -212,7 +212,7 @@ def _parse_bridge_config(
         f"working in: `{startup_pwd}`"
     )
 
-    bot = QueuedTelegramClient(TelegramClient(token))
+    bot = TelegramClient(token)
 
     return BridgeConfig(
         bot=bot,
