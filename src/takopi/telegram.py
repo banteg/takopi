@@ -108,6 +108,7 @@ else:
 class OutboxOp:
     execute: Callable[[], Awaitable[Any]]
     priority: int
+    queued_at: float
     updated_at: float
     chat_id: int | None
     label: str | None = None
@@ -159,7 +160,10 @@ class TelegramOutbox:
                 return op.result
             previous = self._pending.get(key)
             if previous is not None:
+                op.queued_at = previous.queued_at
                 previous.set_result(None)
+            else:
+                op.queued_at = op.updated_at
             self._pending[key] = op
             self._cond.notify()
         if not wait:
@@ -193,7 +197,7 @@ class TelegramOutbox:
             return None
         return min(
             self._pending.items(),
-            key=lambda item: (item[1].priority, item[1].updated_at),
+            key=lambda item: (item[1].priority, item[1].queued_at),
         )
 
     async def execute_op(self, op: OutboxOp) -> Any:
@@ -542,6 +546,7 @@ class QueuedTelegramClient:
         request = OutboxOp(
             execute=execute,
             priority=priority,
+            queued_at=0.0,
             updated_at=self._clock(),
             chat_id=chat_id,
             label=label,
@@ -581,7 +586,6 @@ class QueuedTelegramClient:
     ) -> dict | None:
         _ = priority
         _ = not_before
-        _ = replace_message_id
 
         async def execute() -> dict | None:
             return await self._client.send_message(
@@ -598,7 +602,7 @@ class QueuedTelegramClient:
 
         if replace_message_id is not None:
             await self._outbox.drop_pending(key=("edit", replace_message_id))
-        return await self.enqueue_op(
+        result = await self.enqueue_op(
             key=(
                 ("send", replace_message_id)
                 if replace_message_id is not None
@@ -609,6 +613,9 @@ class QueuedTelegramClient:
             priority=SEND_PRIORITY,
             chat_id=chat_id,
         )
+        if replace_message_id is not None and result is not None:
+            await self.delete_message(chat_id=chat_id, message_id=replace_message_id)
+        return result
 
     async def edit_message_text(
         self,

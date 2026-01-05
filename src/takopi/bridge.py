@@ -443,6 +443,7 @@ async def send_result_message(
     delete_tag: str = "final",
     priority: TelegramPriority = TelegramPriority.HIGH,
 ) -> None:
+    _ = delete_tag
     final_msg, edited = await _send_or_edit_markdown(
         cfg.bot,
         chat_id=chat_id,
@@ -456,14 +457,6 @@ async def send_result_message(
     )
     if final_msg is None:
         return
-    if progress_id is not None and (edit_message_id is None or not edited):
-        logger.debug(
-            "telegram.delete_message",
-            chat_id=chat_id,
-            message_id=progress_id,
-            tag=delete_tag,
-        )
-        await cfg.bot.delete_message(chat_id=chat_id, message_id=progress_id)
 
 
 async def handle_message(
