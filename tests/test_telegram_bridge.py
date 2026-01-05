@@ -268,6 +268,27 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
         def __init__(self) -> None:
             self.edit_calls: list[dict[str, object]] = []
 
+        async def get_updates(
+            self,
+            offset: int | None,
+            timeout_s: int = 50,
+            allowed_updates: list[str] | None = None,
+        ) -> list[dict] | None:
+            return None
+
+        async def send_message(
+            self,
+            chat_id: int,
+            text: str,
+            reply_to_message_id: int | None = None,
+            disable_notification: bool | None = False,
+            entities: list[dict] | None = None,
+            parse_mode: str | None = None,
+            *,
+            replace_message_id: int | None = None,
+        ) -> dict | None:
+            return None
+
         async def edit_message_text(
             self,
             chat_id: int,
@@ -291,6 +312,25 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             if not wait:
                 return None
             return {"message_id": message_id}
+
+        async def delete_message(
+            self,
+            chat_id: int,
+            message_id: int,
+        ) -> bool:
+            return False
+
+        async def set_my_commands(
+            self,
+            commands: list[dict[str, object]],
+            *,
+            scope: dict[str, object] | None = None,
+            language_code: str | None = None,
+        ) -> bool:
+            return False
+
+        async def get_me(self) -> dict | None:
+            return None
 
         async def close(self) -> None:
             return None

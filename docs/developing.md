@@ -23,7 +23,7 @@ uv run ruff check src tests
 uv run ty check .
 
 # Or all at once
-make check
+just check
 ```
 
 Takopi runs in **auto-router** mode by default. `default_engine` in `takopi.toml` selects
