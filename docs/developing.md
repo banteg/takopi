@@ -78,6 +78,8 @@ The orchestrator module containing:
 | `BotClient` | Protocol defining the bot client interface |
 | `TelegramClient` | HTTP client for Telegram Bot API (send, edit, delete messages) |
 
+See `docs/transports/telegram.md` for outbox behavior, rate limiting, and retry rules.
+
 ### `runners/codex.py` - Codex runner
 
 | Component | Purpose |

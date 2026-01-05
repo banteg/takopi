@@ -1,0 +1,73 @@
+# Telegram Transport
+
+## Overview
+
+`TelegramClient` is the single transport for Telegram writes. It owns a
+`TelegramOutbox` that serializes send/edit/delete operations, applies
+coalescing, and enforces rate limits + retry-after backoff.
+
+This document captures current behavior so transport changes stay intentional.
+
+## Flow
+
+1. CLI emits JSON events.
+2. We render progress on every step and diff against the last output.
+3. Only deltas enqueue a Telegram edit.
+4. High-value messages enqueue a send.
+5. All writes go through the outbox.
+
+## Outbox model
+
+- Single worker processes one op at a time.
+- Each op is keyed; only one pending op per key.
+- New ops with the same key overwrite the payload but **do not** reset
+  `queued_at` (fairness).
+
+Keys:
+
+- `("edit", message_id)` for edits (coalesced).
+- `("delete", message_id)` for deletes.
+- `("send", replace_message_id)` when replacing a progress message.
+- Unique key for normal sends.
+
+Scheduling:
+
+- Ordered by `(priority, queued_at)`.
+- Priorities: send=0, delete=1, edit=2.
+- Within a priority tier, the oldest pending op runs first.
+- `updated_at` is kept for debugging only.
+
+## Rate limiting + backoff
+
+- Per-chat pacing is computed from `private_chat_rps` and `group_chat_rps`.
+  Defaults: 1.0 msg/s for private, 20/60 msg/s for groups.
+- The worker waits until `max(next_at, retry_at)` before executing the next op.
+- On 429, `RetryAfter` is raised **only** when `parameters.retry_after` exists.
+  The outbox sets `retry_at` and requeues the op if no newer op for the same key
+  has arrived.
+
+## Error handling
+
+- Non-429 errors are logged and dropped (no retry).
+- On `RetryAfter`, the op is retried unless a newer op superseded the same key.
+
+## Replace progress messages
+
+`send_message(replace_message_id=...)`:
+
+- Drops any pending edit for that progress message.
+- Enqueues the send at highest priority.
+- If the send succeeds, enqueues a delete for the old progress message.
+
+This keeps the final message first and avoids deleting progress if the send
+fails.
+
+## getUpdates
+
+`get_updates` bypasses the outbox and retries on `RetryAfter` by sleeping
+for the provided delay.
+
+## Close semantics
+
+`TelegramClient.close()` shuts down the outbox and closes the HTTP client.
+Pending ops are failed with `None` (best-effort).
