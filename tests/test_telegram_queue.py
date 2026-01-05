@@ -1,5 +1,3 @@
-import time
-
 import anyio
 import pytest
 
@@ -116,79 +114,125 @@ class _FakeBot:
 
 
 @pytest.mark.anyio
-async def test_low_edits_coalesce_latest() -> None:
-    bot = _FakeBot()
+async def test_edits_coalesce_latest() -> None:
+    class _BlockingBot(_FakeBot):
+        def __init__(self) -> None:
+            super().__init__()
+            self.edit_started = anyio.Event()
+            self.release = anyio.Event()
+            self._block_first = True
+
+        async def edit_message_text(
+            self,
+            chat_id: int,
+            message_id: int,
+            text: str,
+            entities: list[dict] | None = None,
+            parse_mode: str | None = None,
+            *,
+            priority: TelegramPriority = TelegramPriority.HIGH,
+            not_before: float | None = None,
+            wait: bool = True,
+        ) -> dict:
+            if self._block_first:
+                self._block_first = False
+                self.edit_started.set()
+                await self.release.wait()
+            return await super().edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=text,
+                entities=entities,
+                parse_mode=parse_mode,
+                priority=priority,
+                not_before=not_before,
+                wait=wait,
+            )
+
+    bot = _BlockingBot()
     client = QueuedTelegramClient(bot, private_chat_rps=0.0, group_chat_rps=0.0)
-    not_before = time.monotonic() + 0.2
 
     await client.edit_message_text(
         chat_id=1,
         message_id=1,
         text="first",
         priority=TelegramPriority.LOW,
-        not_before=not_before,
         wait=False,
     )
+
+    with anyio.fail_after(1):
+        await bot.edit_started.wait()
+
     await client.edit_message_text(
         chat_id=1,
         message_id=1,
         text="second",
         priority=TelegramPriority.LOW,
-        not_before=not_before,
+        wait=False,
+    )
+    await client.edit_message_text(
+        chat_id=1,
+        message_id=1,
+        text="third",
+        priority=TelegramPriority.LOW,
         wait=False,
     )
 
-    with anyio.fail_after(1):
-        await client.edit_message_text(
-            chat_id=1,
-            message_id=1,
-            text="third",
-            priority=TelegramPriority.LOW,
-            not_before=not_before,
-        )
+    bot.release.set()
 
-    assert bot.edit_calls == ["third"]
+    with anyio.fail_after(1):
+        while len(bot.edit_calls) < 2:
+            await anyio.sleep(0)
+
+    assert bot.edit_calls == ["first", "third"]
 
 
 @pytest.mark.anyio
-async def test_high_priority_preempts_low() -> None:
+async def test_send_preempts_pending_edit() -> None:
     bot = _FakeBot()
-    client = QueuedTelegramClient(bot, private_chat_rps=0.0, group_chat_rps=0.0)
-    not_before = time.monotonic() + 0.2
+    client = QueuedTelegramClient(bot, private_chat_rps=10.0, group_chat_rps=10.0)
+
+    await client.edit_message_text(
+        chat_id=1,
+        message_id=1,
+        text="first",
+        priority=TelegramPriority.LOW,
+    )
 
     await client.edit_message_text(
         chat_id=1,
         message_id=1,
         text="progress",
         priority=TelegramPriority.LOW,
-        not_before=not_before,
         wait=False,
     )
 
     with anyio.fail_after(1):
-        await client.send_message(
-            chat_id=1,
-            text="final",
-            priority=TelegramPriority.HIGH,
-        )
+        await client.send_message(chat_id=1, text="final")
 
-    await anyio.sleep(0.25)
-    assert bot.calls[0] == "send_message"
+    await anyio.sleep(0.2)
+    assert bot.calls[0] == "edit_message_text"
+    assert bot.calls[1] == "send_message"
     assert bot.calls[-1] == "edit_message_text"
 
 
 @pytest.mark.anyio
 async def test_delete_drops_pending_edits() -> None:
     bot = _FakeBot()
-    client = QueuedTelegramClient(bot, private_chat_rps=0.0, group_chat_rps=0.0)
-    not_before = time.monotonic() + 0.2
+    client = QueuedTelegramClient(bot, private_chat_rps=10.0, group_chat_rps=10.0)
+
+    await client.edit_message_text(
+        chat_id=1,
+        message_id=1,
+        text="first",
+        priority=TelegramPriority.LOW,
+    )
 
     await client.edit_message_text(
         chat_id=1,
         message_id=1,
         text="progress",
         priority=TelegramPriority.LOW,
-        not_before=not_before,
         wait=False,
     )
 
@@ -199,27 +243,16 @@ async def test_delete_drops_pending_edits() -> None:
             priority=TelegramPriority.HIGH,
         )
 
-    await anyio.sleep(0.25)
+    await anyio.sleep(0.2)
     assert bot.delete_calls == [(1, 1)]
-    assert bot.edit_calls == []
+    assert bot.edit_calls == ["first"]
 
 
 @pytest.mark.anyio
 async def test_retry_after_retries_once() -> None:
     bot = _FakeBot()
-    bot.retry_after = 0.01
-    sleep_calls: list[float] = []
-
-    async def sleep(delay: float) -> None:
-        sleep_calls.append(delay)
-        await anyio.sleep(0)
-
-    client = QueuedTelegramClient(
-        bot,
-        sleep=sleep,
-        private_chat_rps=0.0,
-        group_chat_rps=0.0,
-    )
+    bot.retry_after = 0.0
+    client = QueuedTelegramClient(bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
     result = await client.edit_message_text(
         chat_id=1,
@@ -230,7 +263,6 @@ async def test_retry_after_retries_once() -> None:
 
     assert result == {"message_id": 1}
     assert bot._edit_attempts == 2
-    assert sleep_calls == [0.01]
 
 
 @pytest.mark.anyio

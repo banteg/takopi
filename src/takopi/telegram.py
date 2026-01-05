@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import enum
+import itertools
 import re
 import time
-from typing import Any, Awaitable, Callable, Protocol
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Hashable, Protocol
 
 import httpx
 
 import anyio
 
 from .logging import get_logger
-from .transports import KeyedRateLimiter, PumpRequest, RequestPump, RetryAfter
+from .transports import RetryAfter
 
 logger = get_logger(__name__)
 
@@ -18,6 +20,11 @@ logger = get_logger(__name__)
 class TelegramPriority(enum.IntEnum):
     HIGH = 0
     LOW = 1
+
+
+_SEND_PRIORITY = 0
+_DELETE_PRIORITY = 1
+_EDIT_PRIORITY = 2
 
 
 class TelegramRetryAfter(RetryAfter):
@@ -84,6 +91,164 @@ class BotClient(Protocol):
     async def get_me(
         self, *, priority: TelegramPriority = TelegramPriority.HIGH
     ) -> dict | None: ...
+
+
+@dataclass(slots=True)
+class OutboxOp:
+    execute: Callable[[], Awaitable[Any]]
+    priority: int
+    updated_at: float
+    chat_id: int | None
+    label: str | None = None
+    done: anyio.Event = field(default_factory=anyio.Event)
+    result: Any = None
+
+    def set_result(self, result: Any) -> None:
+        if self.done.is_set():
+            return
+        self.result = result
+        self.done.set()
+
+
+class TelegramOutbox:
+    def __init__(
+        self,
+        *,
+        interval_for_chat: Callable[[int | None], float],
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+        on_error: Callable[[OutboxOp, Exception], None] | None = None,
+        on_outbox_error: Callable[[Exception], None] | None = None,
+    ) -> None:
+        self._interval_for_chat = interval_for_chat
+        self._clock = clock
+        self._sleep = sleep
+        self._on_error = on_error
+        self._on_outbox_error = on_outbox_error
+        self._pending: dict[Hashable, OutboxOp] = {}
+        self._cond = anyio.Condition()
+        self._start_lock = anyio.Lock()
+        self._closed = False
+        self._tg: anyio.abc.TaskGroup | None = None
+        self._next_at = 0.0
+        self._retry_at = 0.0
+
+    async def _ensure_worker(self) -> None:
+        async with self._start_lock:
+            if self._tg is not None:
+                return
+            self._tg = await anyio.create_task_group().__aenter__()
+            self._tg.start_soon(self._run)
+
+    async def enqueue(self, *, key: Hashable, op: OutboxOp, wait: bool = True) -> Any:
+        await self._ensure_worker()
+        async with self._cond:
+            if self._closed:
+                op.set_result(None)
+                return op.result
+            previous = self._pending.get(key)
+            if previous is not None:
+                previous.set_result(None)
+            self._pending[key] = op
+            self._cond.notify()
+        if not wait:
+            return None
+        await op.done.wait()
+        return op.result
+
+    async def drop_pending(self, *, key: Hashable) -> None:
+        async with self._cond:
+            pending = self._pending.pop(key, None)
+            if pending is not None:
+                pending.set_result(None)
+            self._cond.notify()
+
+    async def close(self) -> None:
+        async with self._cond:
+            self._closed = True
+            self._fail_pending()
+            self._cond.notify_all()
+        if self._tg is not None:
+            await self._tg.__aexit__(None, None, None)
+            self._tg = None
+
+    def _fail_pending(self) -> None:
+        for pending in list(self._pending.values()):
+            pending.set_result(None)
+        self._pending.clear()
+
+    def _pick_locked(self) -> tuple[Hashable, OutboxOp] | None:
+        if not self._pending:
+            return None
+        return min(
+            self._pending.items(),
+            key=lambda item: (item[1].priority, item[1].updated_at),
+        )
+
+    async def _execute(self, op: OutboxOp) -> Any:
+        try:
+            return await op.execute()
+        except Exception as exc:
+            if isinstance(exc, RetryAfter):
+                raise
+            if self._on_error is not None:
+                self._on_error(op, exc)
+            return None
+
+    async def _sleep_until(self, deadline: float) -> None:
+        delay = deadline - self._clock()
+        if delay > 0:
+            await self._sleep(delay)
+
+    async def _run(self) -> None:
+        cancel_exc = anyio.get_cancelled_exc_class()
+        try:
+            while True:
+                async with self._cond:
+                    while not self._pending and not self._closed:
+                        await self._cond.wait()
+                    if self._closed and not self._pending:
+                        return
+                blocked_until = max(self._next_at, self._retry_at)
+                if self._clock() < blocked_until:
+                    await self._sleep_until(blocked_until)
+                    continue
+                async with self._cond:
+                    if self._closed and not self._pending:
+                        return
+                    picked = self._pick_locked()
+                    if picked is None:
+                        continue
+                    key, op = picked
+                    self._pending.pop(key, None)
+                started_at = self._clock()
+                try:
+                    result = await self._execute(op)
+                except RetryAfter as exc:
+                    self._retry_at = max(
+                        self._retry_at, self._clock() + exc.retry_after
+                    )
+                    async with self._cond:
+                        if self._closed:
+                            op.set_result(None)
+                        elif key not in self._pending:
+                            self._pending[key] = op
+                            self._cond.notify()
+                        else:
+                            op.set_result(None)
+                    continue
+                self._next_at = started_at + self._interval_for_chat(op.chat_id)
+                op.set_result(result)
+        except cancel_exc:
+            return
+        except Exception as exc:
+            async with self._cond:
+                self._closed = True
+                self._fail_pending()
+                self._cond.notify_all()
+            if self._on_outbox_error is not None:
+                self._on_outbox_error(exc)
+            return
 
 
 _RETRY_AFTER_RE = re.compile(r"retry after (\d+)", re.IGNORECASE)
@@ -345,72 +510,71 @@ class QueuedTelegramClient:
         group_chat_rps: float = 20.0 / 60.0,
     ) -> None:
         self._client = client
+        self._clock = clock
+        self._sleep = sleep
         self._private_interval = (
             0.0 if private_chat_rps <= 0 else 1.0 / private_chat_rps
         )
         self._group_interval = 0.0 if group_chat_rps <= 0 else 1.0 / group_chat_rps
-
-        def interval_for_chat(chat_id: int) -> float:
-            return (
-                self._group_interval
-                if is_group_chat_id(chat_id)
-                else self._private_interval
-            )
-
-        self._limiter = KeyedRateLimiter(
-            interval_for_key=interval_for_chat,
+        self._outbox = TelegramOutbox(
+            interval_for_chat=self._interval_for_chat,
             clock=clock,
             sleep=sleep,
-        )
-        self._pump = RequestPump(
-            limiter=self._limiter,
-            priorities=[TelegramPriority.HIGH, TelegramPriority.LOW],
-            clock=clock,
             on_error=self._log_request_error,
-            on_pump_error=self._log_pump_failure,
+            on_outbox_error=self._log_outbox_failure,
         )
+        self._seq = itertools.count()
 
-    def _log_request_error(self, request: PumpRequest, exc: Exception) -> None:
+    def _interval_for_chat(self, chat_id: int | None) -> float:
+        if chat_id is None:
+            return self._private_interval
+        if is_group_chat_id(chat_id):
+            return self._group_interval
+        return self._private_interval
+
+    def _log_request_error(self, request: OutboxOp, exc: Exception) -> None:
         logger.error(
-            "telegram.pump.request_failed",
+            "telegram.outbox.request_failed",
             method=request.label,
             error=str(exc),
             error_type=exc.__class__.__name__,
         )
 
-    def _log_pump_failure(self, exc: Exception) -> None:
+    def _log_outbox_failure(self, exc: Exception) -> None:
         logger.error(
-            "telegram.pump.failed",
+            "telegram.outbox.failed",
             error=str(exc),
             error_type=exc.__class__.__name__,
         )
 
     async def _drop_pending_edits(self, *, chat_id: int, message_id: int) -> None:
-        await self._pump.drop_pending(coalesce_key=("edit", chat_id, message_id))
+        _ = chat_id
+        await self._outbox.drop_pending(key=message_id)
+
+    def _unique_key(self, prefix: str) -> tuple[str, int]:
+        return (prefix, next(self._seq))
 
     async def _enqueue(
         self,
         *,
+        key: Hashable,
         label: str,
         execute: Callable[[], Awaitable[Any]],
-        priority: TelegramPriority,
+        priority: int,
         chat_id: int | None,
-        not_before: float | None,
-        coalesce_key: tuple[Any, ...] | None,
         wait: bool = True,
     ) -> Any:
-        request = PumpRequest(
+        request = OutboxOp(
             execute=execute,
-            priority=int(priority),
-            scope=chat_id,
-            not_before=not_before,
-            coalesce_key=coalesce_key,
+            priority=priority,
+            updated_at=self._clock(),
+            chat_id=chat_id,
             label=label,
         )
-        return await self._pump.enqueue(request, wait=wait)
+        return await self._outbox.enqueue(key=key, op=request, wait=wait)
 
     async def close(self) -> None:
-        await self._pump.close()
+        await self._outbox.close()
         await self._client.close()
 
     async def get_updates(
@@ -425,7 +589,7 @@ class QueuedTelegramClient:
                     offset=offset, timeout_s=timeout_s, allowed_updates=allowed_updates
                 )
             except TelegramRetryAfter as exc:
-                await anyio.sleep(exc.retry_after)
+                await self._sleep(exc.retry_after)
 
     async def send_message(
         self,
@@ -439,6 +603,9 @@ class QueuedTelegramClient:
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
     ) -> dict | None:
+        _ = priority
+        _ = not_before
+
         async def execute() -> dict | None:
             return await self._client.send_message(
                 chat_id=chat_id,
@@ -452,12 +619,11 @@ class QueuedTelegramClient:
             )
 
         return await self._enqueue(
+            key=self._unique_key("send"),
             label="send_message",
             execute=execute,
-            priority=priority,
+            priority=_SEND_PRIORITY,
             chat_id=chat_id,
-            not_before=not_before,
-            coalesce_key=None,
         )
 
     async def edit_message_text(
@@ -472,11 +638,8 @@ class QueuedTelegramClient:
         not_before: float | None = None,
         wait: bool = True,
     ) -> dict | None:
-        if priority != TelegramPriority.LOW:
-            await self._drop_pending_edits(chat_id=chat_id, message_id=message_id)
-        coalesce_key = (
-            ("edit", chat_id, message_id) if priority == TelegramPriority.LOW else None
-        )
+        _ = priority
+        _ = not_before
 
         async def execute() -> dict | None:
             return await self._client.edit_message_text(
@@ -490,12 +653,11 @@ class QueuedTelegramClient:
             )
 
         return await self._enqueue(
+            key=message_id,
             label="edit_message_text",
             execute=execute,
-            priority=priority,
+            priority=_EDIT_PRIORITY,
             chat_id=chat_id,
-            not_before=not_before,
-            coalesce_key=coalesce_key,
             wait=wait,
         )
 
@@ -506,6 +668,7 @@ class QueuedTelegramClient:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
+        _ = priority
         await self._drop_pending_edits(chat_id=chat_id, message_id=message_id)
 
         async def execute() -> bool:
@@ -517,12 +680,11 @@ class QueuedTelegramClient:
 
         return bool(
             await self._enqueue(
+                key=("delete", message_id),
                 label="delete_message",
                 execute=execute,
-                priority=priority,
+                priority=_DELETE_PRIORITY,
                 chat_id=chat_id,
-                not_before=None,
-                coalesce_key=None,
             )
         )
 
@@ -534,6 +696,8 @@ class QueuedTelegramClient:
         scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool:
+        _ = priority
+
         async def execute() -> bool:
             return await self._client.set_my_commands(
                 commands,
@@ -544,26 +708,26 @@ class QueuedTelegramClient:
 
         return bool(
             await self._enqueue(
+                key=self._unique_key("set_my_commands"),
                 label="set_my_commands",
                 execute=execute,
-                priority=priority,
+                priority=_SEND_PRIORITY,
                 chat_id=None,
-                not_before=None,
-                coalesce_key=None,
             )
         )
 
     async def get_me(
         self, *, priority: TelegramPriority = TelegramPriority.HIGH
     ) -> dict | None:
+        _ = priority
+
         async def execute() -> dict | None:
             return await self._client.get_me(priority=priority)
 
         return await self._enqueue(
+            key=self._unique_key("get_me"),
             label="get_me",
             execute=execute,
-            priority=priority,
+            priority=_SEND_PRIORITY,
             chat_id=None,
-            not_before=None,
-            coalesce_key=None,
         )
