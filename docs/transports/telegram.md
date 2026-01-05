@@ -40,7 +40,7 @@ Scheduling:
 ## Rate limiting + backoff
 
 - Per-chat pacing is computed from `private_chat_rps` and `group_chat_rps`.
-  Defaults: 1.0 msg/s for private, 20/60 msg/s for groups.
+  Defaults: 1.0 msg/s for private, 20/60 msg/s for groups (≈1 message every 3s).
 - The worker waits until `max(next_at, retry_at)` before executing the next op.
 - On 429, `RetryAfter` is raised **only** when `parameters.retry_after` exists.
   The outbox sets `retry_at` and requeues the op if no newer op for the same key
