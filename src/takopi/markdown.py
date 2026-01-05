@@ -1,14 +1,12 @@
-"""Pure renderers for Takopi events (no engine-native event handling)."""
-
 from __future__ import annotations
 
 import textwrap
-from collections import deque
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
+from .model import Action, ActionEvent, StartedEvent, TakopiEvent
+from .progress import ProgressState
+from .transport import RenderedMessage
 from .utils.paths import relativize_path
 
 STATUS = {"running": "▸", "update": "↻", "done": "✓", "fail": "✗"}
@@ -19,7 +17,7 @@ MAX_PROGRESS_CMD_LEN = 300
 MAX_FILE_CHANGES_INLINE = 3
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MarkdownParts:
     header: str
     body: str | None = None
@@ -174,115 +172,100 @@ def render_event_cli(event: TakopiEvent) -> list[str]:
             return []
 
 
-@dataclass
-class RecentLine:
-    action_id: str
-    text: str
-    completed: bool = False
-
-
-class ExecProgressRenderer:
+class MarkdownFormatter:
     def __init__(
         self,
-        engine: str,
+        *,
         max_actions: int = 5,
         command_width: int | None = MAX_PROGRESS_CMD_LEN,
-        resume_formatter: Callable[[ResumeToken], str] | None = None,
     ) -> None:
         self.max_actions = max(0, int(max_actions))
         self.command_width = command_width
-        self.lines: deque[RecentLine] = deque(maxlen=self.max_actions)
-        self.action_count = 0
-        self.seen_action_ids: set[str] = set()
-        self.resume_token: ResumeToken | None = None
-        self._resume_formatter = resume_formatter
-        self.engine = engine
-
-    def note_event(self, event: TakopiEvent) -> bool:
-        match event:
-            case StartedEvent(resume=resume):
-                self.resume_token = resume
-                return True
-            case ActionEvent(action=action, phase=phase, ok=ok):
-                if action.kind == "turn":
-                    return False
-                action_id = str(action.id or "")
-                if not action_id:
-                    return False
-                completed = phase == "completed"
-                has_open = self.has_open_line(action_id)
-                is_update = phase == "updated" or (phase == "started" and has_open)
-                phase_for_line = "updated" if is_update and not completed else phase
-                line = format_action_line(
-                    action, phase_for_line, ok, command_width=self.command_width
-                )
-
-                if action_id not in self.seen_action_ids:
-                    self.seen_action_ids.add(action_id)
-                    self.action_count += 1
-
-                self.upsert_line(action_id, line=line, completed=completed)
-                return True
-            case _:
-                return False
-
-    def has_open_line(self, action_id: str) -> bool:
-        return any(
-            line.action_id == action_id and not line.completed for line in self.lines
-        )
-
-    def upsert_line(self, action_id: str, *, line: str, completed: bool) -> None:
-        for i in range(len(self.lines) - 1, -1, -1):
-            existing = self.lines[i]
-            if existing.action_id == action_id and not existing.completed:
-                self.lines[i] = RecentLine(
-                    action_id=action_id,
-                    text=line,
-                    completed=existing.completed or completed,
-                )
-                return
-        self.lines.append(
-            RecentLine(action_id=action_id, text=line, completed=completed)
-        )
 
     def render_progress_parts(
-        self, elapsed_s: float, label: str = "working"
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        label: str = "working",
     ) -> MarkdownParts:
-        step = self.action_count or None
+        step = state.action_count or None
         header = format_header(
             elapsed_s,
             step,
             label=label,
-            engine=self.engine,
+            engine=state.engine,
         )
-        body = self.assemble_body([line.text for line in self.lines])
-        return MarkdownParts(header=header, body=body, footer=self.render_footer())
+        body = self._assemble_body(self._format_actions(state))
+        return MarkdownParts(header=header, body=body, footer=state.resume_line)
 
     def render_final_parts(
-        self, elapsed_s: float, answer: str, status: str = "done"
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        status: str,
+        answer: str,
     ) -> MarkdownParts:
-        step = self.action_count or None
+        step = state.action_count or None
         header = format_header(
             elapsed_s,
             step,
             label=status,
-            engine=self.engine,
+            engine=state.engine,
         )
         answer = (answer or "").strip()
         body = answer if answer else None
-        return MarkdownParts(header=header, body=body, footer=self.render_footer())
+        return MarkdownParts(header=header, body=body, footer=state.resume_line)
 
-    def render_footer(self) -> str | None:
-        if not self.resume_token or self._resume_formatter is None:
-            return None
-        return self._resume_formatter(self.resume_token)
-
-    @property
-    def recent_actions(self) -> list[str]:
-        return [line.text for line in self.lines]
+    def _format_actions(self, state: ProgressState) -> list[str]:
+        actions = list(state.actions)
+        if self.max_actions == 0:
+            actions = []
+        else:
+            actions = actions[-self.max_actions :]
+        return [
+            format_action_line(
+                action_state.action,
+                action_state.display_phase,
+                action_state.ok,
+                command_width=self.command_width,
+            )
+            for action_state in actions
+        ]
 
     @staticmethod
-    def assemble_body(lines: list[str]) -> str | None:
+    def _assemble_body(lines: list[str]) -> str | None:
         if not lines:
             return None
         return HARD_BREAK.join(lines)
+
+
+class MarkdownPresenter:
+    def __init__(self, *, formatter: MarkdownFormatter | None = None) -> None:
+        self._formatter = formatter or MarkdownFormatter()
+
+    def render_progress(
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        label: str = "working",
+    ) -> RenderedMessage:
+        parts = self._formatter.render_progress_parts(
+            state, elapsed_s=elapsed_s, label=label
+        )
+        return RenderedMessage(text=assemble_markdown_parts(parts))
+
+    def render_final(
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        status: str,
+        answer: str,
+    ) -> RenderedMessage:
+        parts = self._formatter.render_final_parts(
+            state, elapsed_s=elapsed_s, status=status, answer=answer
+        )
+        return RenderedMessage(text=assemble_markdown_parts(parts))

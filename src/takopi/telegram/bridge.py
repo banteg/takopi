@@ -14,8 +14,9 @@ from ..exec_bridge import (
     handle_message,
 )
 from ..logging import bind_run_context, clear_context, get_logger
+from ..markdown import MarkdownFormatter, MarkdownParts
 from ..model import EngineId, ResumeToken
-from ..render import ExecProgressRenderer, MarkdownParts
+from ..progress import ProgressState, ProgressTracker
 from ..router import AutoRouter, RunnerUnavailableError
 from ..runner import Runner
 from ..scheduler import ThreadJob, ThreadScheduler
@@ -106,7 +107,33 @@ async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
 
 
 class TelegramPresenter:
-    def render(self, parts: MarkdownParts) -> RenderedMessage:
+    def __init__(self, *, formatter: MarkdownFormatter | None = None) -> None:
+        self._formatter = formatter or MarkdownFormatter()
+
+    def render_progress(
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        label: str = "working",
+    ) -> RenderedMessage:
+        parts = self._formatter.render_progress_parts(
+            state, elapsed_s=elapsed_s, label=label
+        )
+        text, entities = prepare_telegram(parts)
+        return RenderedMessage(text=text, extra={"entities": entities})
+
+    def render_final(
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        status: str,
+        answer: str,
+    ) -> RenderedMessage:
+        parts = self._formatter.render_final_parts(
+            state, elapsed_s=elapsed_s, status=status, answer=answer
+        )
         text, entities = prepare_telegram(parts)
         return RenderedMessage(text=text, extra={"entities": entities})
 
@@ -225,7 +252,9 @@ async def _send_plain(
 
 async def _send_startup(cfg: TelegramBridgeConfig) -> None:
     logger.debug("startup.message", text=cfg.startup_msg)
-    message = cfg.exec_cfg.presenter.render(MarkdownParts(header=cfg.startup_msg))
+    parts = MarkdownParts(header=cfg.startup_msg)
+    text, entities = prepare_telegram(parts)
+    message = RenderedMessage(text=text, extra={"entities": entities})
     sent = await cfg.exec_cfg.transport.send(
         channel_id=cfg.chat_id,
         message=message,
@@ -377,15 +406,15 @@ async def _send_runner_unavailable(
     runner: Runner,
     reason: str,
 ) -> None:
-    progress_renderer = ExecProgressRenderer(
-        max_actions=0, resume_formatter=runner.format_resume, engine=runner.engine
+    tracker = ProgressTracker(engine=runner.engine)
+    tracker.set_resume(resume_token)
+    state = tracker.snapshot(resume_formatter=runner.format_resume)
+    message = cfg.exec_cfg.presenter.render_final(
+        state,
+        elapsed_s=0.0,
+        status="error",
+        answer=f"error:\n{reason}",
     )
-    if resume_token is not None:
-        progress_renderer.resume_token = resume_token
-    final_parts = progress_renderer.render_final_parts(
-        0.0, f"error:\n{reason}", status="error"
-    )
-    message = cfg.exec_cfg.presenter.render(final_parts)
     reply_to = MessageRef(channel_id=chat_id, message_id=user_msg_id)
     await cfg.exec_cfg.transport.send(
         channel_id=chat_id,

@@ -9,13 +9,9 @@ import anyio
 from .logging import bind_run_context, get_logger
 from .model import CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
 from .presenter import Presenter
-from .render import (
-    ExecProgressRenderer,
-    MarkdownParts,
-    assemble_markdown_parts,
-    render_event_cli,
-)
+from .markdown import render_event_cli
 from .runner import Runner
+from .progress import ProgressTracker
 from .transport import (
     ChannelId,
     MessageId,
@@ -102,19 +98,17 @@ class RunningTask:
 RunningTasks = dict[MessageRef, RunningTask]
 
 
-async def _send_or_edit_parts(
+async def _send_or_edit_message(
     transport: Transport,
-    presenter: Presenter,
     *,
     channel_id: ChannelId,
-    parts: MarkdownParts,
+    message: RenderedMessage,
     edit_ref: MessageRef | None = None,
     reply_to: MessageRef | None = None,
     notify: bool = True,
     replace_ref: MessageRef | None = None,
-    prepared: RenderedMessage | None = None,
 ) -> tuple[MessageRef | None, bool]:
-    msg = prepared or presenter.render(parts)
+    msg = message
     if edit_ref is not None:
         logger.debug(
             "transport.edit_message",
@@ -152,19 +146,23 @@ class ProgressEdits:
         presenter: Presenter,
         channel_id: ChannelId,
         progress_ref: MessageRef | None,
-        renderer: ExecProgressRenderer,
+        tracker: ProgressTracker,
         started_at: float,
         clock: Callable[[], float],
         last_rendered: RenderedMessage | None,
+        resume_formatter: Callable[[ResumeToken], str] | None = None,
+        label: str = "working",
     ) -> None:
         self.transport = transport
         self.presenter = presenter
         self.channel_id = channel_id
         self.progress_ref = progress_ref
-        self.renderer = renderer
+        self.tracker = tracker
         self.started_at = started_at
         self.clock = clock
         self.last_rendered = last_rendered
+        self.resume_formatter = resume_formatter
+        self.label = label
         self.event_seq = 0
         self.rendered_seq = 0
         self.signal_send, self.signal_recv = anyio.create_memory_object_stream(1)
@@ -181,8 +179,10 @@ class ProgressEdits:
 
             seq_at_render = self.event_seq
             now = self.clock()
-            parts = self.renderer.render_progress_parts(now - self.started_at)
-            rendered = self.presenter.render(parts)
+            state = self.tracker.snapshot(resume_formatter=self.resume_formatter)
+            rendered = self.presenter.render_progress(
+                state, elapsed_s=now - self.started_at, label=self.label
+            )
             if rendered != self.last_rendered:
                 logger.debug(
                     "transport.edit_message",
@@ -201,7 +201,7 @@ class ProgressEdits:
             self.rendered_seq = seq_at_render
 
     async def on_event(self, evt: TakopiEvent) -> None:
-        if not self.renderer.note_event(evt):
+        if not self.tracker.note_event(evt):
             return
         if self.progress_ref is None:
             return
@@ -226,13 +226,18 @@ async def send_initial_progress(
     channel_id: ChannelId,
     reply_to: MessageRef,
     label: str,
-    renderer: ExecProgressRenderer,
+    tracker: ProgressTracker,
+    resume_formatter: Callable[[ResumeToken], str] | None = None,
 ) -> ProgressMessageState:
     progress_ref: MessageRef | None = None
     last_rendered: RenderedMessage | None = None
 
-    initial_parts = renderer.render_progress_parts(0.0, label=label)
-    initial_rendered = cfg.presenter.render(initial_parts)
+    state = tracker.snapshot(resume_formatter=resume_formatter)
+    initial_rendered = cfg.presenter.render_progress(
+        state,
+        elapsed_s=0.0,
+        label=label,
+    )
     logger.debug(
         "transport.send_message",
         channel_id=channel_id,
@@ -309,10 +314,10 @@ async def run_runner_with_cancel(
 
 
 def sync_resume_token(
-    renderer: ExecProgressRenderer, resume: ResumeToken | None
+    tracker: ProgressTracker, resume: ResumeToken | None
 ) -> ResumeToken | None:
-    resume = resume or renderer.resume_token
-    renderer.resume_token = resume
+    resume = resume or tracker.resume
+    tracker.set_resume(resume)
     return resume
 
 
@@ -322,23 +327,20 @@ async def send_result_message(
     channel_id: ChannelId,
     reply_to: MessageRef,
     progress_ref: MessageRef | None,
-    parts: MarkdownParts,
+    message: RenderedMessage,
     notify: bool,
     edit_ref: MessageRef | None,
     replace_ref: MessageRef | None = None,
-    prepared: RenderedMessage | None = None,
     delete_tag: str = "final",
 ) -> None:
-    final_msg, edited = await _send_or_edit_parts(
+    final_msg, edited = await _send_or_edit_message(
         cfg.transport,
-        cfg.presenter,
         channel_id=channel_id,
-        parts=parts,
+        message=message,
         edit_ref=edit_ref,
         reply_to=reply_to,
         notify=notify,
         replace_ref=replace_ref,
-        prepared=prepared,
     )
     if final_msg is None:
         return
@@ -380,9 +382,7 @@ async def handle_message(
     resume_strip = strip_resume_line or is_resume_line
     runner_text = _strip_resume_lines(incoming.text, is_resume_line=resume_strip)
 
-    progress_renderer = ExecProgressRenderer(
-        max_actions=5, resume_formatter=runner.format_resume, engine=runner.engine
-    )
+    progress_tracker = ProgressTracker(engine=runner.engine)
 
     user_ref = MessageRef(
         channel_id=incoming.channel_id,
@@ -393,7 +393,8 @@ async def handle_message(
         channel_id=incoming.channel_id,
         reply_to=user_ref,
         label="starting",
-        renderer=progress_renderer,
+        tracker=progress_tracker,
+        resume_formatter=runner.format_resume,
     )
     progress_ref = progress_state.ref
 
@@ -402,10 +403,11 @@ async def handle_message(
         presenter=cfg.presenter,
         channel_id=incoming.channel_id,
         progress_ref=progress_ref,
-        renderer=progress_renderer,
+        tracker=progress_tracker,
         started_at=started_at,
         clock=clock,
         last_rendered=progress_state.last_rendered,
+        resume_formatter=runner.format_resume,
     )
 
     running_task: RunningTask | None = None
@@ -460,22 +462,26 @@ async def handle_message(
     elapsed = clock() - started_at
 
     if error is not None:
-        sync_resume_token(progress_renderer, outcome.resume)
+        sync_resume_token(progress_tracker, outcome.resume)
         err_body = _format_error(error)
-        final_parts = progress_renderer.render_final_parts(
-            elapsed, err_body, status="error"
+        state = progress_tracker.snapshot(resume_formatter=runner.format_resume)
+        final_rendered = cfg.presenter.render_final(
+            state,
+            elapsed_s=elapsed,
+            status="error",
+            answer=err_body,
         )
         logger.debug(
-            "handle.error.markdown",
+            "handle.error.rendered",
             error=err_body,
-            markdown=assemble_markdown_parts(final_parts),
+            rendered=final_rendered.text,
         )
         await send_result_message(
             cfg,
             channel_id=incoming.channel_id,
             reply_to=user_ref,
             progress_ref=progress_ref,
-            parts=final_parts,
+            message=final_rendered,
             notify=False,
             edit_ref=progress_ref,
             replace_ref=progress_ref,
@@ -484,21 +490,24 @@ async def handle_message(
         return
 
     if outcome.cancelled:
-        resume = sync_resume_token(progress_renderer, outcome.resume)
+        resume = sync_resume_token(progress_tracker, outcome.resume)
         logger.info(
             "handle.cancelled",
             resume=resume.value if resume else None,
             elapsed_s=elapsed,
         )
-        final_parts = progress_renderer.render_progress_parts(
-            elapsed, label="`cancelled`"
+        state = progress_tracker.snapshot(resume_formatter=runner.format_resume)
+        final_rendered = cfg.presenter.render_progress(
+            state,
+            elapsed_s=elapsed,
+            label="`cancelled`",
         )
         await send_result_message(
             cfg,
             channel_id=incoming.channel_id,
             reply_to=user_ref,
             progress_ref=progress_ref,
-            parts=final_parts,
+            message=final_rendered,
             notify=False,
             edit_ref=progress_ref,
             replace_ref=progress_ref,
@@ -533,20 +542,23 @@ async def handle_message(
         error=run_error,
         answer_len=len(final_answer or ""),
         elapsed_s=round(elapsed, 2),
-        action_count=progress_renderer.action_count,
+        action_count=progress_tracker.action_count,
         resume=resume_value,
     )
-    sync_resume_token(progress_renderer, completed.resume or outcome.resume)
-    final_parts = progress_renderer.render_final_parts(
-        elapsed, final_answer, status=status
+    sync_resume_token(progress_tracker, completed.resume or outcome.resume)
+    state = progress_tracker.snapshot(resume_formatter=runner.format_resume)
+    final_rendered = cfg.presenter.render_final(
+        state,
+        elapsed_s=elapsed,
+        status=status,
+        answer=final_answer,
     )
     logger.debug(
-        "handle.final.markdown",
-        markdown=assemble_markdown_parts(final_parts),
+        "handle.final.rendered",
+        rendered=final_rendered.text,
         status=status,
     )
 
-    final_rendered = cfg.presenter.render(final_parts)
     can_edit_final = progress_ref is not None
     edit_ref = None if cfg.final_notify or not can_edit_final else progress_ref
 
@@ -555,10 +567,9 @@ async def handle_message(
         channel_id=incoming.channel_id,
         reply_to=user_ref,
         progress_ref=progress_ref,
-        parts=final_parts,
+        message=final_rendered,
         notify=cfg.final_notify,
         edit_ref=edit_ref,
         replace_ref=progress_ref,
-        prepared=final_rendered,
         delete_tag="final",
     )

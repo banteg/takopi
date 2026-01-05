@@ -6,7 +6,7 @@ from typing import Any
 from markdown_it import MarkdownIt
 from sulguk import transform_html
 
-from ..render import MarkdownParts, assemble_markdown_parts
+from ..markdown import MarkdownParts, assemble_markdown_parts
 
 _MD_RENDERER = MarkdownIt("commonmark", {"html": False})
 _BULLET_RE = re.compile(r"(?m)^(\s*)•")

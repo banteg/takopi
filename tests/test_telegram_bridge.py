@@ -12,8 +12,8 @@ from takopi.telegram.bridge import (
     run_main_loop,
 )
 from takopi.exec_bridge import ExecBridgeConfig, RunningTask
+from takopi.markdown import MarkdownPresenter
 from takopi.model import EngineId, ResumeToken
-from takopi.render import MarkdownParts, assemble_markdown_parts
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner, Sleep, Wait
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
@@ -26,11 +26,6 @@ def _make_router(runner) -> AutoRouter:
         entries=[RunnerEntry(engine=runner.engine, runner=runner)],
         default_engine=runner.engine,
     )
-
-
-class _PlainPresenter:
-    def render(self, parts: MarkdownParts) -> RenderedMessage:
-        return RenderedMessage(text=assemble_markdown_parts(parts))
 
 
 class _FakeTransport:
@@ -182,7 +177,7 @@ def _make_cfg(
         runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg = ExecBridgeConfig(
         transport=transport,
-        presenter=_PlainPresenter(),
+        presenter=MarkdownPresenter(),
         final_notify=True,
     )
     return TelegramBridgeConfig(
@@ -491,7 +486,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
     )
     exec_cfg = ExecBridgeConfig(
         transport=transport,
-        presenter=_PlainPresenter(),
+        presenter=MarkdownPresenter(),
         final_notify=True,
     )
     cfg = TelegramBridgeConfig(

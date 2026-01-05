@@ -57,7 +57,7 @@ The Telegram adapter module containing:
 |-----------|---------|
 | `TelegramBridgeConfig` | Frozen dataclass holding bot + router + exec config |
 | `TelegramTransport` | `BotClient` → `Transport` adapter |
-| `TelegramPresenter` | `MarkdownParts` → `RenderedMessage` adapter |
+| `TelegramPresenter` | `ProgressState` → `RenderedMessage` adapter |
 | `poll_updates()` | Async generator that drains backlog, long-polls updates, filters messages |
 | `run_main_loop()` | TaskGroup-based main loop that spawns per-message handlers |
 | `_handle_cancel()` | `/cancel` routing |
@@ -75,7 +75,7 @@ Defines `Transport`, `MessageRef`, `RenderedMessage`, and `SendOptions`.
 
 ### `presenter.py` - Presenter protocol
 
-Defines a renderer that converts `MarkdownParts` into a `RenderedMessage`.
+Defines a renderer that converts `ProgressState` into `RenderedMessage` outputs.
 
 ### `cli.py` - CLI entry point
 
@@ -84,13 +84,21 @@ Defines a renderer that converts `MarkdownParts` into a `RenderedMessage`.
 | `run()` / `main()` | Typer CLI entry points |
 | `_parse_bridge_config()` | Reads config + builds `TelegramBridgeConfig` + `ExecBridgeConfig` |
 
-### `render.py` - Takopi event + Markdown helpers
+### `progress.py` - Progress tracking
 
 | Function/Class | Purpose |
 |----------------|---------|
-| `MarkdownParts` | Header/body/footer building blocks for presenter output |
+| `ProgressTracker` | Stateful reducer of takopi events into progress snapshots |
+| `ProgressState` | Snapshot of actions, resume token, and engine metadata |
+
+### `markdown.py` - Markdown formatting
+
+| Function/Class | Purpose |
+|----------------|---------|
+| `MarkdownFormatter` | Converts `ProgressState` into MarkdownParts |
+| `MarkdownPresenter` | `ProgressState` → `RenderedMessage` (markdown text) |
+| `MarkdownParts` | Header/body/footer building blocks for markdown output |
 | `assemble_markdown_parts()` | Join MarkdownParts into a single markdown string |
-| `ExecProgressRenderer` | Stateful renderer tracking recent actions for progress display |
 | `render_event_cli()` | Format a takopi event for CLI logs |
 | `format_elapsed()` | Formats seconds as `Xh Ym`, `Xm Ys`, or `Xs` |
 
@@ -286,7 +294,7 @@ runner.run(prompt, resume_token)
     ├── Normalizes JSONL -> takopi events
     ├── Yields Takopi events (async iterator)
     │       ↓
-    │   ExecProgressRenderer.note_event()
+    │   ProgressTracker.note_event()
     │       ↓
     │   ProgressEdits best-effort transport.edit(wait=False)
     └── Ends with completed(resume, ok, answer)

@@ -4,8 +4,8 @@ import anyio
 import pytest
 
 from takopi.exec_bridge import ExecBridgeConfig, IncomingMessage, handle_message
+from takopi.markdown import MarkdownParts, MarkdownPresenter
 from takopi.model import EngineId, ResumeToken, TakopiEvent
-from takopi.render import MarkdownParts, assemble_markdown_parts
 from takopi.telegram.render import prepare_telegram
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Wait
@@ -65,11 +65,6 @@ class _FakeTransport:
 
     async def close(self) -> None:
         return None
-
-
-class _PlainPresenter:
-    def render(self, parts: MarkdownParts) -> RenderedMessage:
-        return RenderedMessage(text=assemble_markdown_parts(parts))
 
 
 class _FakeClock:
@@ -190,7 +185,7 @@ async def test_final_notify_sends_loud_final_message() -> None:
     runner = _return_runner(answer="ok")
     cfg = ExecBridgeConfig(
         transport=transport,
-        presenter=_PlainPresenter(),
+        presenter=MarkdownPresenter(),
         final_notify=True,
     )
 
@@ -212,7 +207,7 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     cfg = ExecBridgeConfig(
         transport=transport,
-        presenter=_PlainPresenter(),
+        presenter=MarkdownPresenter(),
         final_notify=True,
     )
     resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
@@ -237,7 +232,7 @@ async def test_long_final_message_edits_progress_message() -> None:
     runner = _return_runner(answer="x" * 10_000)
     cfg = ExecBridgeConfig(
         transport=transport,
-        presenter=_PlainPresenter(),
+        presenter=MarkdownPresenter(),
         final_notify=False,
     )
 
@@ -274,7 +269,7 @@ async def test_progress_edits_are_best_effort() -> None:
     )
     cfg = ExecBridgeConfig(
         transport=transport,
-        presenter=_PlainPresenter(),
+        presenter=MarkdownPresenter(),
         final_notify=True,
     )
 
@@ -318,7 +313,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
     )
     cfg = ExecBridgeConfig(
         transport=transport,
-        presenter=_PlainPresenter(),
+        presenter=MarkdownPresenter(),
         final_notify=True,
     )
 
@@ -351,7 +346,7 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     )
     cfg = ExecBridgeConfig(
         transport=transport,
-        presenter=_PlainPresenter(),
+        presenter=MarkdownPresenter(),
         final_notify=True,
     )
     running_tasks: dict = {}
@@ -397,7 +392,7 @@ async def test_handle_message_error_preserves_resume_token() -> None:
     )
     cfg = ExecBridgeConfig(
         transport=transport,
-        presenter=_PlainPresenter(),
+        presenter=MarkdownPresenter(),
         final_notify=True,
     )
 

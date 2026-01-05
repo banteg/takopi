@@ -2,9 +2,9 @@ from typing import cast
 from types import SimpleNamespace
 from pathlib import Path
 
-from takopi.model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
-from takopi.render import (
-    ExecProgressRenderer,
+from takopi.markdown import (
+    HARD_BREAK,
+    MarkdownFormatter,
     STATUS,
     action_status,
     assemble_markdown_parts,
@@ -13,6 +13,8 @@ from takopi.render import (
     render_event_cli,
     shorten,
 )
+from takopi.model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
+from takopi.progress import ProgressTracker
 from takopi.telegram.render import render_markdown
 from tests.factories import (
     action_completed,
@@ -118,19 +120,21 @@ def test_file_change_renders_relative_paths_inside_cwd() -> None:
 
 
 def test_progress_renderer_renders_progress_and_final() -> None:
-    r = ExecProgressRenderer(
-        max_actions=5, resume_formatter=_format_resume, engine="codex"
-    )
+    tracker = ProgressTracker(engine="codex")
     for evt in SAMPLE_EVENTS:
-        r.note_event(evt)
+        tracker.note_event(evt)
 
-    progress_parts = r.render_progress_parts(3.0)
+    state = tracker.snapshot(resume_formatter=_format_resume)
+    formatter = MarkdownFormatter(max_actions=5)
+    progress_parts = formatter.render_progress_parts(state, elapsed_s=3.0)
     progress = assemble_markdown_parts(progress_parts)
     assert progress.startswith("working · codex · 3s · step 2")
     assert "✓ `bash -lc ls`" in progress
     assert "`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`" in progress
 
-    final_parts = r.render_final_parts(3.0, "answer", status="done")
+    final_parts = formatter.render_final_parts(
+        state, elapsed_s=3.0, status="done", answer="answer"
+    )
     final = assemble_markdown_parts(final_parts)
     assert final.startswith("done · codex · 3s · step 2")
     assert "✓ `bash -lc ls`" not in final
@@ -142,7 +146,7 @@ def test_progress_renderer_renders_progress_and_final() -> None:
 
 
 def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
-    r = ExecProgressRenderer(max_actions=3, command_width=20, engine="codex")
+    tracker = ProgressTracker(engine="codex")
     events = [
         action_completed(
             f"item_{i}",
@@ -155,19 +159,23 @@ def test_progress_renderer_clamps_actions_and_ignores_unknown() -> None:
     ]
 
     for evt in events:
-        assert r.note_event(evt) is True
+        assert tracker.note_event(evt) is True
 
-    assert len(r.recent_actions) == 3
-    assert "echo 3" in r.recent_actions[0]
-    assert "echo 5" in r.recent_actions[-1]
+    state = tracker.snapshot()
+    formatter = MarkdownFormatter(max_actions=3, command_width=20)
+    parts = formatter.render_progress_parts(state, elapsed_s=0.0)
+    lines = parts.body.split(HARD_BREAK) if parts.body else []
+    assert len(lines) == 3
+    assert "echo 3" in lines[0]
+    assert "echo 5" in lines[-1]
     mystery = SimpleNamespace(type="mystery")
-    assert r.note_event(cast(TakopiEvent, mystery)) is False
+    assert tracker.note_event(cast(TakopiEvent, mystery)) is False
 
 
 def test_progress_renderer_renders_commands_in_markdown() -> None:
-    r = ExecProgressRenderer(max_actions=5, command_width=None, engine="codex")
+    tracker = ProgressTracker(engine="codex")
     for i in (30, 31, 32):
-        r.note_event(
+        tracker.note_event(
             action_completed(
                 f"item_{i}",
                 "command",
@@ -177,7 +185,9 @@ def test_progress_renderer_renders_commands_in_markdown() -> None:
             )
         )
 
-    md = assemble_markdown_parts(r.render_progress_parts(0.0))
+    state = tracker.snapshot()
+    formatter = MarkdownFormatter(max_actions=5, command_width=None)
+    md = assemble_markdown_parts(formatter.render_progress_parts(state, elapsed_s=0.0))
     text, _ = render_markdown(md)
     assert "✓ echo 30" in text
     assert "✓ echo 31" in text
@@ -185,7 +195,7 @@ def test_progress_renderer_renders_commands_in_markdown() -> None:
 
 
 def test_progress_renderer_handles_duplicate_action_ids() -> None:
-    r = ExecProgressRenderer(max_actions=5, engine="codex")
+    tracker = ProgressTracker(engine="codex")
     events = [
         action_started("dup", "command", "echo first"),
         action_completed(
@@ -206,17 +216,19 @@ def test_progress_renderer_handles_duplicate_action_ids() -> None:
     ]
 
     for evt in events:
-        assert r.note_event(evt) is True
+        assert tracker.note_event(evt) is True
 
-    assert len(r.recent_actions) == 2
-    assert r.recent_actions[0].startswith("✓ ")
-    assert "echo first" in r.recent_actions[0]
-    assert r.recent_actions[1].startswith("✓ ")
-    assert "echo second" in r.recent_actions[1]
+    state = tracker.snapshot()
+    formatter = MarkdownFormatter(max_actions=5)
+    parts = formatter.render_progress_parts(state, elapsed_s=0.0)
+    lines = parts.body.split(HARD_BREAK) if parts.body else []
+    assert len(lines) == 1
+    assert lines[0].startswith("✓ ")
+    assert "echo second" in lines[0]
 
 
 def test_progress_renderer_collapses_action_updates() -> None:
-    r = ExecProgressRenderer(max_actions=5, engine="codex")
+    tracker = ProgressTracker(engine="codex")
     events = [
         action_started("a-1", "command", "echo one"),
         action_started("a-1", "command", "echo two"),
@@ -230,12 +242,16 @@ def test_progress_renderer_collapses_action_updates() -> None:
     ]
 
     for evt in events:
-        assert r.note_event(evt) is True
+        assert tracker.note_event(evt) is True
 
-    assert r.action_count == 1
-    assert len(r.recent_actions) == 1
-    assert r.recent_actions[0].startswith("✓ ")
-    assert "echo two" in r.recent_actions[0]
+    assert tracker.action_count == 1
+    state = tracker.snapshot()
+    formatter = MarkdownFormatter(max_actions=5)
+    parts = formatter.render_progress_parts(state, elapsed_s=0.0)
+    lines = parts.body.split(HARD_BREAK) if parts.body else []
+    assert len(lines) == 1
+    assert lines[0].startswith("✓ ")
+    assert "echo two" in lines[0]
 
 
 def test_progress_renderer_deterministic_output() -> None:
@@ -249,16 +265,18 @@ def test_progress_renderer_deterministic_output() -> None:
             detail={"exit_code": 0},
         ),
     ]
-    r1 = ExecProgressRenderer(max_actions=5, engine="codex")
-    r2 = ExecProgressRenderer(max_actions=5, engine="codex")
+    t1 = ProgressTracker(engine="codex")
+    t2 = ProgressTracker(engine="codex")
 
     for evt in events:
-        r1.note_event(evt)
-        r2.note_event(evt)
+        t1.note_event(evt)
+        t2.note_event(evt)
 
+    f1 = MarkdownFormatter(max_actions=5)
+    f2 = MarkdownFormatter(max_actions=5)
     assert assemble_markdown_parts(
-        r1.render_progress_parts(1.0)
-    ) == assemble_markdown_parts(r2.render_progress_parts(1.0))
+        f1.render_progress_parts(t1.snapshot(), elapsed_s=1.0)
+    ) == assemble_markdown_parts(f2.render_progress_parts(t2.snapshot(), elapsed_s=1.0))
 
 
 def test_format_elapsed_branches() -> None:
@@ -319,9 +337,9 @@ def test_render_event_cli_ignores_turn_actions() -> None:
 
 
 def test_progress_renderer_ignores_missing_action_id() -> None:
-    renderer = ExecProgressRenderer(engine="codex")
+    tracker = ProgressTracker(engine="codex")
     resume = ResumeToken(engine="codex", value="abc")
-    renderer.note_event(StartedEvent(engine="codex", resume=resume, title="Session"))
+    tracker.note_event(StartedEvent(engine="codex", resume=resume, title="Session"))
 
     event = ActionEvent(
         engine="codex",
@@ -329,7 +347,10 @@ def test_progress_renderer_ignores_missing_action_id() -> None:
         phase="started",
         ok=None,
     )
-    assert renderer.note_event(event) is False
+    assert tracker.note_event(event) is False
 
-    header = assemble_markdown_parts(renderer.render_progress_parts(0.0))
+    formatter = MarkdownFormatter()
+    header = assemble_markdown_parts(
+        formatter.render_progress_parts(tracker.snapshot(), elapsed_s=0.0)
+    )
     assert header.startswith("working · codex · 0s")
