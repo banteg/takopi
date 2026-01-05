@@ -23,11 +23,11 @@ This document captures current behavior so transport changes stay intentional.
 - New ops with the same key overwrite the payload but **do not** reset
   `queued_at` (fairness).
 
-Keys:
+Keys (include `chat_id` to avoid cross-chat collisions):
 
-- `("edit", message_id)` for edits (coalesced).
-- `("delete", message_id)` for deletes.
-- `("send", replace_message_id)` when replacing a progress message.
+- `("edit", chat_id, message_id)` for edits (coalesced).
+- `("delete", chat_id, message_id)` for deletes.
+- `("send", chat_id, replace_message_id)` when replacing a progress message.
 - Unique key for normal sends.
 
 Scheduling:
@@ -41,10 +41,12 @@ Scheduling:
 
 - Per-chat pacing is computed from `private_chat_rps` and `group_chat_rps`.
   Defaults: 1.0 msg/s for private, 20/60 msg/s for groups (≈1 message every 3s).
+- Pacing is currently enforced via a single global `next_at`; per-chat
+  `next_at` is a future consideration if we ever run multiple chats in parallel.
 - The worker waits until `max(next_at, retry_at)` before executing the next op.
-- On 429, `RetryAfter` is raised **only** when `parameters.retry_after` exists.
-  The outbox sets `retry_at` and requeues the op if no newer op for the same key
-  has arrived.
+- On 429, `RetryAfter` is raised using `parameters.retry_after` when present;
+  if missing, we fall back to a 5s delay. The outbox sets `retry_at` and
+  requeues the op if no newer op for the same key has arrived.
 
 ## Error handling
 

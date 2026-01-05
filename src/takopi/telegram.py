@@ -133,7 +133,7 @@ class TelegramOutbox:
 
     async def ensure_worker(self) -> None:
         async with self._start_lock:
-            if self._tg is not None:
+            if self._tg is not None or self._closed:
                 return
             self._tg = await anyio.create_task_group().__aenter__()
             self._tg.start_soon(self.run)
@@ -324,8 +324,7 @@ class TelegramClient:
         )
 
     async def drop_pending_edits(self, *, chat_id: int, message_id: int) -> None:
-        _ = chat_id
-        await self._outbox.drop_pending(key=("edit", message_id))
+        await self._outbox.drop_pending(key=("edit", chat_id, message_id))
 
     def unique_key(self, prefix: str) -> tuple[str, int]:
         return (prefix, next(self._seq))
@@ -381,22 +380,22 @@ class TelegramClient:
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
             if resp.status_code == 429:
-                retry_after = None
+                retry_after: float | None = None
                 try:
                     payload = resp.json()
                 except Exception:
                     payload = None
                 if isinstance(payload, dict):
                     retry_after = retry_after_from_payload(payload)
-                if retry_after is not None:
-                    logger.info(
-                        "telegram.rate_limited",
-                        method=method,
-                        status=resp.status_code,
-                        url=str(resp.request.url),
-                        retry_after=retry_after,
-                    )
-                    raise TelegramRetryAfter(retry_after) from e
+                retry_after = 5.0 if retry_after is None else retry_after
+                logger.info(
+                    "telegram.rate_limited",
+                    method=method,
+                    status=resp.status_code,
+                    url=str(resp.request.url),
+                    retry_after=retry_after,
+                )
+                raise TelegramRetryAfter(retry_after) from e
             body = resp.text
             logger.error(
                 "telegram.http_error",
@@ -435,14 +434,14 @@ class TelegramClient:
         if not payload.get("ok"):
             if payload.get("error_code") == 429:
                 retry_after = retry_after_from_payload(payload)
-                if retry_after is not None:
-                    logger.info(
-                        "telegram.rate_limited",
-                        method=method,
-                        url=str(resp.request.url),
-                        retry_after=retry_after,
-                    )
-                    raise TelegramRetryAfter(retry_after)
+                retry_after = 5.0 if retry_after is None else retry_after
+                logger.info(
+                    "telegram.rate_limited",
+                    method=method,
+                    url=str(resp.request.url),
+                    retry_after=retry_after,
+                )
+                raise TelegramRetryAfter(retry_after)
             logger.error(
                 "telegram.api_error",
                 method=method,
@@ -513,10 +512,10 @@ class TelegramClient:
             return result if isinstance(result, dict) else None
 
         if replace_message_id is not None:
-            await self._outbox.drop_pending(key=("edit", replace_message_id))
+            await self._outbox.drop_pending(key=("edit", chat_id, replace_message_id))
         result = await self.enqueue_op(
             key=(
-                ("send", replace_message_id)
+                ("send", chat_id, replace_message_id)
                 if replace_message_id is not None
                 else self.unique_key("send")
             ),
@@ -562,7 +561,7 @@ class TelegramClient:
             return result if isinstance(result, dict) else None
 
         return await self.enqueue_op(
-            key=("edit", message_id),
+            key=("edit", chat_id, message_id),
             label="edit_message_text",
             execute=execute,
             priority=EDIT_PRIORITY,
@@ -591,7 +590,7 @@ class TelegramClient:
 
         return bool(
             await self.enqueue_op(
-                key=("delete", message_id),
+                key=("delete", chat_id, message_id),
                 label="delete_message",
                 execute=execute,
                 priority=DELETE_PRIORITY,
