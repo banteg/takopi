@@ -388,7 +388,7 @@ class TelegramClient:
                 if isinstance(payload, dict):
                     retry_after = retry_after_from_payload(payload)
                 retry_after = 5.0 if retry_after is None else retry_after
-                logger.info(
+                logger.warning(
                     "telegram.rate_limited",
                     method=method,
                     status=resp.status_code,
@@ -435,7 +435,7 @@ class TelegramClient:
             if payload.get("error_code") == 429:
                 retry_after = retry_after_from_payload(payload)
                 retry_after = 5.0 if retry_after is None else retry_after
-                logger.info(
+                logger.warning(
                     "telegram.rate_limited",
                     method=method,
                     url=str(resp.request.url),
