@@ -3,7 +3,7 @@ import uuid
 import anyio
 import pytest
 
-from takopi.exec_bridge import ExecBridgeConfig, IncomingMessage, handle_message
+from takopi.runner_bridge import ExecBridgeConfig, IncomingMessage, handle_message
 from takopi.markdown import MarkdownParts, MarkdownPresenter
 from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.telegram.render import prepare_telegram

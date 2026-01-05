@@ -6,7 +6,7 @@ from typing import Any
 
 import anyio
 
-from ..exec_bridge import (
+from ..runner_bridge import (
     ExecBridgeConfig,
     IncomingMessage,
     RunningTask,

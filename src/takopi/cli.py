@@ -25,7 +25,7 @@ from .telegram.client import TelegramClient
 from .telegram.config import load_telegram_config
 from .telegram.onboarding import SetupResult, check_setup, interactive_setup
 from .router import AutoRouter, RunnerEntry
-from .exec_bridge import ExecBridgeConfig
+from .runner_bridge import ExecBridgeConfig
 
 logger = get_logger(__name__)
 

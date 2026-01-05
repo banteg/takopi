@@ -31,7 +31,7 @@ the engine for new threads; engine subcommands override that default for the pro
 
 ## Module Responsibilities
 
-### `exec_bridge.py` - Transport-agnostic orchestration
+### `runner_bridge.py` - Transport-agnostic orchestration
 
 The core handler module containing:
 
@@ -284,7 +284,7 @@ router.resolve_resume(text, reply_text) → ResumeToken | None
     ↓
 router.entry_for(resume_token) or router.entry_for_engine(override/default) → RunnerEntry
     ↓
-exec_bridge.handle_message() spawned as task with selected runner
+runner_bridge.handle_message() spawned as task with selected runner
     ↓
 Send initial progress message (silent)
     ↓

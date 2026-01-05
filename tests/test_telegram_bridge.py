@@ -11,7 +11,7 @@ from takopi.telegram.bridge import (
     _strip_engine_command,
     run_main_loop,
 )
-from takopi.exec_bridge import ExecBridgeConfig, RunningTask
+from takopi.runner_bridge import ExecBridgeConfig, RunningTask
 from takopi.markdown import MarkdownPresenter
 from takopi.model import EngineId, ResumeToken
 from takopi.router import AutoRouter, RunnerEntry
