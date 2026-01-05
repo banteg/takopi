@@ -21,7 +21,7 @@ from .render import (
 from .router import AutoRouter, RunnerUnavailableError
 from .runner import Runner
 from .scheduler import ThreadJob, ThreadScheduler
-from .telegram import BotClient, TelegramPriority
+from .telegram import BotClient
 
 
 logger = get_logger(__name__)
@@ -164,7 +164,6 @@ async def _send_or_edit_markdown(
     replace_message_id: int | None = None,
     disable_notification: bool = False,
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
-    priority: TelegramPriority = TelegramPriority.HIGH,
 ) -> tuple[dict[str, Any] | None, bool]:
     if prepared is None:
         rendered, entities = prepare_telegram(parts)
@@ -182,7 +181,6 @@ async def _send_or_edit_markdown(
             message_id=edit_message_id,
             text=rendered,
             entities=entities,
-            priority=priority,
         )
         if edited is not None:
             return (edited, True)
@@ -200,7 +198,6 @@ async def _send_or_edit_markdown(
             entities=entities,
             reply_to_message_id=reply_to_message_id,
             disable_notification=disable_notification,
-            priority=priority,
             replace_message_id=replace_message_id,
         ),
         False,
@@ -256,7 +253,6 @@ class ProgressEdits:
                     message_id=self.progress_id,
                     text=rendered,
                     entities=entities,
-                    priority=TelegramPriority.LOW,
                     wait=False,
                 )
                 self.last_rendered = rendered
@@ -355,7 +351,6 @@ async def send_initial_progress(
         entities=initial_entities,
         reply_to_message_id=user_msg_id,
         disable_notification=True,
-        priority=TelegramPriority.HIGH,
     )
     if progress_msg is not None:
         progress_id = int(progress_msg["message_id"])
@@ -441,7 +436,6 @@ async def send_result_message(
     edit_message_id: int | None,
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
     delete_tag: str = "final",
-    priority: TelegramPriority = TelegramPriority.HIGH,
 ) -> None:
     _ = delete_tag
     final_msg, edited = await _send_or_edit_markdown(
@@ -453,7 +447,6 @@ async def send_result_message(
         replace_message_id=progress_id,
         disable_notification=disable_notification,
         prepared=prepared,
-        priority=priority,
     )
     if final_msg is None:
         return
@@ -704,7 +697,6 @@ async def _handle_cancel(
             chat_id=chat_id,
             text="reply to the progress message to cancel.",
             reply_to_message_id=user_msg_id,
-            priority=TelegramPriority.HIGH,
         )
         return
 
@@ -714,7 +706,6 @@ async def _handle_cancel(
             chat_id=chat_id,
             text="nothing is currently running for that message.",
             reply_to_message_id=user_msg_id,
-            priority=TelegramPriority.HIGH,
         )
         return
 
@@ -724,7 +715,6 @@ async def _handle_cancel(
             chat_id=chat_id,
             text="nothing is currently running for that message.",
             reply_to_message_id=user_msg_id,
-            priority=TelegramPriority.HIGH,
         )
         return
 
@@ -774,7 +764,6 @@ async def _send_with_resume(
             text="resume token not ready yet; try replying to the final message.",
             reply_to_message_id=user_msg_id,
             disable_notification=True,
-            priority=TelegramPriority.HIGH,
         )
         return
     await enqueue(chat_id, user_msg_id, text, resume)
@@ -803,7 +792,6 @@ async def _send_runner_unavailable(
         parts=final_parts,
         reply_to_message_id=user_msg_id,
         disable_notification=False,
-        priority=TelegramPriority.HIGH,
     )
 
 
@@ -840,7 +828,6 @@ async def run_main_loop(
                             parts=MarkdownParts(header=f"error:\n{exc}"),
                             reply_to_message_id=user_msg_id,
                             disable_notification=False,
-                            priority=TelegramPriority.HIGH,
                         )
                         return
                     if not entry.available:
