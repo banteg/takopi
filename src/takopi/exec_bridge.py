@@ -342,7 +342,11 @@ async def send_result_message(
     )
     if final_msg is None:
         return
-    if progress_ref is not None and (edit_ref is None or not edited):
+    if (
+        progress_ref is not None
+        and (edit_ref is None or not edited)
+        and replace_ref is None
+    ):
         logger.debug(
             "transport.delete_message",
             channel_id=progress_ref.channel_id,
