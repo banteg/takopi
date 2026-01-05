@@ -11,6 +11,7 @@ import httpx
 import anyio
 
 from .logging import get_logger
+
 logger = get_logger(__name__)
 
 
@@ -275,27 +276,113 @@ def retry_after_from_payload(payload: dict[str, Any]) -> float | None:
     return None
 
 
-class RawTelegramClient:
+class TelegramClient:
     def __init__(
         self,
-        token: str,
+        token: str | None = None,
+        *,
+        client: BotClient | None = None,
         timeout_s: float = 120,
-        client: httpx.AsyncClient | None = None,
+        http_client: httpx.AsyncClient | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+        private_chat_rps: float = 1.0,
+        group_chat_rps: float = 20.0 / 60.0,
     ) -> None:
-        if not token:
-            raise ValueError("Telegram token is empty")
-        self._base = f"https://api.telegram.org/bot{token}"
-        self._client = client or httpx.AsyncClient(timeout=timeout_s)
-        self._owns_client = client is None
+        if client is not None:
+            if token is not None or http_client is not None:
+                raise ValueError("Provide either token or client, not both.")
+            self._client_override = client
+            self._base = None
+            self._http_client = None
+            self._owns_http_client = False
+        else:
+            if token is None or not token:
+                raise ValueError("Telegram token is empty")
+            self._client_override = None
+            self._base = f"https://api.telegram.org/bot{token}"
+            self._http_client = http_client or httpx.AsyncClient(timeout=timeout_s)
+            self._owns_http_client = http_client is None
+        self._clock = clock
+        self._sleep = sleep
+        self._private_interval = (
+            0.0 if private_chat_rps <= 0 else 1.0 / private_chat_rps
+        )
+        self._group_interval = 0.0 if group_chat_rps <= 0 else 1.0 / group_chat_rps
+        self._outbox = TelegramOutbox(
+            interval_for_chat=self.interval_for_chat,
+            clock=clock,
+            sleep=sleep,
+            on_error=self.log_request_error,
+            on_outbox_error=self.log_outbox_failure,
+        )
+        self._seq = itertools.count()
+
+    def interval_for_chat(self, chat_id: int | None) -> float:
+        if chat_id is None:
+            return self._private_interval
+        if is_group_chat_id(chat_id):
+            return self._group_interval
+        return self._private_interval
+
+    def log_request_error(self, request: OutboxOp, exc: Exception) -> None:
+        logger.error(
+            "telegram.outbox.request_failed",
+            method=request.label,
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+
+    def log_outbox_failure(self, exc: Exception) -> None:
+        logger.error(
+            "telegram.outbox.failed",
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+
+    async def drop_pending_edits(self, *, chat_id: int, message_id: int) -> None:
+        _ = chat_id
+        await self._outbox.drop_pending(key=("edit", message_id))
+
+    def unique_key(self, prefix: str) -> tuple[str, int]:
+        return (prefix, next(self._seq))
+
+    async def enqueue_op(
+        self,
+        *,
+        key: Hashable,
+        label: str,
+        execute: Callable[[], Awaitable[Any]],
+        priority: int,
+        chat_id: int | None,
+        wait: bool = True,
+    ) -> Any:
+        request = OutboxOp(
+            execute=execute,
+            priority=priority,
+            queued_at=0.0,
+            updated_at=self._clock(),
+            chat_id=chat_id,
+            label=label,
+        )
+        return await self._outbox.enqueue(key=key, op=request, wait=wait)
 
     async def close(self) -> None:
-        if self._owns_client:
-            await self._client.aclose()
+        await self._outbox.close()
+        if self._client_override is not None:
+            await self._client_override.close()
+            return
+        if self._owns_http_client and self._http_client is not None:
+            await self._http_client.aclose()
 
     async def _post(self, method: str, json_data: dict[str, Any]) -> Any | None:
+        if self._http_client is None or self._base is None:
+            raise RuntimeError("TelegramClient is configured without an HTTP client.")
         logger.debug("telegram.request", method=method, payload=json_data)
         try:
-            resp = await self._client.post(f"{self._base}/{method}", json=json_data)
+            resp = await self._http_client.post(
+                f"{self._base}/{method}", json=json_data
+            )
         except httpx.HTTPError as e:
             url = getattr(e.request, "url", None)
             logger.error(
@@ -390,210 +477,21 @@ class RawTelegramClient:
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
     ) -> list[dict] | None:
-        params: dict[str, Any] = {"timeout": timeout_s}
-        if offset is not None:
-            params["offset"] = offset
-        if allowed_updates is not None:
-            params["allowed_updates"] = allowed_updates
-        return await self._post("getUpdates", params)  # type: ignore[return-value]
-
-    async def send_message(
-        self,
-        chat_id: int,
-        text: str,
-        reply_to_message_id: int | None = None,
-        disable_notification: bool | None = False,
-        entities: list[dict] | None = None,
-        parse_mode: str | None = None,
-        *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
-        replace_message_id: int | None = None,
-    ) -> dict | None:
-        _ = priority
-        _ = not_before
-        _ = replace_message_id
-        params: dict[str, Any] = {
-            "chat_id": chat_id,
-            "text": text,
-        }
-        if disable_notification is not None:
-            params["disable_notification"] = disable_notification
-        if reply_to_message_id is not None:
-            params["reply_to_message_id"] = reply_to_message_id
-        if entities is not None:
-            params["entities"] = entities
-        if parse_mode is not None:
-            params["parse_mode"] = parse_mode
-        return await self._post("sendMessage", params)  # type: ignore[return-value]
-
-    async def edit_message_text(
-        self,
-        chat_id: int,
-        message_id: int,
-        text: str,
-        entities: list[dict] | None = None,
-        parse_mode: str | None = None,
-        *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
-        wait: bool = True,
-    ) -> dict | None:
-        _ = priority
-        _ = not_before
-        _ = wait
-        params: dict[str, Any] = {
-            "chat_id": chat_id,
-            "message_id": message_id,
-            "text": text,
-        }
-        if entities is not None:
-            params["entities"] = entities
-        if parse_mode is not None:
-            params["parse_mode"] = parse_mode
-        return await self._post("editMessageText", params)  # type: ignore[return-value]
-
-    async def delete_message(
-        self,
-        chat_id: int,
-        message_id: int,
-        *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-    ) -> bool:
-        _ = priority
-        res = await self._post(
-            "deleteMessage",
-            {
-                "chat_id": chat_id,
-                "message_id": message_id,
-            },
-        )
-        return bool(res)
-
-    async def set_my_commands(
-        self,
-        commands: list[dict[str, Any]],
-        *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        scope: dict[str, Any] | None = None,
-        language_code: str | None = None,
-    ) -> bool:
-        _ = priority
-        params: dict[str, Any] = {"commands": commands}
-        if scope is not None:
-            params["scope"] = scope
-        if language_code is not None:
-            params["language_code"] = language_code
-        res = await self._post("setMyCommands", params)
-        return bool(res)
-
-    async def get_me(
-        self, *, priority: TelegramPriority = TelegramPriority.HIGH
-    ) -> dict | None:
-        _ = priority
-        res = await self._post("getMe", {})
-        return res if isinstance(res, dict) else None
-
-
-class TelegramClient:
-    def __init__(
-        self,
-        token: str | None = None,
-        *,
-        client: BotClient | None = None,
-        timeout_s: float = 120,
-        http_client: httpx.AsyncClient | None = None,
-        clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-        private_chat_rps: float = 1.0,
-        group_chat_rps: float = 20.0 / 60.0,
-    ) -> None:
-        if client is not None and token is not None:
-            raise ValueError("Provide either token or client, not both.")
-        if client is None:
-            if token is None:
-                raise ValueError("Telegram token is empty")
-            client = RawTelegramClient(token, timeout_s=timeout_s, client=http_client)
-        self._client = client
-        self._clock = clock
-        self._sleep = sleep
-        self._private_interval = (
-            0.0 if private_chat_rps <= 0 else 1.0 / private_chat_rps
-        )
-        self._group_interval = 0.0 if group_chat_rps <= 0 else 1.0 / group_chat_rps
-        self._outbox = TelegramOutbox(
-            interval_for_chat=self.interval_for_chat,
-            clock=clock,
-            sleep=sleep,
-            on_error=self.log_request_error,
-            on_outbox_error=self.log_outbox_failure,
-        )
-        self._seq = itertools.count()
-
-    def interval_for_chat(self, chat_id: int | None) -> float:
-        if chat_id is None:
-            return self._private_interval
-        if is_group_chat_id(chat_id):
-            return self._group_interval
-        return self._private_interval
-
-    def log_request_error(self, request: OutboxOp, exc: Exception) -> None:
-        logger.error(
-            "telegram.outbox.request_failed",
-            method=request.label,
-            error=str(exc),
-            error_type=exc.__class__.__name__,
-        )
-
-    def log_outbox_failure(self, exc: Exception) -> None:
-        logger.error(
-            "telegram.outbox.failed",
-            error=str(exc),
-            error_type=exc.__class__.__name__,
-        )
-
-    async def drop_pending_edits(self, *, chat_id: int, message_id: int) -> None:
-        _ = chat_id
-        await self._outbox.drop_pending(key=("edit", message_id))
-
-    def unique_key(self, prefix: str) -> tuple[str, int]:
-        return (prefix, next(self._seq))
-
-    async def enqueue_op(
-        self,
-        *,
-        key: Hashable,
-        label: str,
-        execute: Callable[[], Awaitable[Any]],
-        priority: int,
-        chat_id: int | None,
-        wait: bool = True,
-    ) -> Any:
-        request = OutboxOp(
-            execute=execute,
-            priority=priority,
-            queued_at=0.0,
-            updated_at=self._clock(),
-            chat_id=chat_id,
-            label=label,
-        )
-        return await self._outbox.enqueue(key=key, op=request, wait=wait)
-
-    async def close(self) -> None:
-        await self._outbox.close()
-        await self._client.close()
-
-    async def get_updates(
-        self,
-        offset: int | None,
-        timeout_s: int = 50,
-        allowed_updates: list[str] | None = None,
-    ) -> list[dict] | None:
         while True:
             try:
-                return await self._client.get_updates(
-                    offset=offset, timeout_s=timeout_s, allowed_updates=allowed_updates
-                )
+                if self._client_override is not None:
+                    return await self._client_override.get_updates(
+                        offset=offset,
+                        timeout_s=timeout_s,
+                        allowed_updates=allowed_updates,
+                    )
+                params: dict[str, Any] = {"timeout": timeout_s}
+                if offset is not None:
+                    params["offset"] = offset
+                if allowed_updates is not None:
+                    params["allowed_updates"] = allowed_updates
+                result = await self._post("getUpdates", params)
+                return result if isinstance(result, list) else None
             except TelegramRetryAfter as exc:
                 await self._sleep(exc.retry_after)
 
@@ -610,21 +508,30 @@ class TelegramClient:
         not_before: float | None = None,
         replace_message_id: int | None = None,
     ) -> dict | None:
-        _ = priority
-        _ = not_before
-
         async def execute() -> dict | None:
-            return await self._client.send_message(
-                chat_id=chat_id,
-                text=text,
-                reply_to_message_id=reply_to_message_id,
-                disable_notification=disable_notification,
-                entities=entities,
-                parse_mode=parse_mode,
-                priority=priority,
-                not_before=not_before,
-                replace_message_id=replace_message_id,
-            )
+            if self._client_override is not None:
+                return await self._client_override.send_message(
+                    chat_id=chat_id,
+                    text=text,
+                    reply_to_message_id=reply_to_message_id,
+                    disable_notification=disable_notification,
+                    entities=entities,
+                    parse_mode=parse_mode,
+                    priority=priority,
+                    not_before=not_before,
+                    replace_message_id=replace_message_id,
+                )
+            params: dict[str, Any] = {"chat_id": chat_id, "text": text}
+            if disable_notification is not None:
+                params["disable_notification"] = disable_notification
+            if reply_to_message_id is not None:
+                params["reply_to_message_id"] = reply_to_message_id
+            if entities is not None:
+                params["entities"] = entities
+            if parse_mode is not None:
+                params["parse_mode"] = parse_mode
+            result = await self._post("sendMessage", params)
+            return result if isinstance(result, dict) else None
 
         if replace_message_id is not None:
             await self._outbox.drop_pending(key=("edit", replace_message_id))
@@ -655,19 +562,29 @@ class TelegramClient:
         not_before: float | None = None,
         wait: bool = True,
     ) -> dict | None:
-        _ = priority
-        _ = not_before
-
         async def execute() -> dict | None:
-            return await self._client.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                entities=entities,
-                parse_mode=parse_mode,
-                priority=priority,
-                not_before=not_before,
-            )
+            if self._client_override is not None:
+                return await self._client_override.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=text,
+                    entities=entities,
+                    parse_mode=parse_mode,
+                    priority=priority,
+                    not_before=not_before,
+                    wait=wait,
+                )
+            params: dict[str, Any] = {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+            }
+            if entities is not None:
+                params["entities"] = entities
+            if parse_mode is not None:
+                params["parse_mode"] = parse_mode
+            result = await self._post("editMessageText", params)
+            return result if isinstance(result, dict) else None
 
         return await self.enqueue_op(
             key=("edit", message_id),
@@ -685,15 +602,20 @@ class TelegramClient:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
-        _ = priority
         await self.drop_pending_edits(chat_id=chat_id, message_id=message_id)
 
         async def execute() -> bool:
-            return await self._client.delete_message(
-                chat_id=chat_id,
-                message_id=message_id,
-                priority=priority,
+            if self._client_override is not None:
+                return await self._client_override.delete_message(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    priority=priority,
+                )
+            result = await self._post(
+                "deleteMessage",
+                {"chat_id": chat_id, "message_id": message_id},
             )
+            return bool(result)
 
         return bool(
             await self.enqueue_op(
@@ -713,15 +635,21 @@ class TelegramClient:
         scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool:
-        _ = priority
-
         async def execute() -> bool:
-            return await self._client.set_my_commands(
-                commands,
-                priority=priority,
-                scope=scope,
-                language_code=language_code,
-            )
+            if self._client_override is not None:
+                return await self._client_override.set_my_commands(
+                    commands,
+                    priority=priority,
+                    scope=scope,
+                    language_code=language_code,
+                )
+            params: dict[str, Any] = {"commands": commands}
+            if scope is not None:
+                params["scope"] = scope
+            if language_code is not None:
+                params["language_code"] = language_code
+            result = await self._post("setMyCommands", params)
+            return bool(result)
 
         return bool(
             await self.enqueue_op(
@@ -736,10 +664,11 @@ class TelegramClient:
     async def get_me(
         self, *, priority: TelegramPriority = TelegramPriority.HIGH
     ) -> dict | None:
-        _ = priority
-
         async def execute() -> dict | None:
-            return await self._client.get_me(priority=priority)
+            if self._client_override is not None:
+                return await self._client_override.get_me(priority=priority)
+            result = await self._post("getMe", {})
+            return result if isinstance(result, dict) else None
 
         return await self.enqueue_op(
             key=self.unique_key("get_me"),
