@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import enum
 import itertools
-import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Hashable, Protocol, TYPE_CHECKING
@@ -258,30 +257,13 @@ class TelegramOutbox:
             return
 
 
-_RETRY_AFTER_RE = re.compile(r"retry after (\d+)", re.IGNORECASE)
-
-
 def _retry_after_from_payload(payload: dict[str, Any]) -> float | None:
     params = payload.get("parameters")
     if isinstance(params, dict):
         retry_after = params.get("retry_after")
         if isinstance(retry_after, (int, float)):
             return float(retry_after)
-    description = payload.get("description")
-    if isinstance(description, str):
-        return _retry_after_from_description(description)
     return None
-
-
-def _retry_after_from_description(description: str) -> float | None:
-    match = _RETRY_AFTER_RE.search(description)
-    if not match:
-        return None
-    try:
-        return float(match.group(1))
-    except ValueError:
-        return None
-
 
 def _retry_after_from_response(resp: httpx.Response) -> float | None:
     try:
@@ -289,10 +271,8 @@ def _retry_after_from_response(resp: httpx.Response) -> float | None:
     except Exception:
         payload = None
     if isinstance(payload, dict):
-        retry_after = _retry_after_from_payload(payload)
-        if retry_after is not None:
-            return retry_after
-    return _retry_after_from_description(resp.text)
+        return _retry_after_from_payload(payload)
+    return None
 
 
 class TelegramClient:
