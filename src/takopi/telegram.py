@@ -11,8 +11,6 @@ import httpx
 import anyio
 
 from .logging import get_logger
-from .transports import RetryAfter
-
 logger = get_logger(__name__)
 
 
@@ -24,6 +22,13 @@ class TelegramPriority(enum.IntEnum):
 SEND_PRIORITY = 0
 DELETE_PRIORITY = 1
 EDIT_PRIORITY = 2
+
+
+class RetryAfter(Exception):
+    def __init__(self, retry_after: float, description: str | None = None) -> None:
+        super().__init__(description or f"retry after {retry_after}")
+        self.retry_after = float(retry_after)
+        self.description = description
 
 
 class TelegramRetryAfter(RetryAfter):
