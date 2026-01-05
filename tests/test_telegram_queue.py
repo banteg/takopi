@@ -1,7 +1,7 @@
 import anyio
 import pytest
 
-from takopi.telegram import TelegramClient, TelegramPriority, TelegramRetryAfter
+from takopi.telegram import TelegramClient, TelegramRetryAfter
 
 
 class _FakeBot:
@@ -23,16 +23,12 @@ class _FakeBot:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
         replace_message_id: int | None = None,
     ) -> dict:
         _ = reply_to_message_id
         _ = disable_notification
         _ = entities
         _ = parse_mode
-        _ = priority
-        _ = not_before
         _ = replace_message_id
         self.calls.append("send_message")
         return {"message_id": 1}
@@ -45,16 +41,12 @@ class _FakeBot:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
         wait: bool = True,
     ) -> dict:
         _ = chat_id
         _ = message_id
         _ = entities
         _ = parse_mode
-        _ = priority
-        _ = not_before
         _ = wait
         self.calls.append("edit_message_text")
         self.edit_calls.append(text)
@@ -68,10 +60,7 @@ class _FakeBot:
         self,
         chat_id: int,
         message_id: int,
-        *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
-        _ = priority
         self.calls.append("delete_message")
         self.delete_calls.append((chat_id, message_id))
         return True
@@ -80,12 +69,10 @@ class _FakeBot:
         self,
         commands: list[dict],
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
         scope: dict | None = None,
         language_code: str | None = None,
     ) -> bool:
         _ = commands
-        _ = priority
         _ = scope
         _ = language_code
         return True
@@ -108,10 +95,7 @@ class _FakeBot:
     async def close(self) -> None:
         return None
 
-    async def get_me(
-        self, *, priority: TelegramPriority = TelegramPriority.HIGH
-    ) -> dict | None:
-        _ = priority
+    async def get_me(self) -> dict | None:
         return {"id": 1}
 
 
@@ -132,8 +116,6 @@ async def test_edits_coalesce_latest() -> None:
             entities: list[dict] | None = None,
             parse_mode: str | None = None,
             *,
-            priority: TelegramPriority = TelegramPriority.HIGH,
-            not_before: float | None = None,
             wait: bool = True,
         ) -> dict:
             if self._block_first:
@@ -146,8 +128,6 @@ async def test_edits_coalesce_latest() -> None:
                 text=text,
                 entities=entities,
                 parse_mode=parse_mode,
-                priority=priority,
-                not_before=not_before,
                 wait=wait,
             )
 
@@ -158,7 +138,6 @@ async def test_edits_coalesce_latest() -> None:
         chat_id=1,
         message_id=1,
         text="first",
-        priority=TelegramPriority.LOW,
         wait=False,
     )
 
@@ -169,14 +148,12 @@ async def test_edits_coalesce_latest() -> None:
         chat_id=1,
         message_id=1,
         text="second",
-        priority=TelegramPriority.LOW,
         wait=False,
     )
     await client.edit_message_text(
         chat_id=1,
         message_id=1,
         text="third",
-        priority=TelegramPriority.LOW,
         wait=False,
     )
 
@@ -198,14 +175,12 @@ async def test_send_preempts_pending_edit() -> None:
         chat_id=1,
         message_id=1,
         text="first",
-        priority=TelegramPriority.LOW,
     )
 
     await client.edit_message_text(
         chat_id=1,
         message_id=1,
         text="progress",
-        priority=TelegramPriority.LOW,
         wait=False,
     )
 
@@ -227,14 +202,12 @@ async def test_delete_drops_pending_edits() -> None:
         chat_id=1,
         message_id=1,
         text="first",
-        priority=TelegramPriority.LOW,
     )
 
     await client.edit_message_text(
         chat_id=1,
         message_id=1,
         text="progress",
-        priority=TelegramPriority.LOW,
         wait=False,
     )
 
@@ -242,7 +215,6 @@ async def test_delete_drops_pending_edits() -> None:
         await client.delete_message(
             chat_id=1,
             message_id=1,
-            priority=TelegramPriority.HIGH,
         )
 
     await anyio.sleep(0.2)
@@ -260,7 +232,6 @@ async def test_retry_after_retries_once() -> None:
         chat_id=1,
         message_id=1,
         text="retry",
-        priority=TelegramPriority.HIGH,
     )
 
     assert result == {"message_id": 1}

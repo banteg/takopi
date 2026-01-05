@@ -8,7 +8,7 @@ from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.render import MarkdownParts, prepare_telegram
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.codex import CodexRunner
-from takopi.telegram import TelegramClient, TelegramPriority
+from takopi.telegram import TelegramClient
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Sleep, Wait
 from tests.factories import action_completed, action_started
 
@@ -191,12 +191,8 @@ class _FakeBot:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
         replace_message_id: int | None = None,
     ) -> dict:
-        _ = priority
-        _ = not_before
         _ = replace_message_id
         self.send_calls.append(
             {
@@ -220,12 +216,8 @@ class _FakeBot:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
         wait: bool = True,
     ) -> dict:
-        _ = priority
-        _ = not_before
         _ = wait
         self.edit_calls.append(
             {
@@ -242,10 +234,7 @@ class _FakeBot:
         self,
         chat_id: int,
         message_id: int,
-        *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
-        _ = priority
         self.delete_calls.append({"chat_id": chat_id, "message_id": message_id})
         return True
 
@@ -253,11 +242,9 @@ class _FakeBot:
         self,
         commands: list[dict],
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
         scope: dict | None = None,
         language_code: str | None = None,
     ) -> bool:
-        _ = priority
         self.command_calls.append(
             {
                 "commands": commands,
@@ -281,10 +268,7 @@ class _FakeBot:
     async def close(self) -> None:
         return None
 
-    async def get_me(
-        self, *, priority: TelegramPriority = TelegramPriority.HIGH
-    ) -> dict | None:
-        _ = priority
+    async def get_me(self) -> dict | None:
         return {"id": 1}
 
 
@@ -901,8 +885,6 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
             entities: list[dict] | None = None,
             parse_mode: str | None = None,
             *,
-            priority: TelegramPriority = TelegramPriority.HIGH,
-            not_before: float | None = None,
             replace_message_id: int | None = None,
         ) -> dict:
             msg = await super().send_message(
@@ -912,8 +894,6 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
                 disable_notification=disable_notification,
                 entities=entities,
                 parse_mode=parse_mode,
-                priority=priority,
-                not_before=not_before,
                 replace_message_id=replace_message_id,
             )
             if self.progress_id is None and reply_to_message_id is not None:

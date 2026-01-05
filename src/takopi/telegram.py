@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import enum
 import itertools
 import time
 from dataclasses import dataclass, field
@@ -13,11 +12,6 @@ import anyio
 from .logging import get_logger
 
 logger = get_logger(__name__)
-
-
-class TelegramPriority(enum.IntEnum):
-    HIGH = 0
-    LOW = 1
 
 
 SEND_PRIORITY = 0
@@ -59,8 +53,6 @@ class BotClient(Protocol):
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
         replace_message_id: int | None = None,
     ) -> dict | None: ...
 
@@ -72,8 +64,6 @@ class BotClient(Protocol):
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
         wait: bool = True,
     ) -> dict | None: ...
 
@@ -81,22 +71,17 @@ class BotClient(Protocol):
         self,
         chat_id: int,
         message_id: int,
-        *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool: ...
 
     async def set_my_commands(
         self,
         commands: list[dict[str, Any]],
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
         scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool: ...
 
-    async def get_me(
-        self, *, priority: TelegramPriority = TelegramPriority.HIGH
-    ) -> dict | None: ...
+    async def get_me(self) -> dict | None: ...
 
 
 if TYPE_CHECKING:
@@ -504,8 +489,6 @@ class TelegramClient:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
         replace_message_id: int | None = None,
     ) -> dict | None:
         async def execute() -> dict | None:
@@ -517,8 +500,6 @@ class TelegramClient:
                     disable_notification=disable_notification,
                     entities=entities,
                     parse_mode=parse_mode,
-                    priority=priority,
-                    not_before=not_before,
                     replace_message_id=replace_message_id,
                 )
             params: dict[str, Any] = {"chat_id": chat_id, "text": text}
@@ -558,8 +539,6 @@ class TelegramClient:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
-        not_before: float | None = None,
         wait: bool = True,
     ) -> dict | None:
         async def execute() -> dict | None:
@@ -570,8 +549,6 @@ class TelegramClient:
                     text=text,
                     entities=entities,
                     parse_mode=parse_mode,
-                    priority=priority,
-                    not_before=not_before,
                     wait=wait,
                 )
             params: dict[str, Any] = {
@@ -599,8 +576,6 @@ class TelegramClient:
         self,
         chat_id: int,
         message_id: int,
-        *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
         await self.drop_pending_edits(chat_id=chat_id, message_id=message_id)
 
@@ -609,7 +584,6 @@ class TelegramClient:
                 return await self._client_override.delete_message(
                     chat_id=chat_id,
                     message_id=message_id,
-                    priority=priority,
                 )
             result = await self._post(
                 "deleteMessage",
@@ -631,7 +605,6 @@ class TelegramClient:
         self,
         commands: list[dict[str, Any]],
         *,
-        priority: TelegramPriority = TelegramPriority.HIGH,
         scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool:
@@ -639,7 +612,6 @@ class TelegramClient:
             if self._client_override is not None:
                 return await self._client_override.set_my_commands(
                     commands,
-                    priority=priority,
                     scope=scope,
                     language_code=language_code,
                 )
@@ -661,12 +633,10 @@ class TelegramClient:
             )
         )
 
-    async def get_me(
-        self, *, priority: TelegramPriority = TelegramPriority.HIGH
-    ) -> dict | None:
+    async def get_me(self) -> dict | None:
         async def execute() -> dict | None:
             if self._client_override is not None:
-                return await self._client_override.get_me(priority=priority)
+                return await self._client_override.get_me()
             result = await self._post("getMe", {})
             return result if isinstance(result, dict) else None
 

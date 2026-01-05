@@ -435,9 +435,7 @@ async def send_result_message(
     disable_notification: bool,
     edit_message_id: int | None,
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
-    delete_tag: str = "final",
 ) -> None:
-    _ = delete_tag
     final_msg, edited = await _send_or_edit_markdown(
         cfg.bot,
         chat_id=chat_id,
@@ -575,7 +573,6 @@ async def handle_message(
             parts=final_parts,
             disable_notification=True,
             edit_message_id=progress_id,
-            delete_tag="error",
         )
         return
 
@@ -597,7 +594,6 @@ async def handle_message(
             parts=final_parts,
             disable_notification=True,
             edit_message_id=progress_id,
-            delete_tag="cancel",
         )
         return
 
@@ -654,7 +650,6 @@ async def handle_message(
         disable_notification=False,
         edit_message_id=edit_message_id,
         prepared=(final_rendered, final_entities),
-        delete_tag="final",
     )
 
 
