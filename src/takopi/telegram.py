@@ -22,9 +22,9 @@ class TelegramPriority(enum.IntEnum):
     LOW = 1
 
 
-_SEND_PRIORITY = 0
-_DELETE_PRIORITY = 1
-_EDIT_PRIORITY = 2
+SEND_PRIORITY = 0
+DELETE_PRIORITY = 1
+EDIT_PRIORITY = 2
 
 
 class TelegramRetryAfter(RetryAfter):
@@ -140,15 +140,15 @@ class TelegramOutbox:
         self._next_at = 0.0
         self._retry_at = 0.0
 
-    async def _ensure_worker(self) -> None:
+    async def ensure_worker(self) -> None:
         async with self._start_lock:
             if self._tg is not None:
                 return
             self._tg = await anyio.create_task_group().__aenter__()
-            self._tg.start_soon(self._run)
+            self._tg.start_soon(self.run)
 
     async def enqueue(self, *, key: Hashable, op: OutboxOp, wait: bool = True) -> Any:
-        await self._ensure_worker()
+        await self.ensure_worker()
         async with self._cond:
             if self._closed:
                 op.set_result(None)
@@ -173,18 +173,18 @@ class TelegramOutbox:
     async def close(self) -> None:
         async with self._cond:
             self._closed = True
-            self._fail_pending()
+            self.fail_pending()
             self._cond.notify_all()
         if self._tg is not None:
             await self._tg.__aexit__(None, None, None)
             self._tg = None
 
-    def _fail_pending(self) -> None:
+    def fail_pending(self) -> None:
         for pending in list(self._pending.values()):
             pending.set_result(None)
         self._pending.clear()
 
-    def _pick_locked(self) -> tuple[Hashable, OutboxOp] | None:
+    def pick_locked(self) -> tuple[Hashable, OutboxOp] | None:
         if not self._pending:
             return None
         return min(
@@ -192,7 +192,7 @@ class TelegramOutbox:
             key=lambda item: (item[1].priority, item[1].updated_at),
         )
 
-    async def _execute(self, op: OutboxOp) -> Any:
+    async def execute_op(self, op: OutboxOp) -> Any:
         try:
             return await op.execute()
         except Exception as exc:
@@ -202,12 +202,12 @@ class TelegramOutbox:
                 self._on_error(op, exc)
             return None
 
-    async def _sleep_until(self, deadline: float) -> None:
+    async def sleep_until(self, deadline: float) -> None:
         delay = deadline - self._clock()
         if delay > 0:
             await self._sleep(delay)
 
-    async def _run(self) -> None:
+    async def run(self) -> None:
         cancel_exc = anyio.get_cancelled_exc_class()
         try:
             while True:
@@ -218,19 +218,19 @@ class TelegramOutbox:
                         return
                 blocked_until = max(self._next_at, self._retry_at)
                 if self._clock() < blocked_until:
-                    await self._sleep_until(blocked_until)
+                    await self.sleep_until(blocked_until)
                     continue
                 async with self._cond:
                     if self._closed and not self._pending:
                         return
-                    picked = self._pick_locked()
+                    picked = self.pick_locked()
                     if picked is None:
                         continue
                     key, op = picked
                     self._pending.pop(key, None)
                 started_at = self._clock()
                 try:
-                    result = await self._execute(op)
+                    result = await self.execute_op(op)
                 except RetryAfter as exc:
                     self._retry_at = max(
                         self._retry_at, self._clock() + exc.retry_after
@@ -251,7 +251,7 @@ class TelegramOutbox:
         except Exception as exc:
             async with self._cond:
                 self._closed = True
-                self._fail_pending()
+                self.fail_pending()
                 self._cond.notify_all()
             if self._on_outbox_error is not None:
                 self._on_outbox_error(exc)
@@ -526,22 +526,22 @@ class QueuedTelegramClient:
         )
         self._group_interval = 0.0 if group_chat_rps <= 0 else 1.0 / group_chat_rps
         self._outbox = TelegramOutbox(
-            interval_for_chat=self._interval_for_chat,
+            interval_for_chat=self.interval_for_chat,
             clock=clock,
             sleep=sleep,
-            on_error=self._log_request_error,
-            on_outbox_error=self._log_outbox_failure,
+            on_error=self.log_request_error,
+            on_outbox_error=self.log_outbox_failure,
         )
         self._seq = itertools.count()
 
-    def _interval_for_chat(self, chat_id: int | None) -> float:
+    def interval_for_chat(self, chat_id: int | None) -> float:
         if chat_id is None:
             return self._private_interval
         if is_group_chat_id(chat_id):
             return self._group_interval
         return self._private_interval
 
-    def _log_request_error(self, request: OutboxOp, exc: Exception) -> None:
+    def log_request_error(self, request: OutboxOp, exc: Exception) -> None:
         logger.error(
             "telegram.outbox.request_failed",
             method=request.label,
@@ -549,21 +549,21 @@ class QueuedTelegramClient:
             error_type=exc.__class__.__name__,
         )
 
-    def _log_outbox_failure(self, exc: Exception) -> None:
+    def log_outbox_failure(self, exc: Exception) -> None:
         logger.error(
             "telegram.outbox.failed",
             error=str(exc),
             error_type=exc.__class__.__name__,
         )
 
-    async def _drop_pending_edits(self, *, chat_id: int, message_id: int) -> None:
+    async def drop_pending_edits(self, *, chat_id: int, message_id: int) -> None:
         _ = chat_id
         await self._outbox.drop_pending(key=("edit", message_id))
 
-    def _unique_key(self, prefix: str) -> tuple[str, int]:
+    def unique_key(self, prefix: str) -> tuple[str, int]:
         return (prefix, next(self._seq))
 
-    async def _enqueue(
+    async def enqueue_op(
         self,
         *,
         key: Hashable,
@@ -632,15 +632,15 @@ class QueuedTelegramClient:
 
         if replace_message_id is not None:
             await self._outbox.drop_pending(key=("edit", replace_message_id))
-        return await self._enqueue(
+        return await self.enqueue_op(
             key=(
                 ("send", replace_message_id)
                 if replace_message_id is not None
-                else self._unique_key("send")
+                else self.unique_key("send")
             ),
             label="send_message",
             execute=execute,
-            priority=_SEND_PRIORITY,
+            priority=SEND_PRIORITY,
             chat_id=chat_id,
         )
 
@@ -670,11 +670,11 @@ class QueuedTelegramClient:
                 not_before=not_before,
             )
 
-        return await self._enqueue(
+        return await self.enqueue_op(
             key=("edit", message_id),
             label="edit_message_text",
             execute=execute,
-            priority=_EDIT_PRIORITY,
+            priority=EDIT_PRIORITY,
             chat_id=chat_id,
             wait=wait,
         )
@@ -687,7 +687,7 @@ class QueuedTelegramClient:
         priority: TelegramPriority = TelegramPriority.HIGH,
     ) -> bool:
         _ = priority
-        await self._drop_pending_edits(chat_id=chat_id, message_id=message_id)
+        await self.drop_pending_edits(chat_id=chat_id, message_id=message_id)
 
         async def execute() -> bool:
             return await self._client.delete_message(
@@ -697,11 +697,11 @@ class QueuedTelegramClient:
             )
 
         return bool(
-            await self._enqueue(
+            await self.enqueue_op(
                 key=("delete", message_id),
                 label="delete_message",
                 execute=execute,
-                priority=_DELETE_PRIORITY,
+                priority=DELETE_PRIORITY,
                 chat_id=chat_id,
             )
         )
@@ -725,11 +725,11 @@ class QueuedTelegramClient:
             )
 
         return bool(
-            await self._enqueue(
-                key=self._unique_key("set_my_commands"),
+            await self.enqueue_op(
+                key=self.unique_key("set_my_commands"),
                 label="set_my_commands",
                 execute=execute,
-                priority=_SEND_PRIORITY,
+                priority=SEND_PRIORITY,
                 chat_id=None,
             )
         )
@@ -742,10 +742,10 @@ class QueuedTelegramClient:
         async def execute() -> dict | None:
             return await self._client.get_me(priority=priority)
 
-        return await self._enqueue(
-            key=self._unique_key("get_me"),
+        return await self.enqueue_op(
+            key=self.unique_key("get_me"),
             label="get_me",
             execute=execute,
-            priority=_SEND_PRIORITY,
+            priority=SEND_PRIORITY,
             chat_id=None,
         )
