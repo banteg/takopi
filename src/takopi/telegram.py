@@ -5,7 +5,7 @@ import itertools
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Hashable, Protocol
+from typing import Any, Awaitable, Callable, Hashable, Protocol, TYPE_CHECKING
 
 import httpx
 
@@ -94,6 +94,12 @@ class BotClient(Protocol):
     ) -> dict | None: ...
 
 
+if TYPE_CHECKING:
+    from anyio.abc import TaskGroup
+else:
+    TaskGroup = object
+
+
 @dataclass(slots=True)
 class OutboxOp:
     execute: Callable[[], Awaitable[Any]]
@@ -130,7 +136,7 @@ class TelegramOutbox:
         self._cond = anyio.Condition()
         self._start_lock = anyio.Lock()
         self._closed = False
-        self._tg: anyio.abc.TaskGroup | None = None
+        self._tg: TaskGroup | None = None
         self._next_at = 0.0
         self._retry_at = 0.0
 
