@@ -25,6 +25,7 @@ class _FakeBot:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
+        replace_message_id: int | None = None,
     ) -> dict:
         _ = reply_to_message_id
         _ = disable_notification
@@ -32,6 +33,7 @@ class _FakeBot:
         _ = parse_mode
         _ = priority
         _ = not_before
+        _ = replace_message_id
         self.calls.append("send_message")
         return {"message_id": 1}
 

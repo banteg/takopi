@@ -56,6 +56,7 @@ class BotClient(Protocol):
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
+        replace_message_id: int | None = None,
     ) -> dict | None: ...
 
     async def edit_message_text(
@@ -414,9 +415,11 @@ class TelegramClient:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
+        replace_message_id: int | None = None,
     ) -> dict | None:
         _ = priority
         _ = not_before
+        _ = replace_message_id
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "text": text,
@@ -549,7 +552,7 @@ class QueuedTelegramClient:
 
     async def _drop_pending_edits(self, *, chat_id: int, message_id: int) -> None:
         _ = chat_id
-        await self._outbox.drop_pending(key=message_id)
+        await self._outbox.drop_pending(key=("edit", message_id))
 
     def _unique_key(self, prefix: str) -> tuple[str, int]:
         return (prefix, next(self._seq))
@@ -602,9 +605,11 @@ class QueuedTelegramClient:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
+        replace_message_id: int | None = None,
     ) -> dict | None:
         _ = priority
         _ = not_before
+        _ = replace_message_id
 
         async def execute() -> dict | None:
             return await self._client.send_message(
@@ -616,10 +621,17 @@ class QueuedTelegramClient:
                 parse_mode=parse_mode,
                 priority=priority,
                 not_before=not_before,
+                replace_message_id=replace_message_id,
             )
 
+        if replace_message_id is not None:
+            await self._outbox.drop_pending(key=("edit", replace_message_id))
         return await self._enqueue(
-            key=self._unique_key("send"),
+            key=(
+                ("send", replace_message_id)
+                if replace_message_id is not None
+                else self._unique_key("send")
+            ),
             label="send_message",
             execute=execute,
             priority=_SEND_PRIORITY,
@@ -653,7 +665,7 @@ class QueuedTelegramClient:
             )
 
         return await self._enqueue(
-            key=message_id,
+            key=("edit", message_id),
             label="edit_message_text",
             execute=execute,
             priority=_EDIT_PRIORITY,

@@ -161,6 +161,7 @@ async def _send_or_edit_markdown(
     parts: MarkdownParts,
     edit_message_id: int | None = None,
     reply_to_message_id: int | None = None,
+    replace_message_id: int | None = None,
     disable_notification: bool = False,
     prepared: tuple[str, list[dict[str, Any]]] | None = None,
     priority: TelegramPriority = TelegramPriority.HIGH,
@@ -200,6 +201,7 @@ async def _send_or_edit_markdown(
             reply_to_message_id=reply_to_message_id,
             disable_notification=disable_notification,
             priority=priority,
+            replace_message_id=replace_message_id,
         ),
         False,
     )
@@ -447,6 +449,7 @@ async def send_result_message(
         parts=parts,
         edit_message_id=edit_message_id,
         reply_to_message_id=user_msg_id,
+        replace_message_id=progress_id,
         disable_notification=disable_notification,
         prepared=prepared,
         priority=priority,

@@ -193,9 +193,11 @@ class _FakeBot:
         *,
         priority: TelegramPriority = TelegramPriority.HIGH,
         not_before: float | None = None,
+        replace_message_id: int | None = None,
     ) -> dict:
         _ = priority
         _ = not_before
+        _ = replace_message_id
         self.send_calls.append(
             {
                 "chat_id": chat_id,
@@ -901,6 +903,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
             *,
             priority: TelegramPriority = TelegramPriority.HIGH,
             not_before: float | None = None,
+            replace_message_id: int | None = None,
         ) -> dict:
             msg = await super().send_message(
                 chat_id=chat_id,
@@ -911,6 +914,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
                 parse_mode=parse_mode,
                 priority=priority,
                 not_before=not_before,
+                replace_message_id=replace_message_id,
             )
             if self.progress_id is None and reply_to_message_id is not None:
                 self.progress_id = int(msg["message_id"])
