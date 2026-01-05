@@ -73,7 +73,7 @@ class _FakeTransport:
     async def edit(
         self, *, ref: MessageRef, message: RenderedMessage, wait: bool = True
     ) -> MessageRef:
-        self.edit_calls.append({\"ref\": ref, \"message\": message, \"wait\": wait})
+        self.edit_calls.append({"ref": ref, "message": message, "wait": wait})
         return ref
 
     async def delete(self, *, ref: MessageRef) -> bool:

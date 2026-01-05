@@ -359,7 +359,9 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
         await handle_message(
             cfg,
             runner=runner,
-            incoming=IncomingMessage(channel_id=123, message_id=10, text="do something"),
+            incoming=IncomingMessage(
+                channel_id=123, message_id=10, text="do something"
+            ),
             resume_token=None,
             running_tasks=running_tasks,
         )
