@@ -80,6 +80,36 @@ def _is_profiles_command(text: str) -> bool:
     return command.lower() == "/profiles"
 
 
+def _parse_default_command(text: str) -> tuple[bool, str | None]:
+    """Parse /default command.
+
+    Returns:
+        (is_default_command, engine_name_or_none)
+        - (True, "engine") for /default engine
+        - (True, None) for /default (show current)
+        - (False, None) for other commands
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False, None
+
+    parts = stripped.split(maxsplit=1)
+    command = parts[0]
+
+    # Handle @botname suffix
+    if "@" in command:
+        command = command.split("@", 1)[0]
+
+    if command.lower() != "/default":
+        return False, None
+
+    if len(parts) == 1:
+        return True, None
+
+    engine_name = parts[1].strip()
+    return True, engine_name if engine_name else None
+
+
 def _strip_engine_command(
     text: str, *, engine_ids: tuple[EngineId, ...]
 ) -> tuple[str, EngineId | None]:
@@ -128,6 +158,8 @@ def _build_bot_commands(
         seen.add(cmd)
     if "cancel" not in seen:
         commands.append({"command": "cancel", "description": "cancel run"})
+    if "default" not in seen:
+        commands.append({"command": "default", "description": "change default engine"})
     if has_profiles:
         if "profile" not in seen:
             commands.append({"command": "profile", "description": "switch profile"})
@@ -319,6 +351,55 @@ class TelegramBridgeConfig:
             return None
         except Exception as exc:
             return f"failed to switch profile: {exc}"
+
+    def switch_default_engine(self, engine_name: EngineId) -> str | None:
+        """Switch to a different default engine.
+
+        This changes the router's default engine without changing profiles.
+
+        Args:
+            engine_name: Name of engine to set as default
+
+        Returns:
+            Error message if switch failed, None on success
+        """
+        # Check if engine exists and is available
+        engine_lower = engine_name.lower()
+        matching_entry = None
+        for entry in self.router.entries:
+            if entry.engine.lower() == engine_lower:
+                matching_entry = entry
+                break
+
+        if matching_entry is None:
+            available = ", ".join(e.engine for e in self.router.entries)
+            return f"unknown engine '{engine_name}'. available: {available}"
+
+        if not matching_entry.available:
+            reason = matching_entry.issue or "not installed"
+            return f"engine '{matching_entry.engine}' unavailable: {reason}"
+
+        # Rebuild router with new default engine
+        from ..router import AutoRouter
+
+        new_router = AutoRouter(
+            entries=self.router.entries,
+            default_engine=matching_entry.engine,
+        )
+        self.router = new_router
+        return None
+
+    def format_default_status(self) -> str:
+        """Format current default engine status message."""
+        lines = [
+            f"default engine: `{self.router.default_engine}`",
+        ]
+
+        available = [e.engine for e in self.router.available_entries]
+        if available:
+            lines.append(f"available: `{', '.join(available)}`")
+
+        return "\n".join(lines)
 
     def format_profile_status(self) -> str:
         """Format current profile status message."""
@@ -694,6 +775,40 @@ async def run_main_loop(
                             logger.info(
                                 "profile.switched",
                                 profile=target_profile,
+                                default_engine=cfg.router.default_engine,
+                            )
+                    continue
+
+                # Handle /default command
+                is_default_cmd, engine_arg = _parse_default_command(text)
+                if is_default_cmd:
+                    if engine_arg is None:
+                        # Show current default engine status
+                        await _send_plain(
+                            cfg.exec_cfg.transport,
+                            chat_id=chat_id,
+                            user_msg_id=user_msg_id,
+                            text=cfg.format_default_status(),
+                        )
+                    else:
+                        # Switch to specified engine
+                        error = cfg.switch_default_engine(engine_arg)
+                        if error:
+                            await _send_plain(
+                                cfg.exec_cfg.transport,
+                                chat_id=chat_id,
+                                user_msg_id=user_msg_id,
+                                text=f"error: {error}",
+                            )
+                        else:
+                            await _send_plain(
+                                cfg.exec_cfg.transport,
+                                chat_id=chat_id,
+                                user_msg_id=user_msg_id,
+                                text=f"default engine: `{cfg.router.default_engine}`",
+                            )
+                            logger.info(
+                                "default_engine.switched",
                                 default_engine=cfg.router.default_engine,
                             )
                     continue

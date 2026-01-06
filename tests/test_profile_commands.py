@@ -1,7 +1,8 @@
-"""Tests for profile command parsing and handling in the bridge."""
+"""Tests for profile and default engine command parsing in the bridge."""
 
 from takopi.telegram.bridge import (
     _is_profiles_command,
+    _parse_default_command,
     _parse_profile_command,
 )
 
@@ -80,3 +81,54 @@ def test_is_profiles_command_empty() -> None:
 def test_is_profiles_command_with_extra_text() -> None:
     # /profiles ignores extra text (just like /cancel)
     assert _is_profiles_command("/profiles list") is True
+
+
+# Tests for /default command
+
+
+def test_parse_default_command_with_engine() -> None:
+    is_cmd, engine = _parse_default_command("/default claude")
+    assert is_cmd is True
+    assert engine == "claude"
+
+
+def test_parse_default_command_no_arg() -> None:
+    is_cmd, engine = _parse_default_command("/default")
+    assert is_cmd is True
+    assert engine is None
+
+
+def test_parse_default_command_not_default() -> None:
+    is_cmd, engine = _parse_default_command("/claude hello")
+    assert is_cmd is False
+    assert engine is None
+
+
+def test_parse_default_command_with_bot_suffix() -> None:
+    is_cmd, engine = _parse_default_command("/default@mybot codex")
+    assert is_cmd is True
+    assert engine == "codex"
+
+
+def test_parse_default_command_empty() -> None:
+    is_cmd, engine = _parse_default_command("")
+    assert is_cmd is False
+    assert engine is None
+
+
+def test_parse_default_command_whitespace_engine() -> None:
+    is_cmd, engine = _parse_default_command("/default   ")
+    assert is_cmd is True
+    assert engine is None
+
+
+def test_parse_default_command_case_insensitive() -> None:
+    is_cmd, engine = _parse_default_command("/Default Claude")
+    assert is_cmd is True
+    assert engine == "Claude"
+
+
+def test_parse_default_command_uppercase() -> None:
+    is_cmd, engine = _parse_default_command("/DEFAULT CODEX")
+    assert is_cmd is True
+    assert engine == "CODEX"
