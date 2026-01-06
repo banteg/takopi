@@ -197,7 +197,9 @@ class MarkdownFormatter:
             engine=state.engine,
         )
         body = self._assemble_body(self._format_actions(state))
-        return MarkdownParts(header=header, body=body, footer=self._format_footer(state))
+        return MarkdownParts(
+            header=header, body=body, footer=self._format_footer(state)
+        )
 
     def render_final_parts(
         self,
@@ -216,7 +218,9 @@ class MarkdownFormatter:
         )
         answer = (answer or "").strip()
         body = answer if answer else None
-        return MarkdownParts(header=header, body=body, footer=self._format_footer(state))
+        return MarkdownParts(
+            header=header, body=body, footer=self._format_footer(state)
+        )
 
     def _format_footer(self, state: ProgressState) -> str | None:
         lines: list[str] = []

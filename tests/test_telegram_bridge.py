@@ -475,7 +475,7 @@ def test_cancel_command_accepts_extra_text() -> None:
 async def test_send_with_resume_waits_for_token() -> None:
     transport = _FakeTransport()
     cfg = _make_cfg(transport)
-    sent: list[tuple[int, int, str, ResumeToken | None]] = []
+    sent: list[tuple[int, int, str, ResumeToken, RunContext | None]] = []
 
     async def enqueue(
         chat_id: int,
@@ -514,7 +514,7 @@ async def test_send_with_resume_waits_for_token() -> None:
 async def test_send_with_resume_reports_when_missing() -> None:
     transport = _FakeTransport()
     cfg = _make_cfg(transport)
-    sent: list[tuple[int, int, str, ResumeToken | None]] = []
+    sent: list[tuple[int, int, str, ResumeToken, RunContext | None]] = []
 
     async def enqueue(
         chat_id: int,
@@ -582,13 +582,15 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
         )
         await progress_ready.wait()
         assert transport.progress_ref is not None
+        assert isinstance(transport.progress_ref.message_id, int)
+        reply_id = transport.progress_ref.message_id
         reply_ready.set()
         yield IncomingMessage(
             transport="telegram",
             chat_id=123,
             message_id=2,
             text="followup",
-            reply_to_message_id=transport.progress_ref.message_id,
+            reply_to_message_id=reply_id,
             reply_to_text=None,
             sender_id=123,
         )

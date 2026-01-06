@@ -171,7 +171,9 @@ def _parse_directives(
         lines.pop(idx)
 
     prompt = "\n".join(lines).strip()
-    return ParsedDirectives(prompt=prompt, engine=engine, project=project, branch=branch)
+    return ParsedDirectives(
+        prompt=prompt, engine=engine, project=project, branch=branch
+    )
 
 
 def _parse_ctx_line(text: str | None, *, projects: ProjectsConfig) -> RunContext | None:
