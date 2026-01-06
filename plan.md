@@ -62,6 +62,7 @@ Command: `takopi init [ALIAS]` (new Typer command).
 - If ALIAS is provided, use it; otherwise prompt for alias.
 - Defaults:
   - path: current working directory.
+    - note: if `takopi init` is run inside a git worktree, this records the worktree path (not the main checkout). run it from the main checkout if you want the canonical repo root.
   - worktrees_dir: `.worktrees`
   - default_engine: resolved by `_default_engine_for_setup()`
   - worktree_base: resolved by the algorithm in section 4.3
@@ -73,6 +74,7 @@ Command: `takopi init [ALIAS]` (new Typer command).
 
 Acceptance criteria
 - Running `takopi init foo` adds `[projects.foo]` with path + worktrees_dir.
+- Running `takopi init foo` from a worktree records the worktree path in `[projects.foo].path`.
 - If `--default` is passed, `default_project` is set to `foo`.
 - Invalid aliases (collision, empty, whitespace) error before writing.
 
