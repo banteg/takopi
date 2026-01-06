@@ -1,393 +1,274 @@
-I pulled the bundle and skimmed the v0.8.0 layout + recent changes. The “telegram transport abstraction” is real: `bridge.py` now depends on a `BotClient` protocol and you’ve isolated Telegram concerns into `takopi/telegram.py` (plus the new request outbox/rate-limit/backoff behavior). That’s a good first cut.
+# Takopi v0.9 Implementation Spec (projects + worktrees + ctx + incoming messages)
 
-Below is what I think still needs shaping for a *public* API surface, and then a concrete UX proposal for the `/codex /z80 feat/name` workflow (phone-friendly, worktree isolation, minimal new concepts).
+This document is implementation-ready. MUST/SHOULD/MAY are normative.
 
----
+## Decisions (locked)
+- Edit plan.md in place.
+- Add requirements, acceptance criteria, edge cases, and test notes.
+- Focus on v0.9 scope steps 1-5. Everything else is Appendix.
+- If reply text includes a ctx line, ignore any new directives in the user message.
+- If @branch does not exist, auto-create it from a default base branch.
+- Branch names may include "/" and must not contain ".." or start with "/".
 
-## 1) What’s still missing for a clean public API surface
+## Scope (v0.9)
+1. Config: project aliases + `takopi init`.
+2. Directive parsing: `/engine`, `/project`, `@branch`.
+3. ctx footer in progress/final messages.
+4. Worktree resolution and creation.
+5. IncomingMessage abstraction; move Telegram parsing into transport.
 
-### A. Right now the “API boundary” is still effectively the CLI
+## Non-goals (v0.9)
+- OutgoingMessage abstraction / non-Telegram rendering.
+- Plugin entry points and third-party transports.
+- Command menu changes beyond existing engine commands.
+- Multiple worktrees per branch or per thread.
+- PR shortcuts like `@pr/123`.
 
-Even though Telegram HTTP is abstracted, most “composition points” are still internal-only:
+## Glossary
+- project alias: short name used as `/alias` in messages (e.g., `/z80`).
+- directive line: the first non-empty line of a message, parsed for directives.
+- ctx line: Takopi-owned footer line: `ctx: <project> @ <branch>` (branch optional).
+- worktree: git worktree directory created under `<project_root>/<worktrees_dir>/<branch>`.
 
-* `cli.py` is Telegram-specific (`load_telegram_config()`, hard-wired `TelegramClient(token)`).
-* `bridge.py` is still Telegram-shaped at the edges:
+## 1) Config and `takopi init`
 
-  * `poll_updates()` assumes Telegram update structure and yields raw Telegram `message` dicts.
-  * IDs are Telegram types (`chat_id: int`, `message_id: int`).
-  * rendering is Telegram-first (`prepare_telegram`, entities).
-* config is named Telegram-specific (`load_telegram_config`) and top-level keys assume a single Telegram bridge.
+### 1.1 Config schema (TOML)
+Top-level keys (existing + new):
 
-If you want “public API” to mean **other people can embed Takopi** (or add transports cleanly), you’ll want a small, explicit “core” API module that:
+```toml
+default_engine = "codex"         # optional
+default_project = "z80"          # optional
+bot_token = "..."                # required
+chat_id = 123                    # required
 
-* does not import Telegram,
-* does not depend on env/config loading,
-* composes via protocols/structs.
+[projects.z80]
+path = "~/dev/z80"               # required
+worktrees_dir = ".worktrees"     # optional, default ".worktrees"
+default_engine = "codex"         # optional, per-project override
+worktree_base = "main"           # optional, base for new branches
+```
 
-**Concrete shape suggestion**
-Create a `takopi.api` (or `takopi.app`) layer with something like:
+### 1.2 Validation rules
+- `projects` is optional. If absent, behavior stays as in v0.8 (run in startup cwd).
+- Each project entry MUST include `path` (string, non-empty). `~` is expanded with `Path.expanduser`.
+- `worktrees_dir` defaults to `.worktrees`. If relative, it is relative to `path`.
+- `default_project` (if set) MUST match a configured project alias.
+- Project aliases MUST NOT collide (case-insensitive) with engine ids or reserved commands (`cancel`).
+- `default_engine` and per-project `default_engine` MUST match an available engine id.
+- Config writing MAY reformat the file; preserving comments is out of scope.
 
-* `TakopiApp(...)` (core orchestrator)
-* `Transport` protocol + `IncomingMessage` dataclass
-* `RunnerRegistry/Router` (you already have `AutoRouter`)
-* `run(app)` or `app.run_forever()`
+### 1.3 `takopi init` behavior
+Command: `takopi init [ALIAS]` (new Typer command).
+- If ALIAS is provided, use it; otherwise prompt for alias.
+- Defaults:
+  - path: current working directory.
+  - worktrees_dir: `.worktrees`
+  - default_engine: resolved by `_default_engine_for_setup()`
+  - worktree_base: resolved by the algorithm in section 4.3
+- Writes/updates `~/.takopi/takopi.toml`:
+  - Create file if missing.
+  - Merge with existing keys; add or update `[projects.<alias>]`.
+  - If `--default` flag is provided, set `default_project = "<alias>"`.
+- If the alias already exists, ask for confirmation before overwriting that project entry.
 
-Then `takopi/cli.py` becomes *one* consumer:
+Acceptance criteria
+- Running `takopi init foo` adds `[projects.foo]` with path + worktrees_dir.
+- If `--default` is passed, `default_project` is set to `foo`.
+- Invalid aliases (collision, empty, whitespace) error before writing.
 
-* load config
-* instantiate `TelegramTransport`
-* instantiate runners/router
-* run the app
+Tests
+- Unit tests for config validation: alias collisions, missing path, invalid default project.
+- CLI test for init writing config (can use temp config path).
 
-This makes “public API surface” real: users can import Takopi as a library and bring their own transport.
+## 2) Directive parsing and context resolution
 
-### B. Transport abstraction needs to cover *incoming message shape*, not just Telegram HTTP calls
+### 2.1 Directive grammar
+Parse the first non-empty line. Tokenize by whitespace. Directives are a contiguous prefix of that line until the first non-directive token.
 
-Today you’ve abstracted “Telegram HTTP client calls” (`BotClient`), but not “what the bridge consumes”. The bridge still consumes Telegram message dicts.
+Directive tokens:
+- `/name` or `/name@bot`:
+  - `name` matches an engine id OR a project alias (case-insensitive).
+  - If `name` matches neither, it is NOT a directive; parsing stops and the token is treated as prompt text.
+- `@branch`:
+  - `branch` is any non-empty, non-whitespace string.
+  - `@` tokens are only treated as directives in the directive prefix.
 
-To make transports pluggable, the bridge needs to consume a **Takopi-owned** message/event shape, e.g.:
+Inline prompt:
+- If the directive line contains non-directive text after the prefix, the remainder of the line (including that token and following text) is part of the prompt.
+- If the directive line contains only directives, the prompt is the rest of the message after that line.
+
+Constraints:
+- At most one engine directive and one project directive are allowed; otherwise error.
+- At most one `@branch` directive allowed; otherwise error.
+- Project aliases cannot collide with engine ids (see 1.2), so `/name` is unambiguous.
+
+### 2.2 Context resolution order (deterministic)
+Given message text and optional reply-to text:
+
+1) Parse resume token from reply-to text using `router.resolve_resume(text, reply_text)`.
+2) Parse `ctx` line from reply-to text (section 3.2).
+3) Parse directives from current message (section 2.1).
+
+Then resolve:
+
+- If a resume token is found:
+  - Use that resume token and its engine.
+  - If reply-to `ctx` is present, use it; otherwise keep existing behavior (in-memory mapping).
+  - Ignore new directives in the current message.
+
+- If no resume token but reply-to `ctx` is present:
+  - Treat as a new message in that context (project/branch).
+  - Ignore new directives in the current message.
+  - Engine = project default if configured, else global default.
+
+- If no resume token and no reply-to `ctx`:
+  - Use directives (if any) to pick engine/project/branch.
+  - If project not provided:
+    - use `default_project` if set,
+    - else no project (legacy behavior).
+
+Prompt handling:
+- For new threads, if the prompt is empty after directive stripping, pass the empty string to the runner (do not inject "continue").
+- For resume threads, keep existing `_strip_resume_lines` behavior (default "continue" when all lines are resume lines).
+
+Acceptance criteria
+- Inline: `/codex /z80 @feat/name fix tests` yields engine=codex, project=z80, branch=feat/name, prompt="fix tests".
+- Multiline: `/z80 @feat/name` + next line prompt yields same context.
+- Reply with ctx line ignores new directives (engine/project/branch).
+
+Tests
+- Unit tests for parsing: inline vs multiline, unknown /command, duplicate directives, @branch with slashes.
+- Unit tests for precedence: reply ctx wins over directives.
+
+## 3) ctx footer
+
+### 3.1 Output format
+When a run has project context, every progress and final message MUST include a ctx line in the footer.
+
+Canonical format:
+- With branch: `ctx: <project> @ <branch>`
+- Without branch: `ctx: <project>`
+
+Footer order:
+1) ctx line (if available)
+2) resume line (if available), unchanged format from runner (`<engine> resume ...`)
+
+If there is no project context (legacy mode), omit the ctx line entirely.
+
+### 3.2 Parsing ctx from replies
+- The parser scans reply text line-by-line for a line that starts with `ctx:` (case-insensitive).
+- It accepts optional whitespace around tokens and optional `@ <branch>` suffix.
+- If multiple ctx lines exist, use the last one.
+
+Acceptance criteria
+- Progress message includes ctx line as specified.
+- Reply to a message containing ctx line applies that context even if the new message contains directives.
+
+Tests
+- Unit tests for ctx line parsing (case-insensitive, with/without branch).
+- Rendering test to ensure footer order is ctx then resume.
+
+## 4) Worktree resolution and creation
+
+### 4.1 Path mapping
+When `@branch` is present:
+- `worktrees_root = project_root / worktrees_dir`
+- `worktree_path = worktrees_root / branch`
+
+Branch sanitization:
+- Branch MUST be non-empty.
+- Branch MUST NOT start with `/`.
+- Branch MUST NOT contain a `..` path segment.
+- Branch MAY contain `/` (nested dirs).
+- After path resolution, `worktree_path` MUST be within `worktrees_root` (reject if it escapes).
+
+If no `@branch`, `cwd = project_root`.
+
+### 4.2 Worktree existence checks
+- If `worktree_path` exists:
+  - It MUST be a git worktree (verify `git -C <path> rev-parse --is-inside-work-tree`).
+  - Otherwise, error.
+- If `worktree_path` does not exist:
+  - Create `worktrees_root` if missing.
+  - Create worktree (see 4.3).
+
+### 4.3 Base branch resolution for new branches
+When branch does not exist locally:
+
+Resolution order for base branch:
+1) `projects.<alias>.worktree_base` if set.
+2) `origin/HEAD` if present (via `git -C <root> symbolic-ref -q refs/remotes/origin/HEAD`).
+3) current checked out branch at `project_root` (`git -C <root> branch --show-current`), if non-empty.
+4) local `main` if it exists.
+5) local `master` if it exists.
+6) otherwise: error "cannot determine base branch".
+
+Branch existence checks:
+- If local branch exists: `git -C <root> show-ref --verify refs/heads/<branch>`.
+- Else if remote branch exists: `git -C <root> show-ref --verify refs/remotes/origin/<branch>`.
+
+Creation rules:
+- If local branch exists: `git -C <root> worktree add <path> <branch>`.
+- Else if remote branch exists: `git -C <root> worktree add -b <branch> <path> origin/<branch>`.
+- Else: create from base: `git -C <root> worktree add -b <branch> <path> <base>`.
+
+### 4.4 Run context and cwd usage
+- Resolve `cwd` from project/worktree and bind it to a run-scoped contextvar.
+- Use that contextvar as the default `base_dir` in `relativize_path` and `relativize_command`.
+- Pass `cwd` to subprocess runners (JsonlSubprocessRunner) via `manage_subprocess(..., cwd=cwd)`.
+
+Acceptance criteria
+- `@feat/name` creates `<project_root>/.worktrees/feat/name` if missing.
+- Invalid branch (`../x`, `/abs`) returns an error before any git commands.
+- New runs execute with `cwd` set to resolved worktree path.
+
+Tests
+- Unit tests for branch sanitization and path containment.
+- Integration test using a temp git repo to verify worktree creation and base branch selection.
+- Test that `relativize_path` uses run context when base_dir is None.
+
+## 5) IncomingMessage and Telegram parsing move
+
+### 5.1 New IncomingMessage type
+Add `takopi/api.py` (or `takopi/transport.py`) with:
 
 ```py
 @dataclass(frozen=True)
 class IncomingMessage:
-    transport: str         # "telegram", "discord", "http", ...
-    channel_id: str        # chat/channel/thread id (string to generalize)
-    message_id: str
+    transport: str              # "telegram"
+    chat_id: int
+    message_id: int
     text: str
-    reply_to_message_id: str | None
+    reply_to_message_id: int | None
     reply_to_text: str | None
-    sender_id: str | None  # optional
+    sender_id: int | None
+    raw: dict[str, Any] | None = None
 ```
 
-Then Telegram transport is responsible for:
-
-* polling `getUpdates`
-* filtering by allowed chats
-* mapping Telegram’s ints → strings (or keep ints but normalize)
-
-And the bridge becomes transport-agnostic:
-
-* “here is an IncomingMessage, produce outgoing messages via transport methods”.
-
-This is the single biggest “API surface” unlock.
-
-### C. Outgoing message payload should be transport-agnostic too
-
-Today the core render path ends in Telegram text + entities. That’s fine for “officially Telegram”, but for a public API you want a neutral intermediate like:
-
-```py
-@dataclass(frozen=True)
-class OutgoingMessage:
-    text: str
-    format: Literal["plain", "telegram_entities", "markdown"] = "plain"
-    entities: list[dict] | None = None
-```
-
-Telegram transport can take `OutgoingMessage` and decide how to send.
-
-You can still keep Telegram as the only built-in renderer; the point is: the app/bridge shouldn’t know what “entities” are.
-
-### D. “Core types that are public” vs “internal implementation” needs an explicit contract
-
-Right now, everything is importable but nothing is declared stable. For a public API surface, pick (and document) the stable set:
-
-**Likely stable:**
-
-* `takopi.model` (`ResumeToken`, events, `Action`)
-* `takopi.runner` `Runner` protocol (and maybe `JsonlSubprocessRunner` helpers)
-* `takopi.router.AutoRouter`
-* `takopi.scheduler.ThreadScheduler`
-
-**Likely internal / subject to change:**
-
-* telegram implementation details (retry/backoff, edit coalescing)
-* CLI config loading/writing paths
-* render specifics
-
-Then:
-
-* export stable stuff from `takopi/__init__.py` (or `takopi.api`)
-* prefix internal modules with `_` or clearly document they’re not stable
-
-### E. Plugins: engines are “in-tree discoverable”, transports currently aren’t
-
-Engines are discovered by iterating modules under `takopi.runners`. That’s convenient but not “public plugin” friendly.
-
-If you actually want third parties to add transports/runners without forking, consider:
-
-* Python entry points (`importlib.metadata.entry_points(group="takopi.runners")`)
-* or a simple runtime registry:
-
-  * `takopi.registry.register_runner_backend(EngineBackend)`
-  * `takopi.registry.register_transport_backend(TransportBackend)`
-
-You don’t have to do this immediately, but it’s part of “public API surface” if you mean “extensible ecosystem”.
-
-### F. Multi-workdir support forces a “run context” concept somewhere in the public API
-
-Your current execution assumes:
-
-* Takopi runs in a single working directory (process `cwd`)
-* All runners inherit that `cwd`
-
-As soon as you introduce `/z80 @feat/name`, you have multiple possible `cwd` values **concurrently**. That implies an explicit “run context” must exist, either:
-
-* passed to runners (`Runner.run(prompt, resume, *, cwd=...)`)
-* or carried implicitly via a contextvar
-* or resolved by building per-workdir runner instances (less ideal)
-
-Even if you keep `Runner.run(prompt, resume)` unchanged, you’ll want a *core* concept like:
-
-```py
-@dataclass(frozen=True)
-class RunContext:
-    project: str | None
-    cwd: Path
-    branch: str | None
-```
-
-…and the bridge must attach it to each job.
-
-This also interacts with rendering: `relativize_path()` and `relativize_command()` currently default to `Path.cwd()`, which becomes wrong once jobs run in different directories. You’ll either:
-
-* thread `base_dir` everywhere, **or**
-* make `relativize_*` consult a run-scoped contextvar when `base_dir=None`
-
-(The contextvar approach is very low-diff and preserves existing call sites.)
-
----
-
-## 2) UX proposal for “project alias + worktree branch”, phone-first
-
-Goal: keep the interaction basically “one header line + prompt”, easy to type, and replies should “just work” without hidden state.
-
-### A. Minimal message grammar (works as a single message, or multi-line)
-
-**Proposed directive line format (first non-empty line):**
-
-* optional engine: `/{engine}` (already exists)
-* optional project: `/{project}` (new; from config)
-* optional branch/worktree: `@{branch}` (new; explicit prefix avoids ambiguity)
-* rest of message = prompt
-
-Examples:
-
-**New thread, explicit engine + project + branch**
-
-```
-/codex /z80 @feat/name
-review this branch
-```
-
-**Default engine, just project + branch**
-
-```
-/z80 @feat/name
-review this branch
-```
-
-**Default project + engine only**
-
-```
-/claude
-explain the failing test
-```
-
-**Inline (single-line) variant**
-
-```
-/codex /z80 @feat/name review this branch
-```
-
-Why `@branch` instead of bare `feat/name`?
-
-* avoids accidentally treating “fix” as a branch
-* branch names with slashes still work
-* it’s one extra character and is very phone-friendly
-
-### B. “Context footer” in bot messages so replies are stateless
-
-To make workflows efficient, **every progress/final message should include a Takopi-owned context line** *in addition to* the engine resume line.
-
-Example footer:
-
-```
-ctx: z80 @ feat/name
-`codex resume 019b...`
-```
-
-Key properties:
-
-* easy to parse reliably (`ctx:` is Takopi-owned)
-* doesn’t affect runner resume parsing (resume line still present and canonical)
-* makes replies self-contained: reply-to-text carries both resume token and project/branch context
-
-This is the big UX win: it avoids needing a local DB to map resume tokens → workdirs (you can still cache in-memory, but the chat log is the source of truth).
-
-### C. `takopi init` UX
-
-Your idea maps well:
-
-**`takopi init` (run in a repo)**
-
-* asks for alias (or takes CLI arg)
-* writes to config:
-
-  * project alias → absolute path
-  * optional worktrees root (default `.worktrees`)
-  * optional default engine override for that project
-
-Example config extension:
-
-```toml
-default_engine = "codex"
-bot_token = "..."
-chat_id = 123
-
-[projects.z80]
-path = "~/dev/z80"
-worktrees_dir = ".worktrees"
-default_engine = "codex" # optional
-```
-
-You can keep existing engine tables unchanged (`[codex]`, `[claude]`, etc).
-
-Also: you may want `takopi init --default` to set `default_project = "z80"` at top-level.
-
-### D. Worktree semantics (simple, predictable)
-
-Interpret `@branch` as “run in a worktree checked out at that branch”.
-
-**Default worktree path**
-
-* `<project_root>/.worktrees/<branch>`
-  (matching your example: `~/dev/z80/.worktrees/feat/name`)
-
-**Behavior**
-
-* if the directory exists and is a git worktree: use it
-* else: create it:
-
-  * `git -C <root> worktree add <path> <branch>`
-* if that fails because branch doesn’t exist:
-
-  * return an actionable error message (“branch not found; create it or specify base”)
-
-Phone-friendly optional sugar (if you want later):
-
-* `@+feat/name` means “create branch off default base and create worktree”
-* `@pr/123` could map to fetching PR refs if you want GitHub integration later
-
-**Safety**
-
-* sanitize branch → path:
-
-  * forbid `..`, leading `/`, or anything that would escape `.worktrees`
-  * allow `/` inside branch name if you want nested dirs (as in your example)
-
-### E. Where this plugs into Takopi’s existing flow
-
-Here’s the cleanest integration point without rewriting everything:
-
-1. In the bridge loop, before deciding new thread vs resume:
-
-   * parse directives from the user message (engine/project/branch)
-   * also parse context from `reply_to_text` if present (from the bot footer)
-2. Resolve resume token (existing behavior)
-3. Determine effective context:
-
-   * if resume token found: prefer context from `reply_to_text` footer; ignore new directives unless you explicitly want “move”
-   * if new thread: use directives or default project
-4. Set a **run-scoped base dir** for:
-
-   * subprocess `cwd`
-   * path relativization helpers
-   * logging context fields (so logs show `project`, `branch`)
-
-Because you already use structlog contextvars, a similar contextvar for `run_cwd` makes this nice and concurrency-safe.
-
-### F. Bot command menu strategy (phone discoverability)
-
-Telegram command menus get cluttered quickly if you add every project as a command, but for a small number of repos it’s great.
-
-A good compromise:
-
-* always register: `cancel`, engines (`codex`, `claude`, …)
-* register **one** command: `projects` (lists aliases)
-* optionally register project aliases *if count <= N* (say 10), otherwise don’t
-
-So on a phone:
-
-* you can type `/codex` from menu
-* type space, then `/z80` (even if not in menu, it’s short)
-* `@feat/name` is quick
-
-### G. “Agent isolation” beyond worktrees (optional next step)
-
-If “one worktree per branch” isn’t enough (multiple long-lived sessions on same branch), you can extend later to:
-
-* `ctx: z80 @ feat/name #2`
-* allocate worktree path `.worktrees/feat/name/<thread-shortid>`
-
-…but I would start with “one per branch” because it matches your mental model and keeps the UX clean.
-
----
-
-## 3) Practical gotchas to account for up front
-
-### Codex/agent “trusted directory” prompts
-
-If any runner refuses to operate in a newly created worktree until trusted:
-
-* you’ll want the error surfaced cleanly (“codex requires trusting this directory; run `codex` once in …”)
-* and/or a `takopi init` option that adds the project root (or worktrees root) to whatever trust mechanism the engine uses (if it’s safe and well-understood)
-
-### Path relativization correctness with multi-project
-
-As mentioned, today `relativize_*()` defaults to `Path.cwd()`. Once Takopi is running “globally” and jobs run in per-project workdirs, you’ll want:
-
-* either explicit `base_dir` threading, or
-* a run-scoped contextvar fallback
-
-Without this, you’ll start seeing ugly absolute paths in progress output.
-
-### Reply-while-running (your existing “enqueue once resume is ready” feature)
-
-This feature is really nice and should keep working.
-To make it work with project/worktree context:
-
-* ensure the progress message includes the `ctx:` line from the beginning
-* when a user replies before the resume token exists, the bridge should carry forward the context it already knows for that running task
-
-(Using the `ctx:` line in the progress message is the simplest way; no extra state needed.)
-
----
-
-## A concrete “v0.9” level scope that gets you both goals
-
-If you want a tight plan that lands fast:
-
-1. **Introduce `projects` in config + `takopi init`**
-
-* purely config + CLI plumbing
-
-2. **Add directive parsing (`/{project}` + `@branch`)**
-
-* new-thread only at first
-
-3. **Add `ctx:` footer line to progress/final messages**
-
-* enables stateless reply behavior
-
-4. **Add worktree creation**
-
-* gated by `@branch`
-
-5. **(API shaping) Introduce `IncomingMessage` + move Telegram message parsing into transport**
-
-* bridge consumes Takopi-owned message objects
-* this is the foundation for “public API transport plugins”
-
-That sequence gives you immediate UX value without forcing a full transport refactor on day 1, but it sets you up to make the public API surface clean right after.
-
-If you want, I can also point to the exact functions/modules I’d touch first in *this* codebase (parsing near `_strip_engine_command`, context line augmentation near `_send_or_edit_markdown`, and subprocess `cwd`/path relativization via a contextvar).
+### 5.2 Telegram transport adapter
+- Move Telegram update parsing into `telegram.py` (new helper or class).
+- Provide an async iterator that yields `IncomingMessage` instances.
+- `bridge.poller` consumes `IncomingMessage` instead of raw Telegram dicts.
+- Outgoing messages still use `BotClient` (no OutgoingMessage abstraction in v0.9).
+
+Acceptance criteria
+- `bridge` logic no longer reads Telegram dict fields directly.
+- Telegram-specific parsing is confined to `telegram.py`.
+
+Tests
+- Unit test that Telegram update payload maps correctly into IncomingMessage.
+- Existing bridge tests updated to use IncomingMessage.
+
+## Acceptance checklist (v0.9)
+- New message `/z80 @feat/name do x` runs in `<path>/.worktrees/feat/name`.
+- Reply to a message containing `ctx: z80 @ feat/name` ignores any new directives.
+- ctx line is present in progress and final messages.
+- Missing branch auto-creates from resolved base.
+- No changes required for existing users without `projects`.
+
+## Appendix (out of scope for v0.9)
+- OutgoingMessage abstraction and multi-transport rendering.
+- Plugin entry points for runners/transports.
+- Bot command menu strategy for projects.
+- Multiple worktrees per branch or per thread.
+- PR and branch shortcut syntax (`@+feat/name`, `@pr/123`).
