@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -12,9 +11,10 @@ import typer
 from . import __version__
 from .backends import EngineBackend
 from .config import ConfigError
-from .engines import get_backend, get_engine_config, list_backends
+from .engines import get_backend, list_backends
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
+from .router_factory import RouterFactory
 from .telegram.bridge import (
     TelegramBridgeConfig,
     TelegramPresenter,
@@ -24,7 +24,6 @@ from .telegram.bridge import (
 from .telegram.client import TelegramClient
 from .telegram.config import load_telegram_config
 from .telegram.onboarding import SetupResult, check_setup, interactive_setup
-from .router import AutoRouter, RunnerEntry
 from .runner_bridge import ExecBridgeConfig
 
 logger = get_logger(__name__)
@@ -97,90 +96,33 @@ def _default_engine_for_setup(override: str | None) -> str:
     return value.strip()
 
 
-def _resolve_default_engine(
-    *,
-    override: str | None,
-    config: dict,
-    config_path: Path,
-    backends: list[EngineBackend],
+def _format_startup_msg(
+    router_factory: RouterFactory,
+    active_profile: str | None,
+    startup_pwd: str,
 ) -> str:
-    default_engine = override or config.get("default_engine") or "codex"
-    if not isinstance(default_engine, str) or not default_engine.strip():
-        raise ConfigError(
-            f"Invalid `default_engine` in {config_path}; expected a non-empty string."
-        )
-    default_engine = default_engine.strip()
-    backend_ids = {backend.id for backend in backends}
-    if default_engine not in backend_ids:
-        available = ", ".join(sorted(backend_ids))
-        raise ConfigError(
-            f"Unknown default engine {default_engine!r}. Available: {available}."
-        )
-    return default_engine
+    """Format the startup message with profile info."""
+    router = router_factory.build_router(active_profile)
+    available_engines = [entry.engine for entry in router.available_entries]
+    missing_engines = [entry.engine for entry in router.entries if not entry.available]
+    engine_list = ", ".join(available_engines) if available_engines else "none"
+    if missing_engines:
+        engine_list = f"{engine_list} (not installed: {', '.join(missing_engines)})"
 
+    lines = [
+        f"\N{OCTOPUS} **takopi is ready**\n",
+        f"default: `{router.default_engine}`  ",
+        f"agents: `{engine_list}`  ",
+    ]
 
-def _build_router(
-    *,
-    config: dict,
-    config_path: Path,
-    backends: list[EngineBackend],
-    default_engine: str,
-) -> AutoRouter:
-    entries: list[RunnerEntry] = []
-    warnings: list[str] = []
+    if router_factory.has_profiles:
+        profile_display = active_profile or "(none)"
+        profiles_list = ", ".join(router_factory.profile_names)
+        lines.append(f"profile: `{profile_display}`  ")
+        lines.append(f"profiles: `{profiles_list}`  ")
 
-    for backend in backends:
-        engine_id = backend.id
-        issue: str | None = None
-        engine_cfg: dict
-        try:
-            engine_cfg = get_engine_config(config, engine_id, config_path)
-        except ConfigError as exc:
-            if engine_id == default_engine:
-                raise
-            issue = str(exc)
-            engine_cfg = {}
-
-        try:
-            runner = backend.build_runner(engine_cfg, config_path)
-        except Exception as exc:
-            if engine_id == default_engine:
-                raise
-            issue = issue or str(exc)
-            if engine_cfg:
-                try:
-                    runner = backend.build_runner({}, config_path)
-                except Exception as fallback_exc:
-                    warnings.append(f"{engine_id}: {issue or str(fallback_exc)}")
-                    continue
-            else:
-                warnings.append(f"{engine_id}: {issue}")
-                continue
-
-        cmd = backend.cli_cmd or backend.id
-        if shutil.which(cmd) is None:
-            issue = issue or f"{cmd} not found on PATH"
-
-        if issue and engine_id == default_engine:
-            raise ConfigError(f"Default engine {engine_id!r} unavailable: {issue}")
-
-        available = issue is None
-        if issue and engine_id != default_engine:
-            warnings.append(f"{engine_id}: {issue}")
-
-        entries.append(
-            RunnerEntry(
-                engine=engine_id,
-                runner=runner,
-                available=available,
-                issue=issue,
-            )
-        )
-
-    for warning in warnings:
-        logger.warning("setup.warning", issue=warning)
-
-    return AutoRouter(entries=entries, default_engine=default_engine)
+    lines.append(f"working in: `{startup_pwd}`")
+    return "\n".join(lines)
 
 
 def _parse_bridge_config(
@@ -194,30 +136,15 @@ def _parse_bridge_config(
 ) -> TelegramBridgeConfig:
     startup_pwd = os.getcwd()
 
-    backends = list_backends()
-    default_engine = _resolve_default_engine(
-        override=default_engine_override,
+    router_factory = RouterFactory.create(
         config=config,
         config_path=config_path,
-        backends=backends,
+        default_engine_override=default_engine_override,
     )
-    router = _build_router(
-        config=config,
-        config_path=config_path,
-        backends=backends,
-        default_engine=default_engine,
-    )
-    available_engines = [entry.engine for entry in router.available_entries]
-    missing_engines = [entry.engine for entry in router.entries if not entry.available]
-    engine_list = ", ".join(available_engines) if available_engines else "none"
-    if missing_engines:
-        engine_list = f"{engine_list} (not installed: {', '.join(missing_engines)})"
-    startup_msg = (
-        f"\N{OCTOPUS} **takopi is ready**\n\n"
-        f"default: `{router.default_engine}`  \n"
-        f"agents: `{engine_list}`  \n"
-        f"working in: `{startup_pwd}`"
-    )
+
+    # Build initial router with no profile
+    router = router_factory.build_router(None)
+    startup_msg = _format_startup_msg(router_factory, None, startup_pwd)
 
     bot = TelegramClient(token)
     transport = TelegramTransport(bot)
@@ -231,8 +158,10 @@ def _parse_bridge_config(
     return TelegramBridgeConfig(
         bot=bot,
         router=router,
+        router_factory=router_factory,
         chat_id=chat_id,
         startup_msg=startup_msg,
+        startup_pwd=startup_pwd,
         exec_cfg=exec_cfg,
     )
 

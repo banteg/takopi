@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 import anyio
 
@@ -16,6 +16,7 @@ from ..runner_bridge import (
 from ..logging import bind_run_context, clear_context, get_logger
 from ..markdown import MarkdownFormatter, MarkdownParts
 from ..model import EngineId, ResumeToken
+from ..profile import ProfileId
 from ..progress import ProgressState, ProgressTracker
 from ..router import AutoRouter, RunnerUnavailableError
 from ..runner import Runner
@@ -23,6 +24,9 @@ from ..scheduler import ThreadJob, ThreadScheduler
 from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
 from .client import BotClient
 from .render import prepare_telegram
+
+if TYPE_CHECKING:
+    from ..router_factory import RouterFactory
 
 logger = get_logger(__name__)
 
@@ -33,6 +37,47 @@ def _is_cancel_command(text: str) -> bool:
         return False
     command = stripped.split(maxsplit=1)[0]
     return command == "/cancel" or command.startswith("/cancel@")
+
+
+def _parse_profile_command(text: str) -> tuple[bool, str | None]:
+    """Parse /profile command.
+
+    Returns:
+        (is_profile_command, profile_name_or_none)
+        - (True, "name") for /profile name
+        - (True, None) for /profile (show current)
+        - (False, None) for other commands
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False, None
+
+    parts = stripped.split(maxsplit=1)
+    command = parts[0]
+
+    # Handle @botname suffix
+    if "@" in command:
+        command = command.split("@", 1)[0]
+
+    if command.lower() != "/profile":
+        return False, None
+
+    if len(parts) == 1:
+        return True, None
+
+    profile_name = parts[1].strip()
+    return True, profile_name if profile_name else None
+
+
+def _is_profiles_command(text: str) -> bool:
+    """Check if text is /profiles command."""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    command = stripped.split(maxsplit=1)[0]
+    if "@" in command:
+        command = command.split("@", 1)[0]
+    return command.lower() == "/profiles"
 
 
 def _strip_engine_command(
@@ -70,7 +115,9 @@ def _strip_engine_command(
     return "\n".join(lines).strip(), engine
 
 
-def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
+def _build_bot_commands(
+    router: AutoRouter, *, has_profiles: bool = False
+) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     seen: set[str] = set()
     for entry in router.available_entries:
@@ -81,11 +128,17 @@ def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
         seen.add(cmd)
     if "cancel" not in seen:
         commands.append({"command": "cancel", "description": "cancel run"})
+    if has_profiles:
+        if "profile" not in seen:
+            commands.append({"command": "profile", "description": "switch profile"})
+        if "profiles" not in seen:
+            commands.append({"command": "profiles", "description": "list profiles"})
     return commands
 
 
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
-    commands = _build_bot_commands(cfg.router)
+    has_profiles = cfg.router_factory is not None and cfg.router_factory.has_profiles
+    commands = _build_bot_commands(cfg.router, has_profiles=has_profiles)
     if not commands:
         return
     try:
@@ -225,13 +278,84 @@ class TelegramTransport:
         )
 
 
-@dataclass(frozen=True)
+@dataclass
 class TelegramBridgeConfig:
+    """Configuration for the Telegram bridge.
+
+    Note: This is not frozen because the router can be updated when
+    switching profiles.
+    """
+
     bot: BotClient
     router: AutoRouter
     chat_id: int
     startup_msg: str
     exec_cfg: ExecBridgeConfig
+    router_factory: RouterFactory | None = None
+    startup_pwd: str = ""
+    active_profile: ProfileId | None = None
+
+    def switch_profile(self, profile_name: ProfileId | None) -> str | None:
+        """Switch to a different profile.
+
+        Args:
+            profile_name: Name of profile to switch to, or None for base config
+
+        Returns:
+            Error message if switch failed, None on success
+        """
+        if self.router_factory is None:
+            return "profiles not configured"
+
+        if profile_name is not None and profile_name not in self.router_factory.profile_config:
+            available = ", ".join(self.router_factory.profile_names)
+            if available:
+                return f"unknown profile '{profile_name}'. available: {available}"
+            return f"unknown profile '{profile_name}'. no profiles defined"
+
+        try:
+            self.router = self.router_factory.build_router(profile_name)
+            self.active_profile = profile_name
+            return None
+        except Exception as exc:
+            return f"failed to switch profile: {exc}"
+
+    def format_profile_status(self) -> str:
+        """Format current profile status message."""
+        if self.router_factory is None or not self.router_factory.has_profiles:
+            return "no profiles configured"
+
+        profile_display = self.active_profile or "(none)"
+        lines = [
+            f"profile: `{profile_display}`",
+            f"default engine: `{self.router.default_engine}`",
+        ]
+
+        profiles_list = ", ".join(self.router_factory.profile_names)
+        lines.append(f"available: `{profiles_list}`")
+
+        return "\n".join(lines)
+
+    def format_profiles_list(self) -> str:
+        """Format list of available profiles."""
+        if self.router_factory is None or not self.router_factory.has_profiles:
+            return "no profiles configured"
+
+        lines = ["**profiles:**\n"]
+        for name in self.router_factory.profile_names:
+            profile = self.router_factory.get_profile(name)
+            if profile is None:
+                continue
+            marker = "\N{CHECK MARK}" if name == self.active_profile else " "
+            engine_info = f" (default: {profile.default_engine})" if profile.default_engine else ""
+            lines.append(f"{marker} `{name}`{engine_info}")
+
+        if self.active_profile is None:
+            lines.append(f"\N{CHECK MARK} `(none)` (base config)")
+        else:
+            lines.append(f"  `(none)` (base config)")
+
+        return "\n".join(lines)
 
 
 async def _send_plain(
@@ -525,6 +649,53 @@ async def run_main_loop(
 
                 if _is_cancel_command(text):
                     tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
+                    continue
+
+                # Handle /profiles command
+                if _is_profiles_command(text):
+                    await _send_plain(
+                        cfg.exec_cfg.transport,
+                        chat_id=chat_id,
+                        user_msg_id=user_msg_id,
+                        text=cfg.format_profiles_list(),
+                    )
+                    continue
+
+                # Handle /profile command
+                is_profile_cmd, profile_arg = _parse_profile_command(text)
+                if is_profile_cmd:
+                    if profile_arg is None:
+                        # Show current profile status
+                        await _send_plain(
+                            cfg.exec_cfg.transport,
+                            chat_id=chat_id,
+                            user_msg_id=user_msg_id,
+                            text=cfg.format_profile_status(),
+                        )
+                    else:
+                        # Switch to specified profile (or "none" for base config)
+                        target_profile = None if profile_arg.lower() == "none" else profile_arg
+                        error = cfg.switch_profile(target_profile)
+                        if error:
+                            await _send_plain(
+                                cfg.exec_cfg.transport,
+                                chat_id=chat_id,
+                                user_msg_id=user_msg_id,
+                                text=f"error: {error}",
+                            )
+                        else:
+                            profile_display = target_profile or "(none)"
+                            await _send_plain(
+                                cfg.exec_cfg.transport,
+                                chat_id=chat_id,
+                                user_msg_id=user_msg_id,
+                                text=f"switched to profile: `{profile_display}`\ndefault engine: `{cfg.router.default_engine}`",
+                            )
+                            logger.info(
+                                "profile.switched",
+                                profile=target_profile,
+                                default_engine=cfg.router.default_engine,
+                            )
                     continue
 
                 text, engine_override = _strip_engine_command(
