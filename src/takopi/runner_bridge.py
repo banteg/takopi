@@ -154,6 +154,7 @@ class ProgressEdits:
         last_rendered: RenderedMessage | None,
         resume_formatter: Callable[[ResumeToken], str] | None = None,
         label: str = "working",
+        context_line: str | None = None,
     ) -> None:
         self.transport = transport
         self.presenter = presenter
@@ -165,6 +166,7 @@ class ProgressEdits:
         self.last_rendered = last_rendered
         self.resume_formatter = resume_formatter
         self.label = label
+        self.context_line = context_line
         self.event_seq = 0
         self.rendered_seq = 0
         self.signal_send, self.signal_recv = anyio.create_memory_object_stream(1)
@@ -181,7 +183,10 @@ class ProgressEdits:
 
             seq_at_render = self.event_seq
             now = self.clock()
-            state = self.tracker.snapshot(resume_formatter=self.resume_formatter)
+            state = self.tracker.snapshot(
+                resume_formatter=self.resume_formatter,
+                context_line=self.context_line,
+            )
             rendered = self.presenter.render_progress(
                 state, elapsed_s=now - self.started_at, label=self.label
             )
@@ -230,11 +235,15 @@ async def send_initial_progress(
     label: str,
     tracker: ProgressTracker,
     resume_formatter: Callable[[ResumeToken], str] | None = None,
+    context_line: str | None = None,
 ) -> ProgressMessageState:
     progress_ref: MessageRef | None = None
     last_rendered: RenderedMessage | None = None
 
-    state = tracker.snapshot(resume_formatter=resume_formatter)
+    state = tracker.snapshot(
+        resume_formatter=resume_formatter,
+        context_line=context_line,
+    )
     initial_rendered = cfg.presenter.render_progress(
         state,
         elapsed_s=0.0,
@@ -367,6 +376,7 @@ async def handle_message(
     incoming: IncomingMessage,
     resume_token: ResumeToken | None,
     context: RunContext | None = None,
+    context_line: str | None = None,
     strip_resume_line: Callable[[str], bool] | None = None,
     running_tasks: RunningTasks | None = None,
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
@@ -398,6 +408,7 @@ async def handle_message(
         label="starting",
         tracker=progress_tracker,
         resume_formatter=runner.format_resume,
+        context_line=context_line,
     )
     progress_ref = progress_state.ref
 
@@ -411,6 +422,7 @@ async def handle_message(
         clock=clock,
         last_rendered=progress_state.last_rendered,
         resume_formatter=runner.format_resume,
+        context_line=context_line,
     )
 
     running_task: RunningTask | None = None

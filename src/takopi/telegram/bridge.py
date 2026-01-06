@@ -193,6 +193,18 @@ def _parse_ctx_line(text: str | None, *, projects: ProjectsConfig) -> RunContext
     return ctx
 
 
+def _format_context_line(
+    context: RunContext | None, *, projects: ProjectsConfig
+) -> str | None:
+    if context is None or context.project is None:
+        return None
+    project_cfg = projects.projects.get(context.project)
+    alias = project_cfg.alias if project_cfg is not None else context.project
+    if context.branch:
+        return f"ctx: {alias} @ {context.branch}"
+    return f"ctx: {alias}"
+
+
 def _resolve_message(
     *,
     text: str,
@@ -664,6 +676,7 @@ async def run_main_loop(
                         run_fields["project"] = context.project
                         run_fields["branch"] = context.branch
                     bind_run_context(**run_fields)
+                    context_line = _format_context_line(context, projects=cfg.projects)
                     incoming = IncomingMessage(
                         channel_id=chat_id,
                         message_id=user_msg_id,
@@ -676,6 +689,7 @@ async def run_main_loop(
                         incoming=incoming,
                         resume_token=resume_token,
                         context=context,
+                        context_line=context_line,
                         strip_resume_line=cfg.router.is_resume_line,
                         running_tasks=running_tasks,
                         on_thread_known=on_thread_known,
