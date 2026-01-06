@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+
 
 import anyio
 
@@ -10,7 +10,7 @@ from ..config import ProjectsConfig, empty_projects_config
 from ..context import RunContext
 from ..runner_bridge import (
     ExecBridgeConfig,
-    IncomingMessage,
+    IncomingMessage as RunnerIncomingMessage,
     RunningTask,
     RunningTasks,
     handle_message,
@@ -22,10 +22,16 @@ from ..progress import ProgressState, ProgressTracker
 from ..router import AutoRouter, RunnerUnavailableError
 from ..runner import Runner
 from ..scheduler import ThreadJob, ThreadScheduler
-from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
+from ..transport import (
+    IncomingMessage as TransportIncomingMessage,
+    MessageRef,
+    RenderedMessage,
+    SendOptions,
+    Transport,
+)
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
 from ..worktrees import WorktreeError, resolve_run_cwd
-from .client import BotClient
+from .client import BotClient, poll_incoming
 from .render import prepare_telegram
 
 logger = get_logger(__name__)
@@ -477,41 +483,35 @@ async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int |
         drained += len(updates)
 
 
-async def poll_updates(cfg: TelegramBridgeConfig) -> AsyncIterator[dict[str, Any]]:
+async def poll_updates(
+    cfg: TelegramBridgeConfig,
+) -> AsyncIterator[TransportIncomingMessage]:
     offset: int | None = None
     offset = await _drain_backlog(cfg, offset)
     await _send_startup(cfg)
 
-    while True:
-        updates = await cfg.bot.get_updates(
-            offset=offset, timeout_s=50, allowed_updates=["message"]
-        )
-        if updates is None:
-            logger.info("loop.get_updates.failed")
-            await anyio.sleep(2)
-            continue
-        logger.debug("loop.updates", updates=updates)
-
-        for upd in updates:
-            offset = upd["update_id"] + 1
-            msg = upd["message"]
-            if "text" not in msg:
-                continue
-            if msg["chat"]["id"] != cfg.chat_id:
-                continue
-            yield msg
+    async for msg in poll_incoming(cfg.bot, chat_id=cfg.chat_id, offset=offset):
+        yield msg
 
 
 async def _handle_cancel(
     cfg: TelegramBridgeConfig,
-    msg: dict[str, Any],
+    msg: TransportIncomingMessage,
     running_tasks: RunningTasks,
 ) -> None:
-    chat_id = msg["chat"]["id"]
-    user_msg_id = msg["message_id"]
-    reply = msg.get("reply_to_message")
+    chat_id = msg.chat_id
+    user_msg_id = msg.message_id
+    reply_id = msg.reply_to_message_id
 
-    if not reply:
+    if reply_id is None:
+        if msg.reply_to_text:
+            await _send_plain(
+                cfg.exec_cfg.transport,
+                chat_id=chat_id,
+                user_msg_id=user_msg_id,
+                text="nothing is currently running for that message.",
+            )
+            return
         await _send_plain(
             cfg.exec_cfg.transport,
             chat_id=chat_id,
@@ -520,17 +520,7 @@ async def _handle_cancel(
         )
         return
 
-    progress_id = reply.get("message_id")
-    if progress_id is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=chat_id,
-            user_msg_id=user_msg_id,
-            text="nothing is currently running for that message.",
-        )
-        return
-
-    progress_ref = MessageRef(channel_id=chat_id, message_id=progress_id)
+    progress_ref = MessageRef(channel_id=chat_id, message_id=reply_id)
     running_task = running_tasks.get(progress_ref)
     if running_task is None:
         await _send_plain(
@@ -544,7 +534,7 @@ async def _handle_cancel(
     logger.info(
         "cancel.requested",
         chat_id=chat_id,
-        progress_message_id=progress_id,
+        progress_message_id=reply_id,
     )
     running_task.cancel_requested.set()
 
@@ -622,7 +612,7 @@ async def _send_runner_unavailable(
 async def run_main_loop(
     cfg: TelegramBridgeConfig,
     poller: Callable[
-        [TelegramBridgeConfig], AsyncIterator[dict[str, Any]]
+        [TelegramBridgeConfig], AsyncIterator[TransportIncomingMessage]
     ] = poll_updates,
 ) -> None:
     running_tasks: RunningTasks = {}
@@ -695,7 +685,7 @@ async def run_main_loop(
                         context_line = _format_context_line(
                             context, projects=cfg.projects
                         )
-                        incoming = IncomingMessage(
+                        incoming = RunnerIncomingMessage(
                             channel_id=chat_id,
                             message_id=user_msg_id,
                             text=text,
@@ -736,21 +726,21 @@ async def run_main_loop(
             scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
 
             async for msg in poller(cfg):
-                text = msg["text"]
-                user_msg_id = msg["message_id"]
-                chat_id = msg["chat"]["id"]
-                reply_ref = None
-                reply_msg = msg.get("reply_to_message") or {}
-                if reply_msg:
-                    reply_id = reply_msg.get("message_id")
-                    if reply_id is not None:
-                        reply_ref = MessageRef(channel_id=chat_id, message_id=reply_id)
+                text = msg.text
+                user_msg_id = msg.message_id
+                chat_id = msg.chat_id
+                reply_id = msg.reply_to_message_id
+                reply_ref = (
+                    MessageRef(channel_id=chat_id, message_id=reply_id)
+                    if reply_id is not None
+                    else None
+                )
 
                 if _is_cancel_command(text):
                     tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
                     continue
 
-                reply_text = reply_msg.get("text")
+                reply_text = msg.reply_to_text
                 try:
                     resolved = _resolve_message(
                         text=text,
@@ -771,7 +761,6 @@ async def run_main_loop(
                 resume_token = resolved.resume_token
                 engine_override = resolved.engine_override
                 context = resolved.context
-                reply_id = reply_msg.get("message_id")
                 if resume_token is None and reply_id is not None:
                     running_task = running_tasks.get(
                         MessageRef(channel_id=chat_id, message_id=reply_id)

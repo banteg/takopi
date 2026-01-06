@@ -8,6 +8,18 @@ MessageId: TypeAlias = int | str
 
 
 @dataclass(frozen=True, slots=True)
+class IncomingMessage:
+    transport: str
+    chat_id: int
+    message_id: int
+    text: str
+    reply_to_message_id: int | None
+    reply_to_text: str | None
+    sender_id: int | None
+    raw: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class MessageRef:
     channel_id: ChannelId
     message_id: MessageId

@@ -3,13 +3,22 @@ from __future__ import annotations
 import itertools
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Hashable, Protocol, TYPE_CHECKING
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Hashable,
+    Protocol,
+    TYPE_CHECKING,
+)
 
 import httpx
 
 import anyio
 
 from ..logging import get_logger
+from ..transport import IncomingMessage
 
 logger = get_logger(__name__)
 
@@ -32,6 +41,76 @@ class TelegramRetryAfter(RetryAfter):
 
 def is_group_chat_id(chat_id: int) -> bool:
     return chat_id < 0
+
+
+def parse_incoming_update(
+    update: dict[str, Any], *, chat_id: int
+) -> IncomingMessage | None:
+    msg = update.get("message")
+    if not isinstance(msg, dict):
+        return None
+    text = msg.get("text")
+    if not isinstance(text, str):
+        return None
+    chat = msg.get("chat")
+    if not isinstance(chat, dict):
+        return None
+    msg_chat_id = chat.get("id")
+    if not isinstance(msg_chat_id, int) or msg_chat_id != chat_id:
+        return None
+    message_id = msg.get("message_id")
+    if not isinstance(message_id, int):
+        return None
+    reply = msg.get("reply_to_message")
+    reply_to_message_id = None
+    reply_to_text = None
+    if isinstance(reply, dict):
+        reply_to_message_id = (
+            reply.get("message_id")
+            if isinstance(reply.get("message_id"), int)
+            else None
+        )
+        reply_to_text = (
+            reply.get("text") if isinstance(reply.get("text"), str) else None
+        )
+    sender = msg.get("from")
+    sender_id = (
+        sender.get("id")
+        if isinstance(sender, dict) and isinstance(sender.get("id"), int)
+        else None
+    )
+    return IncomingMessage(
+        transport="telegram",
+        chat_id=msg_chat_id,
+        message_id=message_id,
+        text=text,
+        reply_to_message_id=reply_to_message_id,
+        reply_to_text=reply_to_text,
+        sender_id=sender_id,
+        raw=msg,
+    )
+
+
+async def poll_incoming(
+    bot: BotClient,
+    *,
+    chat_id: int,
+    offset: int | None = None,
+) -> AsyncIterator[IncomingMessage]:
+    while True:
+        updates = await bot.get_updates(
+            offset=offset, timeout_s=50, allowed_updates=["message"]
+        )
+        if updates is None:
+            logger.info("loop.get_updates.failed")
+            await anyio.sleep(2)
+            continue
+        logger.debug("loop.updates", updates=updates)
+        for upd in updates:
+            offset = upd["update_id"] + 1
+            msg = parse_incoming_update(upd, chat_id=chat_id)
+            if msg is not None:
+                yield msg
 
 
 class BotClient(Protocol):
