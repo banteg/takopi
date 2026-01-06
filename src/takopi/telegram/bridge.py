@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import anyio
 
+from ..config import ProjectsConfig, empty_projects_config
+from ..context import RunContext
 from ..runner_bridge import (
     ExecBridgeConfig,
     IncomingMessage,
@@ -68,6 +70,185 @@ def _strip_engine_command(
     else:
         lines.pop(idx)
     return "\n".join(lines).strip(), engine
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedDirectives:
+    prompt: str
+    engine: EngineId | None
+    project: str | None
+    branch: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedMessage:
+    prompt: str
+    resume_token: ResumeToken | None
+    engine_override: EngineId | None
+    context: RunContext | None
+
+
+class DirectiveError(RuntimeError):
+    pass
+
+
+def _parse_directives(
+    text: str,
+    *,
+    engine_ids: tuple[EngineId, ...],
+    projects: ProjectsConfig,
+) -> ParsedDirectives:
+    if not text:
+        return ParsedDirectives(prompt="", engine=None, project=None, branch=None)
+
+    lines = text.splitlines()
+    idx = next((i for i, line in enumerate(lines) if line.strip()), None)
+    if idx is None:
+        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None)
+
+    line = lines[idx].lstrip()
+    tokens = line.split()
+    if not tokens:
+        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None)
+
+    engine_map = {engine.lower(): engine for engine in engine_ids}
+    project_map = {alias.lower(): alias for alias in projects.projects}
+
+    engine: EngineId | None = None
+    project: str | None = None
+    branch: str | None = None
+    consumed = 0
+
+    for token in tokens:
+        if token.startswith("/"):
+            name = token[1:]
+            if "@" in name:
+                name = name.split("@", 1)[0]
+            if not name:
+                break
+            key = name.lower()
+            engine_candidate = engine_map.get(key)
+            project_candidate = project_map.get(key)
+            if engine_candidate is not None:
+                if engine is not None:
+                    raise DirectiveError("multiple engine directives")
+                engine = engine_candidate
+                consumed += 1
+                continue
+            if project_candidate is not None:
+                if project is not None:
+                    raise DirectiveError("multiple project directives")
+                project = project_candidate
+                consumed += 1
+                continue
+            break
+        if token.startswith("@"):
+            value = token[1:]
+            if not value:
+                break
+            if branch is not None:
+                raise DirectiveError("multiple @branch directives")
+            branch = value
+            consumed += 1
+            continue
+        break
+
+    if consumed == 0:
+        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None)
+
+    if consumed < len(tokens):
+        remainder = " ".join(tokens[consumed:])
+        lines[idx] = remainder
+    else:
+        lines.pop(idx)
+
+    prompt = "\n".join(lines).strip()
+    return ParsedDirectives(prompt=prompt, engine=engine, project=project, branch=branch)
+
+
+def _parse_ctx_line(text: str | None, *, projects: ProjectsConfig) -> RunContext | None:
+    if not text:
+        return None
+    ctx: RunContext | None = None
+    for line in text.splitlines():
+        if not line.lower().startswith("ctx:"):
+            continue
+        content = line.split(":", 1)[1].strip()
+        if not content:
+            continue
+        tokens = content.split()
+        if not tokens:
+            continue
+        project = tokens[0]
+        branch = None
+        if len(tokens) >= 2:
+            if tokens[1] == "@" and len(tokens) >= 3:
+                branch = tokens[2]
+            elif tokens[1].startswith("@"):
+                branch = tokens[1][1:]
+        project_key = project.lower()
+        if project_key not in projects.projects:
+            raise DirectiveError(f"unknown project {project!r} in ctx line")
+        ctx = RunContext(project=project_key, branch=branch)
+    return ctx
+
+
+def _resolve_message(
+    *,
+    text: str,
+    reply_text: str | None,
+    router: AutoRouter,
+    projects: ProjectsConfig,
+) -> ResolvedMessage:
+    directives = _parse_directives(
+        text,
+        engine_ids=router.engine_ids,
+        projects=projects,
+    )
+    reply_ctx = _parse_ctx_line(reply_text, projects=projects)
+    resume_token = router.resolve_resume(directives.prompt, reply_text)
+
+    if resume_token is not None:
+        return ResolvedMessage(
+            prompt=directives.prompt,
+            resume_token=resume_token,
+            engine_override=None,
+            context=reply_ctx,
+        )
+
+    if reply_ctx is not None:
+        engine_override = None
+        if reply_ctx.project is not None:
+            project = projects.projects.get(reply_ctx.project)
+            if project is not None and project.default_engine is not None:
+                engine_override = project.default_engine
+        return ResolvedMessage(
+            prompt=directives.prompt,
+            resume_token=None,
+            engine_override=engine_override,
+            context=reply_ctx,
+        )
+
+    project_key = directives.project
+    if project_key is None and projects.default_project is not None:
+        project_key = projects.default_project
+
+    context = None
+    if project_key is not None or directives.branch is not None:
+        context = RunContext(project=project_key, branch=directives.branch)
+
+    engine_override = directives.engine
+    if engine_override is None and project_key is not None:
+        project = projects.projects.get(project_key)
+        if project is not None and project.default_engine is not None:
+            engine_override = project.default_engine
+
+    return ResolvedMessage(
+        prompt=directives.prompt,
+        resume_token=None,
+        engine_override=engine_override,
+        context=context,
+    )
 
 
 def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
@@ -232,6 +413,7 @@ class TelegramBridgeConfig:
     chat_id: int
     startup_msg: str
     exec_cfg: ExecBridgeConfig
+    projects: ProjectsConfig = field(default_factory=empty_projects_config)
 
 
 async def _send_plain(
@@ -378,7 +560,7 @@ async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
 
 async def _send_with_resume(
     cfg: TelegramBridgeConfig,
-    enqueue: Callable[[int, int, str, ResumeToken], Awaitable[None]],
+    enqueue: Callable[[int, int, str, ResumeToken, RunContext | None], Awaitable[None]],
     running_task: RunningTask,
     chat_id: int,
     user_msg_id: int,
@@ -394,7 +576,7 @@ async def _send_with_resume(
             notify=False,
         )
         return
-    await enqueue(chat_id, user_msg_id, text, resume)
+    await enqueue(chat_id, user_msg_id, text, resume, running_task.context)
 
 
 async def _send_runner_unavailable(
@@ -440,6 +622,7 @@ async def run_main_loop(
                 user_msg_id: int,
                 text: str,
                 resume_token: ResumeToken | None,
+                context: RunContext | None,
                 reply_ref: MessageRef | None = None,
                 on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
                 | None = None,
@@ -471,12 +654,16 @@ async def run_main_loop(
                             reason=reason,
                         )
                         return
-                    bind_run_context(
-                        chat_id=chat_id,
-                        user_msg_id=user_msg_id,
-                        engine=entry.runner.engine,
-                        resume=resume_token.value if resume_token else None,
-                    )
+                    run_fields = {
+                        "chat_id": chat_id,
+                        "user_msg_id": user_msg_id,
+                        "engine": entry.runner.engine,
+                        "resume": resume_token.value if resume_token else None,
+                    }
+                    if context is not None:
+                        run_fields["project"] = context.project
+                        run_fields["branch"] = context.branch
+                    bind_run_context(**run_fields)
                     incoming = IncomingMessage(
                         channel_id=chat_id,
                         message_id=user_msg_id,
@@ -488,6 +675,7 @@ async def run_main_loop(
                         runner=entry.runner,
                         incoming=incoming,
                         resume_token=resume_token,
+                        context=context,
                         strip_resume_line=cfg.router.is_resume_line,
                         running_tasks=running_tasks,
                         on_thread_known=on_thread_known,
@@ -507,6 +695,7 @@ async def run_main_loop(
                     job.user_msg_id,
                     job.text,
                     job.resume_token,
+                    job.context,
                     None,
                 )
 
@@ -517,7 +706,7 @@ async def run_main_loop(
                 user_msg_id = msg["message_id"]
                 chat_id = msg["chat"]["id"]
                 reply_ref = None
-                reply_msg = msg.get("reply_to_message")
+                reply_msg = msg.get("reply_to_message") or {}
                 if reply_msg:
                     reply_id = reply_msg.get("message_id")
                     if reply_id is not None:
@@ -527,13 +716,28 @@ async def run_main_loop(
                     tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
                     continue
 
-                text, engine_override = _strip_engine_command(
-                    text, engine_ids=cfg.router.engine_ids
-                )
+                reply_text = reply_msg.get("text")
+                try:
+                    resolved = _resolve_message(
+                        text=text,
+                        reply_text=reply_text,
+                        router=cfg.router,
+                        projects=cfg.projects,
+                    )
+                except DirectiveError as exc:
+                    await _send_plain(
+                        cfg.exec_cfg.transport,
+                        chat_id=chat_id,
+                        user_msg_id=user_msg_id,
+                        text=f"error:\n{exc}",
+                    )
+                    continue
 
-                r = msg.get("reply_to_message") or {}
-                resume_token = cfg.router.resolve_resume(text, r.get("text"))
-                reply_id = r.get("message_id")
+                text = resolved.prompt
+                resume_token = resolved.resume_token
+                engine_override = resolved.engine_override
+                context = resolved.context
+                reply_id = reply_msg.get("message_id")
                 if resume_token is None and reply_id is not None:
                     running_task = running_tasks.get(
                         MessageRef(channel_id=chat_id, message_id=reply_id)
@@ -557,13 +761,18 @@ async def run_main_loop(
                         user_msg_id,
                         text,
                         None,
+                        context,
                         reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
                     )
                 else:
                     await scheduler.enqueue_resume(
-                        chat_id, user_msg_id, text, resume_token
+                        chat_id,
+                        user_msg_id,
+                        text,
+                        resume_token,
+                        context,
                     )
     finally:
         await cfg.exec_cfg.transport.close()

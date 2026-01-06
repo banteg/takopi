@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import anyio
 
+from .context import RunContext
 from .logging import bind_run_context, get_logger
 from .model import CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
 from .presenter import Presenter
@@ -93,6 +94,7 @@ class RunningTask:
     resume_ready: anyio.Event = field(default_factory=anyio.Event)
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
     done: anyio.Event = field(default_factory=anyio.Event)
+    context: RunContext | None = None
 
 
 RunningTasks = dict[MessageRef, RunningTask]
@@ -364,6 +366,7 @@ async def handle_message(
     runner: Runner,
     incoming: IncomingMessage,
     resume_token: ResumeToken | None,
+    context: RunContext | None = None,
     strip_resume_line: Callable[[str], bool] | None = None,
     running_tasks: RunningTasks | None = None,
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
@@ -412,7 +415,7 @@ async def handle_message(
 
     running_task: RunningTask | None = None
     if running_tasks is not None and progress_ref is not None:
-        running_task = RunningTask()
+        running_task = RunningTask(context=context)
         running_tasks[progress_ref] = running_task
 
     cancel_exc_type = anyio.get_cancelled_exc_class()

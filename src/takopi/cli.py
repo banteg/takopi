@@ -201,6 +201,12 @@ def _parse_bridge_config(
     startup_pwd = os.getcwd()
 
     backends = list_backends()
+    projects = parse_projects_config(
+        config,
+        config_path=config_path,
+        engine_ids=[backend.id for backend in backends],
+        reserved=("cancel",),
+    )
     default_engine = _resolve_default_engine(
         override=default_engine_override,
         config=config,
@@ -240,6 +246,7 @@ def _parse_bridge_config(
         chat_id=chat_id,
         startup_msg=startup_msg,
         exec_cfg=exec_cfg,
+        projects=projects,
     )
 
 

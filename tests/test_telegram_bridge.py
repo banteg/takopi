@@ -11,6 +11,7 @@ from takopi.telegram.bridge import (
     _strip_engine_command,
     run_main_loop,
 )
+from takopi.context import RunContext
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
 from takopi.markdown import MarkdownPresenter
 from takopi.model import EngineId, ResumeToken
@@ -453,9 +454,13 @@ async def test_send_with_resume_waits_for_token() -> None:
     sent: list[tuple[int, int, str, ResumeToken | None]] = []
 
     async def enqueue(
-        chat_id: int, user_msg_id: int, text: str, resume: ResumeToken
+        chat_id: int,
+        user_msg_id: int,
+        text: str,
+        resume: ResumeToken,
+        context: RunContext | None,
     ) -> None:
-        sent.append((chat_id, user_msg_id, text, resume))
+        sent.append((chat_id, user_msg_id, text, resume, context))
 
     running_task = RunningTask()
 
@@ -476,7 +481,7 @@ async def test_send_with_resume_waits_for_token() -> None:
         )
 
     assert sent == [
-        (123, 10, "hello", ResumeToken(engine=CODEX_ENGINE, value="abc123"))
+        (123, 10, "hello", ResumeToken(engine=CODEX_ENGINE, value="abc123"), None)
     ]
     assert transport.send_calls == []
 
@@ -488,9 +493,13 @@ async def test_send_with_resume_reports_when_missing() -> None:
     sent: list[tuple[int, int, str, ResumeToken | None]] = []
 
     async def enqueue(
-        chat_id: int, user_msg_id: int, text: str, resume: ResumeToken
+        chat_id: int,
+        user_msg_id: int,
+        text: str,
+        resume: ResumeToken,
+        context: RunContext | None,
     ) -> None:
-        sent.append((chat_id, user_msg_id, text, resume))
+        sent.append((chat_id, user_msg_id, text, resume, context))
 
     running_task = RunningTask()
     running_task.done.set()

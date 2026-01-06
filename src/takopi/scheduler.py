@@ -6,6 +6,7 @@ from typing import Any, Awaitable, Callable, Protocol
 
 import anyio
 
+from .context import RunContext
 from .model import ResumeToken
 
 
@@ -15,6 +16,7 @@ class ThreadJob:
     user_msg_id: int
     text: str
     resume_token: ResumeToken
+    context: RunContext | None = None
 
 
 RunJob = Callable[[ThreadJob], Awaitable[None]]
@@ -66,6 +68,7 @@ class ThreadScheduler:
         user_msg_id: int,
         text: str,
         resume_token: ResumeToken,
+        context: RunContext | None = None,
     ) -> None:
         await self.enqueue(
             ThreadJob(
@@ -73,6 +76,7 @@ class ThreadScheduler:
                 user_msg_id=user_msg_id,
                 text=text,
                 resume_token=resume_token,
+                context=context,
             )
         )
 
