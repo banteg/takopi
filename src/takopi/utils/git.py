@@ -20,6 +20,12 @@ def _run_git(
         return None
 
 
+def git_run(
+    args: Sequence[str], *, cwd: Path
+) -> subprocess.CompletedProcess[str] | None:
+    return _run_git(args, cwd=cwd)
+
+
 def git_stdout(args: Sequence[str], *, cwd: Path) -> str | None:
     result = _run_git(args, cwd=cwd)
     if result is None or result.returncode != 0:
@@ -31,6 +37,10 @@ def git_stdout(args: Sequence[str], *, cwd: Path) -> str | None:
 def git_ok(args: Sequence[str], *, cwd: Path) -> bool:
     result = _run_git(args, cwd=cwd)
     return result is not None and result.returncode == 0
+
+
+def git_is_worktree(path: Path) -> bool:
+    return git_stdout(["rev-parse", "--is-inside-work-tree"], cwd=path) == "true"
 
 
 def resolve_default_base(root: Path) -> str | None:

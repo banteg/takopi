@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from takopi.utils.paths import relativize_command, relativize_path
+from takopi.utils.paths import (
+    relativize_command,
+    relativize_path,
+    reset_run_base_dir,
+    set_run_base_dir,
+)
 
 
 def test_relativize_command_rewrites_cwd_paths(tmp_path: Path) -> None:
@@ -33,3 +38,14 @@ def test_relativize_path_inside_base(tmp_path: Path) -> None:
     base.mkdir()
     value = str(base / "src" / "app.py")
     assert relativize_path(value, base_dir=base) == "src/app.py"
+
+
+def test_relativize_path_uses_run_base_dir(tmp_path: Path) -> None:
+    base = tmp_path / "repo"
+    base.mkdir()
+    token = set_run_base_dir(base)
+    try:
+        value = str(base / "src" / "app.py")
+        assert relativize_path(value) == "src/app.py"
+    finally:
+        reset_run_base_dir(token)

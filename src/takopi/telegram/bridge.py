@@ -23,6 +23,8 @@ from ..router import AutoRouter, RunnerUnavailableError
 from ..runner import Runner
 from ..scheduler import ThreadJob, ThreadScheduler
 from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
+from ..utils.paths import reset_run_base_dir, set_run_base_dir
+from ..worktrees import WorktreeError, resolve_run_cwd
 from .client import BotClient
 from .render import prepare_telegram
 
@@ -666,34 +668,52 @@ async def run_main_loop(
                             reason=reason,
                         )
                         return
-                    run_fields = {
-                        "chat_id": chat_id,
-                        "user_msg_id": user_msg_id,
-                        "engine": entry.runner.engine,
-                        "resume": resume_token.value if resume_token else None,
-                    }
-                    if context is not None:
-                        run_fields["project"] = context.project
-                        run_fields["branch"] = context.branch
-                    bind_run_context(**run_fields)
-                    context_line = _format_context_line(context, projects=cfg.projects)
-                    incoming = IncomingMessage(
-                        channel_id=chat_id,
-                        message_id=user_msg_id,
-                        text=text,
-                        reply_to=reply_ref,
-                    )
-                    await handle_message(
-                        cfg.exec_cfg,
-                        runner=entry.runner,
-                        incoming=incoming,
-                        resume_token=resume_token,
-                        context=context,
-                        context_line=context_line,
-                        strip_resume_line=cfg.router.is_resume_line,
-                        running_tasks=running_tasks,
-                        on_thread_known=on_thread_known,
-                    )
+                    try:
+                        cwd = resolve_run_cwd(context, projects=cfg.projects)
+                    except WorktreeError as exc:
+                        await _send_plain(
+                            cfg.exec_cfg.transport,
+                            chat_id=chat_id,
+                            user_msg_id=user_msg_id,
+                            text=f"error:\n{exc}",
+                        )
+                        return
+                    run_base_token = set_run_base_dir(cwd)
+                    try:
+                        run_fields = {
+                            "chat_id": chat_id,
+                            "user_msg_id": user_msg_id,
+                            "engine": entry.runner.engine,
+                            "resume": resume_token.value if resume_token else None,
+                        }
+                        if context is not None:
+                            run_fields["project"] = context.project
+                            run_fields["branch"] = context.branch
+                        if cwd is not None:
+                            run_fields["cwd"] = str(cwd)
+                        bind_run_context(**run_fields)
+                        context_line = _format_context_line(
+                            context, projects=cfg.projects
+                        )
+                        incoming = IncomingMessage(
+                            channel_id=chat_id,
+                            message_id=user_msg_id,
+                            text=text,
+                            reply_to=reply_ref,
+                        )
+                        await handle_message(
+                            cfg.exec_cfg,
+                            runner=entry.runner,
+                            incoming=incoming,
+                            resume_token=resume_token,
+                            context=context,
+                            context_line=context_line,
+                            strip_resume_line=cfg.router.is_resume_line,
+                            running_tasks=running_tasks,
+                            on_thread_known=on_thread_known,
+                        )
+                    finally:
+                        reset_run_base_dir(run_base_token)
                 except Exception as exc:
                     logger.exception(
                         "handle.worker_failed",

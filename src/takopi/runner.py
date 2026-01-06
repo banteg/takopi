@@ -22,6 +22,7 @@ from .model import (
     StartedEvent,
     TakopiEvent,
 )
+from .utils.paths import get_run_base_dir
 from .utils.streams import drain_stderr, iter_bytes_lines
 from .utils.subprocess import manage_subprocess
 
@@ -358,12 +359,15 @@ class JsonlSubprocessRunner(BaseRunner):
             prompt_len=len(prompt),
         )
 
+        cwd = get_run_base_dir()
+
         async with manage_subprocess(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=env,
+            cwd=cwd,
         ) as proc:
             if proc.stdout is None or proc.stderr is None:
                 raise RuntimeError(self.pipes_error_message())
