@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import anyio
 import pytest
 
@@ -9,6 +11,7 @@ from takopi.telegram.bridge import (
     _is_cancel_command,
     _send_with_resume,
     _strip_engine_command,
+    _strip_command,
     run_main_loop,
 )
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
@@ -16,6 +19,7 @@ from takopi.markdown import MarkdownPresenter
 from takopi.model import EngineId, ResumeToken
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner, Sleep, Wait
+from takopi.commands import Command, CommandCatalog
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 
 CODEX_ENGINE = EngineId("codex")
@@ -236,6 +240,34 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
 
     assert {"command": "cancel", "description": "cancel run"} in commands
     assert any(cmd["command"] == "codex" for cmd in commands)
+
+
+def test_strip_command_inline() -> None:
+    command = Command(
+        name="commit-all",
+        description="Commit everything.",
+        prompt="Commit all changes.",
+        location=Path("SKILL.md"),
+        source="claude-command",
+    )
+    catalog = CommandCatalog.from_commands([command])
+    text, found = _strip_command("/commit-all do it", commands=catalog)
+    assert found == command
+    assert text == "do it"
+
+
+def test_strip_command_normalizes_name() -> None:
+    command = Command(
+        name="commit-all",
+        description="Commit everything.",
+        prompt="Commit all changes.",
+        location=Path("SKILL.md"),
+        source="claude-command",
+    )
+    catalog = CommandCatalog.from_commands([command])
+    text, found = _strip_command("/commit_all do it", commands=catalog)
+    assert found == command
+    assert text == "do it"
 
 
 @pytest.mark.anyio

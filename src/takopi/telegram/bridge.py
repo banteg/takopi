@@ -21,6 +21,7 @@ from ..progress import ProgressState, ProgressTracker
 from ..router import AutoRouter, RunnerUnavailableError
 from ..runner import Runner
 from ..scheduler import ThreadJob, ThreadScheduler
+from ..commands import Command, CommandCatalog, build_command_prompt, normalize_command
 from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
 from .client import BotClient
 from .render import prepare_telegram
@@ -145,8 +146,49 @@ def _strip_engine_command(
     return "\n".join(lines).strip(), engine
 
 
+def _strip_command(
+    text: str, *, commands: CommandCatalog
+) -> tuple[str, Command | None]:
+    if not text or not commands.by_command:
+        return text, None
+    lines = text.splitlines()
+    idx = next((i for i, line in enumerate(lines) if line.strip()), None)
+    if idx is None:
+        return text, None
+    line = lines[idx].lstrip()
+    if not line.startswith("/"):
+        return text, None
+    parts = line.split(maxsplit=1)
+    command = parts[0][1:]
+    if "@" in command:
+        command = command.split("@", 1)[0]
+    normalized = normalize_command(command)
+    command = commands.by_command.get(normalized)
+    if command is None:
+        return text, None
+    remainder = parts[1] if len(parts) > 1 else ""
+    if remainder:
+        lines[idx] = remainder
+    else:
+        lines.pop(idx)
+    args_text = "\n".join(lines).strip()
+    return args_text, command
+
+
+def _trim_command_description(text: str, *, limit: int = 64) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized
+    if limit <= 3:
+        return normalized[:limit]
+    return normalized[: limit - 3].rstrip() + "..."
+
+
 def _build_bot_commands(
-    router: AutoRouter, *, has_profiles: bool = False
+    router: AutoRouter,
+    *,
+    commands: CommandCatalog | None = None,
+    has_profiles: bool = False,
 ) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -165,12 +207,22 @@ def _build_bot_commands(
             commands.append({"command": "profile", "description": "switch profile"})
         if "profiles" not in seen:
             commands.append({"command": "profiles", "description": "list profiles"})
+    if commands is not None:
+        for command in sorted(commands.commands, key=lambda item: item.name.lower()):
+            cmd = normalize_command(command.name)
+            if not cmd or cmd in seen:
+                continue
+            description = _trim_command_description(command.description)
+            commands.append({"command": cmd, "description": description})
+            seen.add(cmd)
     return commands
 
 
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
     has_profiles = cfg.router_factory is not None and cfg.router_factory.has_profiles
-    commands = _build_bot_commands(cfg.router, has_profiles=has_profiles)
+    commands = _build_bot_commands(
+        cfg.router, commands=cfg.commands, has_profiles=has_profiles
+    )
     if not commands:
         return
     try:
@@ -326,6 +378,7 @@ class TelegramBridgeConfig:
     router_factory: RouterFactory | None = None
     startup_pwd: str = ""
     active_profile: ProfileId | None = None
+    commands: CommandCatalog = field(default_factory=CommandCatalog.empty)
 
     def switch_profile(self, profile_name: ProfileId | None) -> str | None:
         """Switch to a different profile.
@@ -816,6 +869,9 @@ async def run_main_loop(
                 text, engine_override = _strip_engine_command(
                     text, engine_ids=cfg.router.engine_ids
                 )
+                args_text, command = _strip_command(text, commands=cfg.commands)
+                if command is not None:
+                    text = build_command_prompt(command, args_text)
 
                 r = msg.get("reply_to_message") or {}
                 resume_token = cfg.router.resolve_resume(text, r.get("text"))

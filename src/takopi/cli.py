@@ -15,6 +15,7 @@ from .engines import get_backend, list_backends
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
 from .router_factory import RouterFactory
+from .commands import load_commands, parse_command_dirs
 from .telegram.bridge import (
     TelegramBridgeConfig,
     TelegramPresenter,
@@ -154,6 +155,8 @@ def _parse_bridge_config(
         presenter=presenter,
         final_notify=final_notify,
     )
+    command_dirs = parse_command_dirs(config)
+    commands = load_commands(cwd=Path(startup_pwd), extra_roots=command_dirs)
 
     return TelegramBridgeConfig(
         bot=bot,
@@ -163,6 +166,7 @@ def _parse_bridge_config(
         startup_msg=startup_msg,
         startup_pwd=startup_pwd,
         exec_cfg=exec_cfg,
+        commands=commands,
     )
 
 
