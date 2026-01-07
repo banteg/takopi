@@ -8,8 +8,8 @@ Pydantic 2.9.x only added support up to Python 3.13. ([PyPI][2])
 
 So in Takopi’s `pyproject.toml`, plan on:
 
-* `pydantic>=2.12`
-* `pydantic-settings>=2.12`
+* `uv add pydantic`
+* `uv add pydantic-settings`
 
 ## Target end-state (what “done” looks like)
 
@@ -21,12 +21,13 @@ So in Takopi’s `pyproject.toml`, plan on:
 * Settings are **typed**, **nested**, **validated** with good errors.
 * Unknown sections (engine configs like `[codex]`, plugin configs, future keys) are **preserved** (so you don’t block growth).
 * Onboarding writes config **without clobbering unrelated sections** (fixes the “onboarding overwrites projects” issue).
+* **Breaking change:** Telegram config moves under `[transports.telegram]` with `transport = "telegram"`. Top-level `bot_token` / `chat_id` are **no longer supported** (no backwards-compat shims).
 
 ---
 
-# Plan (split into 4 PRs)
+# Plan (split into 4 commits)
 
-## PR 1 — Introduce `TakopiSettings` + TOML source + compat shim
+## Commit 1 — Introduce `TakopiSettings` + TOML source (strict transport shape)
 
 **Goal:** Add pydantic-settings without changing runtime behavior yet.
 
@@ -34,8 +35,9 @@ So in Takopi’s `pyproject.toml`, plan on:
 
 Update `pyproject.toml`:
 
-* `pydantic>=2.12`
-* `pydantic-settings>=2.12`
+* `uv add pydantic`
+* `uv add pydantic-settings`
+* `uv sync`
 
 Regenerate `uv.lock`.
 
@@ -51,7 +53,7 @@ It should define:
 
   * default_engine
   * projects + default_project
-  * transport selection + telegram credentials
+  * transport selection + telegram credentials (nested under `transports.telegram`)
   * plugins section (even if it’s unused yet, it prevents another migration later)
 
 ### 3) Add TOML as a pydantic-settings source
@@ -116,16 +118,13 @@ class TakopiSettings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def _legacy_telegram_keys(cls, data: Any) -> Any:
-        # Support v0.9.0 configs that have top-level bot_token/chat_id
+    def _reject_legacy_telegram_keys(cls, data: Any) -> Any:
+        # No auto-migration: hard error with guidance.
         if isinstance(data, dict) and ("bot_token" in data or "chat_id" in data):
-            transports = data.setdefault("transports", {})
-            telegram = transports.setdefault("telegram", {})
-            if "bot_token" in data:
-                telegram.setdefault("bot_token", data.pop("bot_token"))
-            if "chat_id" in data:
-                telegram.setdefault("chat_id", data.pop("chat_id"))
-            data.setdefault("transport", "telegram")
+            raise ValueError(
+                "Move bot_token/chat_id under [transports.telegram] "
+                "and set transport = \"telegram\"."
+            )
         return data
 
     @classmethod
@@ -158,7 +157,7 @@ def load_settings(path: Path | None = None) -> tuple[TakopiSettings, Path]:
 
 * Keep engine configs (e.g. `[codex]`) as “extras” so you don’t have to model them immediately.
 * Put transports under `[transports.<id>]` while keeping `transport = "<id>"` (avoids TOML key/table conflicts).
-* Migrate legacy `bot_token/chat_id` automatically.
+* **No legacy migration:** if users still have top-level `bot_token/chat_id`, raise a clear error telling them to move to `[transports.telegram]`.
 
 ### 4) Add tests just for settings correctness
 
@@ -166,14 +165,14 @@ Add `tests/test_settings.py` (new):
 
 * loads from TOML
 * env overrides TOML
-* legacy top-level keys become `transports.telegram.*`
+* legacy top-level keys are rejected with a clear error
 * unknown top-level tables are preserved (extras)
 
 No production code changes yet besides adding settings module.
 
 ---
 
-## PR 2 — Wire CLI runtime reads to `TakopiSettings` (read path only)
+## Commit 2 — Wire CLI runtime reads to `TakopiSettings` (read path only)
 
 **Goal:** Replace *manual validation* in `cli.py` and remove `telegram/config.py` duplication.
 
@@ -224,7 +223,7 @@ At the end of PR2, Takopi still behaves the same, but config IO is centralized a
 
 ---
 
-## PR 3 — Convert Projects section to typed models + keep existing runtime `ProjectsConfig`
+## Commit 3 — Convert Projects section to typed models + keep existing runtime `ProjectsConfig`
 
 **Goal:** Eliminate `parse_projects_config()`’s manual validation over time, but *keep* the existing `ProjectsConfig` dataclass so you don’t have to rewrite bridge/worktrees in one shot.
 
@@ -289,7 +288,7 @@ At end of PR3:
 
 ---
 
-## PR 4 — Switch onboarding + config writing to “merge/update” mode
+## Commit 4 — Switch onboarding + config writing to “merge/update” mode
 
 **Goal:** Make onboarding safe with big configs and not delete `[projects.*]`, `[plugins]`, engine sections, etc.
 
@@ -331,7 +330,7 @@ bot_token = "..."
 chat_id = 123
 ```
 
-But keep the legacy read-path (PR1’s migration) so old configs continue to work.
+Do not keep a legacy read-path — old configs should fail with an explicit “please migrate” message.
 
 ### 4) Update onboarding checks
 
@@ -345,6 +344,7 @@ But keep the legacy read-path (PR1’s migration) so old configs continue to wor
 
 * Add regression test: existing config with `[projects.*]` survives onboarding write.
 * Update interactive onboarding tests if they assert the exact saved TOML.
+* Update README + docs examples (`readme.md`, `docs/projects.md`, `docs/architecture.md`, `docs/developing.md`) to the new transport table shape.
 
 ---
 
@@ -381,11 +381,11 @@ If you want the “short list” of what needs to happen:
 
 1. Add deps (`pydantic>=2.12`, `pydantic-settings>=2.12`) ([Pydantic][1])
 2. Add `TakopiSettings` using `TomlConfigSettingsSource` + env precedence
-3. Add legacy key migration (`bot_token/chat_id` → `transports.telegram.*`)
-4. Wire CLI reads to settings + remove duplicate telegram config reader
-5. Migrate projects parsing to typed model + conversion to existing `ProjectsConfig`
-6. Rework onboarding to merge-write config (no clobber) + write new transport structure
-7. Update tests + add merge regression tests
+3. Wire CLI reads to settings + remove duplicate telegram config reader
+4. Migrate projects parsing to typed model + conversion to existing `ProjectsConfig`
+5. Rework onboarding to merge-write config (no clobber) + write new transport structure
+6. Update tests + add merge regression tests
+7. Update docs/examples for the new transport table shape, and add a brief migration note
 
 If you want, I can turn this into a concrete set of file-level diffs for PR1 (settings module + loader + tests) based on your current tree so you can start landing it immediately.
 
