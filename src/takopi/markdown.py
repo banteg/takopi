@@ -230,7 +230,7 @@ class MarkdownFormatter:
             lines.append(state.resume_line)
         if not lines:
             return None
-        return "\n".join(lines)
+        return HARD_BREAK.join(lines)
 
     def _format_actions(self, state: ProgressState) -> list[str]:
         actions = list(state.actions)
