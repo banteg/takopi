@@ -397,7 +397,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         state: Any,
     ) -> list[str]:
         _ = prompt, state
-        args = [*self.extra_args, "exec", "--json"]
+        args = [*self.extra_args, "exec", "--skip-git-repo-check", "--json"]
         if resume:
             args.extend(["resume", resume.value, "-"])
         else:
