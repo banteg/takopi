@@ -84,7 +84,7 @@ register the current repo as a project alias:
 takopi init z80
 ```
 
-`takopi init` writes the current working directory to `[projects.<alias>].path`. if you run it inside a git worktree, it will record the worktree path (not the main checkout). run it from the main checkout if you want the canonical repo root.
+`takopi init` writes the repo root to `[projects.<alias>].path`. if you run it inside a git worktree, it resolves the main checkout and records that path instead of the worktree.
 
 example:
 
@@ -95,7 +95,7 @@ default_project = "z80"
 path = "~/dev/z80"
 worktrees_dir = ".worktrees"
 default_engine = "codex"
-worktree_base = "main"
+worktree_base = "master"
 ```
 
 ## usage

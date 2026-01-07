@@ -31,7 +31,7 @@ from .telegram.bridge import (
 from .telegram.client import TelegramClient
 from .telegram.config import load_telegram_config
 from .telegram.onboarding import SetupResult, check_setup, interactive_setup
-from .utils.git import resolve_default_base
+from .utils.git import resolve_default_base, resolve_main_worktree_root
 
 logger = get_logger(__name__)
 
@@ -398,7 +398,8 @@ def init(
         projects.pop(existing.alias, None)
 
     default_engine = _default_engine_for_setup(None)
-    project_path = Path.cwd()
+    cwd = Path.cwd()
+    project_path = resolve_main_worktree_root(cwd) or cwd
     worktree_base = resolve_default_base(project_path)
 
     entry: dict[str, object] = {

@@ -64,3 +64,18 @@ def resolve_default_base(root: Path) -> str | None:
     if git_ok(["show-ref", "--verify", "--quiet", "refs/heads/master"], cwd=root):
         return "master"
     return None
+
+
+def resolve_main_worktree_root(cwd: Path) -> Path | None:
+    common_dir = git_stdout(
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=cwd,
+    )
+    if not common_dir:
+        return None
+    if git_stdout(["rev-parse", "--is-bare-repository"], cwd=cwd) == "true":
+        return cwd
+    common_path = Path(common_dir)
+    if not common_path.is_absolute():
+        common_path = (cwd / common_path).resolve()
+    return common_path.parent

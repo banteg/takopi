@@ -1,0 +1,36 @@
+from pathlib import Path
+
+from takopi.utils.git import resolve_main_worktree_root
+
+
+def test_resolve_main_worktree_root_returns_none_when_no_git(monkeypatch) -> None:
+    monkeypatch.setattr("takopi.utils.git.git_stdout", lambda *args, **kwargs: None)
+    assert resolve_main_worktree_root(Path("/tmp")) is None
+
+
+def test_resolve_main_worktree_root_prefers_common_dir_parent(monkeypatch) -> None:
+    base = Path("/repo")
+
+    def _fake_stdout(args, **kwargs):
+        if args[:2] == ["rev-parse", "--path-format=absolute"]:
+            return str(base / ".git")
+        if args == ["rev-parse", "--is-bare-repository"]:
+            return "false"
+        return None
+
+    monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
+    assert resolve_main_worktree_root(base / ".worktrees" / "feature") == base
+
+
+def test_resolve_main_worktree_root_returns_cwd_for_bare_repo(monkeypatch) -> None:
+    cwd = Path("/bare-repo")
+
+    def _fake_stdout(args, **kwargs):
+        if args[:2] == ["rev-parse", "--path-format=absolute"]:
+            return str(cwd / "repo.git")
+        if args == ["rev-parse", "--is-bare-repository"]:
+            return "true"
+        return None
+
+    monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
+    assert resolve_main_worktree_root(cwd) == cwd
