@@ -479,7 +479,10 @@ async def handle_message(
     if error is not None:
         sync_resume_token(progress_tracker, outcome.resume)
         err_body = _format_error(error)
-        state = progress_tracker.snapshot(resume_formatter=runner.format_resume)
+        state = progress_tracker.snapshot(
+            resume_formatter=runner.format_resume,
+            context_line=context_line,
+        )
         final_rendered = cfg.presenter.render_final(
             state,
             elapsed_s=elapsed,
@@ -511,7 +514,10 @@ async def handle_message(
             resume=resume.value if resume else None,
             elapsed_s=elapsed,
         )
-        state = progress_tracker.snapshot(resume_formatter=runner.format_resume)
+        state = progress_tracker.snapshot(
+            resume_formatter=runner.format_resume,
+            context_line=context_line,
+        )
         final_rendered = cfg.presenter.render_progress(
             state,
             elapsed_s=elapsed,
@@ -561,7 +567,10 @@ async def handle_message(
         resume=resume_value,
     )
     sync_resume_token(progress_tracker, completed.resume or outcome.resume)
-    state = progress_tracker.snapshot(resume_formatter=runner.format_resume)
+    state = progress_tracker.snapshot(
+        resume_formatter=runner.format_resume,
+        context_line=context_line,
+    )
     final_rendered = cfg.presenter.render_final(
         state,
         elapsed_s=elapsed,

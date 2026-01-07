@@ -335,6 +335,37 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
 
 
 @pytest.mark.anyio
+async def test_final_message_includes_ctx_line() -> None:
+    transport = _FakeTransport()
+    clock = _FakeClock()
+    session_id = "123e4567-e89b-12d3-a456-426614174000"
+    runner = ScriptRunner(
+        [Return(answer="done")],
+        engine=CODEX_ENGINE,
+        resume_value=session_id,
+    )
+    cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+
+    await handle_message(
+        cfg,
+        runner=runner,
+        incoming=IncomingMessage(channel_id=123, message_id=42, text="do it"),
+        resume_token=None,
+        context_line="`ctx: takopi @ feat/api`",
+        clock=clock,
+    )
+
+    assert transport.send_calls
+    final_text = transport.send_calls[-1]["message"].text
+    assert "`ctx: takopi @ feat/api`" in final_text
+    assert "codex resume" in final_text.lower()
+
+
+@pytest.mark.anyio
 async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     transport = _FakeTransport()
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
