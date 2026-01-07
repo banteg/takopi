@@ -104,3 +104,21 @@ def test_translate_command_execution_allows_null_exit_code() -> None:
     assert isinstance(out[0], ActionEvent)
     assert out[0].ok is True
     assert out[0].action.detail["exit_code"] is None
+
+
+def test_translate_file_change_normalizes_changes() -> None:
+    evt = {
+        "type": "item.completed",
+        "item": {
+            "id": "item_6",
+            "type": "file_change",
+            "changes": [{"path": "README.md", "kind": "update"}],
+            "status": "completed",
+        },
+    }
+
+    out = _translate_event(evt)
+    assert len(out) == 1
+    assert isinstance(out[0], ActionEvent)
+    changes = out[0].action.detail["changes"]
+    assert changes == [{"path": "README.md", "kind": "update"}]

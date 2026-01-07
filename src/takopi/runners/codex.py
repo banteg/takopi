@@ -76,6 +76,26 @@ def _summarize_tool_result(result: Any) -> dict[str, Any] | None:
     return None
 
 
+def _normalize_change_list(changes: list[Any]) -> list[dict[str, str]]:
+    normalized: list[dict[str, str]] = []
+    for change in changes:
+        path: str | None = None
+        kind: str | None = None
+        if isinstance(change, codex_schema.FileUpdateChange):
+            path = change.path
+            kind = change.kind
+        elif isinstance(change, dict):
+            path = change.get("path")
+            kind = change.get("kind")
+        if not isinstance(path, str) or not path:
+            continue
+        entry = {"path": path}
+        if isinstance(kind, str) and kind:
+            entry["kind"] = kind
+        normalized.append(entry)
+    return normalized
+
+
 def _format_change_summary(changes: list[Any]) -> str:
     paths: list[str] = []
     for change in changes:
@@ -260,8 +280,9 @@ def _translate_item_event(
             if phase != "completed":
                 return []
             title = _format_change_summary(changes)
+            normalized_changes = _normalize_change_list(changes)
             detail = {
-                "changes": changes,
+                "changes": normalized_changes,
                 "status": status,
                 "error": None,
             }
