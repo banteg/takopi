@@ -10,6 +10,19 @@
 
 - add transport/presenter protocols plus transport-agnostic `exec_bridge`
 - move Telegram polling + wiring into `takopi.bridges.telegram` with transport/presenter adapters
+- add project configuration, directive parsing (`/project`, `@branch`), and `ctx:`-aware routing for runs
+- add `takopi init` to register project aliases from the main checkout (with worktree defaults)
+- resolve git worktrees on demand and run engine subprocesses in the project/worktree cwd
+- list configured projects in the startup banner
+- add a shared incoming message shape plus Telegram parsing helpers
+
+### fixes
+
+- render `ctx:` footer lines consistently (backticked + hard breaks) and include them in final messages
+
+### docs
+
+- add a projects/worktrees guide and document `takopi init` behavior in the README
 
 ## v0.8.0 (2026-01-05)
 
