@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from takopi import engines
+from takopi.settings import TakopiSettings
 from takopi.telegram import onboarding
 
 
@@ -11,8 +12,16 @@ def test_check_setup_marks_missing_codex(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(onboarding.shutil, "which", lambda _name: None)
     monkeypatch.setattr(
         onboarding,
-        "load_telegram_config",
-        lambda: ({"bot_token": "token", "chat_id": 123}, tmp_path / "takopi.toml"),
+        "load_settings",
+        lambda: (
+            TakopiSettings.model_validate(
+                {
+                    "transport": "telegram",
+                    "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
+                }
+            ),
+            tmp_path / "takopi.toml",
+        ),
     )
 
     result = onboarding.check_setup(backend)
@@ -30,7 +39,7 @@ def test_check_setup_marks_missing_config(monkeypatch) -> None:
     def _raise() -> None:
         raise onboarding.ConfigError("Missing config file")
 
-    monkeypatch.setattr(onboarding, "load_telegram_config", _raise)
+    monkeypatch.setattr(onboarding, "load_settings", _raise)
 
     result = onboarding.check_setup(backend)
 
@@ -44,8 +53,16 @@ def test_check_setup_marks_invalid_chat_id(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(onboarding.shutil, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
         onboarding,
-        "load_telegram_config",
-        lambda: ({"bot_token": "token", "chat_id": "123"}, tmp_path / "takopi.toml"),
+        "load_settings",
+        lambda: (
+            TakopiSettings.model_validate(
+                {
+                    "transport": "telegram",
+                    "transports": {"telegram": {"bot_token": "token", "chat_id": None}},
+                }
+            ),
+            tmp_path / "takopi.toml",
+        ),
     )
 
     result = onboarding.check_setup(backend)

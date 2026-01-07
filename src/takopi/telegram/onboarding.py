@@ -23,10 +23,11 @@ from rich.table import Table
 from ..backends import EngineBackend, SetupIssue
 from ..backends_helpers import install_issue
 from ..config import ConfigError
+from ..config_store import read_raw_toml, write_raw_toml
 from ..engines import list_backends
 from ..logging import suppress_logs
+from ..settings import HOME_CONFIG_PATH, load_settings, require_telegram
 from .client import TelegramClient, TelegramRetryAfter
-from .config import HOME_CONFIG_PATH, load_telegram_config
 
 
 @dataclass(slots=True)
@@ -83,29 +84,23 @@ def config_issue(path: Path) -> SetupIssue:
 def check_setup(backend: EngineBackend) -> SetupResult:
     issues: list[SetupIssue] = []
     config_path = HOME_CONFIG_PATH
-    config: dict = {}
     cmd = backend.cli_cmd or backend.id
     backend_issues: list[SetupIssue] = []
     if shutil.which(cmd) is None:
         backend_issues.append(install_issue(cmd, backend.install_cmd))
 
     try:
-        config, config_path = load_telegram_config()
+        settings, config_path = load_settings()
+        try:
+            require_telegram(settings, config_path)
+        except ConfigError:
+            issues.append(config_issue(config_path))
     except ConfigError:
         issues.extend(backend_issues)
         issues.append(config_issue(config_path))
         return SetupResult(issues=issues, config_path=config_path)
 
-    token = config.get("bot_token")
-    chat_id = config.get("chat_id")
-
-    missing_or_invalid_config = not (isinstance(token, str) and token.strip())
-    missing_or_invalid_config |= type(chat_id) is not int
-
     issues.extend(backend_issues)
-    if missing_or_invalid_config:
-        issues.append(config_issue(config_path))
-
     return SetupResult(issues=issues, config_path=config_path)
 
 
@@ -125,9 +120,30 @@ def _render_config(token: str, chat_id: int, default_engine: str | None) -> str:
     if default_engine:
         lines.append(f'default_engine = "{_toml_escape(default_engine)}"')
         lines.append("")
+    lines.append('transport = "telegram"')
+    lines.append("")
+    lines.append("[transports.telegram]")
     lines.append(f'bot_token = "{_toml_escape(token)}"')
     lines.append(f"chat_id = {chat_id}")
     return "\n".join(lines) + "\n"
+
+
+def _ensure_table(
+    config: dict[str, Any],
+    key: str,
+    *,
+    config_path: Path,
+    label: str | None = None,
+) -> dict[str, Any]:
+    value = config.get(key)
+    if value is None:
+        table: dict[str, Any] = {}
+        config[key] = table
+        return table
+    if not isinstance(value, dict):
+        name = label or key
+        raise ConfigError(f"Invalid `{name}` in {config_path}; expected a table.")
+    return value
 
 
 async def _get_bot_info(token: str) -> dict[str, Any] | None:
@@ -326,8 +342,6 @@ def interactive_setup(*, force: bool) -> bool:
     console = Console()
     config_path = HOME_CONFIG_PATH
 
-    suppress_logs = _suppress_logging()
-
     if config_path.exists() and not force:
         console.print(
             f"config already exists at {_display_path(config_path)}. "
@@ -337,13 +351,13 @@ def interactive_setup(*, force: bool) -> bool:
 
     if config_path.exists() and force:
         overwrite = _confirm(
-            f"overwrite existing config at {_display_path(config_path)}?",
+            f"update existing config at {_display_path(config_path)}?",
             default=False,
         )
         if not overwrite:
             return False
 
-    with suppress_logs:
+    with _suppress_logging():
         panel = Panel(
             "let's set up your telegram bot.",
             title="welcome to takopi!",
@@ -421,9 +435,25 @@ def interactive_setup(*, force: bool) -> bool:
         if not save:
             return False
 
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_text = _render_config(token, chat.chat_id, default_engine)
-        config_path.write_text(config_text, encoding="utf-8")
+        raw_config: dict[str, Any] = {}
+        if config_path.exists():
+            raw_config = read_raw_toml(config_path)
+        merged = dict(raw_config)
+        if default_engine is not None:
+            merged["default_engine"] = default_engine
+        merged["transport"] = "telegram"
+        transports = _ensure_table(merged, "transports", config_path=config_path)
+        telegram = _ensure_table(
+            transports,
+            "telegram",
+            config_path=config_path,
+            label="transports.telegram",
+        )
+        telegram["bot_token"] = token
+        telegram["chat_id"] = chat.chat_id
+        merged.pop("bot_token", None)
+        merged.pop("chat_id", None)
+        write_raw_toml(merged, config_path)
         console.print(f"  config saved to {_display_path(config_path)}")
 
         done_panel = Panel(

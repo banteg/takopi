@@ -11,17 +11,19 @@ import typer
 
 from . import __version__
 from .backends import EngineBackend
-from .config import (
-    ConfigError,
-    load_or_init_config,
-    parse_projects_config,
-    write_config,
-)
-from .engines import get_backend, get_engine_config, list_backends
+from .config import ConfigError, load_or_init_config, write_config
+from .engines import get_backend, list_backends
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
 from .router import AutoRouter, RunnerEntry
 from .runner_bridge import ExecBridgeConfig
+from .settings import (
+    TakopiSettings,
+    load_settings,
+    load_settings_if_exists,
+    require_telegram,
+    validate_settings_data,
+)
 from .telegram.bridge import (
     TelegramBridgeConfig,
     TelegramPresenter,
@@ -29,7 +31,6 @@ from .telegram.bridge import (
     run_main_loop,
 )
 from .telegram.client import TelegramClient
-from .telegram.config import load_telegram_config
 from .telegram.onboarding import SetupResult, check_setup, interactive_setup
 from .utils.git import resolve_default_base, resolve_main_worktree_root
 
@@ -48,25 +49,10 @@ def _version_callback(value: bool) -> None:
 
 def load_and_validate_config(
     path: str | Path | None = None,
-) -> tuple[dict, Path, str, int]:
-    config, config_path = load_telegram_config(path)
-    try:
-        token = config["bot_token"]
-    except KeyError:
-        raise ConfigError(f"Missing key `bot_token` in {config_path}.") from None
-    if not isinstance(token, str) or not token.strip():
-        raise ConfigError(
-            f"Invalid `bot_token` in {config_path}; expected a non-empty string."
-        ) from None
-    try:
-        chat_id_value = config["chat_id"]
-    except KeyError:
-        raise ConfigError(f"Missing key `chat_id` in {config_path}.") from None
-    if isinstance(chat_id_value, bool) or not isinstance(chat_id_value, int):
-        raise ConfigError(
-            f"Invalid `chat_id` in {config_path}; expected an integer."
-        ) from None
-    return config, config_path, token.strip(), chat_id_value
+) -> tuple[TakopiSettings, Path, str, int]:
+    settings, config_path = load_settings(path)
+    token, chat_id = require_telegram(settings, config_path)
+    return settings, config_path, token, chat_id
 
 
 def acquire_config_lock(config_path: Path, token: str) -> LockHandle:
@@ -89,13 +75,11 @@ def acquire_config_lock(config_path: Path, token: str) -> LockHandle:
 def _default_engine_for_setup(override: str | None) -> str:
     if override:
         return override
-    try:
-        config, config_path = load_telegram_config()
-    except ConfigError:
+    loaded = load_settings_if_exists()
+    if loaded is None:
         return "codex"
-    value = config.get("default_engine")
-    if value is None:
-        return "codex"
+    settings, config_path = loaded
+    value = settings.default_engine
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(
             f"Invalid `default_engine` in {config_path}; expected a non-empty string."
@@ -106,11 +90,11 @@ def _default_engine_for_setup(override: str | None) -> str:
 def _resolve_default_engine(
     *,
     override: str | None,
-    config: dict,
+    settings: TakopiSettings,
     config_path: Path,
     backends: list[EngineBackend],
 ) -> str:
-    default_engine = override or config.get("default_engine") or "codex"
+    default_engine = override or settings.default_engine or "codex"
     if not isinstance(default_engine, str) or not default_engine.strip():
         raise ConfigError(
             f"Invalid `default_engine` in {config_path}; expected a non-empty string."
@@ -127,7 +111,7 @@ def _resolve_default_engine(
 
 def _build_router(
     *,
-    config: dict,
+    settings: TakopiSettings,
     config_path: Path,
     backends: list[EngineBackend],
     default_engine: str,
@@ -140,7 +124,7 @@ def _build_router(
         issue: str | None = None
         engine_cfg: dict
         try:
-            engine_cfg = get_engine_config(config, engine_id, config_path)
+            engine_cfg = settings.engine_config(engine_id, config_path=config_path)
         except ConfigError as exc:
             if engine_id == default_engine:
                 raise
@@ -193,7 +177,7 @@ def _parse_bridge_config(
     *,
     final_notify: bool,
     default_engine_override: str | None,
-    config: dict,
+    settings: TakopiSettings,
     config_path: Path,
     token: str,
     chat_id: int,
@@ -201,20 +185,19 @@ def _parse_bridge_config(
     startup_pwd = os.getcwd()
 
     backends = list_backends()
-    projects = parse_projects_config(
-        config,
+    projects = settings.to_projects_config(
         config_path=config_path,
         engine_ids=[backend.id for backend in backends],
         reserved=("cancel",),
     )
     default_engine = _resolve_default_engine(
         override=default_engine_override,
-        config=config,
+        settings=settings,
         config_path=config_path,
         backends=backends,
     )
     router = _build_router(
-        config=config,
+        settings=settings,
         config_path=config_path,
         backends=backends,
         default_engine=default_engine,
@@ -317,12 +300,12 @@ def _run_auto_router(
                 typer.echo(f"error: {first.title}", err=True)
             raise typer.Exit(code=1)
     try:
-        config, config_path, token, chat_id = load_and_validate_config()
+        settings, config_path, token, chat_id = load_and_validate_config()
         lock_handle = acquire_config_lock(config_path, token)
         cfg = _parse_bridge_config(
             final_notify=final_notify,
             default_engine_override=default_engine_override,
-            config=config,
+            settings=settings,
             config_path=config_path,
             token=token,
             chat_id=chat_id,
@@ -391,8 +374,8 @@ def init(
     alias = _prompt_alias(alias, default_alias=default_alias)
 
     engine_ids = [backend.id for backend in list_backends()]
-    projects_cfg = parse_projects_config(
-        config,
+    settings = validate_settings_data(config, config_path=config_path)
+    projects_cfg = settings.to_projects_config(
         config_path=config_path,
         engine_ids=engine_ids,
         reserved=("cancel",),
@@ -421,7 +404,7 @@ def init(
     if existing is not None and existing.alias in projects:
         projects.pop(existing.alias, None)
 
-    default_engine = _default_engine_for_setup(None)
+    default_engine = settings.default_engine
     worktree_base = resolve_default_base(project_path)
 
     entry: dict[str, object] = {

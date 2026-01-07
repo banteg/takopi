@@ -204,6 +204,8 @@ def _format_toml_value(value: Any) -> str:
         return str(value)
     if isinstance(value, float):
         return repr(value)
+    if isinstance(value, Path):
+        return f'"{_toml_escape(str(value))}"'
     if isinstance(value, str):
         return f'"{_toml_escape(value)}"'
     if isinstance(value, (list, tuple)):

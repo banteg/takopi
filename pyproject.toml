@@ -11,6 +11,8 @@ dependencies = [
   "httpx>=0.28.1",
   "markdown-it-py",
   "msgspec>=0.20.0",
+  "pydantic>=2.12.5",
+  "pydantic-settings>=2.12.0",
   "questionary>=2.1.1",
   "rich>=14.2.0",
   "structlog>=25.5.0",

@@ -15,18 +15,6 @@ from tests.factories import action_completed, action_started
 CODEX_ENGINE = EngineId("codex")
 
 
-def _patch_config(monkeypatch, config):
-    from pathlib import Path
-
-    from takopi import cli
-
-    monkeypatch.setattr(
-        cli,
-        "load_telegram_config",
-        lambda *args, **kwargs: (config, Path("takopi.toml")),
-    )
-
-
 class _FakeTransport:
     def __init__(self) -> None:
         self._next_id = 1
@@ -88,22 +76,32 @@ def _return_runner(
     )
 
 
-def test_load_and_validate_config_rejects_empty_token(monkeypatch) -> None:
+def test_load_and_validate_config_rejects_empty_token(tmp_path) -> None:
     from takopi import cli
 
-    _patch_config(monkeypatch, {"bot_token": "   ", "chat_id": 123})
+    config_path = tmp_path / "takopi.toml"
+    config_path.write_text(
+        'transport = "telegram"\n\n[transports.telegram]\n'
+        'bot_token = "   "\nchat_id = 123\n',
+        encoding="utf-8",
+    )
 
-    with pytest.raises(cli.ConfigError, match="bot_token"):
-        cli.load_and_validate_config()
+    with pytest.raises(cli.ConfigError, match="bot token"):
+        cli.load_and_validate_config(config_path)
 
 
-def test_load_and_validate_config_rejects_string_chat_id(monkeypatch) -> None:
+def test_load_and_validate_config_rejects_string_chat_id(tmp_path) -> None:
     from takopi import cli
 
-    _patch_config(monkeypatch, {"bot_token": "token", "chat_id": "123"})
+    config_path = tmp_path / "takopi.toml"
+    config_path.write_text(
+        'transport = "telegram"\n\n[transports.telegram]\n'
+        'bot_token = "token"\nchat_id = "123"\n',
+        encoding="utf-8",
+    )
 
     with pytest.raises(cli.ConfigError, match="chat_id"):
-        cli.load_and_validate_config()
+        cli.load_and_validate_config(config_path)
 
 
 def test_codex_extract_resume_finds_command() -> None:

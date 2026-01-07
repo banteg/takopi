@@ -53,6 +53,9 @@ global config `~/.takopi/takopi.toml`
 ```toml
 default_engine = "codex"
 
+transport = "telegram"
+
+[transports.telegram]
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 
@@ -77,6 +80,8 @@ provider = "openai"
 # optional: additional CLI arguments
 extra_args = ["--no-color"]
 ```
+
+note: configs with top-level `bot_token` / `chat_id` must be migrated to `[transports.telegram]`.
 
 ## projects
 

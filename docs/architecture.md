@@ -274,7 +274,8 @@ flowchart LR
 
     subgraph toml_contents["takopi.toml"]
         direction TB
-        global["bot_token<br/>chat_id<br/>default_engine"]
+        global["transport<br/>default_engine"]
+        telegram_cfg["[transports.telegram]<br/>bot_token = ...<br/>chat_id = ..."]
         claude_cfg["[claude]<br/>model = ..."]
         codex_cfg["[codex]<br/>model = ..."]
         projects_cfg["[projects.alias]<br/>path = ...<br/>worktrees_dir = ...<br/>default_engine = ..."]

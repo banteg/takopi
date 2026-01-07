@@ -20,6 +20,9 @@ All config lives in `~/.takopi/takopi.toml`.
 ```toml
 default_engine = "codex"       # optional
 default_project = "z80"        # optional
+transport = "telegram"         # required
+
+[transports.telegram]
 bot_token = "..."              # required
 chat_id = 123                  # required
 

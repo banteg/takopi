@@ -229,11 +229,18 @@ Self-documenting msgspec schemas for decoding engine JSONL streams.
 class ConfigError(RuntimeError): ...
 ```
 
-### `telegram/config.py` - Configuration loading
+### `settings.py` - Settings loading
 
 ```python
-def load_telegram_config() -> tuple[dict, Path]:
-    # Loads ~/.takopi/takopi.toml
+def load_settings(path: str | Path | None = None) -> tuple[TakopiSettings, Path]:
+    # Loads ~/.takopi/takopi.toml (TOML + env), validates via pydantic-settings
+```
+
+### `config_store.py` - Raw TOML read/write
+
+```python
+def read_raw_toml(path: Path) -> dict:
+    # Loads TOML for merge/update without clobbering extra sections
 ```
 
 ### `logging.py` - Secure logging setup
