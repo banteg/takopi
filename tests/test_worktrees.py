@@ -54,3 +54,27 @@ def test_ensure_worktree_creates_from_base(monkeypatch, tmp_path: Path) -> None:
     worktree_path = ensure_worktree(project, "feat/name")
     assert worktree_path == tmp_path / ".worktrees" / "feat" / "name"
     assert calls == [["worktree", "add", "-b", "feat/name", str(worktree_path), "main"]]
+
+
+def test_ensure_worktree_rejects_existing_non_worktree(
+    monkeypatch, tmp_path: Path
+) -> None:
+    project = ProjectConfig(
+        alias="z80",
+        path=tmp_path,
+        worktrees_dir=Path(".worktrees"),
+    )
+    worktree_path = tmp_path / ".worktrees" / "foo"
+    worktree_path.mkdir(parents=True)
+
+    def _fake_stdout(args, **kwargs):
+        if args == ["rev-parse", "--is-inside-work-tree"]:
+            return "true"
+        if args == ["rev-parse", "--path-format=absolute", "--show-toplevel"]:
+            return str(tmp_path)
+        return None
+
+    monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
+
+    with pytest.raises(WorktreeError, match="exists but is not a git worktree"):
+        ensure_worktree(project, "foo")

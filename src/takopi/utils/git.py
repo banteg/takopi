@@ -40,7 +40,13 @@ def git_ok(args: Sequence[str], *, cwd: Path) -> bool:
 
 
 def git_is_worktree(path: Path) -> bool:
-    return git_stdout(["rev-parse", "--is-inside-work-tree"], cwd=path) == "true"
+    top = git_stdout(
+        ["rev-parse", "--path-format=absolute", "--show-toplevel"],
+        cwd=path,
+    )
+    if not top:
+        return False
+    return Path(top).resolve(strict=False) == path.resolve(strict=False)
 
 
 def resolve_default_base(root: Path) -> str | None:
