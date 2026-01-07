@@ -181,9 +181,16 @@ def _parse_ctx_line(text: str | None, *, projects: ProjectsConfig) -> RunContext
         return None
     ctx: RunContext | None = None
     for line in text.splitlines():
-        if not line.lower().startswith("ctx:"):
+        stripped = line.strip()
+        if stripped.startswith("`") and stripped.endswith("`") and len(stripped) > 1:
+            stripped = stripped[1:-1].strip()
+        elif stripped.startswith("`"):
+            stripped = stripped[1:].strip()
+        elif stripped.endswith("`"):
+            stripped = stripped[:-1].strip()
+        if not stripped.lower().startswith("ctx:"):
             continue
-        content = line.split(":", 1)[1].strip()
+        content = stripped.split(":", 1)[1].strip()
         if not content:
             continue
         tokens = content.split()
@@ -211,8 +218,8 @@ def _format_context_line(
     project_cfg = projects.projects.get(context.project)
     alias = project_cfg.alias if project_cfg is not None else context.project
     if context.branch:
-        return f"ctx: {alias} @ {context.branch}"
-    return f"ctx: {alias}"
+        return f"`ctx: {alias} @ {context.branch}`"
+    return f"`ctx: {alias}`"
 
 
 def _resolve_message(

@@ -71,10 +71,11 @@ Rules:
 
 ## Context footer (`ctx:`)
 
-When a run has project context, Takopi appends a footer line:
+When a run has project context, Takopi appends a footer line rendered as inline
+code (backticked):
 
-- With branch: `ctx: <project> @ <branch>`
-- Without branch: `ctx: <project>`
+- With branch: `` `ctx: <project> @ <branch>` ``
+- Without branch: `` `ctx: <project>` ``
 
 The `ctx:` line is parsed from replies and takes precedence over new directives.
 
@@ -132,4 +133,3 @@ Reply to a progress message to continue in the same context:
 ```
 ctx: z80 @ feat/streaming
 ```
-

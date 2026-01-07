@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import anyio
 import pytest
 
@@ -7,11 +9,13 @@ from takopi.telegram.bridge import (
     _build_bot_commands,
     _handle_cancel,
     _is_cancel_command,
+    _resolve_message,
     _send_with_resume,
     _strip_engine_command,
     run_main_loop,
 )
 from takopi.context import RunContext
+from takopi.config import ProjectConfig, ProjectsConfig
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
 from takopi.markdown import MarkdownPresenter
 from takopi.model import EngineId, ResumeToken
@@ -469,6 +473,32 @@ def test_cancel_command_accepts_extra_text() -> None:
     assert _is_cancel_command("/cancel now") is True
     assert _is_cancel_command("/cancel@takopi please") is True
     assert _is_cancel_command("/cancelled") is False
+
+
+def test_resolve_message_accepts_backticked_ctx_line() -> None:
+    router = _make_router(ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE))
+    projects = ProjectsConfig(
+        projects={
+            "takopi": ProjectConfig(
+                alias="takopi",
+                path=Path("."),
+                worktrees_dir=Path(".worktrees"),
+            )
+        },
+        default_project=None,
+    )
+
+    resolved = _resolve_message(
+        text="do it",
+        reply_text="`ctx: takopi @ feat/api`",
+        router=router,
+        projects=projects,
+    )
+
+    assert resolved.prompt == "do it"
+    assert resolved.resume_token is None
+    assert resolved.engine_override is None
+    assert resolved.context == RunContext(project="takopi", branch="feat/api")
 
 
 @pytest.mark.anyio

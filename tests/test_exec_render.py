@@ -152,12 +152,12 @@ def test_progress_renderer_footer_includes_ctx_before_resume() -> None:
 
     state = tracker.snapshot(
         resume_formatter=_format_resume,
-        context_line="ctx: z80 @ feat/name",
+        context_line="`ctx: z80 @ feat/name`",
     )
     formatter = MarkdownFormatter(max_actions=5)
     parts = formatter.render_progress_parts(state, elapsed_s=0.0)
     assert parts.footer == (
-        "ctx: z80 @ feat/name\n`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`"
+        "`ctx: z80 @ feat/name`\n`codex resume 0199a213-81c0-7800-8aa1-bbab2a035a53`"
     )
 
 
