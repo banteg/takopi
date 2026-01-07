@@ -30,6 +30,15 @@ default_engine = "codex"       # optional, per-project override
 worktree_base = "master"       # optional, base for new branches
 ```
 
+Note on `worktrees_dir`:
+
+- The default `.worktrees` lives inside the repo root. You'll see it as an
+  untracked directory (with nested git worktrees) unless you ignore it.
+- Options:
+  - add `.worktrees/` to your repo `.gitignore`, or
+  - set `worktrees_dir` to a path outside the repo (e.g. `~/.takopi/worktrees/<alias>`).
+  - add it to `.git/info/exclude` if you prefer a local-only ignore.
+
 Validation rules:
 
 - `projects` is optional.

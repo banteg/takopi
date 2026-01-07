@@ -100,6 +100,10 @@ default_engine = "codex"
 worktree_base = "master"
 ```
 
+note: the default `worktrees_dir` lives inside the repo, so `.worktrees/` will
+show up as untracked unless you ignore it (add to `.gitignore` or
+`.git/info/exclude`), or set `worktrees_dir` to a path outside the repo.
+
 ## usage
 
 start takopi in the repo you want to work on:
