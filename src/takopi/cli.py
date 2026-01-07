@@ -224,10 +224,16 @@ def _parse_bridge_config(
     engine_list = ", ".join(available_engines) if available_engines else "none"
     if missing_engines:
         engine_list = f"{engine_list} (not installed: {', '.join(missing_engines)})"
+    project_aliases = sorted(
+        {project.alias for project in projects.projects.values()},
+        key=str.lower,
+    )
+    project_list = ", ".join(project_aliases) if project_aliases else "none"
     startup_msg = (
         f"\N{OCTOPUS} **takopi is ready**\n\n"
         f"default: `{router.default_engine}`  \n"
         f"agents: `{engine_list}`  \n"
+        f"projects: `{project_list}`  \n"
         f"working in: `{startup_pwd}`"
     )
 
