@@ -333,13 +333,27 @@ def _run_auto_router(
             lock_handle.release()
 
 
-def _prompt_alias(value: str | None) -> str:
-    alias = value if value is not None else typer.prompt("project alias")
+def _prompt_alias(value: str | None, *, default_alias: str | None = None) -> str:
+    if value is not None:
+        alias = value
+    elif default_alias:
+        alias = typer.prompt("project alias", default=default_alias)
+    else:
+        alias = typer.prompt("project alias")
     alias = alias.strip()
     if not alias:
         typer.echo("error: project alias cannot be empty", err=True)
         raise typer.Exit(code=1)
     return alias
+
+
+def _default_alias_from_path(path: Path) -> str | None:
+    name = path.name
+    if not name:
+        return None
+    if name.endswith(".git"):
+        name = name[: -len(".git")]
+    return name or None
 
 
 def _ensure_projects_table(config: dict, config_path: Path) -> dict:
@@ -363,8 +377,12 @@ def init(
     ),
 ) -> None:
     """Register the current repo as a Takopi project."""
-    alias = _prompt_alias(alias)
     config, config_path = load_or_init_config()
+
+    cwd = Path.cwd()
+    project_path = resolve_main_worktree_root(cwd) or cwd
+    default_alias = _default_alias_from_path(project_path)
+    alias = _prompt_alias(alias, default_alias=default_alias)
 
     engine_ids = [backend.id for backend in list_backends()]
     projects_cfg = parse_projects_config(
@@ -398,8 +416,6 @@ def init(
         projects.pop(existing.alias, None)
 
     default_engine = _default_engine_for_setup(None)
-    cwd = Path.cwd()
-    project_path = resolve_main_worktree_root(cwd) or cwd
     worktree_base = resolve_default_base(project_path)
 
     entry: dict[str, object] = {
