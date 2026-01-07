@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,12 +95,16 @@ def format_file_change_title(action: Action, *, command_width: int | None) -> st
     if isinstance(changes, list) and changes:
         rendered: list[str] = []
         for raw in changes:
-            if not isinstance(raw, dict):
-                continue
-            path = raw.get("path")
+            path: str | None
+            kind: str | None
+            if isinstance(raw, dict):
+                path = raw.get("path")
+                kind = raw.get("kind")
+            else:
+                path = getattr(raw, "path", None)
+                kind = getattr(raw, "kind", None)
             if not isinstance(path, str) or not path:
                 continue
-            kind = raw.get("kind")
             verb = kind if isinstance(kind, str) and kind else "update"
             rendered.append(f"{verb} {format_changed_file_path(path)}")
 
@@ -110,7 +115,15 @@ def format_file_change_title(action: Action, *, command_width: int | None) -> st
             inline = shorten(", ".join(rendered), command_width)
             return f"files: {inline}"
 
-    return f"files: {shorten(title, command_width)}"
+    fallback = title
+    relativized = relativize_path(fallback)
+    was_relativized = relativized != fallback
+    if was_relativized:
+        fallback = relativized
+    if fallback and not (fallback.startswith("`") and fallback.endswith("`")):
+        if was_relativized or os.sep in fallback or "/" in fallback:
+            fallback = f"`{fallback}`"
+    return f"files: {shorten(fallback, command_width)}"
 
 
 def format_action_title(action: Action, *, command_width: int | None) -> str:
