@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from takopi.utils.git import resolve_main_worktree_root
+from takopi.utils.git import resolve_default_base, resolve_main_worktree_root
 
 
 def test_resolve_main_worktree_root_returns_none_when_no_git(monkeypatch) -> None:
@@ -34,3 +34,23 @@ def test_resolve_main_worktree_root_returns_cwd_for_bare_repo(monkeypatch) -> No
 
     monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
     assert resolve_main_worktree_root(cwd) == cwd
+
+
+def test_resolve_default_base_prefers_master_over_main(monkeypatch) -> None:
+    def _fake_stdout(args, **kwargs):
+        if args[:2] == ["symbolic-ref", "-q"]:
+            return None
+        if args == ["branch", "--show-current"]:
+            return None
+        return None
+
+    def _fake_ok(args, **kwargs):
+        if args == ["show-ref", "--verify", "--quiet", "refs/heads/master"]:
+            return True
+        if args == ["show-ref", "--verify", "--quiet", "refs/heads/main"]:
+            return True
+        return False
+
+    monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
+    monkeypatch.setattr("takopi.utils.git.git_ok", _fake_ok)
+    assert resolve_default_base(Path("/repo")) == "master"

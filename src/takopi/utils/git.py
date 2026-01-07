@@ -59,10 +59,10 @@ def resolve_default_base(root: Path) -> str | None:
     if current:
         return current
 
-    if git_ok(["show-ref", "--verify", "--quiet", "refs/heads/main"], cwd=root):
-        return "main"
     if git_ok(["show-ref", "--verify", "--quiet", "refs/heads/master"], cwd=root):
         return "master"
+    if git_ok(["show-ref", "--verify", "--quiet", "refs/heads/main"], cwd=root):
+        return "main"
     return None
 
 

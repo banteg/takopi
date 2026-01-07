@@ -48,7 +48,7 @@ Important behavior:
   `takopi init` inside a worktree. Takopi resolves the repo root via the git
   common dir and writes that path to `[projects.<alias>].path`.
 - `worktree_base` is set from the current repo using this resolution order:
-  `origin/HEAD` → current branch → `main` → `master`.
+  `origin/HEAD` → current branch → `master` → `main`.
 
 ## Directives and context resolution
 
@@ -112,8 +112,8 @@ Base branch selection:
 1) `projects.<alias>.worktree_base` (if set)
 2) `origin/HEAD` (if present)
 3) current checked out branch
-4) `main` if it exists
-5) `master` if it exists
+4) `master` if it exists
+5) `main` if it exists
 6) otherwise error
 
 When `@branch` is omitted:
