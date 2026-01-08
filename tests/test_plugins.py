@@ -115,3 +115,70 @@ def test_validator_errors_are_captured(monkeypatch) -> None:
 
     errors = plugins.get_load_errors()
     assert any("not valid" in err.error for err in errors)
+
+
+def test_reset_plugin_state_clears_cache(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def loader():
+        calls["count"] += 1
+        return object()
+
+    entrypoints = [
+        FakeEntryPoint(
+            "codex",
+            "takopi.runners.codex:BACKEND",
+            plugins.ENGINE_GROUP,
+            loader=loader,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    plugins.load_entrypoint(plugins.ENGINE_GROUP, "codex")
+    plugins.load_entrypoint(plugins.ENGINE_GROUP, "codex")
+    assert calls["count"] == 1
+
+    plugins.reset_plugin_state()
+    plugins.load_entrypoint(plugins.ENGINE_GROUP, "codex")
+    assert calls["count"] == 2
+
+
+def test_clear_load_errors_filters(monkeypatch) -> None:
+    def loader():
+        raise RuntimeError("boom")
+
+    entrypoints = [
+        FakeEntryPoint(
+            "broken_engine",
+            "takopi.runners.broken:BACKEND",
+            plugins.ENGINE_GROUP,
+            loader=loader,
+            dist_name="engine-dist",
+        ),
+        FakeEntryPoint(
+            "broken_transport",
+            "takopi.transports.broken:BACKEND",
+            plugins.TRANSPORT_GROUP,
+            loader=loader,
+            dist_name="transport-dist",
+        ),
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    with pytest.raises(plugins.PluginLoadFailed):
+        plugins.load_entrypoint(plugins.ENGINE_GROUP, "broken_engine")
+    with pytest.raises(plugins.PluginLoadFailed):
+        plugins.load_entrypoint(plugins.TRANSPORT_GROUP, "broken_transport")
+
+    errors = plugins.get_load_errors()
+    assert {err.group for err in errors} == {
+        plugins.ENGINE_GROUP,
+        plugins.TRANSPORT_GROUP,
+    }
+
+    plugins.clear_load_errors(group=plugins.ENGINE_GROUP)
+    errors = plugins.get_load_errors()
+    assert {err.group for err in errors} == {plugins.TRANSPORT_GROUP}
+
+    plugins.clear_load_errors(name="broken_transport")
+    assert plugins.get_load_errors() == ()
