@@ -176,34 +176,25 @@ Same pattern:
 * `get_transport()` loads the backend object by entrypoint name, caches it
 * No implicit “register builtins once” global registry needed.
 
-### Step 5: Fix CLI import-time side effects
+### Step 5: Fix CLI import-time side effects (choose Option B)
 
 Change CLI so it doesn’t import/instantiate backends at module import time.
-
-Two approaches (pick one):
-
-**Option A (minimal change)**: keep dynamic per-engine commands, but register them from IDs only
-
-* In `cli.py`, replace `for backend in list_backends():` with `for engine_id in list_backend_ids():`.
-* This avoids importing all backends at import time.
-* When a user runs `takopi <engine>`, `_run_auto_router()` later calls `get_backend(engine_id)` and loads only that one.
 
 **Option B (cleaner click/typer architecture)**: build the Typer app in `main()`
 
 * `def create_app(): ...` registers commands after `setup_logging()` if you want.
-* Slightly more refactor but gives you more control and makes plugin-error reporting nicer.
-
-Given your codebase, Option A is probably the best “next version” move.
+* This keeps help/version paths lazy and makes plugin-error reporting nicer.
+* Slightly more refactor, but sets you up cleanly for future plugin UX.
 
 ### Step 6: Add a `takopi plugins` (or `takopi doctor`) command
 
 This is hugely useful once plugins exist.
 
-Show:
+Show (without loading by default):
 
 * discovered engine ids + which distribution provided them
 * discovered transport ids
-* load failures (with traceback only in `--debug`, short error otherwise)
+* only load + report failures when `--load` (with traceback only in `--debug`, short error otherwise)
 
 This is also where `plugins.enabled` / `plugins.auto_install` can matter later.
 
@@ -219,13 +210,11 @@ class PluginsSettings(BaseModel):
 
 You can make this meaningful without overcomplicating:
 
-**Suggested semantics**
+**Chosen semantics (now)**
 
 * `enabled = []` → load all installed plugins (default)
 * `enabled = ["takopi-aider", "takopi-slack"]` → allowlist by distribution name; ignore other entrypoints
-* `auto_install = true` (optional) → if config references unknown engine/transport, try installing a conventional package name (e.g. `takopi-engine-<id>` / `takopi-transport-<id>`) and re-run discovery
-
-If you don’t want the complexity now: implement allowlisting first and leave auto-install as a later enhancement.
+* `auto_install` remains **unimplemented** for now (documented as future work)
 
 ### Step 8: Tests for plugin discovery
 
@@ -244,72 +233,27 @@ This can easily balloon your public API surface. I’d treat it as a second-stag
 
 ### What I’d support (and what I’d postpone)
 
-#### V1: “Directive macros” (safe-ish and composable)
+#### V1: Extract built-in directives into a core module (no plugin directives yet)
 
-Instead of arbitrary command handlers, support a simple extension point:
-
-* a plugin can register a directive name (e.g. `review`)
-* it transforms the incoming message into:
-
-  * an engine override (optional)
-  * a context override (optional)
-  * a prompt prefix/suffix (optional)
-  * whether to consume the directive token
-
-This keeps the command system **purely declarative**: it doesn’t require plugins to hook into the Telegram loop or scheduler.
+Move directive parsing out of `telegram/bridge.py` into `takopi/directives.py`, but keep the directive set **built-in only** for this version. This buys you a clean boundary and makes adding plugin directives later far less invasive.
 
 **Why this is good**
 
-* transport-agnostic (works for any future Slack/Discord transport because it’s just text processing)
-* low coupling: no need for plugins to call Telegram APIs
-* safe-ish: less chance of plugins breaking invariants
+* transport-agnostic parsing (Slack/Discord can reuse)
+* makes Telegram menu generation independent of Telegram-specific parsing
+* keeps the plugin API surface small for the first plugin release
 
 **Implementation sketch**
-Create a new core module `takopi/directives.py` and move parsing out of `telegram/bridge.py`.
 
-Define a public Protocol:
+* Move `_parse_directives` (and any helpers like `_strip_engine_command`) into `takopi/directives.py`
+* Keep a pure function API (tokens in, normalized directive data out)
+* Telegram bridge calls into it; future transports can share it
 
-```py
-@dataclass(frozen=True, slots=True)
-class DirectiveContext:
-    engine_ids: tuple[str, ...]
-    project_aliases: tuple[str, ...]  # or ProjectsConfig
-    # maybe: config_path/settings for advanced cases (optional)
+#### V2: “Directive macros” for plugins (safe-ish and composable)
 
-@dataclass(frozen=True, slots=True)
-class DirectiveEffect:
-    engine: str | None = None
-    project: str | None = None
-    branch: str | None = None
-    prompt_prefix: str | None = None
-    prompt_suffix: str | None = None
+After discovery + lazy loading are stable, add plugin directives as a new entrypoint group. The earlier `DirectivePlugin` protocol + `DirectiveEffect` still applies; just postpone it.
 
-class DirectivePlugin(Protocol):
-    name: str                 # "review"
-    description: str          # for Telegram menu (optional)
-    def apply(self, tokens: list[str], ctx: DirectiveContext) -> tuple[int, DirectiveEffect] | None: ...
-```
-
-Then core runs:
-
-1. built-in directives (engine/project/branch)
-2. plugin directives
-3. remaining tokens become prompt
-
-Entry point group:
-
-```toml
-[project.entry-points."takopi.directives"]
-review = "takopi_review.directive:PLUGIN"
-```
-
-Telegram menu generation becomes:
-
-* engines
-* projects
-* plugin directives (validated by regex + capped at 100)
-
-#### V2: “Active commands” (do something without invoking an engine)
+#### V3: “Active commands” (do something without invoking an engine)
 
 This is where complexity skyrockets:
 
@@ -386,7 +330,7 @@ If you want something that’s both useful and maintainable, aim for:
 1. **Entrypoints for engines and transports** (core + plugins)
 2. **Lazy loading** so help works even with broken plugins
 3. **A small published plugin API module** (`takopi.api`)
-4. **A `takopi plugins` introspection command**
-5. (Optional) directives/macros as a separate step once discovery is solid
+4. **A `takopi plugins` introspection command** (lazy by default, load on `--load`)
+5. **Directive refactor** into `takopi/directives.py` (built-ins only)
 
 That gives you exactly what you asked for: people can add runners/transports outside core, and you’re not committing to an unbounded plugin surface area from day one.
