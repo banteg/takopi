@@ -497,7 +497,7 @@ wheels = [
 
 [[package]]
 name = "takopi"
-version = "0.10.0"
+version = "0.11.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
