@@ -142,7 +142,7 @@ def test_session_path_prefers_run_base_dir(tmp_path: Path) -> None:
     session_root = tmp_path / "sessions"
 
     with (
-        patch("takopi.utils.paths.get_run_base_dir", return_value=project_cwd),
+        patch("takopi.runners.pi.get_run_base_dir", return_value=project_cwd),
         patch(
             "takopi.runners.pi._default_session_dir",
             return_value=session_root,
