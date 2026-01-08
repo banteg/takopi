@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
-
+import re
 
 import anyio
 
@@ -35,6 +35,13 @@ from .client import BotClient, poll_incoming
 from .render import prepare_telegram
 
 logger = get_logger(__name__)
+
+_COMMAND_RE = re.compile(r"^[a-z0-9_]{1,32}$")
+_MAX_BOT_COMMANDS = 100
+
+
+def _is_valid_bot_command(command: str) -> bool:
+    return bool(_COMMAND_RE.fullmatch(command))
 
 
 def _is_cancel_command(text: str) -> bool:
@@ -280,7 +287,9 @@ def _resolve_message(
     )
 
 
-def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
+def _build_bot_commands(
+    router: AutoRouter, projects: ProjectsConfig
+) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     seen: set[str] = set()
     for entry in router.available_entries:
@@ -289,13 +298,34 @@ def _build_bot_commands(router: AutoRouter) -> list[dict[str, str]]:
             continue
         commands.append({"command": cmd, "description": f"start {cmd}"})
         seen.add(cmd)
+    for alias, project in projects.projects.items():
+        cmd = alias.lower()
+        if cmd in seen:
+            continue
+        if not _is_valid_bot_command(cmd):
+            logger.debug(
+                "startup.command_menu.skip_project",
+                alias=project.alias,
+            )
+            continue
+        commands.append({"command": cmd, "description": f"project {cmd}"})
+        seen.add(cmd)
     if "cancel" not in seen:
         commands.append({"command": "cancel", "description": "cancel run"})
+    if len(commands) > _MAX_BOT_COMMANDS:
+        logger.warning(
+            "startup.command_menu.too_many",
+            count=len(commands),
+            limit=_MAX_BOT_COMMANDS,
+        )
+        commands = commands[:_MAX_BOT_COMMANDS]
+        if not any(cmd["command"] == "cancel" for cmd in commands):
+            commands[-1] = {"command": "cancel", "description": "cancel run"}
     return commands
 
 
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
-    commands = _build_bot_commands(cfg.router)
+    commands = _build_bot_commands(cfg.router, cfg.projects)
     if not commands:
         return
     try:

@@ -362,8 +362,12 @@ Takopi SHOULD keep the bot’s slash-command menu in sync at startup by calling
 * The command list MUST include:
   * `cancel` — cancel the current run
   * one entry per configured engine
+  * one entry per configured project alias that is a valid Telegram command
 * The command list MUST NOT include commands the bot does not support.
 * Command descriptions SHOULD be terse and lowercase.
+* The command list SHOULD be capped at 100 entries per Telegram's limit; if the
+  config exceeds that limit, implementations SHOULD warn and truncate while
+  still handling all commands at runtime.
 
 ## 9. Testing requirements (MUST)
 

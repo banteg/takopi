@@ -67,7 +67,7 @@ The Telegram adapter module containing:
 - `/cancel` routes by reply-to progress message id (accepts extra text)
 - `/{engine}` on the first line selects the engine for new threads
 - Resume parsing polls all runners via `AutoRouter.resolve_resume()` and routes to the first match
-- Bot command menu is synced on startup (`cancel` + engine commands)
+- Bot command menu is synced on startup (`cancel` + engine + project commands, capped at 100)
 
 ### `transport.py` - Transport protocol
 

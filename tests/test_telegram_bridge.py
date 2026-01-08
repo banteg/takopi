@@ -15,7 +15,7 @@ from takopi.telegram.bridge import (
     run_main_loop,
 )
 from takopi.context import RunContext
-from takopi.config import ProjectConfig, ProjectsConfig
+from takopi.config import ProjectConfig, ProjectsConfig, empty_projects_config
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
 from takopi.markdown import MarkdownPresenter
 from takopi.model import EngineId, ResumeToken
@@ -237,10 +237,61 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
         [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
     )
     router = _make_router(runner)
-    commands = _build_bot_commands(router)
+    commands = _build_bot_commands(router, empty_projects_config())
 
     assert {"command": "cancel", "description": "cancel run"} in commands
     assert any(cmd["command"] == "codex" for cmd in commands)
+
+
+def test_build_bot_commands_includes_projects() -> None:
+    runner = ScriptRunner(
+        [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
+    )
+    router = _make_router(runner)
+    projects = ProjectsConfig(
+        projects={
+            "good": ProjectConfig(
+                alias="good",
+                path=Path("."),
+                worktrees_dir=Path(".worktrees"),
+            ),
+            "bad-name": ProjectConfig(
+                alias="bad-name",
+                path=Path("."),
+                worktrees_dir=Path(".worktrees"),
+            ),
+        },
+        default_project=None,
+    )
+
+    commands = _build_bot_commands(router, projects)
+
+    assert any(cmd["command"] == "good" for cmd in commands)
+    assert not any(cmd["command"] == "bad-name" for cmd in commands)
+
+
+def test_build_bot_commands_caps_total() -> None:
+    runner = ScriptRunner(
+        [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
+    )
+    router = _make_router(runner)
+    projects = ProjectsConfig(
+        projects={
+            f"proj{i}": ProjectConfig(
+                alias=f"proj{i}",
+                path=Path("."),
+                worktrees_dir=Path(".worktrees"),
+            )
+            for i in range(150)
+        },
+        default_project=None,
+    )
+
+    commands = _build_bot_commands(router, projects)
+
+    assert len(commands) == 100
+    assert any(cmd["command"] == "codex" for cmd in commands)
+    assert any(cmd["command"] == "cancel" for cmd in commands)
 
 
 @pytest.mark.anyio
