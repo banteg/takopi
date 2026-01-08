@@ -101,3 +101,4 @@ class TelegramBackend(TransportBackend):
 
 
 telegram_backend = TelegramBackend()
+BACKEND = telegram_backend

@@ -42,7 +42,7 @@ opencode = "takopi.runners.opencode:BACKEND"
 pi = "takopi.runners.pi:BACKEND"
 
 [project.entry-points."takopi.transport_backends"]
-telegram = "takopi.telegram.backend:telegram_backend"
+telegram = "takopi.telegram.backend:BACKEND"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
