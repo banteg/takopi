@@ -9,10 +9,19 @@ flowchart TB
         cli_desc["Entry point, config loading, lock file"]
     end
 
+    subgraph Plugins["Plugin Layer"]
+        entrypoints[plugins.py<br/>entrypoint discovery]
+        engines[engines.py]
+        transports[transports.py]
+        commands[commands.py]
+        api[api.py<br/>public plugin API]
+    end
+
     subgraph Orchestration["Orchestration Layer"]
         router[AutoRouter<br/>router.py]
         scheduler[ThreadScheduler<br/>scheduler.py]
         projects[ProjectsConfig<br/>config.py]
+        runtime[TransportRuntime<br/>transport_runtime.py]
     end
 
     subgraph Bridge["Bridge Layer"]
@@ -42,8 +51,18 @@ flowchart TB
     cli --> router
     cli --> scheduler
     cli --> projects
+    cli --> engines
+    cli --> transports
+    cli --> commands
+    engines --> entrypoints
+    transports --> entrypoints
+    commands --> entrypoints
+    router --> runtime
+    projects --> runtime
     router --> tg_bridge
     scheduler --> tg_bridge
+    runtime --> tg_bridge
+    tg_bridge --> commands
     tg_bridge --> runner_bridge
     runner_bridge --> runner_proto
     runner_proto --> runners
@@ -56,6 +75,21 @@ flowchart TB
     presenter --> markdown
     tg_client --> telegram_api
 ```
+
+---
+
+## Plugin Architecture
+
+Takopi discovers plugins via Python entrypoints and keeps loading lazy:
+
+- **Engine backends** (`takopi.engine_backends`)
+- **Transport backends** (`takopi.transport_backends`)
+- **Command backends** (`takopi.command_backends`)
+
+Entrypoint names become plugin IDs, are validated up front (reserved names, regex),
+and are only loaded when needed. The public surface for plugin authors lives in
+`takopi.api`, while transports and commands interact with core routing via
+`TransportRuntime`.
 
 ---
 
@@ -120,19 +154,27 @@ sequenceDiagram
     participant RunnerBridge as runner_bridge.py
     participant Runner
     participant AgentCLI as Agent CLI
+    participant Command as Command Plugin
 
     User->>Telegram: Send message
     Telegram->>Bridge: poll_incoming()
 
-    Bridge->>Bridge: Parse directives<br/>(/engine, /project, @branch)
-    Bridge->>Bridge: Extract resume token<br/>from reply
-    Bridge->>Bridge: Resolve worktree<br/>(if @branch)
+    Bridge->>Bridge: Parse slash command
+    alt Command plugin
+        Bridge->>Command: handle(ctx)
+        Command->>RunnerBridge: run_one/run_many (optional)
+        RunnerBridge->>Telegram: Send progress/final
+    else Default routing
+        Bridge->>Bridge: Parse directives<br/>(/engine, /project, @branch)
+        Bridge->>Bridge: Extract resume token<br/>from reply
+        Bridge->>Bridge: Resolve worktree<br/>(if @branch)
 
-    Bridge->>Scheduler: enqueue(ThreadJob)
-    Scheduler->>RunnerBridge: handle_message()
+        Bridge->>Scheduler: enqueue(ThreadJob)
+        Scheduler->>RunnerBridge: handle_message()
 
-    RunnerBridge->>Telegram: Send progress message
-    RunnerBridge->>Runner: run(prompt, resume)
+        RunnerBridge->>Telegram: Send progress message
+        RunnerBridge->>Runner: run(prompt, resume)
+    end
 
     Runner->>AgentCLI: Spawn subprocess
 
@@ -217,7 +259,13 @@ sequenceDiagram
 flowchart TD
     cli[cli.py] --> config[config.py]
     cli --> engines[engines.py]
+    cli --> transports[transports.py]
+    cli --> commands[commands.py]
     cli --> lockfile[lockfile.py]
+
+    engines --> plugins[plugins.py]
+    transports --> plugins
+    commands --> plugins
 
     engines --> backends[backends.py]
 
@@ -244,7 +292,10 @@ flowchart TD
     pi --> pi_s
 
     cli --> router[router.py]
-    router --> tg_bridge[telegram/bridge.py]
+    tg_bridge --> runtime[transport_runtime.py]
+    runtime --> router
+    runtime --> config
+    tg_bridge --> commands
 
     runner --> runner_bridge[runner_bridge.py]
     runner_bridge --> tg_bridge
@@ -274,12 +325,12 @@ flowchart LR
 
     subgraph toml_contents["takopi.toml"]
         direction TB
-        global["transport<br/>default_engine"]
+        global["transport<br/>default_engine<br/>default_project"]
         telegram_cfg["[transports.telegram]<br/>bot_token = ...<br/>chat_id = ..."]
+        plugins_cfg["[plugins]<br/>enabled = [\"...\"]"]
         claude_cfg["[claude]<br/>model = ..."]
         codex_cfg["[codex]<br/>model = ..."]
         projects_cfg["[projects.alias]<br/>path = ...<br/>worktrees_dir = ...<br/>default_engine = ..."]
-        default_proj["[projects]<br/>default = ..."]
     end
 
     toml --> toml_contents
@@ -335,6 +386,7 @@ flowchart TD
 | Layer | Components | Responsibility |
 |-------|------------|----------------|
 | **CLI** | `cli.py` | Entry point, config, lock |
+| **Plugins** | `plugins.py`, `engines.py`, `transports.py`, `commands.py`, `api.py` | Entrypoint discovery, plugin loading, public API boundary |
 | **Orchestration** | `router.py`, `scheduler.py`, `config.py` | Engine selection, job queuing, project config |
 | **Bridge** | `telegram/bridge.py`, `runner_bridge.py` | Message handling, execution coordination |
 | **Runner** | `runner.py`, `runners/*.py`, `schemas/*.py` | Agent CLI subprocess, JSONL parsing, event translation |
