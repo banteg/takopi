@@ -179,6 +179,11 @@ Centralizes plugin discovery and lazy loading:
 - captures load errors for diagnostics
 - filters by allowlist (distribution names)
 
+### `commands.py` - Command backend loading
+
+Defines the command backend protocol, command context/executor helpers, and
+entrypoint-backed loading for slash-command plugins.
+
 ### `ids.py` - Plugin ID validation
 
 Defines the shared ID regex used for plugin IDs and Telegram command names.

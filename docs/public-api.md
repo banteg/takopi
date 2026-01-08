@@ -51,6 +51,18 @@ dependencies = ["takopi>=0.11,<0.12"]
 | `ResolvedMessage` | Parsed prompt + resume/context resolution |
 | `ResolvedRunner` | Runner selection result |
 
+### Command backends
+
+| Symbol | Purpose |
+|--------|---------|
+| `CommandBackend` | Slash command plugin protocol |
+| `CommandContext` | Context passed to a command handler |
+| `CommandExecutor` | Helper to send messages or run engines |
+| `CommandResult` | Simple response payload for a command |
+| `RunRequest` | Engine run request used by commands |
+| `RunResult` | Engine run result (captured output) |
+| `RunMode` | `"emit"` (send) or `"capture"` (collect) |
+
 ### Core types and helpers
 
 | Symbol | Purpose |
@@ -146,6 +158,28 @@ Transport backends are responsible for:
 - Validating config and onboarding users (`check_setup`, `interactive_setup`)
 - Providing a lock token so Takopi can prevent parallel runs
 - Starting the transport loop in `build_and_run`
+
+---
+
+## CommandBackend
+
+```py
+class CommandBackend(Protocol):
+    id: str
+    description: str
+
+    async def handle(self, ctx: CommandContext) -> CommandResult | None: ...
+```
+
+Command handlers receive a `CommandContext` with:
+
+- the raw command text and parsed args
+- the original message + reply metadata
+- `runtime` (engine/project resolution)
+- `executor` (send messages or run engines)
+
+Use `ctx.executor.run_one(...)` or `ctx.executor.run_many(...)` to reuse Takopi's
+engine pipeline. Use `mode="capture"` to collect results and build a custom reply.
 
 ---
 

@@ -4,6 +4,7 @@ Takopi supports **entrypoint-based plugins** for:
 
 - **Engine backends** (new runner implementations)
 - **Transport backends** (new chat/command transports)
+- **Command backends** (custom `/command` handlers)
 
 Plugins are **discovered lazily**: Takopi lists IDs without importing plugin code,
 and loads a plugin only when it is needed (or when you explicitly request it).
@@ -24,6 +25,9 @@ myengine = "myengine.backend:BACKEND"
 
 [project.entry-points."takopi.transport_backends"]
 mytransport = "mytransport.backend:BACKEND"
+
+[project.entry-points."takopi.command_backends"]
+mycommand = "mycommand.backend:BACKEND"
 ```
 
 **Rules:**
@@ -56,6 +60,13 @@ If an ID does not match, it is skipped and reported as an error.
 
 Engines using these IDs are skipped and reported as errors.
 
+**Reserved IDs (commands):**
+
+- `cancel`, `init`, `plugins`
+- Any engine id or project alias (checked at runtime)
+
+Command backends using reserved IDs are skipped and reported as errors.
+
 ---
 
 ## Allowlisting plugins
@@ -78,7 +89,7 @@ This allowlist affects:
 
 - Engine subcommands registered in the CLI
 - `takopi plugins` output
-- Runtime resolution of engines/transports
+- Runtime resolution of engines/transports/commands
 
 ---
 
@@ -214,6 +225,48 @@ BACKEND = MyTransportBackend()
 For most transports, you will want to call `handle_message()` from `takopi.api`
 inside your message loop. That function implements progress updates, resume handling,
 and cancellation semantics.
+
+---
+
+## Command backend plugins
+
+Command plugins add custom `/command` handlers. A command only runs when the
+message starts with `/command` and does **not** collide with engine ids,
+project aliases, or reserved command names.
+
+Minimal example:
+
+```py
+# mycommand/backend.py
+from __future__ import annotations
+
+from takopi.api import CommandContext, CommandResult, RunRequest
+
+class MultiCommand:
+    id = "multi"
+    description = "run the prompt on every engine"
+
+    async def handle(self, ctx: CommandContext) -> CommandResult | None:
+        prompt = ctx.args_text.strip()
+        if not prompt:
+            return CommandResult(text="usage: /multi <prompt>")
+        requests = [
+            RunRequest(prompt=prompt, engine=engine)
+            for engine in ctx.runtime.available_engine_ids()
+        ]
+        results = await ctx.executor.run_many(
+            requests,
+            mode="capture",
+            parallel=True,
+        )
+        blocks = []
+        for result in results:
+            text = result.message.text if result.message else "no output"
+            blocks.append(f"## {result.engine}\n{text}")
+        return CommandResult(text="\n\n".join(blocks))
+
+BACKEND = MultiCommand()
+```
 
 ---
 
