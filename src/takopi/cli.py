@@ -22,7 +22,7 @@ from .settings import (
     require_telegram,
     validate_settings_data,
 )
-from .transports import SetupResult, get_transport
+from .transports import SetupResult, get_transport, list_transports
 from .utils.git import resolve_default_base, resolve_main_worktree_root
 
 logger = get_logger(__name__)
@@ -417,6 +417,13 @@ def init(
     typer.echo(f"saved project {alias!r} to {_config_path_display(config_path)}")
 
 
+def transports_cmd() -> None:
+    """List available transport backends."""
+    ids = list_transports()
+    for transport_id in ids:
+        typer.echo(transport_id)
+
+
 app = typer.Typer(
     add_completion=False,
     invoke_without_command=True,
@@ -425,6 +432,7 @@ app = typer.Typer(
 
 
 app.command(name="init")(init)
+app.command(name="transports")(transports_cmd)
 
 
 @app.callback()
