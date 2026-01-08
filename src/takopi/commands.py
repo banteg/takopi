@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Literal, Protocol, overload, runtime_checkable
+from pathlib import Path
+from typing import Any, Literal, Protocol, overload, runtime_checkable
 
 from .config import ConfigError
 from .context import RunContext
@@ -65,6 +66,8 @@ class CommandContext:
     message: MessageRef
     reply_to: MessageRef | None
     reply_text: str | None
+    config_path: Path | None
+    plugin_config: dict[str, Any]
     runtime: TransportRuntime
     executor: CommandExecutor
 

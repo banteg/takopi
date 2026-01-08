@@ -13,6 +13,7 @@ from ..commands import (
     RunRequest,
     RunResult,
     get_command,
+    list_command_ids,
 )
 from ..context import RunContext
 from ..config import ConfigError
@@ -32,17 +33,12 @@ from ..progress import ProgressState, ProgressTracker
 from ..router import RunnerUnavailableError
 from ..runner import Runner
 from ..scheduler import ThreadJob, ThreadScheduler
-from ..transport import (
-    IncomingMessage as TransportIncomingMessage,
-    MessageRef,
-    RenderedMessage,
-    SendOptions,
-    Transport,
-)
+from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
 from ..plugins import COMMAND_GROUP, list_entrypoints
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
 from ..transport_runtime import TransportRuntime
 from .client import BotClient, poll_incoming
+from .types import TelegramIncomingMessage
 from .render import prepare_telegram
 
 logger = get_logger(__name__)
@@ -340,7 +336,7 @@ async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int |
 
 async def poll_updates(
     cfg: TelegramBridgeConfig,
-) -> AsyncIterator[TransportIncomingMessage]:
+) -> AsyncIterator[TelegramIncomingMessage]:
     offset: int | None = None
     offset = await _drain_backlog(cfg, offset)
     await _send_startup(cfg)
@@ -351,7 +347,7 @@ async def poll_updates(
 
 async def _handle_cancel(
     cfg: TelegramBridgeConfig,
-    msg: TransportIncomingMessage,
+    msg: TelegramIncomingMessage,
     running_tasks: RunningTasks,
 ) -> None:
     chat_id = msg.chat_id
@@ -701,18 +697,14 @@ class _TelegramCommandExecutor(CommandExecutor):
 
 
 async def _dispatch_command(
-    *,
     cfg: TelegramBridgeConfig,
-    msg: TransportIncomingMessage,
+    msg: TelegramIncomingMessage,
     command_id: str,
     args_text: str,
     running_tasks: RunningTasks,
     scheduler: ThreadScheduler,
-) -> bool:
+) -> None:
     allowlist = cfg.runtime.allowlist
-    backend = get_command(command_id, allowlist=allowlist, required=False)
-    if backend is None:
-        return False
     chat_id = msg.chat_id
     user_msg_id = msg.message_id
     reply_ref = (
@@ -729,6 +721,18 @@ async def _dispatch_command(
         user_msg_id=user_msg_id,
     )
     message_ref = MessageRef(channel_id=chat_id, message_id=user_msg_id)
+    try:
+        backend = get_command(command_id, allowlist=allowlist, required=False)
+    except ConfigError as exc:
+        await executor.send(f"error:\n{exc}", reply_to=message_ref, notify=True)
+        return
+    if backend is None:
+        return
+    try:
+        plugin_config = cfg.runtime.plugin_config(command_id)
+    except ConfigError as exc:
+        await executor.send(f"error:\n{exc}", reply_to=message_ref, notify=True)
+        return
     ctx = CommandContext(
         command=command_id,
         text=msg.text,
@@ -737,6 +741,8 @@ async def _dispatch_command(
         message=message_ref,
         reply_to=reply_ref,
         reply_text=msg.reply_to_text,
+        config_path=cfg.runtime.config_path,
+        plugin_config=plugin_config,
         runtime=cfg.runtime,
         executor=executor,
     )
@@ -750,23 +756,32 @@ async def _dispatch_command(
             error_type=exc.__class__.__name__,
         )
         await executor.send(f"error:\n{exc}", reply_to=message_ref, notify=True)
-        return True
+        return
     if result is not None:
         reply_to = message_ref if result.reply_to is None else result.reply_to
         await executor.send(result.text, reply_to=reply_to, notify=result.notify)
-    return True
+    return None
 
 
 async def run_main_loop(
     cfg: TelegramBridgeConfig,
-    poller: Callable[
-        [TelegramBridgeConfig], AsyncIterator[TransportIncomingMessage]
-    ] = poll_updates,
+    poller: Callable[[TelegramBridgeConfig], AsyncIterator[TelegramIncomingMessage]] = (
+        poll_updates
+    ),
 ) -> None:
     running_tasks: RunningTasks = {}
 
     try:
         await _set_command_menu(cfg)
+        allowlist = cfg.runtime.allowlist
+        command_ids = {
+            command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
+        }
+        reserved_commands = {
+            *{engine.lower() for engine in cfg.runtime.engine_ids},
+            *{alias.lower() for alias in cfg.runtime.project_aliases()},
+            *RESERVED_COMMAND_IDS,
+        }
         async with anyio.create_task_group() as tg:
 
             async def run_job(
@@ -822,23 +837,21 @@ async def run_main_loop(
                     continue
 
                 command_id, args_text = _parse_slash_command(text)
-                if command_id is not None:
-                    reserved = {
-                        *{engine.lower() for engine in cfg.runtime.engine_ids},
-                        *{alias.lower() for alias in cfg.runtime.project_aliases()},
-                        *RESERVED_COMMAND_IDS,
-                    }
-                    if command_id not in reserved:
-                        handled = await _dispatch_command(
-                            cfg=cfg,
-                            msg=msg,
-                            command_id=command_id,
-                            args_text=args_text,
-                            running_tasks=running_tasks,
-                            scheduler=scheduler,
-                        )
-                        if handled:
-                            continue
+                if (
+                    command_id is not None
+                    and command_id not in reserved_commands
+                    and command_id in command_ids
+                ):
+                    tg.start_soon(
+                        _dispatch_command,
+                        cfg,
+                        msg,
+                        command_id,
+                        args_text,
+                        running_tasks,
+                        scheduler,
+                    )
+                    continue
 
                 reply_text = msg.reply_to_text
                 try:

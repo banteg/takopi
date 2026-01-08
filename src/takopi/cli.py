@@ -387,6 +387,8 @@ def _run_auto_router(
             router=router,
             projects=projects,
             allowlist=allowlist,
+            config_path=config_path,
+            plugin_configs=settings.plugins.model_extra,
         )
         transport_backend.build_and_run(
             final_notify=final_notify,
@@ -676,7 +678,23 @@ def make_engine_cmd(engine_id: str) -> Callable[..., None]:
 
 
 def _engine_ids_for_cli() -> list[str]:
-    return list_backend_ids()
+    allowlist: list[str] | None = None
+    try:
+        config, _ = load_or_init_config()
+    except ConfigError:
+        return list_backend_ids()
+    raw_plugins = config.get("plugins")
+    if isinstance(raw_plugins, dict):
+        enabled = raw_plugins.get("enabled")
+        if isinstance(enabled, list):
+            allowlist = [
+                value.strip()
+                for value in enabled
+                if isinstance(value, str) and value.strip()
+            ]
+            if not allowlist:
+                allowlist = None
+    return list_backend_ids(allowlist=allowlist)
 
 
 def create_app() -> typer.Typer:

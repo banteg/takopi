@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .config import ConfigError, ProjectsConfig
 from .context import RunContext
@@ -31,7 +32,13 @@ class ResolvedRunner:
 
 
 class TransportRuntime:
-    __slots__ = ("_router", "_projects", "_allowlist")
+    __slots__ = (
+        "_router",
+        "_projects",
+        "_allowlist",
+        "_config_path",
+        "_plugin_configs",
+    )
 
     def __init__(
         self,
@@ -39,10 +46,14 @@ class TransportRuntime:
         router: AutoRouter,
         projects: ProjectsConfig,
         allowlist: Iterable[str] | None = None,
+        config_path: Path | None = None,
+        plugin_configs: Mapping[str, Any] | None = None,
     ) -> None:
         self._router = router
         self._projects = projects
         self._allowlist = normalize_allowlist(allowlist)
+        self._config_path = config_path
+        self._plugin_configs = dict(plugin_configs or {})
 
     @property
     def default_engine(self) -> EngineId:
@@ -66,6 +77,23 @@ class TransportRuntime:
     @property
     def allowlist(self) -> set[str] | None:
         return self._allowlist
+
+    @property
+    def config_path(self) -> Path | None:
+        return self._config_path
+
+    def plugin_config(self, plugin_id: str) -> dict[str, Any]:
+        if not self._plugin_configs:
+            return {}
+        raw = self._plugin_configs.get(plugin_id)
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            path = self._config_path or Path("<config>")
+            raise ConfigError(
+                f"Invalid `plugins.{plugin_id}` in {path}; expected a table."
+            )
+        return dict(raw)
 
     def resolve_message(self, *, text: str, reply_text: str | None) -> ResolvedMessage:
         directives = parse_directives(

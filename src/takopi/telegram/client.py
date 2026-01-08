@@ -18,7 +18,7 @@ import httpx
 import anyio
 
 from ..logging import get_logger
-from ..transport import IncomingMessage
+from .types import TelegramIncomingMessage
 
 logger = get_logger(__name__)
 
@@ -45,7 +45,7 @@ def is_group_chat_id(chat_id: int) -> bool:
 
 def parse_incoming_update(
     update: dict[str, Any], *, chat_id: int
-) -> IncomingMessage | None:
+) -> TelegramIncomingMessage | None:
     msg = update.get("message")
     if not isinstance(msg, dict):
         return None
@@ -79,7 +79,7 @@ def parse_incoming_update(
         if isinstance(sender, dict) and isinstance(sender.get("id"), int)
         else None
     )
-    return IncomingMessage(
+    return TelegramIncomingMessage(
         transport="telegram",
         chat_id=msg_chat_id,
         message_id=message_id,
@@ -96,7 +96,7 @@ async def poll_incoming(
     *,
     chat_id: int,
     offset: int | None = None,
-) -> AsyncIterator[IncomingMessage]:
+) -> AsyncIterator[TelegramIncomingMessage]:
     while True:
         updates = await bot.get_updates(
             offset=offset, timeout_s=50, allowed_updates=["message"]
