@@ -69,9 +69,9 @@ Command backends using reserved IDs are skipped and reported as errors.
 
 ---
 
-## Allowlisting plugins
+## Enabling plugins
 
-Takopi supports a simple allowlist to control which plugins are visible.
+Takopi supports a simple enabled list to control which plugins are visible.
 
 ```toml
 [plugins]
@@ -82,10 +82,10 @@ auto_install = false
 - `enabled = []` (default) -> load all installed plugins.
 - If `enabled` is non-empty, **only distributions with matching names** are visible.
 - Distribution names are taken from package metadata (case-insensitive).
-- If a plugin has no resolvable distribution name and an allowlist is set, it is hidden.
+- If a plugin has no resolvable distribution name and an enabled list is set, it is hidden.
 - `auto_install` is **reserved** and not implemented yet.
 
-This allowlist affects:
+This enabled list affects:
 
 - Engine subcommands registered in the CLI
 - `takopi plugins` output
@@ -290,7 +290,7 @@ any compatibility guidance.
 
 Common issues:
 
-- **Plugin missing from CLI**: check the allowlist in `[plugins] enabled`.
+- **Plugin missing from CLI**: check the enabled list in `[plugins] enabled`.
 - **Plugin not listed**: verify entrypoint group and ID regex.
 - **Load failures**: run `takopi plugins --load` and inspect errors.
 - **ID mismatch**: ensure `BACKEND.id == entrypoint name`.
