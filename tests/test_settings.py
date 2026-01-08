@@ -136,6 +136,42 @@ def test_engine_config_none_and_invalid(tmp_path: Path) -> None:
         settings.engine_config("codex", config_path=config_path)
 
 
+def test_transport_config_telegram_and_extra(tmp_path: Path) -> None:
+    config_path = tmp_path / "takopi.toml"
+    settings = TakopiSettings.model_validate(
+        {
+            "transport": "telegram",
+            "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
+        }
+    )
+    telegram = settings.transport_config("telegram", config_path=config_path)
+    assert telegram["bot_token"] == "token"
+    assert telegram["chat_id"] == 123
+
+    settings = TakopiSettings.model_validate(
+        {
+            "transport": "telegram",
+            "transports": {
+                "telegram": {"bot_token": "token", "chat_id": 123},
+                "discord": None,
+            },
+        }
+    )
+    assert settings.transport_config("discord", config_path=config_path) == {}
+
+    settings = TakopiSettings.model_validate(
+        {
+            "transport": "telegram",
+            "transports": {
+                "telegram": {"bot_token": "token", "chat_id": 123},
+                "discord": "nope",
+            },
+        }
+    )
+    with pytest.raises(ConfigError, match="transports.discord"):
+        settings.transport_config("discord", config_path=config_path)
+
+
 def test_bot_token_none_allowed() -> None:
     settings = TakopiSettings.model_validate(
         {

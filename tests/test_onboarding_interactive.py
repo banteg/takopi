@@ -150,6 +150,41 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
     assert 'path = "/tmp/repo"' in saved
 
 
+def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "takopi.toml"
+    monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", config_path)
+
+    backend = EngineBackend(id="codex", build_runner=lambda _cfg, _path: None)
+    monkeypatch.setattr(onboarding, "list_backends", lambda: [backend])
+    monkeypatch.setattr(onboarding.shutil, "which", lambda _cmd: None)
+
+    monkeypatch.setattr(onboarding, "_confirm", _queue_values([True, False]))
+    monkeypatch.setattr(
+        onboarding.questionary, "password", _queue(["123456789:ABCdef"])
+    )
+
+    def _fake_run(func, *args, **kwargs):
+        if func is onboarding._get_bot_info:
+            return {"username": "my_bot"}
+        if func is onboarding._wait_for_chat:
+            return onboarding.ChatInfo(
+                chat_id=123,
+                username="alice",
+                title=None,
+                first_name="Alice",
+                last_name=None,
+                chat_type="private",
+            )
+        if func is onboarding._send_confirmation:
+            return True
+        raise AssertionError(f"unexpected anyio.run target: {func}")
+
+    monkeypatch.setattr(onboarding.anyio, "run", _fake_run)
+
+    assert onboarding.interactive_setup(force=False) is False
+    assert not config_path.exists()
+
+
 def test_interactive_setup_recovers_from_malformed_toml(
     monkeypatch, tmp_path
 ) -> None:

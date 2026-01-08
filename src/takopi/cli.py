@@ -20,7 +20,6 @@ from .settings import (
     TakopiSettings,
     load_settings,
     load_settings_if_exists,
-    require_telegram,
     validate_settings_data,
 )
 from .transports import SetupResult, get_transport, list_transports
@@ -53,14 +52,6 @@ def _resolve_transport_id(override: str | None) -> str:
     if not isinstance(raw, str) or not raw.strip():
         return "telegram"
     return raw.strip()
-
-
-def load_and_validate_config(
-    path: str | Path | None = None,
-) -> tuple[TakopiSettings, Path, str, int]:
-    settings, config_path = load_settings(path)
-    token, chat_id = require_telegram(settings, config_path)
-    return settings, config_path, token, chat_id
 
 
 def acquire_config_lock(config_path: Path, token: str | None) -> LockHandle:
@@ -200,7 +191,8 @@ def _should_run_interactive() -> bool:
 
 
 def _setup_needs_config(setup: SetupResult) -> bool:
-    return any(issue.title == "create a config" for issue in setup.issues)
+    config_titles = {"create a config", "configure telegram"}
+    return any(issue.title in config_titles for issue in setup.issues)
 
 
 def _fail_missing_config(path: Path) -> None:

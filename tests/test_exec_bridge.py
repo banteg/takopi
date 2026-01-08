@@ -9,6 +9,7 @@ from takopi.model import EngineId, ResumeToken, TakopiEvent
 from takopi.telegram.render import prepare_telegram
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Wait
+from takopi.settings import load_settings, require_telegram
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from tests.factories import action_completed, action_started
 
@@ -76,8 +77,8 @@ def _return_runner(
     )
 
 
-def test_load_and_validate_config_rejects_empty_token(tmp_path) -> None:
-    from takopi import cli
+def test_require_telegram_rejects_empty_token(tmp_path) -> None:
+    from takopi.config import ConfigError
 
     config_path = tmp_path / "takopi.toml"
     config_path.write_text(
@@ -86,12 +87,13 @@ def test_load_and_validate_config_rejects_empty_token(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(cli.ConfigError, match="bot token"):
-        cli.load_and_validate_config(config_path)
+    with pytest.raises(ConfigError, match="bot token"):
+        settings, _ = load_settings(config_path)
+        require_telegram(settings, config_path)
 
 
-def test_load_and_validate_config_rejects_string_chat_id(tmp_path) -> None:
-    from takopi import cli
+def test_load_settings_rejects_string_chat_id(tmp_path) -> None:
+    from takopi.config import ConfigError
 
     config_path = tmp_path / "takopi.toml"
     config_path.write_text(
@@ -100,8 +102,8 @@ def test_load_and_validate_config_rejects_string_chat_id(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(cli.ConfigError, match="chat_id"):
-        cli.load_and_validate_config(config_path)
+    with pytest.raises(ConfigError, match="chat_id"):
+        load_settings(config_path)
 
 
 def test_codex_extract_resume_finds_command() -> None:

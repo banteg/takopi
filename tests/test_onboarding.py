@@ -44,7 +44,7 @@ def test_check_setup_marks_missing_config(monkeypatch) -> None:
     result = onboarding.check_setup(backend)
 
     titles = {issue.title for issue in result.issues}
-    assert "create a config" in titles
+    assert "configure telegram" in titles
     assert result.config_path == onboarding.HOME_CONFIG_PATH
 
 
@@ -68,4 +68,4 @@ def test_check_setup_marks_invalid_chat_id(monkeypatch, tmp_path: Path) -> None:
     result = onboarding.check_setup(backend)
 
     titles = {issue.title for issue in result.issues}
-    assert "create a config" in titles
+    assert "configure telegram" in titles

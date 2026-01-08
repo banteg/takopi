@@ -68,8 +68,12 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
-def config_issue(path: Path) -> SetupIssue:
-    return SetupIssue("create a config", (f"   {_display_path(path)}",))
+_CREATE_CONFIG_TITLE = "create a config"
+_CONFIGURE_TELEGRAM_TITLE = "configure telegram"
+
+
+def config_issue(path: Path, *, title: str) -> SetupIssue:
+    return SetupIssue(title, (f"   {_display_path(path)}",))
 
 
 def check_setup(
@@ -91,10 +95,17 @@ def check_setup(
         try:
             require_telegram(settings, config_path)
         except ConfigError:
-            issues.append(config_issue(config_path))
+            issues.append(
+                config_issue(config_path, title=_CONFIGURE_TELEGRAM_TITLE)
+            )
     except ConfigError:
         issues.extend(backend_issues)
-        issues.append(config_issue(config_path))
+        title = (
+            _CONFIGURE_TELEGRAM_TITLE
+            if config_path.exists() and config_path.is_file()
+            else _CREATE_CONFIG_TITLE
+        )
+        issues.append(config_issue(config_path, title=title))
         return SetupResult(issues=issues, config_path=config_path)
 
     issues.extend(backend_issues)
@@ -413,6 +424,9 @@ def interactive_setup(*, force: bool) -> bool:
                 return False
         else:
             console.print("no agents found on PATH. install one to continue.")
+            save_anyway = _confirm("save config anyway?", default=False)
+            if not save_anyway:
+                return False
 
         config_preview = _render_config(
             _mask_token(token),

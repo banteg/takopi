@@ -169,6 +169,22 @@ class TakopiSettings(BaseSettings):
             )
         return raw
 
+    def transport_config(
+        self, transport_id: str, *, config_path: Path
+    ) -> dict[str, Any]:
+        if transport_id == "telegram":
+            return self.transports.telegram.model_dump()
+        extra = self.transports.model_extra or {}
+        raw = extra.get(transport_id)
+        if raw is None:
+            return {}
+        if not isinstance(raw, dict):
+            raise ConfigError(
+                f"Invalid `transports.{transport_id}` in {config_path}; "
+                "expected a table."
+            )
+        return raw
+
     def to_projects_config(
         self,
         *,
