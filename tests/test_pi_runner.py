@@ -132,32 +132,20 @@ async def test_run_serializes_same_session() -> None:
     assert max_in_flight == 1
 
 
-def test_session_path_uses_run_base_dir() -> None:
-    """Test that new sessions use the run base dir, not process cwd."""
-
-    startup_cwd = Path("/startup")
-    project_cwd = Path("/project")
-
+def test_session_path_prefers_run_base_dir(tmp_path: Path) -> None:
     runner = PiRunner(
         extra_args=[],
         model=None,
         provider=None,
     )
+    project_cwd = Path("/project")
+    session_root = tmp_path / "sessions"
 
-    base_dir = Path.cwd() / ".tmp" / "test-session-path"
-
-    with patch("takopi.runners.pi._default_session_dir") as default_session_dir:
-        default_session_dir.side_effect = (
-            lambda cwd: base_dir / "sessions" / f"--{cwd.name}--"
-        )
-
-        session_path = runner._new_session_path(project_cwd)
-        assert str(base_dir / "sessions" / "--project--") in session_path
-        assert str(base_dir / "sessions" / "--startup--") not in session_path
-
-    with patch("takopi.runners.pi.Path.cwd", return_value=startup_cwd), patch(
-        "takopi.runners.pi._default_session_dir"
+    with patch("takopi.utils.paths.get_run_base_dir", return_value=project_cwd), patch(
+        "takopi.runners.pi._default_session_dir",
+        return_value=session_root,
     ) as default_session_dir:
-        default_session_dir.return_value = base_dir / "sessions" / "--startup--"
-        session_path_default = runner._new_session_path()
-        assert str(base_dir / "sessions" / "--startup--") in session_path_default
+        session_path = runner._new_session_path()
+
+    default_session_dir.assert_called_once_with(project_cwd)
+    assert str(session_root) in session_path
