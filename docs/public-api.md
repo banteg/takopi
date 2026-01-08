@@ -190,6 +190,7 @@ engine pipeline. Use `mode="capture"` to collect results and build a custom repl
 `TransportRuntime` keeps transports away from internal router/project types. Key helpers:
 
 - `resolve_message(text, reply_text)` → `ResolvedMessage` (prompt, resume token, context)
+- `resolve_engine(engine_override, context)` → `EngineId`
 - `resolve_runner(resume_token, engine_override)` → `ResolvedRunner` (runner + availability info)
 - `resolve_run_cwd(context)` → `Path | None` (raises `ConfigError` for project/worktree issues)
 - `format_context_line(context)` → `str | None`

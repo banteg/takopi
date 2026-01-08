@@ -637,7 +637,10 @@ class _TelegramCommandExecutor(CommandExecutor):
     async def run_one(
         self, request: RunRequest, *, mode: RunMode = "emit"
     ) -> RunResult:
-        engine = request.engine or self._runtime.default_engine
+        engine = self._runtime.resolve_engine(
+            engine_override=request.engine,
+            context=request.context,
+        )
         if mode == "capture":
             capture = _CaptureTransport()
             exec_cfg = ExecBridgeConfig(
@@ -656,7 +659,7 @@ class _TelegramCommandExecutor(CommandExecutor):
                 context=request.context,
                 reply_ref=self._reply_ref,
                 on_thread_known=None,
-                engine_override=request.engine,
+                engine_override=engine,
             )
             return RunResult(engine=engine, message=capture.last_message)
         await _run_engine(
@@ -670,7 +673,7 @@ class _TelegramCommandExecutor(CommandExecutor):
             context=request.context,
             reply_ref=self._reply_ref,
             on_thread_known=self._scheduler.note_thread_known,
-            engine_override=request.engine,
+            engine_override=engine,
         )
         return RunResult(engine=engine, message=None)
 
@@ -837,21 +840,23 @@ async def run_main_loop(
                     continue
 
                 command_id, args_text = _parse_slash_command(text)
-                if (
-                    command_id is not None
-                    and command_id not in reserved_commands
-                    and command_id in command_ids
-                ):
-                    tg.start_soon(
-                        _dispatch_command,
-                        cfg,
-                        msg,
-                        command_id,
-                        args_text,
-                        running_tasks,
-                        scheduler,
-                    )
-                    continue
+                if command_id is not None and command_id not in reserved_commands:
+                    if command_id not in command_ids:
+                        command_ids = {
+                            cid.lower()
+                            for cid in list_command_ids(allowlist=allowlist)
+                        }
+                    if command_id in command_ids:
+                        tg.start_soon(
+                            _dispatch_command,
+                            cfg,
+                            msg,
+                            command_id,
+                            args_text,
+                            running_tasks,
+                            scheduler,
+                        )
+                        continue
 
                 reply_text = msg.reply_to_text
                 try:

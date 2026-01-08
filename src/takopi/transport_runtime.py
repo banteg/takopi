@@ -59,6 +59,21 @@ class TransportRuntime:
     def default_engine(self) -> EngineId:
         return self._router.default_engine
 
+    def resolve_engine(
+        self,
+        *,
+        engine_override: EngineId | None,
+        context: RunContext | None,
+    ) -> EngineId:
+        if engine_override is not None:
+            return engine_override
+        if context is None or context.project is None:
+            return self._router.default_engine
+        project = self._projects.projects.get(context.project)
+        if project is None:
+            return self._router.default_engine
+        return project.default_engine or self._router.default_engine
+
     @property
     def engine_ids(self) -> tuple[EngineId, ...]:
         return self._router.engine_ids
