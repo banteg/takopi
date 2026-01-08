@@ -29,7 +29,7 @@ from .plugins import (
     get_load_errors,
     list_entrypoints,
 )
-from .transports import SetupResult, get_transport, list_transports
+from .transports import SetupResult, get_transport
 from .utils.git import resolve_default_base, resolve_main_worktree_root
 
 logger = get_logger(__name__)
@@ -502,15 +502,6 @@ def init(
     typer.echo(f"saved project {alias!r} to {_config_path_display(config_path)}")
 
 
-def transports_cmd() -> None:
-    """List available transport backends."""
-    settings_hint, _ = _load_settings_optional()
-    allowlist = _resolve_plugins_allowlist(settings_hint)
-    ids = list_transports(allowlist=allowlist)
-    for transport_id in ids:
-        typer.echo(transport_id)
-
-
 def _print_entrypoints(label: str, entrypoints: list[object]) -> None:
     typer.echo(f"{label}:")
     if not entrypoints:
@@ -653,7 +644,6 @@ def create_app() -> typer.Typer:
         help="Run takopi with auto-router (subcommands override the default engine).",
     )
     app.command(name="init")(init)
-    app.command(name="transports")(transports_cmd)
     app.command(name="plugins")(plugins_cmd)
     app.callback()(app_main)
     for engine_id in _engine_ids_for_cli():

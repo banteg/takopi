@@ -123,10 +123,10 @@ takopi opencode
 takopi pi
 ```
 
-list available transports (and override in a run):
+list available plugins (engines/transports), and override in a run:
 
 ```sh
-takopi transports
+takopi plugins
 takopi --transport telegram
 ```
 
