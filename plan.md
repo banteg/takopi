@@ -1,12 +1,12 @@
-Here’s a concrete, implementable refactor plan that (a) moves onboarding under “transport backends”, (b) adds **transport settings** to the config cleanly, and (c) introduces a **transport registry** that can later be extended by plugins — while keeping **Telegram built-in**.
+Here’s a concrete, implementable refactor plan that (a) moves onboarding under “transport backends”, (b) keeps **transport settings** aligned with the current config model, and (c) introduces a **transport registry** that can later be extended by plugins — while keeping **Telegram built-in**.
 
-I’m going to lay this out as a small sequence of PRs you can land independently without ripping up the whole runtime loop yet.
+I’m going to lay this out as a small sequence of commits that can land in a single PR without ripping up the whole runtime loop yet.
 
 ---
 
-## First: decide the config shape (important TOML constraint)
+## Current config shape (already implemented)
 
-You **cannot** do:
+The config shape lives in `src/takopi/settings.py` (`TakopiSettings`). It already enforces the TOML constraint that you **cannot** do:
 
 ```toml
 transport = "telegram"
@@ -14,7 +14,7 @@ transport = "telegram"
 [transport.telegram]   # ❌ invalid: `transport` can’t be both scalar and table
 ```
 
-So use **plural table**:
+So use a **plural table**:
 
 ```toml
 default_engine = "codex"
@@ -25,98 +25,34 @@ bot_token = "123:ABC..."
 chat_id = 123
 ```
 
-Back-compat rule for v0.10/v0.11:
+Notes:
 
-* If `[transports.telegram]` is missing, fall back to legacy root keys:
-
-  * `bot_token`
-  * `chat_id`
-
-On write (onboarding), write the new layout and optionally remove the legacy keys.
+* **Legacy root keys are rejected.** `bot_token`/`chat_id` at the root raise a validation error; migration is required.
+* Config parsing/validation is centralized in `TakopiSettings` + `require_telegram(...)`.
+* When editing raw TOML, use `validate_settings_data(...)` on the merged dict.
 
 ---
 
-## PR 1 — Add “transport settings” parsing (no registry yet)
+## Commit 1 — (Already done) Transport settings are centralized in `TakopiSettings`
 
 ### Goal
 
-Centralize “read config → validate transport settings” so CLI and onboarding stop duplicating parsing.
+Keep all validation and defaults in one place; avoid duplicating “parse telegram config” helpers.
 
-### Changes
+### Current state
 
-1. **New module** `src/takopi/transports_config.py` (or `transports/config.py` if you prefer a package)
+* `TakopiSettings` defines `transport` + `transports.telegram` and rejects legacy root keys.
+* `require_telegram(...)` validates `transport == "telegram"` and required keys.
+* `cli.py` uses `load_settings(...)` + `require_telegram(...)`.
 
-Add helpers:
+### If you touch config parsing
 
-```py
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
-
-from .config import ConfigError
-
-@dataclass(frozen=True, slots=True)
-class TelegramSettings:
-    bot_token: str
-    chat_id: int
-
-def resolve_transport_id(config: dict[str, Any], config_path: Path) -> str:
-    value = config.get("transport") or "telegram"
-    if not isinstance(value, str) or not value.strip():
-        raise ConfigError(f"Invalid `transport` in {config_path}; expected a non-empty string.")
-    return value.strip()
-
-def _get_transports_table(config: dict[str, Any], config_path: Path) -> dict[str, Any]:
-    tbl = config.get("transports") or {}
-    if not isinstance(tbl, dict):
-        raise ConfigError(f"Invalid `transports` in {config_path}; expected a table.")
-    return tbl
-
-def parse_telegram_settings(config: dict[str, Any], config_path: Path) -> TelegramSettings:
-    transports = _get_transports_table(config, config_path)
-    telegram = transports.get("telegram")
-    if isinstance(telegram, dict):
-        token = telegram.get("bot_token")
-        chat_id = telegram.get("chat_id")
-    else:
-        # legacy fallback
-        token = config.get("bot_token")
-        chat_id = config.get("chat_id")
-
-    if not isinstance(token, str) or not token.strip():
-        raise ConfigError(f"Missing/invalid Telegram bot token in {config_path} (transports.telegram.bot_token).")
-    if isinstance(chat_id, bool) or not isinstance(chat_id, int):
-        raise ConfigError(f"Missing/invalid Telegram chat_id in {config_path} (transports.telegram.chat_id).")
-
-    return TelegramSettings(bot_token=token.strip(), chat_id=chat_id)
-```
-
-2. **Remove duplication**: stop using `src/takopi/telegram/config.py` for reads.
-
-* CLI should use `load_or_init_config()` + “raise if empty/missing required keys”.
-* Keep `telegram/config.py` temporarily if you want, but it’s redundant once settings parsing is centralized.
-
-3. Update `cli.py`:
-
-* Replace `load_and_validate_config()` with:
-
-  * `config, config_path = load_or_init_config()` (but error if `{}` returned)
-  * `settings = parse_telegram_settings(config, config_path)`
-
-### Tests to add/update
-
-* New unit tests in e.g. `tests/test_transport_settings.py`:
-
-  * parses new layout
-  * parses legacy layout
-  * errors are good
-* Update existing onboarding tests later in PR 3.
-
-This PR is mostly “plumbing + safety”, no behavior change yet besides allowing the new layout.
+* Do **not** add a parallel `transports_config.py` parser.
+* Use `validate_settings_data(...)` when mutating raw dicts (e.g., onboarding/init).
 
 ---
 
-## PR 2 — Introduce a transport registry and wire CLI to it
+## Commit 2 — Introduce a transport registry and wire CLI to it
 
 ### Goal
 
@@ -142,6 +78,7 @@ from .backends import EngineBackend
 from .config import ConfigError
 from .router import AutoRouter
 from .config import ProjectsConfig
+from .settings import TakopiSettings
 
 @dataclass(frozen=True, slots=True)
 class SetupResult:
@@ -160,7 +97,7 @@ class TransportBackend(Protocol):
     def build_and_run(
         self,
         *,
-        config: dict[str, Any],
+        settings: TakopiSettings,
         config_path: Path,
         router: AutoRouter,
         projects: ProjectsConfig,
@@ -188,9 +125,9 @@ def list_transports() -> list[str]:
 
 This is a thin adapter around existing `telegram.onboarding` and `telegram.bridge.run_main_loop`.
 
-* `check_setup()` can reuse your current `telegram.onboarding.check_setup` logic, but update it to look for the new config layout (or call `parse_telegram_settings()` and catch errors).
+* `check_setup()` can reuse your current `telegram.onboarding.check_setup` logic, but validate via `load_settings(...)` + `require_telegram(...)` (no legacy fallback).
 * `interactive_setup()` calls `telegram.onboarding.interactive_setup(force=force)` (but PR 3 will change how it writes config).
-* `build_and_run()` does what `_parse_bridge_config` + `anyio.run(run_main_loop, cfg)` currently do.
+* `build_and_run()` does what `_parse_bridge_config` + `anyio.run(run_main_loop, cfg)` currently do, but reads transport settings from `settings.transports.telegram` (or `require_telegram`).
 
 Crucially: **move `_parse_bridge_config` out of `cli.py`** into this backend so CLI is transport-agnostic.
 
@@ -217,7 +154,7 @@ register_transport(telegram_backend)
 2. Determine transport id:
 
 * CLI flag overrides config
-* else config `transport`
+* else `settings.transport` (from `load_settings(...)`)
 * else default `"telegram"`
 
 3. Replace telegram-specific code paths:
@@ -244,7 +181,7 @@ No onboarding test changes yet (PR 3 does that).
 
 ---
 
-## PR 3 — Refactor onboarding to write transport settings + preserve config
+## Commit 3 — Refactor onboarding to write transport settings + preserve config
 
 ### Goal
 
@@ -255,82 +192,16 @@ Make `--onboard` (and “missing config -> wizard”) update only what it should
 * set `default_engine`
 * **do not wipe** `projects` or per-engine config tables
 
-### How to implement (concretely)
+### Current behavior (already aligned)
 
-#### 1) Stop writing raw TOML strings in `telegram/onboarding.py`
+* `interactive_setup(...)` reads existing TOML via `config_store.read_raw_toml`, merges changes, and writes via `write_raw_toml` (which uses `dump_toml`).
+* It writes `transport = "telegram"` and `[transports.telegram]` with `bot_token`/`chat_id`, and removes legacy root keys.
+* Preview still uses `_render_config(...)` with a masked token (fine to keep).
 
-Right now you do `_render_config(...)` and `config_path.write_text(...)` which overwrites everything.
+### Remaining UX fix
 
-Instead:
-
-* load existing config dict
-* mutate it
-* write via `takopi.config.write_config()` (already exists!)
-
-Proposed structure:
-
-```py
-from ..config import load_or_init_config, write_config, dump_toml
-
-def _ensure_table(config: dict, key: str, config_path: Path) -> dict:
-    tbl = config.get(key)
-    if tbl is None:
-        tbl = {}
-        config[key] = tbl
-    if not isinstance(tbl, dict):
-        raise ConfigError(f"Invalid `{key}` in {config_path}; expected a table.")
-    return tbl
-
-def _update_telegram_transport_config(config: dict, config_path: Path, *, token: str, chat_id: int) -> None:
-    transports = _ensure_table(config, "transports", config_path)
-    telegram = transports.get("telegram")
-    if telegram is None:
-        telegram = {}
-        transports["telegram"] = telegram
-    if not isinstance(telegram, dict):
-        raise ConfigError(f"Invalid `transports.telegram` in {config_path}; expected a table.")
-    telegram["bot_token"] = token
-    telegram["chat_id"] = chat_id
-
-    # mark selected transport if missing (or always set during telegram onboarding)
-    config["transport"] = "telegram"
-
-    # optional cleanup of legacy keys:
-    config.pop("bot_token", None)
-    config.pop("chat_id", None)
-```
-
-Then when user confirms:
-
-```py
-config, config_path = load_or_init_config()
-_update_telegram_transport_config(config, config_path, token=token, chat_id=chat_id)
-if default_engine: config["default_engine"] = default_engine
-write_config(config, config_path)
-```
-
-#### 2) Preview: use `dump_toml()` for display
-
-To keep masking, generate a “preview copy”:
-
-```py
-preview = copy.deepcopy(config)
-preview["transports"]["telegram"]["bot_token"] = _mask_token(token)
-console.print(dump_toml(preview))
-```
-
-#### 3) Fix the “config exists but invalid” UX
-
-Currently, if config exists but is invalid, the auto-flow tries `interactive_setup(force=False)` which just says “config exists…use --onboard”.
-
-Update logic in `cli.py` after PR 2:
-
-* if transport backend check says “missing/invalid config” and TTY:
-
-  * prompt: “Config is missing/invalid for telegram. Run onboarding now? (y/N)”
-  * if yes, run `interactive_setup(force=True)`.
-
-That will dramatically reduce “why is it failing” friction.
+* If config exists but is invalid, the auto-flow still calls `interactive_setup(force=False)`, which prints “config exists…use --onboard”.
+* Update the CLI flow (after PR 2) to prompt: “Config is missing/invalid for telegram. Run onboarding now? (y/N)” and run `interactive_setup(force=True)` on yes.
 
 ### Tests to update
 
@@ -356,28 +227,24 @@ Example new test:
 
 ---
 
-## PR 4 — Polish: remove old telegram config loader + add “list transports”
+## Commit 4 — Polish: add “list transports” + tidy errors
 
 Not strictly required, but keeps things clean.
 
-1. Remove `src/takopi/telegram/config.py`
-
-* Everything should go through `takopi.config` + `parse_telegram_settings`.
-
-2. Add CLI command:
+1. Add CLI command:
 
 * `takopi transports` (or `--list-transports`) to print available transport ids.
   This will matter as soon as you add plugin discovery.
 
-3. Add a deprecation warning for legacy `bot_token/chat_id` at root
+2. Keep the legacy-key failure explicit.
 
-* only log once at startup (or only when parsing legacy format).
+* The model validator already rejects root `bot_token/chat_id`. Optionally tweak the error to point at `[transports.telegram]`.
 
 ---
 
 ## Where this leaves you
 
-After PR 1–3, you’ll have:
+After commits 2–3 (commit 1 is already true in current code), you’ll have:
 
 * a config format that scales to N transports
 * onboarding that doesn’t destroy unrelated config
