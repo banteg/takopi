@@ -131,7 +131,7 @@ def _resolve_default_engine(
     if not isinstance(default_engine, str) or not default_engine.strip():
         raise ConfigError(
             f"Invalid `default_engine` in {config_path}; expected a non-empty string."
-    )
+        )
     default_engine = default_engine.strip()
     if default_engine not in engine_ids:
         available = ", ".join(sorted(engine_ids))
@@ -315,9 +315,7 @@ def _run_auto_router(
                         settings=settings_hint,
                         config_path=config_hint,
                     )
-                    engine_backend = get_backend(
-                        default_engine, allowlist=allowlist
-                    )
+                    engine_backend = get_backend(default_engine, allowlist=allowlist)
                     setup = transport_backend.check_setup(
                         engine_backend,
                         transport_override=transport_override,
@@ -330,9 +328,7 @@ def _run_auto_router(
                     settings=settings_hint,
                     config_path=config_hint,
                 )
-                engine_backend = get_backend(
-                    default_engine, allowlist=allowlist
-                )
+                engine_backend = get_backend(default_engine, allowlist=allowlist)
                 setup = transport_backend.check_setup(
                     engine_backend,
                     transport_override=transport_override,

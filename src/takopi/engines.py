@@ -42,9 +42,7 @@ def get_backend(
     return backend
 
 
-def list_backends(
-    *, allowlist: Iterable[str] | None = None
-) -> list[EngineBackend]:
+def list_backends(*, allowlist: Iterable[str] | None = None) -> list[EngineBackend]:
     backends: list[EngineBackend] = []
     for engine_id in list_backend_ids(allowlist=allowlist):
         try:

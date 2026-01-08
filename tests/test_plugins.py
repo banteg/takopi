@@ -111,9 +111,7 @@ def test_validator_errors_are_captured(monkeypatch) -> None:
         raise TypeError("not valid")
 
     with pytest.raises(plugins.PluginLoadFailed):
-        plugins.load_entrypoint(
-            plugins.ENGINE_GROUP, "bad", validator=validator
-        )
+        plugins.load_entrypoint(plugins.ENGINE_GROUP, "bad", validator=validator)
 
     errors = plugins.get_load_errors()
     assert any("not valid" in err.error for err in errors)

@@ -82,9 +82,7 @@ def get_transport(
             f"Unknown transport {transport_id!r}. Available: {available}."
         ) from exc
     except PluginLoadFailed as exc:
-        raise ConfigError(
-            f"Failed to load transport {transport_id!r}: {exc}"
-        ) from exc
+        raise ConfigError(f"Failed to load transport {transport_id!r}: {exc}") from exc
     return backend
 
 

@@ -118,10 +118,7 @@ def _discover_entrypoints(
                     name=ep.name,
                     value=ep.value,
                     distribution=entrypoint_distribution_name(ep),
-                    error=(
-                        f"invalid plugin id {ep.name!r}; "
-                        f"must match {ID_PATTERN}"
-                    ),
+                    error=(f"invalid plugin id {ep.name!r}; must match {ID_PATTERN}"),
                 )
             )
             continue
@@ -134,10 +131,7 @@ def _discover_entrypoints(
     for name, items in duplicates.items():
         providers = ", ".join(
             sorted(
-                {
-                    entrypoint_distribution_name(item) or "<unknown>"
-                    for item in items
-                }
+                {entrypoint_distribution_name(item) or "<unknown>" for item in items}
             )
         )
         message = f"duplicate plugin id {name!r} from {providers}"
@@ -179,10 +173,7 @@ def load_entrypoint(
         items = duplicates[name]
         providers = ", ".join(
             sorted(
-                {
-                    entrypoint_distribution_name(item) or "<unknown>"
-                    for item in items
-                }
+                {entrypoint_distribution_name(item) or "<unknown>" for item in items}
             )
         )
         error = PluginLoadError(

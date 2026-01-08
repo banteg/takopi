@@ -53,16 +53,12 @@ def _is_cancel_command(text: str) -> bool:
     return command == "/cancel" or command.startswith("/cancel@")
 
 
-
-
 @dataclass(frozen=True, slots=True)
 class ResolvedMessage:
     prompt: str
     resume_token: ResumeToken | None
     engine_override: EngineId | None
     context: RunContext | None
-
-
 
 
 def _resolve_message(
