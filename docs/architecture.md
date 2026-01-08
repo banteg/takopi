@@ -328,6 +328,7 @@ flowchart LR
         global["transport<br/>default_engine<br/>default_project"]
         telegram_cfg["[transports.telegram]<br/>bot_token = ...<br/>chat_id = ..."]
         plugins_cfg["[plugins]<br/>enabled = [\"...\"]"]
+        plugins_extra["[plugins.mycommand]<br/>setting = ..."]
         claude_cfg["[claude]<br/>model = ..."]
         codex_cfg["[codex]<br/>model = ..."]
         projects_cfg["[projects.alias]<br/>path = ...<br/>worktrees_dir = ...<br/>default_engine = ..."]

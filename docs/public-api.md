@@ -175,6 +175,8 @@ Command handlers receive a `CommandContext` with:
 
 - the raw command text and parsed args
 - the original message + reply metadata
+- `config_path` for the active `takopi.toml` (when known)
+- `plugin_config` from `[plugins.<id>]` (dict, defaults to `{}`)
 - `runtime` (engine/project resolution)
 - `executor` (send messages or run engines)
 
@@ -193,6 +195,8 @@ engine pipeline. Use `mode="capture"` to collect results and build a custom repl
 - `format_context_line(context)` → `str | None`
 - `available_engine_ids()` / `missing_engine_ids()` / `engine_ids` / `default_engine`
 - `project_aliases()`
+- `config_path` (active config path when available)
+- `plugin_config(plugin_id)` → `dict` from `[plugins.<id>]`
 
 ---
 

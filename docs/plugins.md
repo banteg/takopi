@@ -268,6 +268,17 @@ class MultiCommand:
 BACKEND = MultiCommand()
 ```
 
+### Command plugin configuration
+
+Configure command plugins under `[plugins.<id>]`:
+
+```toml
+[plugins.multi]
+engines = ["codex", "claude"]
+```
+
+The parsed dict is available as `ctx.plugin_config` inside `handle()`.
+
 ---
 
 ## Versioning & compatibility
