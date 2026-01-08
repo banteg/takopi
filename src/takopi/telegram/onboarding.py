@@ -95,9 +95,7 @@ def check_setup(
         try:
             require_telegram(settings, config_path)
         except ConfigError:
-            issues.append(
-                config_issue(config_path, title=_CONFIGURE_TELEGRAM_TITLE)
-            )
+            issues.append(config_issue(config_path, title=_CONFIGURE_TELEGRAM_TITLE))
     except ConfigError:
         issues.extend(backend_issues)
         title = (
@@ -457,8 +455,7 @@ def interactive_setup(*, force: bool) -> bool:
                     shutil.copyfile(config_path, backup)
                 except OSError as copy_exc:
                     console.print(
-                        "[yellow]warning:[/] failed to back up config: "
-                        f"{copy_exc}"
+                        f"[yellow]warning:[/] failed to back up config: {copy_exc}"
                     )
                 else:
                     console.print(f"  backed up to {_display_path(backup)}")

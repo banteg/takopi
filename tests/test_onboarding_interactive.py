@@ -185,9 +185,7 @@ def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
     assert not config_path.exists()
 
 
-def test_interactive_setup_recovers_from_malformed_toml(
-    monkeypatch, tmp_path
-) -> None:
+def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "takopi.toml"
     bad_toml = 'transport = "telegram"\n[transports\n'
     config_path.write_text(bad_toml, encoding="utf-8")
