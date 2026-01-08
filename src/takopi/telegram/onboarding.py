@@ -434,7 +434,21 @@ def interactive_setup(*, force: bool) -> bool:
 
         raw_config: dict[str, Any] = {}
         if config_path.exists():
-            raw_config = read_raw_toml(config_path)
+            try:
+                raw_config = read_raw_toml(config_path)
+            except ConfigError as exc:
+                console.print(f"[yellow]warning:[/] config is malformed: {exc}")
+                backup = config_path.with_suffix(".toml.bak")
+                try:
+                    shutil.copyfile(config_path, backup)
+                except OSError as copy_exc:
+                    console.print(
+                        "[yellow]warning:[/] failed to back up config: "
+                        f"{copy_exc}"
+                    )
+                else:
+                    console.print(f"  backed up to {_display_path(backup)}")
+                raw_config = {}
         merged = dict(raw_config)
         if default_engine is not None:
             merged["default_engine"] = default_engine

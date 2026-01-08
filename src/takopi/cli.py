@@ -11,6 +11,7 @@ import typer
 from . import __version__
 from .backends import EngineBackend
 from .config import ConfigError, load_or_init_config, write_config
+from .config_migrations import migrate_config
 from .engines import get_backend, list_backends
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
@@ -361,6 +362,10 @@ def init(
 ) -> None:
     """Register the current repo as a Takopi project."""
     config, config_path = load_or_init_config()
+    if config_path.exists():
+        applied = migrate_config(config, config_path=config_path)
+        if applied:
+            write_config(config, config_path)
 
     cwd = Path.cwd()
     project_path = resolve_main_worktree_root(cwd) or cwd

@@ -296,7 +296,7 @@ def _build_bot_commands(
         cmd = entry.engine.lower()
         if cmd in seen:
             continue
-        commands.append({"command": cmd, "description": f"start {cmd}"})
+        commands.append({"command": cmd, "description": f"use agent: {cmd}"})
         seen.add(cmd)
     for alias, project in projects.projects.items():
         cmd = alias.lower()
@@ -308,7 +308,7 @@ def _build_bot_commands(
                 alias=project.alias,
             )
             continue
-        commands.append({"command": cmd, "description": f"project {cmd}"})
+        commands.append({"command": cmd, "description": f"work on: {cmd}"})
         seen.add(cmd)
     if "cancel" not in seen:
         commands.append({"command": "cancel", "description": "cancel run"})

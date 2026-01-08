@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 
 from takopi import cli
 from takopi.config import ConfigError
+from takopi.config_store import read_raw_toml
 from takopi.settings import TakopiSettings
 
 
@@ -48,6 +49,29 @@ def test_init_writes_project(monkeypatch, tmp_path) -> None:
     assert 'worktrees_dir = ".worktrees"' in saved
     assert 'default_engine = "codex"' in saved
     assert 'worktree_base = "main"' in saved
+
+
+def test_init_migrates_legacy_config(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "takopi.toml"
+    config_path.write_text('bot_token = "token"\nchat_id = 123\n', encoding="utf-8")
+    monkeypatch.setattr("takopi.config.HOME_CONFIG_PATH", config_path)
+    monkeypatch.setattr(cli, "resolve_default_base", lambda _: "main")
+
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    monkeypatch.chdir(repo_path)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.app, ["init", "z80"])
+    assert result.exit_code == 0
+
+    raw = read_raw_toml(config_path)
+    assert "bot_token" not in raw
+    assert "chat_id" not in raw
+    assert raw["transport"] == "telegram"
+    assert raw["transports"]["telegram"]["bot_token"] == "token"
+    assert raw["transports"]["telegram"]["chat_id"] == 123
+    assert "z80" in raw.get("projects", {})
 
 
 def test_projects_default_engine_unknown() -> None:
