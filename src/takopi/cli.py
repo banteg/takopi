@@ -13,8 +13,9 @@ from . import __version__
 from .backends import EngineBackend
 from .config import ConfigError, load_or_init_config, write_config
 from .config_migrations import migrate_config
+from .commands import get_command
 from .engines import get_backend, list_backend_ids
-from .ids import RESERVED_ENGINE_IDS
+from .ids import RESERVED_COMMAND_IDS, RESERVED_ENGINE_IDS
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
 from .router import AutoRouter, RunnerEntry
@@ -25,6 +26,7 @@ from .settings import (
     validate_settings_data,
 )
 from .plugins import (
+    COMMAND_GROUP,
     ENGINE_GROUP,
     TRANSPORT_GROUP,
     entrypoint_distribution_name,
@@ -381,7 +383,11 @@ def _run_auto_router(
             config_path=config_path,
         )
         lock_handle = acquire_config_lock(config_path, lock_token)
-        runtime = TransportRuntime(router=router, projects=projects)
+        runtime = TransportRuntime(
+            router=router,
+            projects=projects,
+            allowlist=allowlist,
+        )
         transport_backend.build_and_run(
             final_notify=final_notify,
             default_engine_override=default_engine_override,
@@ -539,9 +545,14 @@ def plugins_cmd(
         reserved_ids=RESERVED_ENGINE_IDS,
     )
     transport_eps = list_entrypoints(TRANSPORT_GROUP)
+    command_eps = list_entrypoints(
+        COMMAND_GROUP,
+        reserved_ids=RESERVED_COMMAND_IDS,
+    )
 
     _print_entrypoints("engine backends", engine_eps, allowlist=allowlist_set)
     _print_entrypoints("transport backends", transport_eps, allowlist=allowlist_set)
+    _print_entrypoints("command backends", command_eps, allowlist=allowlist_set)
 
     if load:
         for ep in engine_eps:
@@ -562,6 +573,15 @@ def plugins_cmd(
                 get_transport(ep.name, allowlist=allowlist)
             except ConfigError:
                 continue
+        for ep in command_eps:
+            if allowlist_set is not None and not is_entrypoint_allowed(
+                ep, allowlist_set
+            ):
+                continue
+            try:
+                get_command(ep.name, allowlist=allowlist)
+            except ConfigError:
+                continue
 
     errors = get_load_errors()
     if errors:
@@ -572,6 +592,8 @@ def plugins_cmd(
                 group = "engine"
             elif group == TRANSPORT_GROUP:
                 group = "transport"
+            elif group == COMMAND_GROUP:
+                group = "command"
             dist = err.distribution or "unknown"
             typer.echo(f"  {group} {err.name} ({dist}): {err.error}")
 

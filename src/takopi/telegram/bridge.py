@@ -1,14 +1,23 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+import shlex
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 
 import anyio
 
+from ..commands import (
+    CommandContext,
+    CommandExecutor,
+    RunMode,
+    RunRequest,
+    RunResult,
+    get_command,
+)
 from ..context import RunContext
 from ..config import ConfigError
 from ..directives import DirectiveError
-from ..ids import is_valid_id
+from ..ids import RESERVED_COMMAND_IDS, is_valid_id
 from ..runner_bridge import (
     ExecBridgeConfig,
     IncomingMessage as RunnerIncomingMessage,
@@ -30,6 +39,7 @@ from ..transport import (
     SendOptions,
     Transport,
 )
+from ..plugins import COMMAND_GROUP, list_entrypoints
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
 from ..transport_runtime import TransportRuntime
 from .client import BotClient, poll_incoming
@@ -46,6 +56,27 @@ def _is_cancel_command(text: str) -> bool:
         return False
     command = stripped.split(maxsplit=1)[0]
     return command == "/cancel" or command.startswith("/cancel@")
+
+
+def _parse_slash_command(text: str) -> tuple[str | None, str]:
+    stripped = text.lstrip()
+    if not stripped.startswith("/"):
+        return None, text
+    lines = stripped.splitlines()
+    if not lines:
+        return None, text
+    first_line = lines[0]
+    token, _, rest = first_line.partition(" ")
+    command = token[1:]
+    if not command:
+        return None, text
+    if "@" in command:
+        command = command.split("@", 1)[0]
+    args_text = rest
+    if len(lines) > 1:
+        tail = "\n".join(lines[1:])
+        args_text = f"{args_text}\n{tail}" if args_text else tail
+    return command.lower(), args_text
 
 
 def _build_bot_commands(runtime: TransportRuntime) -> list[dict[str, str]]:
@@ -68,6 +99,33 @@ def _build_bot_commands(runtime: TransportRuntime) -> list[dict[str, str]]:
             )
             continue
         commands.append({"command": cmd, "description": f"work on: {cmd}"})
+        seen.add(cmd)
+    allowlist = runtime.allowlist
+    for ep in list_entrypoints(
+        COMMAND_GROUP,
+        allowlist=allowlist,
+        reserved_ids=RESERVED_COMMAND_IDS,
+    ):
+        try:
+            backend = get_command(ep.name, allowlist=allowlist)
+        except ConfigError as exc:
+            logger.info(
+                "startup.command_menu.skip_command",
+                command=ep.name,
+                error=str(exc),
+            )
+            continue
+        cmd = backend.id.lower()
+        if cmd in seen:
+            continue
+        if not is_valid_id(cmd):
+            logger.debug(
+                "startup.command_menu.skip_command_id",
+                command=cmd,
+            )
+            continue
+        description = backend.description or f"command: {cmd}"
+        commands.append({"command": cmd, "description": description})
         seen.add(cmd)
     if "cancel" not in seen:
         commands.append({"command": "cancel", "description": "cancel run"})
@@ -381,7 +439,7 @@ async def _send_with_resume(
 
 
 async def _send_runner_unavailable(
-    cfg: TelegramBridgeConfig,
+    exec_cfg: ExecBridgeConfig,
     *,
     chat_id: int,
     user_msg_id: int,
@@ -392,18 +450,311 @@ async def _send_runner_unavailable(
     tracker = ProgressTracker(engine=runner.engine)
     tracker.set_resume(resume_token)
     state = tracker.snapshot(resume_formatter=runner.format_resume)
-    message = cfg.exec_cfg.presenter.render_final(
+    message = exec_cfg.presenter.render_final(
         state,
         elapsed_s=0.0,
         status="error",
         answer=f"error:\n{reason}",
     )
     reply_to = MessageRef(channel_id=chat_id, message_id=user_msg_id)
-    await cfg.exec_cfg.transport.send(
+    await exec_cfg.transport.send(
         channel_id=chat_id,
         message=message,
         options=SendOptions(reply_to=reply_to, notify=True),
     )
+
+
+async def _run_engine(
+    *,
+    exec_cfg: ExecBridgeConfig,
+    runtime: TransportRuntime,
+    running_tasks: RunningTasks | None,
+    chat_id: int,
+    user_msg_id: int,
+    text: str,
+    resume_token: ResumeToken | None,
+    context: RunContext | None,
+    reply_ref: MessageRef | None = None,
+    on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
+    | None = None,
+    engine_override: EngineId | None = None,
+) -> None:
+    try:
+        try:
+            entry = runtime.resolve_runner(
+                resume_token=resume_token,
+                engine_override=engine_override,
+            )
+        except RunnerUnavailableError as exc:
+            await _send_plain(
+                exec_cfg.transport,
+                chat_id=chat_id,
+                user_msg_id=user_msg_id,
+                text=f"error:\n{exc}",
+            )
+            return
+        if not entry.available:
+            reason = entry.issue or "engine unavailable"
+            await _send_runner_unavailable(
+                exec_cfg,
+                chat_id=chat_id,
+                user_msg_id=user_msg_id,
+                resume_token=resume_token,
+                runner=entry.runner,
+                reason=reason,
+            )
+            return
+        try:
+            cwd = runtime.resolve_run_cwd(context)
+        except ConfigError as exc:
+            await _send_plain(
+                exec_cfg.transport,
+                chat_id=chat_id,
+                user_msg_id=user_msg_id,
+                text=f"error:\n{exc}",
+            )
+            return
+        run_base_token = set_run_base_dir(cwd)
+        try:
+            run_fields = {
+                "chat_id": chat_id,
+                "user_msg_id": user_msg_id,
+                "engine": entry.runner.engine,
+                "resume": resume_token.value if resume_token else None,
+            }
+            if context is not None:
+                run_fields["project"] = context.project
+                run_fields["branch"] = context.branch
+            if cwd is not None:
+                run_fields["cwd"] = str(cwd)
+            bind_run_context(**run_fields)
+            context_line = runtime.format_context_line(context)
+            incoming = RunnerIncomingMessage(
+                channel_id=chat_id,
+                message_id=user_msg_id,
+                text=text,
+                reply_to=reply_ref,
+            )
+            await handle_message(
+                exec_cfg,
+                runner=entry.runner,
+                incoming=incoming,
+                resume_token=resume_token,
+                context=context,
+                context_line=context_line,
+                strip_resume_line=runtime.is_resume_line,
+                running_tasks=running_tasks,
+                on_thread_known=on_thread_known,
+            )
+        finally:
+            reset_run_base_dir(run_base_token)
+    except Exception as exc:
+        logger.exception(
+            "handle.worker_failed",
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+    finally:
+        clear_context()
+
+
+def _split_command_args(text: str) -> tuple[str, ...]:
+    if not text.strip():
+        return ()
+    try:
+        return tuple(shlex.split(text))
+    except ValueError:
+        return tuple(text.split())
+
+
+class _CaptureTransport:
+    def __init__(self) -> None:
+        self._next_id = 1
+        self.last_message: RenderedMessage | None = None
+
+    async def send(
+        self,
+        *,
+        channel_id: int | str,
+        message: RenderedMessage,
+        options: SendOptions | None = None,
+    ) -> MessageRef:
+        _ = options
+        ref = MessageRef(channel_id=channel_id, message_id=self._next_id)
+        self._next_id += 1
+        self.last_message = message
+        return ref
+
+    async def edit(
+        self, *, ref: MessageRef, message: RenderedMessage, wait: bool = True
+    ) -> MessageRef:
+        _ = ref, wait
+        self.last_message = message
+        return ref
+
+    async def delete(self, *, ref: MessageRef) -> bool:
+        _ = ref
+        return True
+
+    async def close(self) -> None:
+        return None
+
+
+class _TelegramCommandExecutor(CommandExecutor):
+    def __init__(
+        self,
+        *,
+        exec_cfg: ExecBridgeConfig,
+        runtime: TransportRuntime,
+        running_tasks: RunningTasks,
+        scheduler: ThreadScheduler,
+        chat_id: int,
+        user_msg_id: int,
+    ) -> None:
+        self._exec_cfg = exec_cfg
+        self._runtime = runtime
+        self._running_tasks = running_tasks
+        self._scheduler = scheduler
+        self._chat_id = chat_id
+        self._user_msg_id = user_msg_id
+        self._reply_ref = MessageRef(channel_id=chat_id, message_id=user_msg_id)
+
+    async def send(
+        self,
+        message: RenderedMessage | str,
+        *,
+        reply_to: MessageRef | None = None,
+        notify: bool = True,
+    ) -> MessageRef | None:
+        rendered = (
+            message
+            if isinstance(message, RenderedMessage)
+            else RenderedMessage(text=message)
+        )
+        reply_ref = self._reply_ref if reply_to is None else reply_to
+        return await self._exec_cfg.transport.send(
+            channel_id=self._chat_id,
+            message=rendered,
+            options=SendOptions(reply_to=reply_ref, notify=notify),
+        )
+
+    async def run_one(
+        self, request: RunRequest, *, mode: RunMode = "emit"
+    ) -> RunResult:
+        engine = request.engine or self._runtime.default_engine
+        if mode == "capture":
+            capture = _CaptureTransport()
+            exec_cfg = ExecBridgeConfig(
+                transport=capture,
+                presenter=self._exec_cfg.presenter,
+                final_notify=False,
+            )
+            await _run_engine(
+                exec_cfg=exec_cfg,
+                runtime=self._runtime,
+                running_tasks={},
+                chat_id=self._chat_id,
+                user_msg_id=self._user_msg_id,
+                text=request.prompt,
+                resume_token=None,
+                context=request.context,
+                reply_ref=self._reply_ref,
+                on_thread_known=None,
+                engine_override=request.engine,
+            )
+            return RunResult(engine=engine, message=capture.last_message)
+        await _run_engine(
+            exec_cfg=self._exec_cfg,
+            runtime=self._runtime,
+            running_tasks=self._running_tasks,
+            chat_id=self._chat_id,
+            user_msg_id=self._user_msg_id,
+            text=request.prompt,
+            resume_token=None,
+            context=request.context,
+            reply_ref=self._reply_ref,
+            on_thread_known=self._scheduler.note_thread_known,
+            engine_override=request.engine,
+        )
+        return RunResult(engine=engine, message=None)
+
+    async def run_many(
+        self,
+        requests: Sequence[RunRequest],
+        *,
+        mode: RunMode = "emit",
+        parallel: bool = False,
+    ) -> list[RunResult]:
+        if not parallel:
+            return [await self.run_one(request, mode=mode) for request in requests]
+        results: list[RunResult | None] = [None] * len(requests)
+
+        async with anyio.create_task_group() as tg:
+
+            async def run_idx(idx: int, request: RunRequest) -> None:
+                results[idx] = await self.run_one(request, mode=mode)
+
+            for idx, request in enumerate(requests):
+                tg.start_soon(run_idx, idx, request)
+
+        return [result for result in results if result is not None]
+
+
+async def _dispatch_command(
+    *,
+    cfg: TelegramBridgeConfig,
+    msg: TransportIncomingMessage,
+    command_id: str,
+    args_text: str,
+    running_tasks: RunningTasks,
+    scheduler: ThreadScheduler,
+) -> bool:
+    allowlist = cfg.runtime.allowlist
+    backend = get_command(command_id, allowlist=allowlist, required=False)
+    if backend is None:
+        return False
+    chat_id = msg.chat_id
+    user_msg_id = msg.message_id
+    reply_ref = (
+        MessageRef(channel_id=chat_id, message_id=msg.reply_to_message_id)
+        if msg.reply_to_message_id is not None
+        else None
+    )
+    executor = _TelegramCommandExecutor(
+        exec_cfg=cfg.exec_cfg,
+        runtime=cfg.runtime,
+        running_tasks=running_tasks,
+        scheduler=scheduler,
+        chat_id=chat_id,
+        user_msg_id=user_msg_id,
+    )
+    message_ref = MessageRef(channel_id=chat_id, message_id=user_msg_id)
+    ctx = CommandContext(
+        command=command_id,
+        text=msg.text,
+        args_text=args_text,
+        args=_split_command_args(args_text),
+        message=message_ref,
+        reply_to=reply_ref,
+        reply_text=msg.reply_to_text,
+        runtime=cfg.runtime,
+        executor=executor,
+    )
+    try:
+        result = await backend.handle(ctx)
+    except Exception as exc:
+        logger.exception(
+            "command.failed",
+            command=command_id,
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+        await executor.send(f"error:\n{exc}", reply_to=message_ref, notify=True)
+        return True
+    if result is not None:
+        reply_to = message_ref if result.reply_to is None else result.reply_to
+        await executor.send(result.text, reply_to=reply_to, notify=result.notify)
+    return True
 
 
 async def run_main_loop(
@@ -429,83 +780,19 @@ async def run_main_loop(
                 | None = None,
                 engine_override: EngineId | None = None,
             ) -> None:
-                try:
-                    try:
-                        entry = cfg.runtime.resolve_runner(
-                            resume_token=resume_token,
-                            engine_override=engine_override,
-                        )
-                    except RunnerUnavailableError as exc:
-                        await _send_plain(
-                            cfg.exec_cfg.transport,
-                            chat_id=chat_id,
-                            user_msg_id=user_msg_id,
-                            text=f"error:\n{exc}",
-                        )
-                        return
-                    if not entry.available:
-                        reason = entry.issue or "engine unavailable"
-                        await _send_runner_unavailable(
-                            cfg,
-                            chat_id=chat_id,
-                            user_msg_id=user_msg_id,
-                            resume_token=resume_token,
-                            runner=entry.runner,
-                            reason=reason,
-                        )
-                        return
-                    try:
-                        cwd = cfg.runtime.resolve_run_cwd(context)
-                    except ConfigError as exc:
-                        await _send_plain(
-                            cfg.exec_cfg.transport,
-                            chat_id=chat_id,
-                            user_msg_id=user_msg_id,
-                            text=f"error:\n{exc}",
-                        )
-                        return
-                    run_base_token = set_run_base_dir(cwd)
-                    try:
-                        run_fields = {
-                            "chat_id": chat_id,
-                            "user_msg_id": user_msg_id,
-                            "engine": entry.runner.engine,
-                            "resume": resume_token.value if resume_token else None,
-                        }
-                        if context is not None:
-                            run_fields["project"] = context.project
-                            run_fields["branch"] = context.branch
-                        if cwd is not None:
-                            run_fields["cwd"] = str(cwd)
-                        bind_run_context(**run_fields)
-                        context_line = cfg.runtime.format_context_line(context)
-                        incoming = RunnerIncomingMessage(
-                            channel_id=chat_id,
-                            message_id=user_msg_id,
-                            text=text,
-                            reply_to=reply_ref,
-                        )
-                        await handle_message(
-                            cfg.exec_cfg,
-                            runner=entry.runner,
-                            incoming=incoming,
-                            resume_token=resume_token,
-                            context=context,
-                            context_line=context_line,
-                            strip_resume_line=cfg.runtime.is_resume_line,
-                            running_tasks=running_tasks,
-                            on_thread_known=on_thread_known,
-                        )
-                    finally:
-                        reset_run_base_dir(run_base_token)
-                except Exception as exc:
-                    logger.exception(
-                        "handle.worker_failed",
-                        error=str(exc),
-                        error_type=exc.__class__.__name__,
-                    )
-                finally:
-                    clear_context()
+                await _run_engine(
+                    exec_cfg=cfg.exec_cfg,
+                    runtime=cfg.runtime,
+                    running_tasks=running_tasks,
+                    chat_id=chat_id,
+                    user_msg_id=user_msg_id,
+                    text=text,
+                    resume_token=resume_token,
+                    context=context,
+                    reply_ref=reply_ref,
+                    on_thread_known=on_thread_known,
+                    engine_override=engine_override,
+                )
 
             async def run_thread_job(job: ThreadJob) -> None:
                 await run_job(
@@ -533,6 +820,25 @@ async def run_main_loop(
                 if _is_cancel_command(text):
                     tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
                     continue
+
+                command_id, args_text = _parse_slash_command(text)
+                if command_id is not None:
+                    reserved = {
+                        *{engine.lower() for engine in cfg.runtime.engine_ids},
+                        *{alias.lower() for alias in cfg.runtime.project_aliases()},
+                        *RESERVED_COMMAND_IDS,
+                    }
+                    if command_id not in reserved:
+                        handled = await _dispatch_command(
+                            cfg=cfg,
+                            msg=msg,
+                            command_id=command_id,
+                            args_text=args_text,
+                            running_tasks=running_tasks,
+                            scheduler=scheduler,
+                        )
+                        if handled:
+                            continue
 
                 reply_text = msg.reply_to_text
                 try:

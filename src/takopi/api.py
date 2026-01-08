@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 from .backends import EngineBackend, EngineConfig, SetupIssue
+from .commands import (
+    CommandBackend,
+    CommandContext,
+    CommandExecutor,
+    CommandResult,
+    RunMode,
+    RunRequest,
+    RunResult,
+)
 from .config import ConfigError
 from .context import RunContext
 from .directives import DirectiveError
@@ -37,6 +46,10 @@ __all__ = [
     "BaseRunner",
     "CompletedEvent",
     "ConfigError",
+    "CommandBackend",
+    "CommandContext",
+    "CommandExecutor",
+    "CommandResult",
     "EngineBackend",
     "EngineConfig",
     "EngineId",
@@ -49,6 +62,9 @@ __all__ = [
     "Presenter",
     "RenderedMessage",
     "ResumeToken",
+    "RunMode",
+    "RunRequest",
+    "RunResult",
     "ResolvedMessage",
     "ResolvedRunner",
     "RunContext",

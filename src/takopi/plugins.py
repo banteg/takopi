@@ -9,6 +9,7 @@ from .ids import ID_PATTERN, is_valid_id
 
 ENGINE_GROUP = "takopi.engine_backends"
 TRANSPORT_GROUP = "takopi.transport_backends"
+COMMAND_GROUP = "takopi.command_backends"
 
 
 @dataclass(frozen=True, slots=True)

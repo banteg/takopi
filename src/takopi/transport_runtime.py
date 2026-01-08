@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from .config import ConfigError, ProjectsConfig
 from .context import RunContext
 from .directives import format_context_line, parse_context_line, parse_directives
 from .model import EngineId, ResumeToken
+from .plugins import normalize_allowlist
 from .router import AutoRouter
 from .runner import Runner
 from .worktrees import WorktreeError, resolve_run_cwd
@@ -29,11 +31,18 @@ class ResolvedRunner:
 
 
 class TransportRuntime:
-    __slots__ = ("_router", "_projects")
+    __slots__ = ("_router", "_projects", "_allowlist")
 
-    def __init__(self, *, router: AutoRouter, projects: ProjectsConfig) -> None:
+    def __init__(
+        self,
+        *,
+        router: AutoRouter,
+        projects: ProjectsConfig,
+        allowlist: Iterable[str] | None = None,
+    ) -> None:
         self._router = router
         self._projects = projects
+        self._allowlist = normalize_allowlist(allowlist)
 
     @property
     def default_engine(self) -> EngineId:
@@ -53,6 +62,10 @@ class TransportRuntime:
 
     def project_aliases(self) -> tuple[str, ...]:
         return tuple(project.alias for project in self._projects.projects.values())
+
+    @property
+    def allowlist(self) -> set[str] | None:
+        return self._allowlist
 
     def resolve_message(self, *, text: str, reply_text: str | None) -> ResolvedMessage:
         directives = parse_directives(
