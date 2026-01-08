@@ -3,6 +3,7 @@ from pathlib import Path
 import anyio
 import pytest
 
+from takopi import commands, plugins
 from takopi.directives import parse_directives
 from takopi.telegram.bridge import (
     TelegramBridgeConfig,
@@ -22,6 +23,7 @@ from takopi.router import AutoRouter, RunnerEntry
 from takopi.transport_runtime import TransportRuntime
 from takopi.runners.mock import Return, ScriptRunner, Sleep, Wait
 from takopi.transport import IncomingMessage, MessageRef, RenderedMessage, SendOptions
+from tests.plugin_fixtures import FakeEntryPoint, install_entrypoints
 
 CODEX_ENGINE = EngineId("codex")
 
@@ -288,6 +290,35 @@ def test_build_bot_commands_includes_projects() -> None:
 
     assert any(cmd["command"] == "good" for cmd in commands)
     assert not any(cmd["command"] == "bad-name" for cmd in commands)
+
+
+def test_build_bot_commands_includes_command_plugins(monkeypatch) -> None:
+    class _Command:
+        id = "pingcmd"
+        description = "ping command"
+
+        async def handle(self, ctx):
+            _ = ctx
+            return None
+
+    entrypoints = [
+        FakeEntryPoint(
+            "pingcmd",
+            "takopi.commands.ping:BACKEND",
+            plugins.COMMAND_GROUP,
+            loader=_Command,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=empty_projects_config(),
+    )
+
+    commands_list = _build_bot_commands(runtime)
+
+    assert {"command": "pingcmd", "description": "ping command"} in commands_list
 
 
 def test_build_bot_commands_caps_total() -> None:
@@ -718,3 +749,60 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
             hold.set()
             stop_polling.set()
             tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_handles_command_plugins(monkeypatch) -> None:
+    class _Command:
+        id = "echo_cmd"
+        description = "echo"
+
+        async def handle(self, ctx):
+            return commands.CommandResult(text=f"echo:{ctx.args_text}")
+
+    entrypoints = [
+        FakeEntryPoint(
+            "echo_cmd",
+            "takopi.commands.echo:BACKEND",
+            plugins.COMMAND_GROUP,
+            loader=_Command,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    transport = _FakeTransport()
+    bot = _FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=empty_projects_config(),
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield IncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="/echo_cmd hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert runner.calls == []
+    assert transport.send_calls
+    assert transport.send_calls[-1]["message"].text == "echo:hello"
