@@ -1,6 +1,6 @@
 # Public Plugin API
 
-Takopi’s **public plugin API** is exported from:
+Takopi's **public plugin API** is exported from:
 
 ```
 takopi.api
@@ -32,7 +32,7 @@ dependencies = ["takopi>=0.11,<0.12"]
 | `EngineConfig` | Dict-based engine config table |
 | `Runner` | Runner protocol |
 | `BaseRunner` | Helper base class with resume locking |
-| `JsonlSubprocessRunner` | Helper for JSONL‑streaming CLIs |
+| `JsonlSubprocessRunner` | Helper for JSONL-streaming CLIs |
 | `EventFactory` | Helper for building takopi events |
 
 ### Transport backends
@@ -70,7 +70,7 @@ dependencies = ["takopi>=0.11,<0.12"]
 |--------|---------|
 | `ExecBridgeConfig` | Transport + presenter config |
 | `IncomingMessage` | Normalized incoming message |
-| `RunningTask` / `RunningTasks` | Per‑message run coordination |
+| `RunningTask` / `RunningTasks` | Per-message run coordination |
 | `handle_message()` | Core message handler used by transports |
 
 ---
@@ -87,7 +87,7 @@ Runners emit events in a strict sequence (see `tests/test_runner_contract.py`):
 Action events are optional. The minimal valid run is:
 
 ```
-StartedEvent → CompletedEvent
+StartedEvent -> CompletedEvent
 ```
 
 ### Resume tokens

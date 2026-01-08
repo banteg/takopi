@@ -30,8 +30,8 @@ mytransport = "mytransport.backend:BACKEND"
 
 - The entrypoint **name** is the plugin ID.
 - The entrypoint value must resolve to a **backend object**:
-  - Engine backend → `EngineBackend`
-  - Transport backend → `TransportBackend`
+  - Engine backend -> `EngineBackend`
+  - Transport backend -> `TransportBackend`
 - The backend object **must** have `id == entrypoint name`.
 
 Takopi validates this at load time and will report errors via `takopi plugins --load`.
@@ -61,7 +61,7 @@ enabled = ["takopi-transport-slack", "takopi-engine-acme"]
 auto_install = false
 ```
 
-- `enabled = []` (default) → load all installed plugins.
+- `enabled = []` (default) -> load all installed plugins.
 - If `enabled` is non-empty, **only distributions with matching names** are visible.
 - Distribution names are taken from package metadata (case-insensitive).
 - If a plugin has no resolvable distribution name and an allowlist is set, it is hidden.
@@ -142,10 +142,10 @@ Transport plugins connect Takopi to new messaging systems (Slack, Discord, etc).
 You must provide a `TransportBackend` object with:
 
 - `id` and `description`
-- `check_setup()` → returns `SetupResult` (issues + config path)
-- `interactive_setup()` → optional interactive setup flow
-- `lock_token()` → token fingerprinting for config locks
-- `build_and_run()` → build transport and start the main loop
+- `check_setup()` -> returns `SetupResult` (issues + config path)
+- `interactive_setup()` -> optional interactive setup flow
+- `lock_token()` -> token fingerprinting for config locks
+- `build_and_run()` -> build transport and start the main loop
 
 Minimal skeleton:
 
