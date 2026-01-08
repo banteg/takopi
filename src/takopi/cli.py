@@ -83,7 +83,10 @@ def acquire_config_lock(config_path: Path, token: str | None) -> LockHandle:
 def _default_engine_for_setup(override: str | None) -> str:
     if override:
         return override
-    loaded = load_settings_if_exists()
+    try:
+        loaded = load_settings_if_exists()
+    except ConfigError:
+        return "codex"
     if loaded is None:
         return "codex"
     settings, config_path = loaded
@@ -201,7 +204,10 @@ def _setup_needs_config(setup: SetupResult) -> bool:
 
 def _fail_missing_config(path: Path) -> None:
     display = _config_path_display(path)
-    typer.echo(f"error: missing takopi config at {display}", err=True)
+    if path.exists():
+        typer.echo(f"error: invalid takopi config at {display}", err=True)
+    else:
+        typer.echo(f"error: missing takopi config at {display}", err=True)
 
 
 def _run_auto_router(
@@ -236,7 +242,21 @@ def _run_auto_router(
     )
     if not setup.ok:
         if _setup_needs_config(setup) and _should_run_interactive():
-            if transport_backend.interactive_setup(force=False):
+            if setup.config_path.exists():
+                display = _config_path_display(setup.config_path)
+                run_onboard = typer.confirm(
+                    f"config at {display} is missing/invalid for "
+                    f"{transport_backend.id}, run onboarding now?",
+                    default=False,
+                )
+                if run_onboard and transport_backend.interactive_setup(force=True):
+                    default_engine = _default_engine_for_setup(default_engine_override)
+                    engine_backend = get_backend(default_engine)
+                    setup = transport_backend.check_setup(
+                        engine_backend,
+                        transport_override=transport_override,
+                    )
+            elif transport_backend.interactive_setup(force=False):
                 default_engine = _default_engine_for_setup(default_engine_override)
                 engine_backend = get_backend(default_engine)
                 setup = transport_backend.check_setup(
