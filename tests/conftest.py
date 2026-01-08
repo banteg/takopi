@@ -15,6 +15,4 @@ def anyio_backend() -> str:
 def reset_plugins_state() -> None:
     import takopi.plugins as plugins
 
-    plugins._LOAD_ERRORS.clear()
-    plugins._LOAD_ERROR_KEYS.clear()
-    plugins._LOADED.clear()
+    plugins.reset_plugin_state()

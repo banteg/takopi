@@ -43,8 +43,12 @@ _LOAD_ERROR_KEYS: set[tuple[str, str, str, str | None, str]] = set()
 _LOADED: dict[tuple[str, str], Any] = {}
 
 
+def _error_key(error: PluginLoadError) -> tuple[str, str, str, str | None, str]:
+    return (error.group, error.name, error.value, error.distribution, error.error)
+
+
 def _record_error(error: PluginLoadError) -> None:
-    key = (error.group, error.name, error.value, error.distribution, error.error)
+    key = _error_key(error)
     if key in _LOAD_ERROR_KEYS:
         return
     _LOAD_ERROR_KEYS.add(key)
@@ -53,6 +57,30 @@ def _record_error(error: PluginLoadError) -> None:
 
 def get_load_errors() -> tuple[PluginLoadError, ...]:
     return tuple(_LOAD_ERRORS)
+
+
+def clear_load_errors(*, group: str | None = None, name: str | None = None) -> None:
+    if group is None and name is None:
+        _LOAD_ERRORS.clear()
+        _LOAD_ERROR_KEYS.clear()
+        return
+    remaining: list[PluginLoadError] = []
+    _LOAD_ERROR_KEYS.clear()
+    for error in _LOAD_ERRORS:
+        if group is not None and error.group != group:
+            remaining.append(error)
+            _LOAD_ERROR_KEYS.add(_error_key(error))
+            continue
+        if name is not None and error.name != name:
+            remaining.append(error)
+            _LOAD_ERROR_KEYS.add(_error_key(error))
+            continue
+    _LOAD_ERRORS[:] = remaining
+
+
+def reset_plugin_state() -> None:
+    clear_load_errors()
+    _LOADED.clear()
 
 
 def _select_entrypoints(group: str) -> list[EntryPoint]:
@@ -251,4 +279,5 @@ def load_entrypoint(
         raise PluginLoadFailed(error) from exc
 
     _LOADED[key] = loaded
+    clear_load_errors(group=group, name=name)
     return loaded
