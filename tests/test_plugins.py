@@ -1,0 +1,119 @@
+import pytest
+
+from takopi import plugins
+from tests.plugin_fixtures import FakeEntryPoint, install_entrypoints
+
+
+def test_list_ids_does_not_load_entrypoints(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def loader():
+        calls["count"] += 1
+        return object()
+
+    entrypoints = [
+        FakeEntryPoint(
+            "codex",
+            "takopi.runners.codex:BACKEND",
+            plugins.ENGINE_GROUP,
+            loader=loader,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    ids = plugins.list_ids(plugins.ENGINE_GROUP)
+    assert ids == ["codex"]
+    assert calls["count"] == 0
+
+
+def test_load_entrypoint_records_errors(monkeypatch) -> None:
+    def loader():
+        raise RuntimeError("boom")
+
+    entrypoints = [
+        FakeEntryPoint(
+            "broken",
+            "takopi.runners.broken:BACKEND",
+            plugins.ENGINE_GROUP,
+            loader=loader,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    with pytest.raises(plugins.PluginLoadFailed):
+        plugins.load_entrypoint(plugins.ENGINE_GROUP, "broken")
+
+    errors = plugins.get_load_errors()
+    assert errors
+    assert errors[0].name == "broken"
+    assert "boom" in errors[0].error
+
+
+def test_duplicate_entrypoints_are_rejected(monkeypatch) -> None:
+    entrypoints = [
+        FakeEntryPoint(
+            "dup",
+            "takopi.runners.one:BACKEND",
+            plugins.ENGINE_GROUP,
+            dist_name="one",
+        ),
+        FakeEntryPoint(
+            "dup",
+            "takopi.runners.two:BACKEND",
+            plugins.ENGINE_GROUP,
+            dist_name="two",
+        ),
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    ids = plugins.list_ids(plugins.ENGINE_GROUP)
+    assert ids == []
+
+    with pytest.raises(plugins.PluginLoadFailed):
+        plugins.load_entrypoint(plugins.ENGINE_GROUP, "dup")
+
+    errors = plugins.get_load_errors()
+    assert any("duplicate plugin id" in err.error for err in errors)
+
+
+def test_allowlist_filters_by_distribution(monkeypatch) -> None:
+    entrypoints = [
+        FakeEntryPoint(
+            "codex",
+            "takopi.runners.codex:BACKEND",
+            plugins.ENGINE_GROUP,
+            dist_name="takopi",
+        ),
+        FakeEntryPoint(
+            "thirdparty",
+            "takopi_thirdparty.backend:BACKEND",
+            plugins.ENGINE_GROUP,
+            dist_name="takopi-thirdparty",
+        ),
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    ids = plugins.list_ids(plugins.ENGINE_GROUP, allowlist=["takopi"])
+    assert ids == ["codex"]
+
+
+def test_validator_errors_are_captured(monkeypatch) -> None:
+    entrypoints = [
+        FakeEntryPoint(
+            "bad",
+            "takopi.runners.bad:BACKEND",
+            plugins.ENGINE_GROUP,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    def validator(obj, ep):
+        raise TypeError("not valid")
+
+    with pytest.raises(plugins.PluginLoadFailed):
+        plugins.load_entrypoint(
+            plugins.ENGINE_GROUP, "bad", validator=validator
+        )
+
+    errors = plugins.get_load_errors()
+    assert any("not valid" in err.error for err in errors)

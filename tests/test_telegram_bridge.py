@@ -3,6 +3,7 @@ from pathlib import Path
 import anyio
 import pytest
 
+from takopi.directives import parse_directives
 from takopi.telegram.bridge import (
     TelegramBridgeConfig,
     TelegramTransport,
@@ -11,7 +12,6 @@ from takopi.telegram.bridge import (
     _is_cancel_command,
     _resolve_message,
     _send_with_resume,
-    _strip_engine_command,
     run_main_loop,
 )
 from takopi.context import RunContext
@@ -194,42 +194,54 @@ def _make_cfg(
     )
 
 
-def test_strip_engine_command_inline() -> None:
-    text, engine = _strip_engine_command(
-        "/claude do it", engine_ids=("codex", "claude")
+def test_parse_directives_inline_engine() -> None:
+    directives = parse_directives(
+        "/claude do it",
+        engine_ids=("codex", "claude"),
+        projects=empty_projects_config(),
     )
-    assert engine == "claude"
-    assert text == "do it"
+    assert directives.engine == "claude"
+    assert directives.prompt == "do it"
 
 
-def test_strip_engine_command_newline() -> None:
-    text, engine = _strip_engine_command(
-        "/codex\nhello", engine_ids=("codex", "claude")
+def test_parse_directives_newline() -> None:
+    directives = parse_directives(
+        "/codex\nhello",
+        engine_ids=("codex", "claude"),
+        projects=empty_projects_config(),
     )
-    assert engine == "codex"
-    assert text == "hello"
+    assert directives.engine == "codex"
+    assert directives.prompt == "hello"
 
 
-def test_strip_engine_command_ignores_unknown() -> None:
-    text, engine = _strip_engine_command("/unknown hi", engine_ids=("codex", "claude"))
-    assert engine is None
-    assert text == "/unknown hi"
-
-
-def test_strip_engine_command_bot_suffix() -> None:
-    text, engine = _strip_engine_command(
-        "/claude@bunny_agent_bot hi", engine_ids=("claude",)
+def test_parse_directives_ignores_unknown() -> None:
+    directives = parse_directives(
+        "/unknown hi",
+        engine_ids=("codex", "claude"),
+        projects=empty_projects_config(),
     )
-    assert engine == "claude"
-    assert text == "hi"
+    assert directives.engine is None
+    assert directives.prompt == "/unknown hi"
 
 
-def test_strip_engine_command_only_first_non_empty_line() -> None:
-    text, engine = _strip_engine_command(
-        "hello\n/claude hi", engine_ids=("codex", "claude")
+def test_parse_directives_bot_suffix() -> None:
+    directives = parse_directives(
+        "/claude@bunny_agent_bot hi",
+        engine_ids=("claude",),
+        projects=empty_projects_config(),
     )
-    assert engine is None
-    assert text == "hello\n/claude hi"
+    assert directives.engine == "claude"
+    assert directives.prompt == "hi"
+
+
+def test_parse_directives_only_first_non_empty_line() -> None:
+    directives = parse_directives(
+        "hello\n/claude hi",
+        engine_ids=("codex", "claude"),
+        projects=empty_projects_config(),
+    )
+    assert directives.engine is None
+    assert directives.prompt == "hello\n/claude hi"
 
 
 def test_build_bot_commands_includes_cancel_and_engine() -> None:

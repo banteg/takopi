@@ -35,13 +35,14 @@ def test_init_writes_project(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "takopi.toml"
     monkeypatch.setattr("takopi.config.HOME_CONFIG_PATH", config_path)
     monkeypatch.setattr(cli, "resolve_default_base", lambda _: "main")
+    monkeypatch.setattr(cli, "_load_settings_optional", lambda: (None, None))
 
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
     monkeypatch.chdir(repo_path)
 
     runner = CliRunner()
-    result = runner.invoke(cli.app, ["init", "z80"])
+    result = runner.invoke(cli.create_app(), ["init", "z80"])
     assert result.exit_code == 0
 
     saved = config_path.read_text(encoding="utf-8")
@@ -56,13 +57,14 @@ def test_init_migrates_legacy_config(monkeypatch, tmp_path) -> None:
     config_path.write_text('bot_token = "token"\nchat_id = 123\n', encoding="utf-8")
     monkeypatch.setattr("takopi.config.HOME_CONFIG_PATH", config_path)
     monkeypatch.setattr(cli, "resolve_default_base", lambda _: "main")
+    monkeypatch.setattr(cli, "_load_settings_optional", lambda: (None, None))
 
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
     monkeypatch.chdir(repo_path)
 
     runner = CliRunner()
-    result = runner.invoke(cli.app, ["init", "z80"])
+    result = runner.invoke(cli.create_app(), ["init", "z80"])
     assert result.exit_code == 0
 
     raw = read_raw_toml(config_path)

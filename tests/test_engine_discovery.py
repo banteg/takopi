@@ -1,28 +1,57 @@
 from typing import cast
 
+import pytest
+
 import click
 import typer
 
-from takopi import cli, engines
+from takopi import cli, engines, plugins
+from tests.plugin_fixtures import FakeEntryPoint, install_entrypoints
 
 
-def test_engine_discovery_skips_non_backend() -> None:
+@pytest.fixture
+def engine_entrypoints(monkeypatch):
+    entrypoints = [
+        FakeEntryPoint(
+            "codex",
+            "takopi.runners.codex:BACKEND",
+            plugins.ENGINE_GROUP,
+        ),
+        FakeEntryPoint(
+            "claude",
+            "takopi.runners.claude:BACKEND",
+            plugins.ENGINE_GROUP,
+        ),
+        FakeEntryPoint(
+            "bad-id",
+            "takopi.runners.bad:BACKEND",
+            plugins.ENGINE_GROUP,
+        ),
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+    monkeypatch.setattr(cli, "_load_settings_optional", lambda: (None, None))
+    return entrypoints
+
+
+def test_engine_discovery_filters_invalid_ids(engine_entrypoints) -> None:
     ids = engines.list_backend_ids()
-    assert "codex" in ids
-    assert "claude" in ids
-    assert "mock" not in ids
+    assert ids == ["claude", "codex"]
 
 
-def test_cli_registers_engine_commands_sorted() -> None:
-    command_names = [cmd.name for cmd in cli.app.registered_commands]
+def test_cli_registers_engine_commands_sorted(engine_entrypoints) -> None:
+    app = cli.create_app()
+    command_names = [cmd.name for cmd in app.registered_commands]
     engine_ids = engines.list_backend_ids()
     assert set(engine_ids) <= set(command_names)
     engine_commands = [name for name in command_names if name in engine_ids]
     assert engine_commands == engine_ids
 
 
-def test_engine_commands_do_not_expose_engine_id_option() -> None:
-    group = cast(click.Group, typer.main.get_command(cli.app))
+def test_engine_commands_do_not_expose_engine_id_option(
+    engine_entrypoints,
+) -> None:
+    app = cli.create_app()
+    group = cast(click.Group, typer.main.get_command(app))
     engine_ids = engines.list_backend_ids()
 
     ctx = group.make_context("takopi", [])
