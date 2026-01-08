@@ -79,14 +79,14 @@ def entrypoint_distribution_name(ep: EntryPoint) -> str | None:
         return None
 
 
-def _normalize_allowlist(allowlist: Iterable[str] | None) -> set[str] | None:
+def normalize_allowlist(allowlist: Iterable[str] | None) -> set[str] | None:
     if allowlist is None:
         return None
     cleaned = {item.strip().lower() for item in allowlist if item and item.strip()}
     return cleaned or None
 
 
-def _is_allowed(ep: EntryPoint, allowlist: set[str] | None) -> bool:
+def is_entrypoint_allowed(ep: EntryPoint, allowlist: set[str] | None) -> bool:
     if allowlist is None:
         return True
     dist_name = entrypoint_distribution_name(ep)
@@ -100,12 +100,23 @@ def _entrypoint_sort_key(ep: EntryPoint) -> tuple[str, str, str]:
     return (ep.name, dist, ep.value)
 
 
+def _normalize_reserved(reserved: Iterable[str] | None) -> set[str] | None:
+    if reserved is None:
+        return None
+    cleaned = {item.strip().lower() for item in reserved if item and item.strip()}
+    return cleaned or None
+
+
 def _discover_entrypoints(
-    group: str, *, allowlist: Iterable[str] | None = None
+    group: str,
+    *,
+    allowlist: Iterable[str] | None = None,
+    reserved_ids: Iterable[str] | None = None,
 ) -> tuple[dict[str, EntryPoint], dict[str, list[EntryPoint]]]:
-    allow = _normalize_allowlist(allowlist)
+    allow = normalize_allowlist(allowlist)
+    reserved = _normalize_reserved(reserved_ids)
     raw_eps = _select_entrypoints(group)
-    eps = [ep for ep in raw_eps if _is_allowed(ep, allow)]
+    eps = [ep for ep in raw_eps if is_entrypoint_allowed(ep, allow)]
     eps.sort(key=_entrypoint_sort_key)
 
     by_name: dict[str, EntryPoint] = {}
@@ -120,6 +131,17 @@ def _discover_entrypoints(
                     value=ep.value,
                     distribution=entrypoint_distribution_name(ep),
                     error=(f"invalid plugin id {ep.name!r}; must match {ID_PATTERN}"),
+                )
+            )
+            continue
+        if reserved is not None and ep.name.lower() in reserved:
+            _record_error(
+                PluginLoadError(
+                    group=group,
+                    name=ep.name,
+                    value=ep.value,
+                    distribution=entrypoint_distribution_name(ep),
+                    error=f"reserved plugin id {ep.name!r} is not allowed",
                 )
             )
             continue
@@ -152,14 +174,29 @@ def _discover_entrypoints(
 
 
 def list_entrypoints(
-    group: str, *, allowlist: Iterable[str] | None = None
+    group: str,
+    *,
+    allowlist: Iterable[str] | None = None,
+    reserved_ids: Iterable[str] | None = None,
 ) -> list[EntryPoint]:
-    by_name, _ = _discover_entrypoints(group, allowlist=allowlist)
+    by_name, _ = _discover_entrypoints(
+        group, allowlist=allowlist, reserved_ids=reserved_ids
+    )
     return [by_name[name] for name in sorted(by_name)]
 
 
-def list_ids(group: str, *, allowlist: Iterable[str] | None = None) -> list[str]:
-    return sorted(ep.name for ep in list_entrypoints(group, allowlist=allowlist))
+def list_ids(
+    group: str,
+    *,
+    allowlist: Iterable[str] | None = None,
+    reserved_ids: Iterable[str] | None = None,
+) -> list[str]:
+    return sorted(
+        ep.name
+        for ep in list_entrypoints(
+            group, allowlist=allowlist, reserved_ids=reserved_ids
+        )
+    )
 
 
 def load_entrypoint(

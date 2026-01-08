@@ -14,6 +14,7 @@ from .backends import EngineBackend
 from .config import ConfigError, load_or_init_config, write_config
 from .config_migrations import migrate_config
 from .engines import get_backend, list_backend_ids
+from .ids import RESERVED_ENGINE_IDS
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
 from .router import AutoRouter, RunnerEntry
@@ -28,9 +29,12 @@ from .plugins import (
     TRANSPORT_GROUP,
     entrypoint_distribution_name,
     get_load_errors,
+    is_entrypoint_allowed,
     list_entrypoints,
+    normalize_allowlist,
 )
 from .transports import SetupResult, get_transport
+from .transport_runtime import TransportRuntime
 from .utils.git import resolve_default_base, resolve_main_worktree_root
 
 logger = get_logger(__name__)
@@ -369,18 +373,21 @@ def _run_auto_router(
             backends=backends,
             default_engine=default_engine,
         )
+        transport_config = settings.transport_config(
+            settings.transport, config_path=config_path
+        )
         lock_token = transport_backend.lock_token(
-            settings=settings,
+            transport_config=transport_config,
             config_path=config_path,
         )
         lock_handle = acquire_config_lock(config_path, lock_token)
+        runtime = TransportRuntime(router=router, projects=projects)
         transport_backend.build_and_run(
             final_notify=final_notify,
             default_engine_override=default_engine_override,
-            settings=settings,
             config_path=config_path,
-            router=router,
-            projects=projects,
+            transport_config=transport_config,
+            runtime=runtime,
         )
     except ConfigError as e:
         typer.echo(f"error: {e}", err=True)
@@ -499,14 +506,20 @@ def init(
     typer.echo(f"saved project {alias!r} to {_config_path_display(config_path)}")
 
 
-def _print_entrypoints(label: str, entrypoints: list[EntryPoint]) -> None:
+def _print_entrypoints(
+    label: str, entrypoints: list[EntryPoint], *, allowlist: set[str] | None
+) -> None:
     typer.echo(f"{label}:")
     if not entrypoints:
         typer.echo("  (none)")
         return
     for ep in entrypoints:
         dist = entrypoint_distribution_name(ep) or "unknown"
-        typer.echo(f"  {ep.name} ({dist})")
+        status = ""
+        if allowlist is not None:
+            allowed = is_entrypoint_allowed(ep, allowlist)
+            status = " enabled" if allowed else " disabled"
+        typer.echo(f"  {ep.name} ({dist}){status}")
 
 
 def plugins_cmd(
@@ -520,19 +533,31 @@ def plugins_cmd(
     settings_hint, _ = _load_settings_optional()
     allowlist = _resolve_plugins_allowlist(settings_hint)
 
-    engine_eps = list_entrypoints(ENGINE_GROUP, allowlist=allowlist)
-    transport_eps = list_entrypoints(TRANSPORT_GROUP, allowlist=allowlist)
+    allowlist_set = normalize_allowlist(allowlist)
+    engine_eps = list_entrypoints(
+        ENGINE_GROUP,
+        reserved_ids=RESERVED_ENGINE_IDS,
+    )
+    transport_eps = list_entrypoints(TRANSPORT_GROUP)
 
-    _print_entrypoints("engine backends", engine_eps)
-    _print_entrypoints("transport backends", transport_eps)
+    _print_entrypoints("engine backends", engine_eps, allowlist=allowlist_set)
+    _print_entrypoints("transport backends", transport_eps, allowlist=allowlist_set)
 
     if load:
         for ep in engine_eps:
+            if allowlist_set is not None and not is_entrypoint_allowed(
+                ep, allowlist_set
+            ):
+                continue
             try:
                 get_backend(ep.name, allowlist=allowlist)
             except ConfigError:
                 continue
         for ep in transport_eps:
+            if allowlist_set is not None and not is_entrypoint_allowed(
+                ep, allowlist_set
+            ):
+                continue
             try:
                 get_transport(ep.name, allowlist=allowlist)
             except ConfigError:
@@ -629,9 +654,7 @@ def make_engine_cmd(engine_id: str) -> Callable[..., None]:
 
 
 def _engine_ids_for_cli() -> list[str]:
-    settings_hint, _ = _load_settings_optional()
-    allowlist = _resolve_plugins_allowlist(settings_hint)
-    return list_backend_ids(allowlist=allowlist)
+    return list_backend_ids()
 
 
 def create_app() -> typer.Typer:

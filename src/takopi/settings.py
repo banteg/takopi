@@ -323,6 +323,20 @@ def require_telegram(settings: TakopiSettings, config_path: Path) -> tuple[str, 
     return tg.bot_token.get_secret_value().strip(), tg.chat_id
 
 
+def require_telegram_config(
+    config: dict[str, object], config_path: Path
+) -> tuple[str, int]:
+    raw_token = config.get("bot_token")
+    if raw_token is None or not isinstance(raw_token, str) or not raw_token.strip():
+        raise ConfigError(f"Missing bot token in {config_path}.")
+    raw_chat_id = config.get("chat_id")
+    if raw_chat_id is None:
+        raise ConfigError(f"Missing chat_id in {config_path}.")
+    if isinstance(raw_chat_id, bool) or not isinstance(raw_chat_id, int):
+        raise ConfigError(f"Invalid `chat_id` in {config_path}; expected an integer.")
+    return raw_token.strip(), raw_chat_id
+
+
 def _resolve_config_path(path: str | Path | None) -> Path:
     return Path(path).expanduser() if path else HOME_CONFIG_PATH
 

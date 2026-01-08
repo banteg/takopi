@@ -6,11 +6,10 @@ from pathlib import Path
 import anyio
 
 from ..backends import EngineBackend
-from ..config import ProjectsConfig
-from ..router import AutoRouter
 from ..runner_bridge import ExecBridgeConfig
-from ..settings import TakopiSettings, require_telegram
+from ..settings import require_telegram_config
 from ..transports import SetupResult, TransportBackend
+from ..transport_runtime import TransportRuntime
 from .bridge import (
     TelegramBridgeConfig,
     TelegramPresenter,
@@ -22,24 +21,22 @@ from .onboarding import check_setup, interactive_setup
 
 
 def _build_startup_message(
-    router: AutoRouter,
-    projects: ProjectsConfig,
+    runtime: TransportRuntime,
     *,
     startup_pwd: str,
 ) -> str:
-    available_engines = [entry.engine for entry in router.available_entries]
-    missing_engines = [entry.engine for entry in router.entries if not entry.available]
+    available_engines = list(runtime.available_engine_ids())
+    missing_engines = list(runtime.missing_engine_ids())
     engine_list = ", ".join(available_engines) if available_engines else "none"
     if missing_engines:
         engine_list = f"{engine_list} (not installed: {', '.join(missing_engines)})"
     project_aliases = sorted(
-        {project.alias for project in projects.projects.values()},
-        key=str.lower,
+        {alias for alias in runtime.project_aliases()}, key=str.lower
     )
     project_list = ", ".join(project_aliases) if project_aliases else "none"
     return (
         f"\N{OCTOPUS} **takopi is ready**\n\n"
-        f"default: `{router.default_engine}`  \n"
+        f"default: `{runtime.default_engine}`  \n"
         f"agents: `{engine_list}`  \n"
         f"projects: `{project_list}`  \n"
         f"working in: `{startup_pwd}`"
@@ -61,24 +58,25 @@ class TelegramBackend(TransportBackend):
     def interactive_setup(self, *, force: bool) -> bool:
         return interactive_setup(force=force)
 
-    def lock_token(self, *, settings: TakopiSettings, config_path: Path) -> str | None:
-        token, _ = require_telegram(settings, config_path)
+    def lock_token(
+        self, *, transport_config: dict[str, object], config_path: Path
+    ) -> str | None:
+        token, _ = require_telegram_config(transport_config, config_path)
         return token
 
     def build_and_run(
         self,
         *,
-        settings: TakopiSettings,
+        transport_config: dict[str, object],
         config_path: Path,
-        router: AutoRouter,
-        projects: ProjectsConfig,
+        runtime: TransportRuntime,
         final_notify: bool,
         default_engine_override: str | None,
     ) -> None:
-        token, chat_id = require_telegram(settings, config_path)
+        _ = default_engine_override
+        token, chat_id = require_telegram_config(transport_config, config_path)
         startup_msg = _build_startup_message(
-            router,
-            projects,
+            runtime,
             startup_pwd=os.getcwd(),
         )
         bot = TelegramClient(token)
@@ -91,11 +89,10 @@ class TelegramBackend(TransportBackend):
         )
         cfg = TelegramBridgeConfig(
             bot=bot,
-            router=router,
+            runtime=runtime,
             chat_id=chat_id,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
-            projects=projects,
         )
         anyio.run(run_main_loop, cfg)
 

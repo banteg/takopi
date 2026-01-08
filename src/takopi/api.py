@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from .backends import EngineBackend, EngineConfig, SetupIssue
-from .config import ConfigError, ProjectConfig, ProjectsConfig
+from .config import ConfigError
 from .context import RunContext
+from .directives import DirectiveError
 from .events import EventFactory
 from .model import (
     Action,
@@ -15,7 +16,7 @@ from .model import (
     StartedEvent,
 )
 from .presenter import Presenter
-from .router import AutoRouter, RunnerEntry, RunnerUnavailableError
+from .router import RunnerUnavailableError
 from .runner import BaseRunner, JsonlSubprocessRunner, Runner
 from .runner_bridge import (
     ExecBridgeConfig,
@@ -24,8 +25,8 @@ from .runner_bridge import (
     RunningTasks,
     handle_message,
 )
-from .settings import TakopiSettings
 from .transport import MessageRef, RenderedMessage, SendOptions, Transport
+from .transport_runtime import ResolvedMessage, ResolvedRunner, TransportRuntime
 from .transports import SetupResult, TransportBackend
 
 TAKOPI_PLUGIN_API_VERSION = 1
@@ -33,7 +34,6 @@ TAKOPI_PLUGIN_API_VERSION = 1
 __all__ = [
     "Action",
     "ActionEvent",
-    "AutoRouter",
     "BaseRunner",
     "CompletedEvent",
     "ConfigError",
@@ -45,14 +45,14 @@ __all__ = [
     "IncomingMessage",
     "JsonlSubprocessRunner",
     "MessageRef",
-    "ProjectConfig",
-    "ProjectsConfig",
+    "DirectiveError",
     "Presenter",
     "RenderedMessage",
     "ResumeToken",
+    "ResolvedMessage",
+    "ResolvedRunner",
     "RunContext",
     "Runner",
-    "RunnerEntry",
     "RunnerUnavailableError",
     "RunningTask",
     "RunningTasks",
@@ -61,8 +61,8 @@ __all__ = [
     "SetupResult",
     "StartedEvent",
     "TAKOPI_PLUGIN_API_VERSION",
-    "TakopiSettings",
     "Transport",
     "TransportBackend",
+    "TransportRuntime",
     "handle_message",
 ]

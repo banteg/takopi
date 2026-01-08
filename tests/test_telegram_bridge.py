@@ -10,7 +10,6 @@ from takopi.telegram.bridge import (
     _build_bot_commands,
     _handle_cancel,
     _is_cancel_command,
-    _resolve_message,
     _send_with_resume,
     run_main_loop,
 )
@@ -20,6 +19,7 @@ from takopi.runner_bridge import ExecBridgeConfig, RunningTask
 from takopi.markdown import MarkdownPresenter
 from takopi.model import EngineId, ResumeToken
 from takopi.router import AutoRouter, RunnerEntry
+from takopi.transport_runtime import TransportRuntime
 from takopi.runners.mock import Return, ScriptRunner, Sleep, Wait
 from takopi.transport import IncomingMessage, MessageRef, RenderedMessage, SendOptions
 
@@ -185,9 +185,13 @@ def _make_cfg(
         presenter=MarkdownPresenter(),
         final_notify=True,
     )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=empty_projects_config(),
+    )
     return TelegramBridgeConfig(
         bot=_FakeBot(),
-        router=_make_router(runner),
+        runtime=runtime,
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
@@ -248,8 +252,11 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
     runner = ScriptRunner(
         [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
     )
-    router = _make_router(runner)
-    commands = _build_bot_commands(router, empty_projects_config())
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=empty_projects_config(),
+    )
+    commands = _build_bot_commands(runtime)
 
     assert {"command": "cancel", "description": "cancel run"} in commands
     assert any(cmd["command"] == "codex" for cmd in commands)
@@ -276,7 +283,8 @@ def test_build_bot_commands_includes_projects() -> None:
         default_project=None,
     )
 
-    commands = _build_bot_commands(router, projects)
+    runtime = TransportRuntime(router=router, projects=projects)
+    commands = _build_bot_commands(runtime)
 
     assert any(cmd["command"] == "good" for cmd in commands)
     assert not any(cmd["command"] == "bad-name" for cmd in commands)
@@ -299,7 +307,8 @@ def test_build_bot_commands_caps_total() -> None:
         default_project=None,
     )
 
-    commands = _build_bot_commands(router, projects)
+    runtime = TransportRuntime(router=router, projects=projects)
+    commands = _build_bot_commands(runtime)
 
     assert len(commands) == 100
     assert any(cmd["command"] == "codex" for cmd in commands)
@@ -539,23 +548,22 @@ def test_cancel_command_accepts_extra_text() -> None:
 
 
 def test_resolve_message_accepts_backticked_ctx_line() -> None:
-    router = _make_router(ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE))
-    projects = ProjectsConfig(
-        projects={
-            "takopi": ProjectConfig(
-                alias="takopi",
-                path=Path("."),
-                worktrees_dir=Path(".worktrees"),
-            )
-        },
-        default_project=None,
+    runtime = TransportRuntime(
+        router=_make_router(ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)),
+        projects=ProjectsConfig(
+            projects={
+                "takopi": ProjectConfig(
+                    alias="takopi",
+                    path=Path("."),
+                    worktrees_dir=Path(".worktrees"),
+                )
+            },
+            default_project=None,
+        ),
     )
-
-    resolved = _resolve_message(
+    resolved = runtime.resolve_message(
         text="do it",
         reply_text="`ctx: takopi @ feat/api`",
-        router=router,
-        projects=projects,
     )
 
     assert resolved.prompt == "do it"
@@ -655,9 +663,13 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
         presenter=MarkdownPresenter(),
         final_notify=True,
     )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=empty_projects_config(),
+    )
     cfg = TelegramBridgeConfig(
         bot=bot,
-        router=_make_router(runner),
+        runtime=runtime,
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,

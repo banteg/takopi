@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Iterable, Protocol, runtime_checkable
 
 from .backends import EngineBackend, SetupIssue
-from .config import ConfigError, ProjectsConfig
+from .config import ConfigError
 from .plugins import (
     PluginLoadFailed,
     PluginNotFound,
@@ -13,8 +13,7 @@ from .plugins import (
     load_entrypoint,
     list_ids,
 )
-from .router import AutoRouter
-from .settings import TakopiSettings
+from .transport_runtime import TransportRuntime
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,16 +41,15 @@ class TransportBackend(Protocol):
     def interactive_setup(self, *, force: bool) -> bool: ...
 
     def lock_token(
-        self, *, settings: TakopiSettings, config_path: Path
+        self, *, transport_config: dict[str, object], config_path: Path
     ) -> str | None: ...
 
     def build_and_run(
         self,
         *,
-        settings: TakopiSettings,
+        transport_config: dict[str, object],
         config_path: Path,
-        router: AutoRouter,
-        projects: ProjectsConfig,
+        runtime: TransportRuntime,
         final_notify: bool,
         default_engine_override: str | None,
     ) -> None: ...
@@ -77,10 +75,12 @@ def get_transport(
             validator=_validate_transport_backend,
         )
     except PluginNotFound as exc:
-        available = ", ".join(exc.available)
-        raise ConfigError(
-            f"Unknown transport {transport_id!r}. Available: {available}."
-        ) from exc
+        if exc.available:
+            available = ", ".join(exc.available)
+            message = f"Unknown transport {transport_id!r}. Available: {available}."
+        else:
+            message = f"Unknown transport {transport_id!r}."
+        raise ConfigError(message) from exc
     except PluginLoadFailed as exc:
         raise ConfigError(f"Failed to load transport {transport_id!r}: {exc}") from exc
     return backend

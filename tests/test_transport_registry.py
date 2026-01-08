@@ -15,10 +15,26 @@ class DummyTransport:
     def interactive_setup(self, *, force: bool) -> bool:
         raise NotImplementedError
 
-    def lock_token(self, *args, **kwargs):
+    def lock_token(self, *, transport_config: dict[str, object], config_path):
+        _ = transport_config, config_path
         raise NotImplementedError
 
-    def build_and_run(self, *args, **kwargs) -> None:
+    def build_and_run(
+        self,
+        *,
+        transport_config: dict[str, object],
+        config_path,
+        runtime,
+        final_notify: bool,
+        default_engine_override: str | None,
+    ) -> None:
+        _ = (
+            transport_config,
+            config_path,
+            runtime,
+            final_notify,
+            default_engine_override,
+        )
         raise NotImplementedError
 
 

@@ -11,6 +11,7 @@ from .plugins import (
     load_entrypoint,
     list_ids,
 )
+from .ids import RESERVED_ENGINE_IDS
 
 
 def _validate_engine_backend(backend: object, ep) -> None:
@@ -25,6 +26,8 @@ def _validate_engine_backend(backend: object, ep) -> None:
 def get_backend(
     engine_id: str, *, allowlist: Iterable[str] | None = None
 ) -> EngineBackend:
+    if engine_id.lower() in RESERVED_ENGINE_IDS:
+        raise ConfigError(f"Engine id {engine_id!r} is reserved.")
     try:
         backend = load_entrypoint(
             ENGINE_GROUP,
@@ -33,10 +36,12 @@ def get_backend(
             validator=_validate_engine_backend,
         )
     except PluginNotFound as exc:
-        available = ", ".join(exc.available)
-        raise ConfigError(
-            f"Unknown engine {engine_id!r}. Available: {available}."
-        ) from exc
+        if exc.available:
+            available = ", ".join(exc.available)
+            message = f"Unknown engine {engine_id!r}. Available: {available}."
+        else:
+            message = f"Unknown engine {engine_id!r}."
+        raise ConfigError(message) from exc
     except PluginLoadFailed as exc:
         raise ConfigError(f"Failed to load engine {engine_id!r}: {exc}") from exc
     return backend
@@ -55,4 +60,8 @@ def list_backends(*, allowlist: Iterable[str] | None = None) -> list[EngineBacke
 
 
 def list_backend_ids(*, allowlist: Iterable[str] | None = None) -> list[str]:
-    return list_ids(ENGINE_GROUP, allowlist=allowlist)
+    return list_ids(
+        ENGINE_GROUP,
+        allowlist=allowlist,
+        reserved_ids=RESERVED_ENGINE_IDS,
+    )

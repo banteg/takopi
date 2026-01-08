@@ -1,18 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import anyio
 
-from ..config import ProjectsConfig, empty_projects_config
 from ..context import RunContext
-from ..directives import (
-    DirectiveError,
-    format_context_line,
-    parse_context_line,
-    parse_directives,
-)
+from ..config import ConfigError
+from ..directives import DirectiveError
 from ..ids import is_valid_id
 from ..runner_bridge import (
     ExecBridgeConfig,
@@ -25,7 +20,7 @@ from ..logging import bind_run_context, clear_context, get_logger
 from ..markdown import MarkdownFormatter, MarkdownParts
 from ..model import EngineId, ResumeToken
 from ..progress import ProgressState, ProgressTracker
-from ..router import AutoRouter, RunnerUnavailableError
+from ..router import RunnerUnavailableError
 from ..runner import Runner
 from ..scheduler import ThreadJob, ThreadScheduler
 from ..transport import (
@@ -36,7 +31,7 @@ from ..transport import (
     Transport,
 )
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
-from ..worktrees import WorktreeError, resolve_run_cwd
+from ..transport_runtime import TransportRuntime
 from .client import BotClient, poll_incoming
 from .render import prepare_telegram
 
@@ -53,91 +48,23 @@ def _is_cancel_command(text: str) -> bool:
     return command == "/cancel" or command.startswith("/cancel@")
 
 
-@dataclass(frozen=True, slots=True)
-class ResolvedMessage:
-    prompt: str
-    resume_token: ResumeToken | None
-    engine_override: EngineId | None
-    context: RunContext | None
-
-
-def _resolve_message(
-    *,
-    text: str,
-    reply_text: str | None,
-    router: AutoRouter,
-    projects: ProjectsConfig,
-) -> ResolvedMessage:
-    directives = parse_directives(
-        text,
-        engine_ids=router.engine_ids,
-        projects=projects,
-    )
-    reply_ctx = parse_context_line(reply_text, projects=projects)
-    resume_token = router.resolve_resume(directives.prompt, reply_text)
-
-    if resume_token is not None:
-        return ResolvedMessage(
-            prompt=directives.prompt,
-            resume_token=resume_token,
-            engine_override=None,
-            context=reply_ctx,
-        )
-
-    if reply_ctx is not None:
-        engine_override = None
-        if reply_ctx.project is not None:
-            project = projects.projects.get(reply_ctx.project)
-            if project is not None and project.default_engine is not None:
-                engine_override = project.default_engine
-        return ResolvedMessage(
-            prompt=directives.prompt,
-            resume_token=None,
-            engine_override=engine_override,
-            context=reply_ctx,
-        )
-
-    project_key = directives.project
-    if project_key is None and projects.default_project is not None:
-        project_key = projects.default_project
-
-    context = None
-    if project_key is not None or directives.branch is not None:
-        context = RunContext(project=project_key, branch=directives.branch)
-
-    engine_override = directives.engine
-    if engine_override is None and project_key is not None:
-        project = projects.projects.get(project_key)
-        if project is not None and project.default_engine is not None:
-            engine_override = project.default_engine
-
-    return ResolvedMessage(
-        prompt=directives.prompt,
-        resume_token=None,
-        engine_override=engine_override,
-        context=context,
-    )
-
-
-def _build_bot_commands(
-    router: AutoRouter, projects: ProjectsConfig
-) -> list[dict[str, str]]:
+def _build_bot_commands(runtime: TransportRuntime) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     seen: set[str] = set()
-    for entry in router.available_entries:
-        cmd = entry.engine.lower()
+    for engine_id in runtime.available_engine_ids():
+        cmd = engine_id.lower()
         if cmd in seen:
             continue
         commands.append({"command": cmd, "description": f"use agent: {cmd}"})
         seen.add(cmd)
-    for alias, project in projects.projects.items():
+    for alias in runtime.project_aliases():
         cmd = alias.lower()
         if cmd in seen:
             continue
         if not is_valid_id(cmd):
             logger.debug(
                 "startup.command_menu.skip_project",
-                alias=project.alias,
+                alias=alias,
             )
             continue
         commands.append({"command": cmd, "description": f"work on: {cmd}"})
@@ -157,7 +84,7 @@ def _build_bot_commands(
 
 
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
-    commands = _build_bot_commands(cfg.router, cfg.projects)
+    commands = _build_bot_commands(cfg.runtime)
     if not commands:
         return
     try:
@@ -300,11 +227,10 @@ class TelegramTransport:
 @dataclass(frozen=True)
 class TelegramBridgeConfig:
     bot: BotClient
-    router: AutoRouter
+    runtime: TransportRuntime
     chat_id: int
     startup_msg: str
     exec_cfg: ExecBridgeConfig
-    projects: ProjectsConfig = field(default_factory=empty_projects_config)
 
 
 async def _send_plain(
@@ -505,10 +431,9 @@ async def run_main_loop(
             ) -> None:
                 try:
                     try:
-                        entry = (
-                            cfg.router.entry_for_engine(engine_override)
-                            if resume_token is None
-                            else cfg.router.entry_for(resume_token)
+                        entry = cfg.runtime.resolve_runner(
+                            resume_token=resume_token,
+                            engine_override=engine_override,
                         )
                     except RunnerUnavailableError as exc:
                         await _send_plain(
@@ -530,8 +455,8 @@ async def run_main_loop(
                         )
                         return
                     try:
-                        cwd = resolve_run_cwd(context, projects=cfg.projects)
-                    except WorktreeError as exc:
+                        cwd = cfg.runtime.resolve_run_cwd(context)
+                    except ConfigError as exc:
                         await _send_plain(
                             cfg.exec_cfg.transport,
                             chat_id=chat_id,
@@ -553,9 +478,7 @@ async def run_main_loop(
                         if cwd is not None:
                             run_fields["cwd"] = str(cwd)
                         bind_run_context(**run_fields)
-                        context_line = format_context_line(
-                            context, projects=cfg.projects
-                        )
+                        context_line = cfg.runtime.format_context_line(context)
                         incoming = RunnerIncomingMessage(
                             channel_id=chat_id,
                             message_id=user_msg_id,
@@ -569,7 +492,7 @@ async def run_main_loop(
                             resume_token=resume_token,
                             context=context,
                             context_line=context_line,
-                            strip_resume_line=cfg.router.is_resume_line,
+                            strip_resume_line=cfg.runtime.is_resume_line,
                             running_tasks=running_tasks,
                             on_thread_known=on_thread_known,
                         )
@@ -613,11 +536,9 @@ async def run_main_loop(
 
                 reply_text = msg.reply_to_text
                 try:
-                    resolved = _resolve_message(
+                    resolved = cfg.runtime.resolve_message(
                         text=text,
                         reply_text=reply_text,
-                        router=cfg.router,
-                        projects=cfg.projects,
                     )
                 except DirectiveError as exc:
                     await _send_plain(
