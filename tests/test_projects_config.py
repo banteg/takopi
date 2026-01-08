@@ -63,9 +63,7 @@ def test_projects_default_engine_unknown() -> None:
 
 def test_projects_relative_path_resolves(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
-    settings = TakopiSettings.model_validate(
-        {"projects": {"z80": {"path": "repo"}}}
-    )
+    settings = TakopiSettings.model_validate({"projects": {"z80": {"path": "repo"}}})
     projects = settings.to_projects_config(
         config_path=config_path,
         engine_ids=["codex"],

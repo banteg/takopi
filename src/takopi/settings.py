@@ -49,7 +49,9 @@ class TelegramTransportSettings(BaseModel):
 
 
 class TransportsSettings(BaseModel):
-    telegram: TelegramTransportSettings = Field(default_factory=TelegramTransportSettings)
+    telegram: TelegramTransportSettings = Field(
+        default_factory=TelegramTransportSettings
+    )
 
     model_config = ConfigDict(extra="allow")
 
@@ -110,7 +112,7 @@ class TakopiSettings(BaseSettings):
         if isinstance(data, dict) and ("bot_token" in data or "chat_id" in data):
             raise ValueError(
                 "Move bot_token/chat_id under [transports.telegram] "
-                "and set transport = \"telegram\"."
+                'and set transport = "telegram".'
             )
         return data
 
@@ -192,11 +194,15 @@ class TakopiSettings(BaseSettings):
                     "aliases must not match engine ids or reserved commands."
                 )
             if alias_key in projects:
-                raise ConfigError(f"Duplicate project alias {alias!r} in {config_path}.")
+                raise ConfigError(
+                    f"Duplicate project alias {alias!r} in {config_path}."
+                )
 
             path_value = entry.path
             if not isinstance(path_value, str) or not path_value.strip():
-                raise ConfigError(f"Missing `path` for project {alias!r} in {config_path}.")
+                raise ConfigError(
+                    f"Missing `path` for project {alias!r} in {config_path}."
+                )
             path = _normalize_project_path(path_value.strip(), config_path=config_path)
 
             worktrees_dir_raw = entry.worktrees_dir
@@ -224,7 +230,10 @@ class TakopiSettings(BaseSettings):
             worktree_base_raw = entry.worktree_base
             worktree_base = None
             if worktree_base_raw is not None:
-                if not isinstance(worktree_base_raw, str) or not worktree_base_raw.strip():
+                if (
+                    not isinstance(worktree_base_raw, str)
+                    or not worktree_base_raw.strip()
+                ):
                     raise ConfigError(
                         f"Invalid `projects.{alias}.worktree_base` in {config_path}; "
                         "expected a string."
@@ -257,11 +266,15 @@ def load_settings(path: str | Path | None = None) -> tuple[TakopiSettings, Path]
     return _load_settings_from_path(cfg_path), cfg_path
 
 
-def load_settings_if_exists(path: str | Path | None = None) -> tuple[TakopiSettings, Path] | None:
+def load_settings_if_exists(
+    path: str | Path | None = None,
+) -> tuple[TakopiSettings, Path] | None:
     cfg_path = _resolve_config_path(path)
     if cfg_path.exists():
         if not cfg_path.is_file():
-            raise ConfigError(f"Config path {cfg_path} exists but is not a file.") from None
+            raise ConfigError(
+                f"Config path {cfg_path} exists but is not a file."
+            ) from None
         return _load_settings_from_path(cfg_path), cfg_path
     return None
 
@@ -287,9 +300,7 @@ def require_telegram(settings: TakopiSettings, config_path: Path) -> tuple[str, 
     if tg.chat_id is None:
         raise ConfigError(f"Missing chat_id in {config_path}.")
     if isinstance(tg.chat_id, bool) or not isinstance(tg.chat_id, int):
-        raise ConfigError(
-            f"Invalid `chat_id` in {config_path}; expected an integer."
-        )
+        raise ConfigError(f"Invalid `chat_id` in {config_path}; expected an integer.")
     return tg.bot_token.get_secret_value().strip(), tg.chat_id
 
 
