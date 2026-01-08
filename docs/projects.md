@@ -33,6 +33,9 @@ default_engine = "codex"       # optional, per-project override
 worktree_base = "master"       # optional, base for new branches
 ```
 
+Legacy config note: top-level `bot_token` / `chat_id` are auto-migrated into
+`[transports.telegram]` on startup.
+
 Note on `worktrees_dir`:
 
 - The default `.worktrees` lives inside the repo root. You'll see it as an

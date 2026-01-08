@@ -81,6 +81,11 @@ Defines a renderer that converts `ProgressState` into `RenderedMessage` outputs.
 
 Defines the transport backend protocol, registry helpers, and built-in transport registration.
 
+### `config_migrations.py` - Config migrations
+
+Applies one-time edits to on-disk config (e.g., legacy Telegram key migration) before
+`TakopiSettings` validation runs.
+
 ### `telegram/backend.py` - Telegram transport backend
 
 Adapter that validates Telegram config, runs onboarding, and builds/runs the Telegram bridge.

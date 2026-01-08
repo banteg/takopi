@@ -82,7 +82,7 @@ provider = "openai"
 extra_args = ["--no-color"]
 ```
 
-note: configs with top-level `bot_token` / `chat_id` must be migrated to `[transports.telegram]`.
+note: configs with top-level `bot_token` / `chat_id` are migrated to `[transports.telegram]` on startup.
 
 ## projects
 
