@@ -177,7 +177,7 @@ Centralizes plugin discovery and lazy loading:
 - lists IDs without importing plugin modules
 - loads a specific entrypoint on demand
 - captures load errors for diagnostics
-- filters by allowlist (distribution names)
+- filters by enabled list (distribution names)
 
 ### `commands.py` - Command backend loading
 
@@ -195,7 +195,7 @@ Re-exports the supported plugin surface from `takopi.api` (stable API boundary).
 ### `engines.py` - Engine backend discovery
 
 Loads engine backends via entrypoints (`takopi.engine_backends`), with lazy loading
-and allowlist support.
+and enabled list support.
 
 ### `runners/` - Runner implementations
 
