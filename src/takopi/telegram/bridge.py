@@ -843,8 +843,7 @@ async def run_main_loop(
                 if command_id is not None and command_id not in reserved_commands:
                     if command_id not in command_ids:
                         command_ids = {
-                            cid.lower()
-                            for cid in list_command_ids(allowlist=allowlist)
+                            cid.lower() for cid in list_command_ids(allowlist=allowlist)
                         }
                     if command_id in command_ids:
                         tg.start_soon(
