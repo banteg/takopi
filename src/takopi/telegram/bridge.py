@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
-import re
 
 import anyio
 
 from ..config import ProjectsConfig, empty_projects_config
 from ..context import RunContext
+from ..directives import (
+    DirectiveError,
+    format_context_line,
+    parse_context_line,
+    parse_directives,
+)
+from ..ids import is_valid_id
 from ..runner_bridge import (
     ExecBridgeConfig,
     IncomingMessage as RunnerIncomingMessage,
@@ -36,12 +42,7 @@ from .render import prepare_telegram
 
 logger = get_logger(__name__)
 
-_COMMAND_RE = re.compile(r"^[a-z0-9_]{1,32}$")
 _MAX_BOT_COMMANDS = 100
-
-
-def _is_valid_bot_command(command: str) -> bool:
-    return bool(_COMMAND_RE.fullmatch(command))
 
 
 def _is_cancel_command(text: str) -> bool:
@@ -52,47 +53,6 @@ def _is_cancel_command(text: str) -> bool:
     return command == "/cancel" or command.startswith("/cancel@")
 
 
-def _strip_engine_command(
-    text: str, *, engine_ids: tuple[EngineId, ...]
-) -> tuple[str, EngineId | None]:
-    if not text:
-        return text, None
-
-    if not engine_ids:
-        return text, None
-
-    engine_map = {engine.lower(): engine for engine in engine_ids}
-    lines = text.splitlines()
-    idx = next((i for i, line in enumerate(lines) if line.strip()), None)
-    if idx is None:
-        return text, None
-
-    line = lines[idx].lstrip()
-    if not line.startswith("/"):
-        return text, None
-
-    parts = line.split(maxsplit=1)
-    command = parts[0][1:]
-    if "@" in command:
-        command = command.split("@", 1)[0]
-    engine = engine_map.get(command.lower())
-    if engine is None:
-        return text, None
-
-    remainder = parts[1] if len(parts) > 1 else ""
-    if remainder:
-        lines[idx] = remainder
-    else:
-        lines.pop(idx)
-    return "\n".join(lines).strip(), engine
-
-
-@dataclass(frozen=True, slots=True)
-class ParsedDirectives:
-    prompt: str
-    engine: EngineId | None
-    project: str | None
-    branch: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,130 +63,6 @@ class ResolvedMessage:
     context: RunContext | None
 
 
-class DirectiveError(RuntimeError):
-    pass
-
-
-def _parse_directives(
-    text: str,
-    *,
-    engine_ids: tuple[EngineId, ...],
-    projects: ProjectsConfig,
-) -> ParsedDirectives:
-    if not text:
-        return ParsedDirectives(prompt="", engine=None, project=None, branch=None)
-
-    lines = text.splitlines()
-    idx = next((i for i, line in enumerate(lines) if line.strip()), None)
-    if idx is None:
-        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None)
-
-    line = lines[idx].lstrip()
-    tokens = line.split()
-    if not tokens:
-        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None)
-
-    engine_map = {engine.lower(): engine for engine in engine_ids}
-    project_map = {alias.lower(): alias for alias in projects.projects}
-
-    engine: EngineId | None = None
-    project: str | None = None
-    branch: str | None = None
-    consumed = 0
-
-    for token in tokens:
-        if token.startswith("/"):
-            name = token[1:]
-            if "@" in name:
-                name = name.split("@", 1)[0]
-            if not name:
-                break
-            key = name.lower()
-            engine_candidate = engine_map.get(key)
-            project_candidate = project_map.get(key)
-            if engine_candidate is not None:
-                if engine is not None:
-                    raise DirectiveError("multiple engine directives")
-                engine = engine_candidate
-                consumed += 1
-                continue
-            if project_candidate is not None:
-                if project is not None:
-                    raise DirectiveError("multiple project directives")
-                project = project_candidate
-                consumed += 1
-                continue
-            break
-        if token.startswith("@"):
-            value = token[1:]
-            if not value:
-                break
-            if branch is not None:
-                raise DirectiveError("multiple @branch directives")
-            branch = value
-            consumed += 1
-            continue
-        break
-
-    if consumed == 0:
-        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None)
-
-    if consumed < len(tokens):
-        remainder = " ".join(tokens[consumed:])
-        lines[idx] = remainder
-    else:
-        lines.pop(idx)
-
-    prompt = "\n".join(lines).strip()
-    return ParsedDirectives(
-        prompt=prompt, engine=engine, project=project, branch=branch
-    )
-
-
-def _parse_ctx_line(text: str | None, *, projects: ProjectsConfig) -> RunContext | None:
-    if not text:
-        return None
-    ctx: RunContext | None = None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("`") and stripped.endswith("`") and len(stripped) > 1:
-            stripped = stripped[1:-1].strip()
-        elif stripped.startswith("`"):
-            stripped = stripped[1:].strip()
-        elif stripped.endswith("`"):
-            stripped = stripped[:-1].strip()
-        if not stripped.lower().startswith("ctx:"):
-            continue
-        content = stripped.split(":", 1)[1].strip()
-        if not content:
-            continue
-        tokens = content.split()
-        if not tokens:
-            continue
-        project = tokens[0]
-        branch = None
-        if len(tokens) >= 2:
-            if tokens[1] == "@" and len(tokens) >= 3:
-                branch = tokens[2]
-            elif tokens[1].startswith("@"):
-                branch = tokens[1][1:]
-        project_key = project.lower()
-        if project_key not in projects.projects:
-            raise DirectiveError(f"unknown project {project!r} in ctx line")
-        ctx = RunContext(project=project_key, branch=branch)
-    return ctx
-
-
-def _format_context_line(
-    context: RunContext | None, *, projects: ProjectsConfig
-) -> str | None:
-    if context is None or context.project is None:
-        return None
-    project_cfg = projects.projects.get(context.project)
-    alias = project_cfg.alias if project_cfg is not None else context.project
-    if context.branch:
-        return f"`ctx: {alias} @ {context.branch}`"
-    return f"`ctx: {alias}`"
 
 
 def _resolve_message(
@@ -236,12 +72,12 @@ def _resolve_message(
     router: AutoRouter,
     projects: ProjectsConfig,
 ) -> ResolvedMessage:
-    directives = _parse_directives(
+    directives = parse_directives(
         text,
         engine_ids=router.engine_ids,
         projects=projects,
     )
-    reply_ctx = _parse_ctx_line(reply_text, projects=projects)
+    reply_ctx = parse_context_line(reply_text, projects=projects)
     resume_token = router.resolve_resume(directives.prompt, reply_text)
 
     if resume_token is not None:
@@ -302,7 +138,7 @@ def _build_bot_commands(
         cmd = alias.lower()
         if cmd in seen:
             continue
-        if not _is_valid_bot_command(cmd):
+        if not is_valid_id(cmd):
             logger.debug(
                 "startup.command_menu.skip_project",
                 alias=project.alias,
@@ -721,7 +557,7 @@ async def run_main_loop(
                         if cwd is not None:
                             run_fields["cwd"] = str(cwd)
                         bind_run_context(**run_fields)
-                        context_line = _format_context_line(
+                        context_line = format_context_line(
                             context, projects=cfg.projects
                         )
                         incoming = RunnerIncomingMessage(
