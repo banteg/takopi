@@ -4,6 +4,7 @@ import os
 import shutil
 import sys
 from collections.abc import Callable
+from importlib.metadata import EntryPoint
 from pathlib import Path
 
 import typer
@@ -498,7 +499,7 @@ def init(
     typer.echo(f"saved project {alias!r} to {_config_path_display(config_path)}")
 
 
-def _print_entrypoints(label: str, entrypoints: list[object]) -> None:
+def _print_entrypoints(label: str, entrypoints: list[EntryPoint]) -> None:
     typer.echo(f"{label}:")
     if not entrypoints:
         typer.echo("  (none)")

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from importlib.metadata import EntryPoint, entry_points
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 from .ids import ID_PATTERN, is_valid_id
 
@@ -55,11 +56,11 @@ def get_load_errors() -> tuple[PluginLoadError, ...]:
 
 def _select_entrypoints(group: str) -> list[EntryPoint]:
     eps = entry_points()
-    try:
-        selected = eps.select(group=group)
-    except AttributeError:
-        selected = eps.get(group, [])
-    return list(selected)
+    if hasattr(eps, "select"):
+        return list(eps.select(group=group))
+    if isinstance(eps, Mapping):
+        return list(eps.get(group, []))
+    return []
 
 
 def entrypoint_distribution_name(ep: EntryPoint) -> str | None:
