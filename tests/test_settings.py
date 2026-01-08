@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from takopi.config import ConfigError
+from takopi.config_store import read_raw_toml
 from takopi.settings import (
     TakopiSettings,
     load_settings,
@@ -58,12 +59,20 @@ def test_env_overrides_toml(tmp_path: Path, monkeypatch) -> None:
     assert settings.default_engine == "claude"
 
 
-def test_legacy_keys_rejected(tmp_path: Path) -> None:
+def test_legacy_keys_migrated(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
     config_path.write_text('bot_token = "token"\nchat_id = 123\n', encoding="utf-8")
 
-    with pytest.raises(ConfigError, match="transports\\.telegram"):
-        load_settings(config_path)
+    settings, loaded_path = load_settings(config_path)
+
+    assert loaded_path == config_path
+    assert settings.transports.telegram.chat_id == 123
+    raw = read_raw_toml(config_path)
+    assert "bot_token" not in raw
+    assert "chat_id" not in raw
+    assert raw["transports"]["telegram"]["bot_token"] == "token"
+    assert raw["transports"]["telegram"]["chat_id"] == 123
+    assert raw["transport"] == "telegram"
 
 
 def test_validate_settings_data_rejects_invalid_bot_token_type(tmp_path: Path) -> None:

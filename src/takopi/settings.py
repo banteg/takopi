@@ -17,6 +17,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import TomlConfigSettingsSource
 
 from .config import ConfigError, ProjectConfig, ProjectsConfig, HOME_CONFIG_PATH
+from .config_migrations import migrate_config_file
 
 
 class TelegramTransportSettings(BaseModel):
@@ -263,6 +264,7 @@ class TakopiSettings(BaseSettings):
 def load_settings(path: str | Path | None = None) -> tuple[TakopiSettings, Path]:
     cfg_path = _resolve_config_path(path)
     _ensure_config_file(cfg_path)
+    migrate_config_file(cfg_path)
     return _load_settings_from_path(cfg_path), cfg_path
 
 
@@ -275,6 +277,7 @@ def load_settings_if_exists(
             raise ConfigError(
                 f"Config path {cfg_path} exists but is not a file."
             ) from None
+        migrate_config_file(cfg_path)
         return _load_settings_from_path(cfg_path), cfg_path
     return None
 
