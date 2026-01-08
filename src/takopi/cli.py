@@ -6,7 +6,6 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-import anyio
 import typer
 
 from . import __version__
@@ -16,7 +15,6 @@ from .engines import get_backend, list_backends
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
 from .router import AutoRouter, RunnerEntry
-from .runner_bridge import ExecBridgeConfig
 from .settings import (
     TakopiSettings,
     load_settings,
@@ -24,14 +22,7 @@ from .settings import (
     require_telegram,
     validate_settings_data,
 )
-from .telegram.bridge import (
-    TelegramBridgeConfig,
-    TelegramPresenter,
-    TelegramTransport,
-    run_main_loop,
-)
-from .telegram.client import TelegramClient
-from .telegram.onboarding import SetupResult, check_setup, interactive_setup
+from .transports import SetupResult, get_transport
 from .utils.git import resolve_default_base, resolve_main_worktree_root
 
 logger = get_logger(__name__)
@@ -47,6 +38,22 @@ def _version_callback(value: bool) -> None:
         _print_version_and_exit()
 
 
+def _resolve_transport_id(override: str | None) -> str:
+    if override is not None:
+        value = override.strip()
+        if not value:
+            raise ConfigError("Invalid `--transport`; expected a non-empty string.")
+        return value
+    try:
+        config, _ = load_or_init_config()
+    except ConfigError:
+        return "telegram"
+    raw = config.get("transport")
+    if not isinstance(raw, str) or not raw.strip():
+        return "telegram"
+    return raw.strip()
+
+
 def load_and_validate_config(
     path: str | Path | None = None,
 ) -> tuple[TakopiSettings, Path, str, int]:
@@ -55,11 +62,12 @@ def load_and_validate_config(
     return settings, config_path, token, chat_id
 
 
-def acquire_config_lock(config_path: Path, token: str) -> LockHandle:
+def acquire_config_lock(config_path: Path, token: str | None) -> LockHandle:
+    fingerprint = token_fingerprint(token) if token else None
     try:
         return acquire_lock(
             config_path=config_path,
-            token_fingerprint=token_fingerprint(token),
+            token_fingerprint=fingerprint,
         )
     except LockError as exc:
         lines = str(exc).splitlines()
@@ -173,72 +181,6 @@ def _build_router(
     return AutoRouter(entries=entries, default_engine=default_engine)
 
 
-def _parse_bridge_config(
-    *,
-    final_notify: bool,
-    default_engine_override: str | None,
-    settings: TakopiSettings,
-    config_path: Path,
-    token: str,
-    chat_id: int,
-) -> TelegramBridgeConfig:
-    startup_pwd = os.getcwd()
-
-    backends = list_backends()
-    projects = settings.to_projects_config(
-        config_path=config_path,
-        engine_ids=[backend.id for backend in backends],
-        reserved=("cancel",),
-    )
-    default_engine = _resolve_default_engine(
-        override=default_engine_override,
-        settings=settings,
-        config_path=config_path,
-        backends=backends,
-    )
-    router = _build_router(
-        settings=settings,
-        config_path=config_path,
-        backends=backends,
-        default_engine=default_engine,
-    )
-    available_engines = [entry.engine for entry in router.available_entries]
-    missing_engines = [entry.engine for entry in router.entries if not entry.available]
-    engine_list = ", ".join(available_engines) if available_engines else "none"
-    if missing_engines:
-        engine_list = f"{engine_list} (not installed: {', '.join(missing_engines)})"
-    project_aliases = sorted(
-        {project.alias for project in projects.projects.values()},
-        key=str.lower,
-    )
-    project_list = ", ".join(project_aliases) if project_aliases else "none"
-    startup_msg = (
-        f"\N{OCTOPUS} **takopi is ready**\n\n"
-        f"default: `{router.default_engine}`  \n"
-        f"agents: `{engine_list}`  \n"
-        f"projects: `{project_list}`  \n"
-        f"working in: `{startup_pwd}`"
-    )
-
-    bot = TelegramClient(token)
-    transport = TelegramTransport(bot)
-    presenter = TelegramPresenter()
-    exec_cfg = ExecBridgeConfig(
-        transport=transport,
-        presenter=presenter,
-        final_notify=final_notify,
-    )
-
-    return TelegramBridgeConfig(
-        bot=bot,
-        router=router,
-        chat_id=chat_id,
-        startup_msg=startup_msg,
-        exec_cfg=exec_cfg,
-        projects=projects,
-    )
-
-
 def _config_path_display(path: Path) -> str:
     home = Path.home()
     try:
@@ -265,6 +207,7 @@ def _fail_missing_config(path: Path) -> None:
 def _run_auto_router(
     *,
     default_engine_override: str | None,
+    transport_override: str | None,
     final_notify: bool,
     debug: bool,
     onboard: bool,
@@ -273,7 +216,9 @@ def _run_auto_router(
     lock_handle: LockHandle | None = None
     try:
         default_engine = _default_engine_for_setup(default_engine_override)
-        backend = get_backend(default_engine)
+        engine_backend = get_backend(default_engine)
+        transport_id = _resolve_transport_id(transport_override)
+        transport_backend = get_transport(transport_id)
     except ConfigError as e:
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=1)
@@ -281,17 +226,23 @@ def _run_auto_router(
         if not _should_run_interactive():
             typer.echo("error: --onboard requires a TTY", err=True)
             raise typer.Exit(code=1)
-        if not interactive_setup(force=True):
+        if not transport_backend.interactive_setup(force=True):
             raise typer.Exit(code=1)
         default_engine = _default_engine_for_setup(default_engine_override)
-        backend = get_backend(default_engine)
-    setup = check_setup(backend)
+        engine_backend = get_backend(default_engine)
+    setup = transport_backend.check_setup(
+        engine_backend,
+        transport_override=transport_override,
+    )
     if not setup.ok:
         if _setup_needs_config(setup) and _should_run_interactive():
-            if interactive_setup(force=False):
+            if transport_backend.interactive_setup(force=False):
                 default_engine = _default_engine_for_setup(default_engine_override)
-                backend = get_backend(default_engine)
-                setup = check_setup(backend)
+                engine_backend = get_backend(default_engine)
+                setup = transport_backend.check_setup(
+                    engine_backend,
+                    transport_override=transport_override,
+                )
         if not setup.ok:
             if _setup_needs_config(setup):
                 _fail_missing_config(setup.config_path)
@@ -300,17 +251,40 @@ def _run_auto_router(
                 typer.echo(f"error: {first.title}", err=True)
             raise typer.Exit(code=1)
     try:
-        settings, config_path, token, chat_id = load_and_validate_config()
-        lock_handle = acquire_config_lock(config_path, token)
-        cfg = _parse_bridge_config(
+        settings, config_path = load_settings()
+        if transport_override and transport_override != settings.transport:
+            settings = settings.model_copy(update={"transport": transport_override})
+        backends = list_backends()
+        projects = settings.to_projects_config(
+            config_path=config_path,
+            engine_ids=[backend.id for backend in backends],
+            reserved=("cancel",),
+        )
+        default_engine = _resolve_default_engine(
+            override=default_engine_override,
+            settings=settings,
+            config_path=config_path,
+            backends=backends,
+        )
+        router = _build_router(
+            settings=settings,
+            config_path=config_path,
+            backends=backends,
+            default_engine=default_engine,
+        )
+        lock_token = transport_backend.lock_token(
+            settings=settings,
+            config_path=config_path,
+        )
+        lock_handle = acquire_config_lock(config_path, lock_token)
+        transport_backend.build_and_run(
             final_notify=final_notify,
             default_engine_override=default_engine_override,
             settings=settings,
             config_path=config_path,
-            token=token,
-            chat_id=chat_id,
+            router=router,
+            projects=projects,
         )
-        anyio.run(run_main_loop, cfg)
     except ConfigError as e:
         typer.echo(f"error: {e}", err=True)
         raise typer.Exit(code=1)
@@ -453,6 +427,11 @@ def app_main(
         "--onboard/--no-onboard",
         help="Run the interactive setup wizard before starting.",
     ),
+    transport: str | None = typer.Option(
+        None,
+        "--transport",
+        help="Override the transport backend id.",
+    ),
     debug: bool = typer.Option(
         False,
         "--debug/--no-debug",
@@ -463,6 +442,7 @@ def app_main(
     if ctx.invoked_subcommand is None:
         _run_auto_router(
             default_engine_override=None,
+            transport_override=transport,
             final_notify=final_notify,
             debug=debug,
             onboard=onboard,
@@ -482,6 +462,11 @@ def make_engine_cmd(engine_id: str) -> Callable[..., None]:
             "--onboard/--no-onboard",
             help="Run the interactive setup wizard before starting.",
         ),
+        transport: str | None = typer.Option(
+            None,
+            "--transport",
+            help="Override the transport backend id.",
+        ),
         debug: bool = typer.Option(
             False,
             "--debug/--no-debug",
@@ -490,6 +475,7 @@ def make_engine_cmd(engine_id: str) -> Callable[..., None]:
     ) -> None:
         _run_auto_router(
             default_engine_override=engine_id,
+            transport_override=transport,
             final_notify=final_notify,
             debug=debug,
             onboard=onboard,

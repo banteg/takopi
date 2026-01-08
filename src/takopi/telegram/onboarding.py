@@ -27,17 +27,8 @@ from ..config_store import read_raw_toml, write_raw_toml
 from ..engines import list_backends
 from ..logging import suppress_logs
 from ..settings import HOME_CONFIG_PATH, load_settings, require_telegram
+from ..transports import SetupResult
 from .client import TelegramClient, TelegramRetryAfter
-
-
-@dataclass(slots=True)
-class SetupResult:
-    issues: list[SetupIssue]
-    config_path: Path = HOME_CONFIG_PATH
-
-    @property
-    def ok(self) -> bool:
-        return not self.issues
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +72,11 @@ def config_issue(path: Path) -> SetupIssue:
     return SetupIssue("create a config", (f"   {_display_path(path)}",))
 
 
-def check_setup(backend: EngineBackend) -> SetupResult:
+def check_setup(
+    backend: EngineBackend,
+    *,
+    transport_override: str | None = None,
+) -> SetupResult:
     issues: list[SetupIssue] = []
     config_path = HOME_CONFIG_PATH
     cmd = backend.cli_cmd or backend.id
@@ -91,6 +86,8 @@ def check_setup(backend: EngineBackend) -> SetupResult:
 
     try:
         settings, config_path = load_settings()
+        if transport_override:
+            settings = settings.model_copy(update={"transport": transport_override})
         try:
             require_telegram(settings, config_path)
         except ConfigError:
