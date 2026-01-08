@@ -27,7 +27,7 @@ from ..model import (
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import pi as pi_schema
-from ..utils.paths import relativize_command, relativize_path
+from ..utils.paths import get_run_base_dir, relativize_command, relativize_path
 
 logger = get_logger(__name__)
 
@@ -421,8 +421,6 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         ]
 
     def _new_session_path(self) -> str:
-        from ..utils.paths import get_run_base_dir
-
         cwd = get_run_base_dir() or Path.cwd()
         session_dir = _default_session_dir(cwd)
         session_dir.mkdir(parents=True, exist_ok=True)
