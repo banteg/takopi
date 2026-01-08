@@ -53,6 +53,7 @@ global config `~/.takopi/takopi.toml`
 ```toml
 default_engine = "codex"
 
+# optional, defaults to "telegram"
 transport = "telegram"
 
 [transports.telegram]
@@ -120,6 +121,13 @@ takopi
 takopi claude
 takopi opencode
 takopi pi
+```
+
+list available transports (and override in a run):
+
+```sh
+takopi transports
+takopi --transport telegram
 ```
 
 resume lines always route to the matching engine; subcommands only override the default for new threads.
