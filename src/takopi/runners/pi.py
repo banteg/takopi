@@ -320,7 +320,9 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     def new_state(self, prompt: str, resume: ResumeToken | None) -> PiStreamState:
         _ = prompt
         if resume is None:
-            session_path = self._new_session_path()
+            from ..utils.paths import get_run_base_dir
+            cwd = get_run_base_dir()
+            session_path = self._new_session_path(cwd)
             token = ResumeToken(engine=ENGINE, value=session_path)
         else:
             token = resume
@@ -340,6 +342,10 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             meta["model"] = self.model
         if self.provider:
             meta["provider"] = self.provider
+        if resume is None and found_session is None:
+            from ..utils.paths import get_run_base_dir
+
+            meta["run_base_dir"] = str(get_run_base_dir())
         return translate_pi_event(
             data,
             title=self.session_title,
@@ -420,8 +426,10 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             )
         ]
 
-    def _new_session_path(self) -> str:
-        session_dir = _default_session_dir(Path.cwd())
+    def _new_session_path(self, cwd: Path | None = None) -> str:
+        if cwd is None:
+            cwd = Path.cwd()
+        session_dir = _default_session_dir(cwd)
         session_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).isoformat()
         safe_timestamp = timestamp.replace(":", "-").replace(".", "-")

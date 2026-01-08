@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import anyio
 import pytest
@@ -48,6 +49,7 @@ def test_translate_success_fixture() -> None:
 
     assert isinstance(events[0], StartedEvent)
     started = next(evt for evt in events if isinstance(evt, StartedEvent))
+    assert started.meta is None
 
     action_events = [evt for evt in events if isinstance(evt, ActionEvent)]
     assert len(action_events) == 4
@@ -128,3 +130,34 @@ async def test_run_serializes_same_session() -> None:
         await anyio.sleep(0)
         gate.set()
     assert max_in_flight == 1
+
+
+def test_session_path_uses_run_base_dir() -> None:
+    """Test that new sessions use the run base dir, not process cwd."""
+
+    startup_cwd = Path("/startup")
+    project_cwd = Path("/project")
+
+    runner = PiRunner(
+        extra_args=[],
+        model=None,
+        provider=None,
+    )
+
+    base_dir = Path.cwd() / ".tmp" / "test-session-path"
+
+    with patch("takopi.runners.pi._default_session_dir") as default_session_dir:
+        default_session_dir.side_effect = (
+            lambda cwd: base_dir / "sessions" / f"--{cwd.name}--"
+        )
+
+        session_path = runner._new_session_path(project_cwd)
+        assert str(base_dir / "sessions" / "--project--") in session_path
+        assert str(base_dir / "sessions" / "--startup--") not in session_path
+
+    with patch("takopi.runners.pi.Path.cwd", return_value=startup_cwd), patch(
+        "takopi.runners.pi._default_session_dir"
+    ) as default_session_dir:
+        default_session_dir.return_value = base_dir / "sessions" / "--startup--"
+        session_path_default = runner._new_session_path()
+        assert str(base_dir / "sessions" / "--startup--") in session_path_default
