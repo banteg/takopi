@@ -1,0 +1,224 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from importlib.metadata import EntryPoint, entry_points
+from typing import Any, Callable, Iterable
+
+from .ids import ID_PATTERN, is_valid_id
+
+ENGINE_GROUP = "takopi.engine_backends"
+TRANSPORT_GROUP = "takopi.transport_backends"
+
+
+@dataclass(frozen=True, slots=True)
+class PluginLoadError:
+    group: str
+    name: str
+    value: str
+    distribution: str | None
+    error: str
+
+
+class PluginLoadFailed(RuntimeError):
+    def __init__(self, error: PluginLoadError) -> None:
+        super().__init__(error.error)
+        self.error = error
+
+
+class PluginNotFound(LookupError):
+    def __init__(self, group: str, name: str, available: Iterable[str]) -> None:
+        self.group = group
+        self.name = name
+        self.available = tuple(sorted(available))
+        message = f"{group} plugin {name!r} not found"
+        if self.available:
+            message = f"{message}. Available: {', '.join(self.available)}."
+        super().__init__(message)
+
+
+_LOAD_ERRORS: list[PluginLoadError] = []
+_LOAD_ERROR_KEYS: set[tuple[str, str, str, str | None, str]] = set()
+_LOADED: dict[tuple[str, str], Any] = {}
+
+
+def _record_error(error: PluginLoadError) -> None:
+    key = (error.group, error.name, error.value, error.distribution, error.error)
+    if key in _LOAD_ERROR_KEYS:
+        return
+    _LOAD_ERROR_KEYS.add(key)
+    _LOAD_ERRORS.append(error)
+
+
+def get_load_errors() -> tuple[PluginLoadError, ...]:
+    return tuple(_LOAD_ERRORS)
+
+
+def _select_entrypoints(group: str) -> list[EntryPoint]:
+    eps = entry_points()
+    try:
+        selected = eps.select(group=group)
+    except AttributeError:
+        selected = eps.get(group, [])
+    return list(selected)
+
+
+def entrypoint_distribution_name(ep: EntryPoint) -> str | None:
+    dist = getattr(ep, "dist", None)
+    if dist is None:
+        return None
+    name = getattr(dist, "name", None)
+    if name:
+        return name
+    metadata = getattr(dist, "metadata", None)
+    if metadata is None:
+        return None
+    try:
+        return metadata["Name"]
+    except Exception:
+        return None
+
+
+def _normalize_allowlist(allowlist: Iterable[str] | None) -> set[str] | None:
+    if allowlist is None:
+        return None
+    cleaned = {item.strip().lower() for item in allowlist if item and item.strip()}
+    return cleaned or None
+
+
+def _is_allowed(ep: EntryPoint, allowlist: set[str] | None) -> bool:
+    if allowlist is None:
+        return True
+    dist_name = entrypoint_distribution_name(ep)
+    if dist_name is None:
+        return False
+    return dist_name.lower() in allowlist
+
+
+def _entrypoint_sort_key(ep: EntryPoint) -> tuple[str, str, str]:
+    dist = entrypoint_distribution_name(ep) or ""
+    return (ep.name, dist, ep.value)
+
+
+def _discover_entrypoints(
+    group: str, *, allowlist: Iterable[str] | None = None
+) -> tuple[dict[str, EntryPoint], dict[str, list[EntryPoint]]]:
+    allow = _normalize_allowlist(allowlist)
+    raw_eps = _select_entrypoints(group)
+    eps = [ep for ep in raw_eps if _is_allowed(ep, allow)]
+    eps.sort(key=_entrypoint_sort_key)
+
+    by_name: dict[str, EntryPoint] = {}
+    duplicates: dict[str, list[EntryPoint]] = {}
+
+    for ep in eps:
+        if not is_valid_id(ep.name):
+            _record_error(
+                PluginLoadError(
+                    group=group,
+                    name=ep.name,
+                    value=ep.value,
+                    distribution=entrypoint_distribution_name(ep),
+                    error=(
+                        f"invalid plugin id {ep.name!r}; "
+                        f"must match {ID_PATTERN}"
+                    ),
+                )
+            )
+            continue
+        existing = by_name.get(ep.name)
+        if existing is None:
+            by_name[ep.name] = ep
+            continue
+        duplicates.setdefault(ep.name, [existing]).append(ep)
+
+    for name, items in duplicates.items():
+        providers = ", ".join(
+            sorted(
+                {
+                    entrypoint_distribution_name(item) or "<unknown>"
+                    for item in items
+                }
+            )
+        )
+        message = f"duplicate plugin id {name!r} from {providers}"
+        for item in items:
+            _record_error(
+                PluginLoadError(
+                    group=group,
+                    name=name,
+                    value=item.value,
+                    distribution=entrypoint_distribution_name(item),
+                    error=message,
+                )
+            )
+        by_name.pop(name, None)
+
+    return by_name, duplicates
+
+
+def list_entrypoints(
+    group: str, *, allowlist: Iterable[str] | None = None
+) -> list[EntryPoint]:
+    by_name, _ = _discover_entrypoints(group, allowlist=allowlist)
+    return [by_name[name] for name in sorted(by_name)]
+
+
+def list_ids(group: str, *, allowlist: Iterable[str] | None = None) -> list[str]:
+    return sorted(ep.name for ep in list_entrypoints(group, allowlist=allowlist))
+
+
+def load_entrypoint(
+    group: str,
+    name: str,
+    *,
+    allowlist: Iterable[str] | None = None,
+    validator: Callable[[Any, EntryPoint], None] | None = None,
+) -> Any:
+    by_name, duplicates = _discover_entrypoints(group, allowlist=allowlist)
+    if name in duplicates:
+        items = duplicates[name]
+        providers = ", ".join(
+            sorted(
+                {
+                    entrypoint_distribution_name(item) or "<unknown>"
+                    for item in items
+                }
+            )
+        )
+        error = PluginLoadError(
+            group=group,
+            name=name,
+            value=items[0].value,
+            distribution=entrypoint_distribution_name(items[0]),
+            error=f"duplicate plugin id {name!r} from {providers}",
+        )
+        _record_error(error)
+        raise PluginLoadFailed(error)
+
+    ep = by_name.get(name)
+    if ep is None:
+        raise PluginNotFound(group, name, by_name)
+
+    key = (group, name)
+    if key in _LOADED:
+        return _LOADED[key]
+
+    try:
+        loaded = ep.load()
+        if validator is not None:
+            validator(loaded, ep)
+    except PluginLoadFailed:
+        raise
+    except Exception as exc:
+        error = PluginLoadError(
+            group=group,
+            name=ep.name,
+            value=ep.value,
+            distribution=entrypoint_distribution_name(ep),
+            error=str(exc),
+        )
+        _record_error(error)
+        raise PluginLoadFailed(error) from exc
+
+    _LOADED[key] = loaded
+    return loaded

@@ -1,71 +1,60 @@
 from __future__ import annotations
 
-import importlib
-import pkgutil
-from collections.abc import Mapping
-from functools import cache
-from pathlib import Path
-from types import MappingProxyType
-from typing import Any
+from typing import Iterable
 
-from .backends import EngineBackend, EngineConfig
+from .backends import EngineBackend
 from .config import ConfigError
+from .plugins import (
+    ENGINE_GROUP,
+    PluginLoadFailed,
+    PluginNotFound,
+    load_entrypoint,
+    list_ids,
+)
 
 
-def _discover_backends() -> dict[str, EngineBackend]:
-    import takopi.runners as runners_pkg
-
-    backends: dict[str, EngineBackend] = {}
-    prefix = runners_pkg.__name__ + "."
-
-    for module_info in pkgutil.iter_modules(runners_pkg.__path__, prefix):
-        module_name = module_info.name
-        mod = importlib.import_module(module_name)
-
-        backend = getattr(mod, "BACKEND", None)
-        if backend is None:
-            continue
-        if not isinstance(backend, EngineBackend):
-            raise RuntimeError(f"{module_name}.BACKEND is not an EngineBackend")
-        if backend.id in backends:
-            raise RuntimeError(f"Duplicate backend id: {backend.id}")
-        backends[backend.id] = backend
-
-    return backends
+def _validate_engine_backend(backend: object, ep) -> None:
+    if not isinstance(backend, EngineBackend):
+        raise TypeError(f"{ep.value} is not an EngineBackend")
+    if backend.id != ep.name:
+        raise ValueError(
+            f"{ep.value} engine id {backend.id!r} does not match entrypoint {ep.name!r}"
+        )
 
 
-@cache
-def _backends() -> Mapping[str, EngineBackend]:
-    backends = _discover_backends()
-    return MappingProxyType(backends)
-
-
-def get_backend(engine_id: str) -> EngineBackend:
-    backends = _backends()
+def get_backend(
+    engine_id: str, *, allowlist: Iterable[str] | None = None
+) -> EngineBackend:
     try:
-        return backends[engine_id]
-    except KeyError as exc:
-        available = ", ".join(sorted(backends))
+        backend = load_entrypoint(
+            ENGINE_GROUP,
+            engine_id,
+            allowlist=allowlist,
+            validator=_validate_engine_backend,
+        )
+    except PluginNotFound as exc:
+        available = ", ".join(exc.available)
         raise ConfigError(
             f"Unknown engine {engine_id!r}. Available: {available}."
         ) from exc
+    except PluginLoadFailed as exc:
+        raise ConfigError(f"Failed to load engine {engine_id!r}: {exc}") from exc
+    return backend
 
 
-def list_backends() -> list[EngineBackend]:
-    backends = _backends()
-    return [backends[key] for key in sorted(backends)]
+def list_backends(
+    *, allowlist: Iterable[str] | None = None
+) -> list[EngineBackend]:
+    backends: list[EngineBackend] = []
+    for engine_id in list_backend_ids(allowlist=allowlist):
+        try:
+            backends.append(get_backend(engine_id, allowlist=allowlist))
+        except ConfigError:
+            continue
+    if not backends:
+        raise ConfigError("No engine backends are available.")
+    return backends
 
 
-def list_backend_ids() -> list[str]:
-    return sorted(_backends())
-
-
-def get_engine_config(
-    config: dict[str, Any], engine_id: str, config_path: Path
-) -> EngineConfig:
-    engine_cfg = config.get(engine_id) or {}
-    if not isinstance(engine_cfg, dict):
-        raise ConfigError(
-            f"Invalid `{engine_id}` config in {config_path}; expected a table."
-        )
-    return engine_cfg
+def list_backend_ids(*, allowlist: Iterable[str] | None = None) -> list[str]:
+    return list_ids(ENGINE_GROUP, allowlist=allowlist)

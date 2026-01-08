@@ -35,6 +35,15 @@ Issues = "https://github.com/banteg/takopi/issues"
 [project.scripts]
 takopi = "takopi.cli:main"
 
+[project.entry-points."takopi.engine_backends"]
+codex = "takopi.runners.codex:BACKEND"
+claude = "takopi.runners.claude:BACKEND"
+opencode = "takopi.runners.opencode:BACKEND"
+pi = "takopi.runners.pi:BACKEND"
+
+[project.entry-points."takopi.transport_backends"]
+telegram = "takopi.telegram.backend:telegram_backend"
+
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]
 build-backend = "uv_build"
