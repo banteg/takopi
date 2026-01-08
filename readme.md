@@ -145,6 +145,15 @@ default: progress is silent, final answer is sent as a new message so you receiv
 
 if you prefer no notifications, `--no-final-notify` edits the progress message into the final answer.
 
+## plugins
+
+Takopi supports entrypoint-based plugins for engines and transports.
+
+See:
+
+- `docs/plugins.md`
+- `docs/public-api.md`
+
 ## notes
 
 * the bot only responds to the configured `chat_id` (private or group)

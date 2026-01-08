@@ -5,9 +5,14 @@ This guide explains how to add a **new engine runner** to Takopi.
 A *runner* is the adapter between an engine-specific CLI (Codex, Claude Code, …) and Takopi’s
 **normalized event model** (`StartedEvent`, `ActionEvent`, `CompletedEvent`).
 
+If you are building an external plugin package, read `docs/plugins.md` first.
+
 Takopi is designed so that adding a runner usually means **adding one new module** under
 `src/takopi/runners/` plus a small **msgspec schema** module under `src/takopi/schemas/`—
 no changes to the bridge, renderer, or CLI.
+
+When writing code intended for plugins, prefer importing from `takopi.api`
+instead of internal modules.
 
 The walkthrough below uses an **imaginary engine** named **Acme** (`acme`) and intentionally mirrors
 the patterns used in `runners/claude.py`.
@@ -74,6 +79,12 @@ Choose a stable engine id string. This string becomes:
 - The CLI subcommand (`takopi acme`)
 - The `ResumeToken.engine`
 
+Engine ids must match the plugin ID regex:
+
+```
+^[a-z0-9_]{1,32}$
+```
+
 For Acme we’ll use:
 
 - Engine id: `"acme"`
@@ -114,8 +125,18 @@ src/takopi/runners/
   acme.py    # ← new
 ```
 
-Takopi discovers engines by importing modules in `takopi.runners` and looking for a
-module-level `BACKEND: EngineBackend` (see `takopi.engines`).
+Takopi discovers engines via **entrypoints**. Every engine backend must be exposed
+as an entrypoint under `takopi.engine_backends`, and the entrypoint name must match
+the backend id.
+
+For in-repo engines, add an entrypoint in `pyproject.toml`:
+
+```toml
+[project.entry-points."takopi.engine_backends"]
+acme = "takopi.runners.acme:BACKEND"
+```
+
+For external plugins, use your package’s `pyproject.toml` with the same group.
 
 ---
 

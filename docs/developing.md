@@ -77,9 +77,9 @@ Defines `Transport`, `MessageRef`, `RenderedMessage`, and `SendOptions`.
 
 Defines a renderer that converts `ProgressState` into `RenderedMessage` outputs.
 
-### `transports.py` - Transport registry
+### `transports.py` - Transport backend loading
 
-Defines the transport backend protocol, registry helpers, and built-in transport registration.
+Defines the transport backend protocol and entrypoint-backed loading helpers.
 
 ### `config_migrations.py` - Config migrations
 
@@ -165,9 +165,27 @@ See `docs/transports/telegram.md` for outbox behavior, rate limiting, and retry 
 Defines `EngineBackend`, `SetupIssue`, and the `EngineConfig` type used by
 runner modules.
 
+### `plugins.py` - Entrypoint discovery
+
+Centralizes plugin discovery and lazy loading:
+
+- lists IDs without importing plugin modules
+- loads a specific entrypoint on demand
+- captures load errors for diagnostics
+- filters by allowlist (distribution names)
+
+### `ids.py` - Plugin ID validation
+
+Defines the shared ID regex used for plugin IDs and Telegram command names.
+
+### `api.py` - Public plugin API
+
+Re-exports the supported plugin surface from `takopi.api` (stable API boundary).
+
 ### `engines.py` - Engine backend discovery
 
-Auto-discovers runner modules in `takopi.runners` that export `BACKEND`.
+Loads engine backends via entrypoints (`takopi.engine_backends`), with lazy loading
+and allowlist support.
 
 ### `runners/` - Runner implementations
 
