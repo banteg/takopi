@@ -47,6 +47,9 @@ dependencies = ["takopi>=0.11,<0.12"]
 | `RenderedMessage` | Rendered text + transport metadata |
 | `SendOptions` | Reply/notify/replace flags |
 | `MessageRef` | Transport-specific message reference |
+| `TransportRuntime` | Transport runtime facade (routers/projects hidden) |
+| `ResolvedMessage` | Parsed prompt + resume/context resolution |
+| `ResolvedRunner` | Runner selection result |
 
 ### Core types and helpers
 
@@ -58,10 +61,7 @@ dependencies = ["takopi>=0.11,<0.12"]
 | `Action` | Action metadata for `ActionEvent` |
 | `RunContext` | Project/branch context |
 | `ConfigError` | Configuration error type |
-| `TakopiSettings` | Parsed settings model |
-| `ProjectsConfig` / `ProjectConfig` | Normalized projects config |
-| `AutoRouter` | Router over runner entries |
-| `RunnerEntry` | Router entry (runner + availability) |
+| `DirectiveError` | Error raised when parsing directives |
 | `RunnerUnavailableError` | Router error when a runner is unavailable |
 
 ### Bridge helpers (for transport plugins)
@@ -127,8 +127,18 @@ class TransportBackend(Protocol):
 
     def check_setup(...) -> SetupResult: ...
     def interactive_setup(self, *, force: bool) -> bool: ...
-    def lock_token(self, *, settings: TakopiSettings, config_path: Path) -> str | None: ...
-    def build_and_run(...) -> None: ...
+    def lock_token(
+        self, *, transport_config: dict[str, object], config_path: Path
+    ) -> str | None: ...
+    def build_and_run(
+        self,
+        *,
+        transport_config: dict[str, object],
+        config_path: Path,
+        runtime: TransportRuntime,
+        final_notify: bool,
+        default_engine_override: str | None,
+    ) -> None: ...
 ```
 
 Transport backends are responsible for:
@@ -139,9 +149,23 @@ Transport backends are responsible for:
 
 ---
 
+## TransportRuntime helpers
+
+`TransportRuntime` keeps transports away from internal router/project types. Key helpers:
+
+- `resolve_message(text, reply_text)` → `ResolvedMessage` (prompt, resume token, context)
+- `resolve_runner(resume_token, engine_override)` → `ResolvedRunner` (runner + availability info)
+- `resolve_run_cwd(context)` → `Path | None` (raises `ConfigError` for project/worktree issues)
+- `format_context_line(context)` → `str | None`
+- `available_engine_ids()` / `missing_engine_ids()` / `engine_ids` / `default_engine`
+- `project_aliases()`
+
+---
+
 ## Bridge usage (transport plugins)
 
-Most transports can delegate message handling to `handle_message()`:
+Most transports can delegate message handling to `handle_message()`. Use
+`TransportRuntime` to resolve messages and select a runner:
 
 ```py
 from takopi.api import (
@@ -149,10 +173,17 @@ from takopi.api import (
     IncomingMessage,
     RunningTask,
     RunningTasks,
+    TransportRuntime,
     handle_message,
 )
 
 async def on_message(...):
+    resolved = runtime.resolve_message(text=text, reply_text=reply_text)
+    entry = runtime.resolve_runner(
+        resume_token=resolved.resume_token,
+        engine_override=resolved.engine_override,
+    )
+    context_line = runtime.format_context_line(resolved.context)
     incoming = IncomingMessage(
         channel_id=...,
         message_id=...,
@@ -163,10 +194,10 @@ async def on_message(...):
         exec_cfg,
         runner=entry.runner,
         incoming=incoming,
-        resume_token=resume,
-        context=context,
+        resume_token=resolved.resume_token,
+        context=resolved.context,
         context_line=context_line,
-        strip_resume_line=router.is_resume_line,
+        strip_resume_line=runtime.is_resume_line,
         running_tasks=running_tasks,
         on_thread_known=on_thread_known,
     )

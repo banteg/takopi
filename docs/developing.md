@@ -77,6 +77,11 @@ Defines `Transport`, `MessageRef`, `RenderedMessage`, and `SendOptions`.
 
 Defines a renderer that converts `ProgressState` into `RenderedMessage` outputs.
 
+### `transport_runtime.py` - Transport runtime facade
+
+Provides the `TransportRuntime` helper used by transport backends to resolve
+messages, select runners, and format context without depending on internal types.
+
 ### `transports.py` - Transport backend loading
 
 Defines the transport backend protocol and entrypoint-backed loading helpers.

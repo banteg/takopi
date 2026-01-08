@@ -49,6 +49,13 @@ They must match:
 
 If an ID does not match, it is skipped and reported as an error.
 
+**Reserved IDs (engines):**
+
+- `cancel` (core chat command)
+- `init`, `plugins` (CLI commands)
+
+Engines using these IDs are skipped and reported as errors.
+
 ---
 
 ## Allowlisting plugins
@@ -89,6 +96,7 @@ Behavior:
 - `takopi plugins` lists discovered entrypoints **without loading them**.
 - `--load` loads each plugin to validate type and surface import errors.
 - Errors are shown at the end, grouped by engine/transport and distribution.
+- If `[plugins] enabled` is set, entries are still listed but marked `enabled`/`disabled`.
 
 ---
 
@@ -156,12 +164,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from takopi.api import (
-    AutoRouter,
     EngineBackend,
-    ProjectsConfig,
     SetupResult,
-    TakopiSettings,
     TransportBackend,
+    TransportRuntime,
 )
 
 class MyTransportBackend:
@@ -178,21 +184,28 @@ class MyTransportBackend:
         _ = force
         return True
 
-    def lock_token(self, *, settings: TakopiSettings, config_path: Path) -> str | None:
-        _ = settings, config_path
+    def lock_token(
+        self, *, transport_config: dict[str, object], config_path: Path
+    ) -> str | None:
+        _ = transport_config, config_path
         return None
 
     def build_and_run(
         self,
         *,
-        settings: TakopiSettings,
+        transport_config: dict[str, object],
         config_path: Path,
-        router: AutoRouter,
-        projects: ProjectsConfig,
+        runtime: TransportRuntime,
         final_notify: bool,
         default_engine_override: str | None,
     ) -> None:
-        _ = settings, config_path, router, projects, final_notify, default_engine_override
+        _ = (
+            transport_config,
+            config_path,
+            runtime,
+            final_notify,
+            default_engine_override,
+        )
         raise NotImplementedError
 
 BACKEND = MyTransportBackend()
