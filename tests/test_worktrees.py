@@ -34,6 +34,29 @@ def test_resolve_run_cwd_rejects_invalid_branch(tmp_path: Path) -> None:
         resolve_run_cwd(ctx, projects=projects)
 
 
+def test_resolve_run_cwd_uses_root_when_branch_matches(
+    monkeypatch, tmp_path: Path
+) -> None:
+    projects = _projects_config(tmp_path)
+
+    def _fake_stdout(args, **_kwargs):
+        if args == ["branch", "--show-current"]:
+            return "main"
+        return None
+
+    def _unexpected(*_args, **_kwargs):
+        raise AssertionError("unexpected")
+
+    monkeypatch.setattr("takopi.worktrees.git_stdout", _fake_stdout)
+    monkeypatch.setattr(
+        "takopi.worktrees.ensure_worktree",
+        _unexpected,
+    )
+
+    ctx = RunContext(project="z80", branch="main")
+    assert resolve_run_cwd(ctx, projects=projects) == tmp_path
+
+
 def test_ensure_worktree_creates_from_base(monkeypatch, tmp_path: Path) -> None:
     project = ProjectConfig(
         alias="z80",

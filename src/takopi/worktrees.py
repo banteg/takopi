@@ -4,7 +4,13 @@ from pathlib import Path
 
 from .config import ProjectConfig, ProjectsConfig
 from .context import RunContext
-from .utils.git import git_is_worktree, git_ok, git_run, resolve_default_base
+from .utils.git import (
+    git_is_worktree,
+    git_ok,
+    git_run,
+    git_stdout,
+    resolve_default_base,
+)
 
 
 class WorktreeError(RuntimeError):
@@ -23,7 +29,10 @@ def resolve_run_cwd(
         raise WorktreeError(f"unknown project {context.project!r}")
     if context.branch is None:
         return project.path
-    return ensure_worktree(project, context.branch)
+    branch = _sanitize_branch(context.branch)
+    if _matches_project_branch(project.path, branch):
+        return project.path
+    return ensure_worktree(project, branch)
 
 
 def ensure_worktree(project: ProjectConfig, branch: str) -> Path:
@@ -110,6 +119,13 @@ def _sanitize_branch(branch: str) -> str:
         if part == "..":
             raise WorktreeError("branch name cannot contain '..'")
     return cleaned
+
+
+def _matches_project_branch(root: Path, branch: str) -> bool:
+    current = git_stdout(["branch", "--show-current"], cwd=root)
+    if not current:
+        return False
+    return current == branch
 
 
 def _ensure_within_root(root: Path, path: Path) -> None:
