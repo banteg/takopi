@@ -22,6 +22,7 @@ class _FakeBot:
         disable_notification: bool | None = False,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict | None = None,
         *,
         replace_message_id: int | None = None,
     ) -> dict:
@@ -29,6 +30,7 @@ class _FakeBot:
         _ = disable_notification
         _ = entities
         _ = parse_mode
+        _ = reply_markup
         _ = replace_message_id
         self.calls.append("send_message")
         return {"message_id": 1}
@@ -40,6 +42,7 @@ class _FakeBot:
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict | None = None,
         *,
         wait: bool = True,
     ) -> dict:
@@ -47,6 +50,7 @@ class _FakeBot:
         _ = message_id
         _ = entities
         _ = parse_mode
+        _ = reply_markup
         _ = wait
         self.calls.append("edit_message_text")
         self.edit_calls.append(text)
@@ -123,6 +127,7 @@ async def test_edits_coalesce_latest() -> None:
             text: str,
             entities: list[dict] | None = None,
             parse_mode: str | None = None,
+            reply_markup: dict | None = None,
             *,
             wait: bool = True,
         ) -> dict:
@@ -136,6 +141,7 @@ async def test_edits_coalesce_latest() -> None:
                 text=text,
                 entities=entities,
                 parse_mode=parse_mode,
+                reply_markup=reply_markup,
                 wait=wait,
             )
 

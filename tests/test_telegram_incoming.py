@@ -1,4 +1,4 @@
-from takopi.telegram import parse_incoming_update
+from takopi.telegram import TelegramCallbackQuery, parse_incoming_update
 
 
 def test_parse_incoming_update_maps_fields() -> None:
@@ -72,3 +72,27 @@ def test_parse_incoming_update_voice_message() -> None:
     assert msg.voice.mime_type == "audio/ogg"
     assert msg.voice.file_size == 1234
     assert msg.voice.duration == 3
+
+
+def test_parse_incoming_update_callback_query() -> None:
+    update = {
+        "update_id": 1,
+        "callback_query": {
+            "id": "cbq-1",
+            "data": "takopi:cancel",
+            "from": {"id": 321},
+            "message": {
+                "message_id": 55,
+                "chat": {"id": 123},
+            },
+        },
+    }
+
+    msg = parse_incoming_update(update, chat_id=123)
+    assert isinstance(msg, TelegramCallbackQuery)
+    assert msg.transport == "telegram"
+    assert msg.chat_id == 123
+    assert msg.message_id == 55
+    assert msg.callback_query_id == "cbq-1"
+    assert msg.data == "takopi:cancel"
+    assert msg.sender_id == 321

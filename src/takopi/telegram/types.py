@@ -24,3 +24,17 @@ class TelegramIncomingMessage:
     sender_id: int | None
     voice: TelegramVoice | None = None
     raw: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TelegramCallbackQuery:
+    transport: str
+    chat_id: int
+    message_id: int
+    callback_query_id: str
+    data: str | None
+    sender_id: int | None
+    raw: dict[str, Any] | None = None
+
+
+TelegramIncomingUpdate = TelegramIncomingMessage | TelegramCallbackQuery

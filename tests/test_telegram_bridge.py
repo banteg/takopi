@@ -8,8 +8,10 @@ import takopi.telegram.bridge as bridge
 from takopi.directives import parse_directives
 from takopi.telegram.bridge import (
     TelegramBridgeConfig,
+    TelegramPresenter,
     TelegramTransport,
     _build_bot_commands,
+    _handle_callback_cancel,
     _handle_cancel,
     _is_cancel_command,
     _send_with_resume,
@@ -20,10 +22,11 @@ from takopi.config import ProjectConfig, ProjectsConfig, empty_projects_config
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
 from takopi.markdown import MarkdownPresenter
 from takopi.model import EngineId, ResumeToken
+from takopi.progress import ProgressTracker
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.transport_runtime import TransportRuntime
 from takopi.runners.mock import Return, ScriptRunner, Sleep, Wait
-from takopi.telegram.types import TelegramIncomingMessage
+from takopi.telegram.types import TelegramCallbackQuery, TelegramIncomingMessage
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from tests.plugin_fixtures import FakeEntryPoint, install_entrypoints
 
@@ -91,6 +94,7 @@ class _FakeTransport:
 class _FakeBot:
     def __init__(self) -> None:
         self.command_calls: list[dict] = []
+        self.callback_calls: list[dict] = []
         self.send_calls: list[dict] = []
         self.edit_calls: list[dict] = []
         self.delete_calls: list[dict] = []
@@ -122,6 +126,7 @@ class _FakeBot:
         disable_notification: bool | None = False,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict | None = None,
         *,
         replace_message_id: int | None = None,
     ) -> dict:
@@ -133,6 +138,7 @@ class _FakeBot:
                 "disable_notification": disable_notification,
                 "entities": entities,
                 "parse_mode": parse_mode,
+                "reply_markup": reply_markup,
                 "replace_message_id": replace_message_id,
             }
         )
@@ -145,6 +151,7 @@ class _FakeBot:
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict | None = None,
         *,
         wait: bool = True,
     ) -> dict:
@@ -155,6 +162,7 @@ class _FakeBot:
                 "text": text,
                 "entities": entities,
                 "parse_mode": parse_mode,
+                "reply_markup": reply_markup,
                 "wait": wait,
             }
         )
@@ -185,6 +193,21 @@ class _FakeBot:
 
     async def close(self) -> None:
         return None
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+        show_alert: bool | None = None,
+    ) -> bool:
+        self.callback_calls.append(
+            {
+                "callback_query_id": callback_query_id,
+                "text": text,
+                "show_alert": show_alert,
+            }
+        )
+        return True
 
 
 def _make_cfg(
@@ -356,6 +379,37 @@ def test_build_bot_commands_caps_total() -> None:
     assert any(cmd["command"] == "cancel" for cmd in commands)
 
 
+def test_telegram_presenter_progress_shows_cancel_button() -> None:
+    presenter = TelegramPresenter()
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_progress(state, elapsed_s=0.0)
+
+    reply_markup = rendered.extra["reply_markup"]
+    assert reply_markup["inline_keyboard"][0][0]["text"] == "cancel"
+    assert reply_markup["inline_keyboard"][0][0]["callback_data"] == "takopi:cancel"
+
+
+def test_telegram_presenter_clears_button_on_cancelled() -> None:
+    presenter = TelegramPresenter()
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_progress(state, elapsed_s=0.0, label="`cancelled`")
+
+    assert rendered.extra["reply_markup"]["inline_keyboard"] == []
+
+
+def test_telegram_presenter_final_clears_button() -> None:
+    presenter = TelegramPresenter()
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_final(
+        state, elapsed_s=0.0, status="done", answer="ok"
+    )
+
+    assert rendered.extra["reply_markup"]["inline_keyboard"] == []
+
+
 @pytest.mark.anyio
 async def test_telegram_transport_passes_replace_and_wait() -> None:
     bot = _FakeBot()
@@ -378,6 +432,28 @@ async def test_telegram_transport_passes_replace_and_wait() -> None:
     )
     assert bot.edit_calls
     assert bot.edit_calls[0]["wait"] is False
+
+
+@pytest.mark.anyio
+async def test_telegram_transport_passes_reply_markup() -> None:
+    bot = _FakeBot()
+    transport = TelegramTransport(bot)
+    markup = {"inline_keyboard": []}
+
+    await transport.send(
+        channel_id=123,
+        message=RenderedMessage(text="hello", extra={"reply_markup": markup}),
+    )
+    assert bot.send_calls
+    assert bot.send_calls[0]["reply_markup"] == markup
+
+    ref = MessageRef(channel_id=123, message_id=1)
+    await transport.edit(
+        ref=ref,
+        message=RenderedMessage(text="edit", extra={"reply_markup": markup}),
+    )
+    assert bot.edit_calls
+    assert bot.edit_calls[0]["reply_markup"] == markup
 
 
 @pytest.mark.anyio
@@ -410,9 +486,11 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             disable_notification: bool | None = False,
             entities: list[dict] | None = None,
             parse_mode: str | None = None,
+            reply_markup: dict | None = None,
             *,
             replace_message_id: int | None = None,
         ) -> dict | None:
+            _ = reply_markup
             return None
 
         async def edit_message_text(
@@ -422,6 +500,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             text: str,
             entities: list[dict] | None = None,
             parse_mode: str | None = None,
+            reply_markup: dict | None = None,
             *,
             wait: bool = True,
         ) -> dict | None:
@@ -432,6 +511,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
                     "text": text,
                     "entities": entities,
                     "parse_mode": parse_mode,
+                    "reply_markup": reply_markup,
                     "wait": wait,
                 }
             )
@@ -588,6 +668,53 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
     assert task_first.cancel_requested.is_set() is True
     assert task_second.cancel_requested.is_set() is False
     assert len(transport.send_calls) == 0
+
+
+@pytest.mark.anyio
+async def test_handle_callback_cancel_cancels_running_task() -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+    progress_id = 42
+    running_task = RunningTask()
+    running_tasks = {MessageRef(channel_id=123, message_id=progress_id): running_task}
+    query = TelegramCallbackQuery(
+        transport="telegram",
+        chat_id=123,
+        message_id=progress_id,
+        callback_query_id="cbq-1",
+        data="takopi:cancel",
+        sender_id=123,
+    )
+
+    await _handle_callback_cancel(cfg, query, running_tasks)
+
+    assert running_task.cancel_requested.is_set() is True
+    assert len(transport.send_calls) == 0
+    assert cfg.bot.callback_calls
+    assert cfg.bot.callback_calls[-1]["text"] == "cancelling..."
+
+
+@pytest.mark.anyio
+async def test_handle_callback_cancel_without_task_acknowledges() -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+    query = TelegramCallbackQuery(
+        transport="telegram",
+        chat_id=123,
+        message_id=99,
+        callback_query_id="cbq-2",
+        data="takopi:cancel",
+        sender_id=123,
+    )
+
+    await _handle_callback_cancel(cfg, query, {})
+
+    assert len(transport.send_calls) == 0
+    assert cfg.bot.callback_calls
+    assert (
+        "nothing is currently running"
+        in cfg.bot.callback_calls[-1]["text"].lower()
+    )
 
 
 def test_cancel_command_accepts_extra_text() -> None:

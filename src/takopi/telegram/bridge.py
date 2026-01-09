@@ -41,7 +41,11 @@ from ..plugins import COMMAND_GROUP, list_entrypoints
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
 from ..transport_runtime import TransportRuntime
 from .client import BotClient, poll_incoming
-from .types import TelegramIncomingMessage
+from .types import (
+    TelegramCallbackQuery,
+    TelegramIncomingMessage,
+    TelegramIncomingUpdate,
+)
 from .render import prepare_telegram
 from .transcribe import transcribe_audio
 
@@ -51,6 +55,11 @@ _MAX_BOT_COMMANDS = 100
 _OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
 _OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 _OPENAI_TRANSCRIPTION_CHUNKING = "auto"
+CANCEL_CALLBACK_DATA = "takopi:cancel"
+CANCEL_MARKUP = {
+    "inline_keyboard": [[{"text": "cancel", "callback_data": CANCEL_CALLBACK_DATA}]]
+}
+CLEAR_MARKUP = {"inline_keyboard": []}
 
 
 def _is_cancel_command(text: str) -> bool:
@@ -218,7 +227,11 @@ class TelegramPresenter:
             state, elapsed_s=elapsed_s, label=label
         )
         text, entities = prepare_telegram(parts)
-        return RenderedMessage(text=text, extra={"entities": entities})
+        reply_markup = CLEAR_MARKUP if _is_cancelled_label(label) else CANCEL_MARKUP
+        return RenderedMessage(
+            text=text,
+            extra={"entities": entities, "reply_markup": reply_markup},
+        )
 
     def render_final(
         self,
@@ -232,7 +245,17 @@ class TelegramPresenter:
             state, elapsed_s=elapsed_s, status=status, answer=answer
         )
         text, entities = prepare_telegram(parts)
-        return RenderedMessage(text=text, extra={"entities": entities})
+        return RenderedMessage(
+            text=text,
+            extra={"entities": entities, "reply_markup": CLEAR_MARKUP},
+        )
+
+
+def _is_cancelled_label(label: str) -> bool:
+    stripped = label.strip()
+    if stripped.startswith("`") and stripped.endswith("`") and len(stripped) >= 2:
+        stripped = stripped[1:-1]
+    return stripped.lower() == "cancelled"
 
 
 @dataclass(frozen=True)
@@ -273,9 +296,10 @@ class TelegramTransport:
             if options.replace is not None:
                 replace_message_id = _as_int(
                     options.replace.message_id, label="replace_message_id"
-                )
+        )
         entities = message.extra.get("entities")
         parse_mode = message.extra.get("parse_mode")
+        reply_markup = message.extra.get("reply_markup")
         sent = await self._bot.send_message(
             chat_id=chat_id,
             text=message.text,
@@ -283,6 +307,7 @@ class TelegramTransport:
             disable_notification=disable_notification,
             entities=entities,
             parse_mode=parse_mode,
+            reply_markup=reply_markup,
             replace_message_id=replace_message_id,
         )
         if sent is None:
@@ -303,12 +328,14 @@ class TelegramTransport:
         message_id = _as_int(ref.message_id, label="message_id")
         entities = message.extra.get("entities")
         parse_mode = message.extra.get("parse_mode")
+        reply_markup = message.extra.get("reply_markup")
         edited = await self._bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
             text=message.text,
             entities=entities,
             parse_mode=parse_mode,
+            reply_markup=reply_markup,
             wait=wait,
         )
         if edited is None:
@@ -378,7 +405,9 @@ async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int |
     drained = 0
     while True:
         updates = await cfg.bot.get_updates(
-            offset=offset, timeout_s=0, allowed_updates=["message"]
+            offset=offset,
+            timeout_s=0,
+            allowed_updates=["message", "callback_query"],
         )
         if updates is None:
             logger.info("startup.backlog.failed")
@@ -394,7 +423,7 @@ async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int |
 
 async def poll_updates(
     cfg: TelegramBridgeConfig,
-) -> AsyncIterator[TelegramIncomingMessage]:
+) -> AsyncIterator[TelegramIncomingUpdate]:
     offset: int | None = None
     offset = await _drain_backlog(cfg, offset)
     await _send_startup(cfg)
@@ -569,6 +598,31 @@ async def _handle_cancel(
         progress_message_id=reply_id,
     )
     running_task.cancel_requested.set()
+
+
+async def _handle_callback_cancel(
+    cfg: TelegramBridgeConfig,
+    query: TelegramCallbackQuery,
+    running_tasks: RunningTasks,
+) -> None:
+    progress_ref = MessageRef(channel_id=query.chat_id, message_id=query.message_id)
+    running_task = running_tasks.get(progress_ref)
+    if running_task is None:
+        await cfg.bot.answer_callback_query(
+            callback_query_id=query.callback_query_id,
+            text="nothing is currently running for that message.",
+        )
+        return
+    logger.info(
+        "cancel.requested",
+        chat_id=query.chat_id,
+        progress_message_id=query.message_id,
+    )
+    running_task.cancel_requested.set()
+    await cfg.bot.answer_callback_query(
+        callback_query_id=query.callback_query_id,
+        text="cancelling...",
+    )
 
 
 async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
@@ -963,9 +1017,9 @@ async def _dispatch_command(
 
 async def run_main_loop(
     cfg: TelegramBridgeConfig,
-    poller: Callable[[TelegramBridgeConfig], AsyncIterator[TelegramIncomingMessage]] = (
-        poll_updates
-    ),
+    poller: Callable[
+        [TelegramBridgeConfig], AsyncIterator[TelegramIncomingUpdate]
+    ] = poll_updates,
     *,
     watch_config: bool | None = None,
     default_engine_override: str | None = None,
@@ -1061,6 +1115,15 @@ async def run_main_loop(
             scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
 
             async for msg in poller(cfg):
+                if isinstance(msg, TelegramCallbackQuery):
+                    if msg.data == CANCEL_CALLBACK_DATA:
+                        tg.start_soon(_handle_callback_cancel, cfg, msg, running_tasks)
+                    else:
+                        tg.start_soon(
+                            cfg.bot.answer_callback_query,
+                            msg.callback_query_id,
+                        )
+                    continue
                 text = msg.text
                 if msg.voice is not None:
                     text = await _transcribe_voice(cfg, msg)

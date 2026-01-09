@@ -19,7 +19,12 @@ import httpx
 import anyio
 
 from ..logging import get_logger
-from .types import TelegramIncomingMessage, TelegramVoice
+from .types import (
+    TelegramCallbackQuery,
+    TelegramIncomingMessage,
+    TelegramIncomingUpdate,
+    TelegramVoice,
+)
 
 logger = get_logger(__name__)
 
@@ -49,10 +54,26 @@ def parse_incoming_update(
     *,
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
-) -> TelegramIncomingMessage | None:
+) -> TelegramIncomingUpdate | None:
     msg = update.get("message")
-    if not isinstance(msg, dict):
-        return None
+    if isinstance(msg, dict):
+        return _parse_incoming_message(msg, chat_id=chat_id, chat_ids=chat_ids)
+    callback_query = update.get("callback_query")
+    if isinstance(callback_query, dict):
+        return _parse_callback_query(
+            callback_query,
+            chat_id=chat_id,
+            chat_ids=chat_ids,
+        )
+    return None
+
+
+def _parse_incoming_message(
+    msg: dict[str, Any],
+    *,
+    chat_id: int | None = None,
+    chat_ids: set[int] | None = None,
+) -> TelegramIncomingMessage | None:
     text = msg.get("text")
     voice_payload: TelegramVoice | None = None
     if not isinstance(text, str):
@@ -123,16 +144,65 @@ def parse_incoming_update(
     )
 
 
+def _parse_callback_query(
+    query: dict[str, Any],
+    *,
+    chat_id: int | None = None,
+    chat_ids: set[int] | None = None,
+) -> TelegramCallbackQuery | None:
+    callback_id = query.get("id")
+    if not isinstance(callback_id, str) or not callback_id:
+        return None
+    msg = query.get("message")
+    if not isinstance(msg, dict):
+        return None
+    chat = msg.get("chat")
+    if not isinstance(chat, dict):
+        return None
+    msg_chat_id = chat.get("id")
+    if not isinstance(msg_chat_id, int):
+        return None
+    allowed = chat_ids
+    if allowed is None and chat_id is not None:
+        allowed = {chat_id}
+    if allowed is not None and msg_chat_id not in allowed:
+        return None
+    message_id = msg.get("message_id")
+    if not isinstance(message_id, int):
+        return None
+    data = query.get("data") if isinstance(query.get("data"), str) else None
+    sender = query.get("from")
+    sender_id = (
+        sender.get("id")
+        if isinstance(sender, dict) and isinstance(sender.get("id"), int)
+        else None
+    )
+    return TelegramCallbackQuery(
+        transport="telegram",
+        chat_id=msg_chat_id,
+        message_id=message_id,
+        callback_query_id=callback_id,
+        data=data,
+        sender_id=sender_id,
+        raw=query,
+    )
+
+
 async def poll_incoming(
     bot: BotClient,
     *,
     chat_id: int | None = None,
     chat_ids: Iterable[int] | Callable[[], Iterable[int]] | None = None,
     offset: int | None = None,
-) -> AsyncIterator[TelegramIncomingMessage]:
+) -> AsyncIterator[TelegramIncomingUpdate]:
+    allowed = set(chat_ids) if chat_ids is not None else None
+    if allowed is None and chat_id is not None:
+        allowed = {chat_id}
     while True:
         updates = await bot.get_updates(
-            offset=offset, timeout_s=50, allowed_updates=["message"]
+            offset=offset,
+            timeout_s=50,
+            allowed_updates=["message", "callback_query"],
         )
         if updates is None:
             logger.info("loop.get_updates.failed")
@@ -172,6 +242,7 @@ class BotClient(Protocol):
         disable_notification: bool | None = False,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
         *,
         replace_message_id: int | None = None,
     ) -> dict | None: ...
@@ -183,6 +254,7 @@ class BotClient(Protocol):
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
     ) -> dict | None: ...
@@ -202,6 +274,13 @@ class BotClient(Protocol):
     ) -> bool: ...
 
     async def get_me(self) -> dict | None: ...
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+        show_alert: bool | None = None,
+    ) -> bool: ...
 
 
 if TYPE_CHECKING:
@@ -647,6 +726,7 @@ class TelegramClient:
         disable_notification: bool | None = False,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
         *,
         replace_message_id: int | None = None,
     ) -> dict | None:
@@ -659,6 +739,7 @@ class TelegramClient:
                     disable_notification=disable_notification,
                     entities=entities,
                     parse_mode=parse_mode,
+                    reply_markup=reply_markup,
                     replace_message_id=replace_message_id,
                 )
             params: dict[str, Any] = {"chat_id": chat_id, "text": text}
@@ -670,6 +751,8 @@ class TelegramClient:
                 params["entities"] = entities
             if parse_mode is not None:
                 params["parse_mode"] = parse_mode
+            if reply_markup is not None:
+                params["reply_markup"] = reply_markup
             result = await self._post("sendMessage", params)
             return result if isinstance(result, dict) else None
 
@@ -697,6 +780,7 @@ class TelegramClient:
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
     ) -> dict | None:
@@ -708,6 +792,7 @@ class TelegramClient:
                     text=text,
                     entities=entities,
                     parse_mode=parse_mode,
+                    reply_markup=reply_markup,
                     wait=wait,
                 )
             params: dict[str, Any] = {
@@ -719,6 +804,8 @@ class TelegramClient:
                 params["entities"] = entities
             if parse_mode is not None:
                 params["parse_mode"] = parse_mode
+            if reply_markup is not None:
+                params["reply_markup"] = reply_markup
             result = await self._post("editMessageText", params)
             return result if isinstance(result, dict) else None
 
@@ -805,4 +892,35 @@ class TelegramClient:
             execute=execute,
             priority=SEND_PRIORITY,
             chat_id=None,
+        )
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+        show_alert: bool | None = None,
+    ) -> bool:
+        async def execute() -> bool:
+            if self._client_override is not None:
+                return await self._client_override.answer_callback_query(
+                    callback_query_id=callback_query_id,
+                    text=text,
+                    show_alert=show_alert,
+                )
+            params: dict[str, Any] = {"callback_query_id": callback_query_id}
+            if text is not None:
+                params["text"] = text
+            if show_alert is not None:
+                params["show_alert"] = show_alert
+            result = await self._post("answerCallbackQuery", params)
+            return bool(result)
+
+        return bool(
+            await self.enqueue_op(
+                key=self.unique_key("answer_callback_query"),
+                label="answer_callback_query",
+                execute=execute,
+                priority=SEND_PRIORITY,
+                chat_id=None,
+            )
         )
