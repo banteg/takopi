@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from importlib.metadata import EntryPoint, entry_points
+import re
 from typing import Any, Callable
 
 from .ids import ID_PATTERN, is_valid_id
@@ -10,6 +11,8 @@ from .ids import ID_PATTERN, is_valid_id
 ENGINE_GROUP = "takopi.engine_backends"
 TRANSPORT_GROUP = "takopi.transport_backends"
 COMMAND_GROUP = "takopi.command_backends"
+
+_CANONICAL_NAME_RE = re.compile(r"[-_.]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +114,11 @@ def entrypoint_distribution_name(ep: EntryPoint) -> str | None:
 def normalize_allowlist(allowlist: Iterable[str] | None) -> set[str] | None:
     if allowlist is None:
         return None
-    cleaned = {item.strip().lower() for item in allowlist if item and item.strip()}
+    cleaned = {
+        _CANONICAL_NAME_RE.sub("-", item.strip()).lower()
+        for item in allowlist
+        if item and item.strip()
+    }
     return cleaned or None
 
 
@@ -121,7 +128,7 @@ def is_entrypoint_allowed(ep: EntryPoint, allowlist: set[str] | None) -> bool:
     dist_name = entrypoint_distribution_name(ep)
     if dist_name is None:
         return False
-    return dist_name.lower() in allowlist
+    return _CANONICAL_NAME_RE.sub("-", dist_name).lower() in allowlist
 
 
 def _entrypoint_sort_key(ep: EntryPoint) -> tuple[str, str, str]:

@@ -97,6 +97,23 @@ def test_allowlist_filters_by_distribution(monkeypatch) -> None:
     assert ids == ["codex"]
 
 
+def test_allowlist_canonicalizes_distribution_names(monkeypatch) -> None:
+    entrypoints = [
+        FakeEntryPoint(
+            "slack",
+            "takopi.transport.slack:BACKEND",
+            plugins.TRANSPORT_GROUP,
+            dist_name="takopi-transport-slack",
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    ids = plugins.list_ids(
+        plugins.TRANSPORT_GROUP, allowlist=["takopi_transport.slack"]
+    )
+    assert ids == ["slack"]
+
+
 def test_validator_errors_are_captured(monkeypatch) -> None:
     entrypoints = [
         FakeEntryPoint(
