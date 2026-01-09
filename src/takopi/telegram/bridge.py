@@ -296,7 +296,7 @@ class TelegramTransport:
             if options.replace is not None:
                 replace_message_id = _as_int(
                     options.replace.message_id, label="replace_message_id"
-        )
+                )
         entities = message.extra.get("entities")
         parse_mode = message.extra.get("parse_mode")
         reply_markup = message.extra.get("reply_markup")

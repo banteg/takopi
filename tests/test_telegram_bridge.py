@@ -403,9 +403,7 @@ def test_telegram_presenter_final_clears_button() -> None:
     presenter = TelegramPresenter()
     state = ProgressTracker(engine="codex").snapshot()
 
-    rendered = presenter.render_final(
-        state, elapsed_s=0.0, status="done", answer="ok"
-    )
+    rendered = presenter.render_final(state, elapsed_s=0.0, status="done", answer="ok")
 
     assert rendered.extra["reply_markup"]["inline_keyboard"] == []
 
@@ -711,10 +709,7 @@ async def test_handle_callback_cancel_without_task_acknowledges() -> None:
 
     assert len(transport.send_calls) == 0
     assert cfg.bot.callback_calls
-    assert (
-        "nothing is currently running"
-        in cfg.bot.callback_calls[-1]["text"].lower()
-    )
+    assert "nothing is currently running" in cfg.bot.callback_calls[-1]["text"].lower()
 
 
 def test_cancel_command_accepts_extra_text() -> None:
