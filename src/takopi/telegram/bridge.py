@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import shlex
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import anyio
 
@@ -40,10 +42,12 @@ from ..transport_runtime import TransportRuntime
 from .client import BotClient, poll_incoming
 from .types import TelegramIncomingMessage
 from .render import prepare_telegram
+from .transcribe import transcribe_audio
 
 logger = get_logger(__name__)
 
 _MAX_BOT_COMMANDS = 100
+_OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
 
 
 def _is_cancel_command(text: str) -> bool:
@@ -191,6 +195,17 @@ class TelegramPresenter:
         return RenderedMessage(text=text, extra={"entities": entities})
 
 
+@dataclass(frozen=True)
+class TelegramVoiceTranscriptionConfig:
+    enabled: bool = False
+    model: str = "gpt-4o-mini-transcribe"
+    language: str | None = None
+    prompt: str | None = None
+    chunking_strategy: str | None = "auto"
+    echo: bool = False
+    openai_api_key: str | None = None
+
+
 def _as_int(value: int | str, *, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"Telegram {label} must be int")
@@ -285,6 +300,7 @@ class TelegramBridgeConfig:
     chat_id: int
     startup_msg: str
     exec_cfg: ExecBridgeConfig
+    voice_transcription: TelegramVoiceTranscriptionConfig | None = None
 
 
 async def _send_plain(
@@ -343,6 +359,138 @@ async def poll_updates(
 
     async for msg in poll_incoming(cfg.bot, chat_id=cfg.chat_id, offset=offset):
         yield msg
+
+
+def _resolve_openai_api_key(
+    cfg: TelegramVoiceTranscriptionConfig,
+) -> str | None:
+    env_key = os.environ.get("OPENAI_API_KEY")
+    if isinstance(env_key, str):
+        env_key = env_key.strip()
+        if env_key:
+            return env_key
+    if cfg.openai_api_key:
+        key = cfg.openai_api_key.strip()
+        if key:
+            return key
+    return None
+
+
+def _normalize_voice_filename(file_path: str | None, mime_type: str | None) -> str:
+    name = Path(file_path).name if file_path else ""
+    if not name:
+        if mime_type == "audio/ogg":
+            return "voice.ogg"
+        return "voice.dat"
+    if name.endswith(".oga"):
+        return f"{name[:-4]}.ogg"
+    return name
+
+
+async def _transcribe_voice(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+) -> str | None:
+    voice = msg.voice
+    if voice is None:
+        return msg.text
+    settings = cfg.voice_transcription
+    if settings is None or not settings.enabled:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="voice transcription is disabled.",
+        )
+        return None
+    api_key = _resolve_openai_api_key(settings)
+    if not api_key:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="voice transcription requires OPENAI_API_KEY.",
+        )
+        return None
+    if voice.file_size is not None and voice.file_size > _OPENAI_AUDIO_MAX_BYTES:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="voice message is too large to transcribe.",
+        )
+        return None
+    file_info = await cfg.bot.get_file(voice.file_id)
+    if not isinstance(file_info, dict):
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="failed to fetch voice file.",
+        )
+        return None
+    file_path = file_info.get("file_path")
+    if not isinstance(file_path, str) or not file_path:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="failed to fetch voice file.",
+        )
+        return None
+    audio_bytes = await cfg.bot.download_file(file_path)
+    if not audio_bytes:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="failed to download voice message.",
+        )
+        return None
+    if len(audio_bytes) > _OPENAI_AUDIO_MAX_BYTES:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="voice message is too large to transcribe.",
+        )
+        return None
+    filename = _normalize_voice_filename(file_path, voice.mime_type)
+    transcript = await transcribe_audio(
+        audio_bytes,
+        filename=filename,
+        api_key=api_key,
+        model=settings.model,
+        language=settings.language,
+        prompt=settings.prompt,
+        chunking_strategy=settings.chunking_strategy,
+        mime_type=voice.mime_type,
+    )
+    if transcript is None:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="voice transcription failed.",
+        )
+        return None
+    transcript = transcript.strip()
+    if not transcript:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="voice transcription returned empty text.",
+        )
+        return None
+    if settings.echo:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text=transcript,
+        )
+    return transcript
 
 
 async def _handle_cancel(
@@ -702,6 +850,7 @@ class _TelegramCommandExecutor(CommandExecutor):
 async def _dispatch_command(
     cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
+    text: str,
     command_id: str,
     args_text: str,
     running_tasks: RunningTasks,
@@ -738,7 +887,7 @@ async def _dispatch_command(
         return
     ctx = CommandContext(
         command=command_id,
-        text=msg.text,
+        text=text,
         args_text=args_text,
         args=_split_command_args(args_text),
         message=message_ref,
@@ -826,6 +975,10 @@ async def run_main_loop(
 
             async for msg in poller(cfg):
                 text = msg.text
+                if msg.voice is not None:
+                    text = await _transcribe_voice(cfg, msg)
+                    if text is None:
+                        continue
                 user_msg_id = msg.message_id
                 chat_id = msg.chat_id
                 reply_id = msg.reply_to_message_id
@@ -850,6 +1003,7 @@ async def run_main_loop(
                             _dispatch_command,
                             cfg,
                             msg,
+                            text,
                             command_id,
                             args_text,
                             running_tasks,

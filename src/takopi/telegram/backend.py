@@ -14,6 +14,7 @@ from .bridge import (
     TelegramBridgeConfig,
     TelegramPresenter,
     TelegramTransport,
+    TelegramVoiceTranscriptionConfig,
     run_main_loop,
 )
 from .client import TelegramClient
@@ -40,6 +41,31 @@ def _build_startup_message(
         f"agents: `{engine_list}`  \n"
         f"projects: `{project_list}`  \n"
         f"working in: `{startup_pwd}`"
+    )
+
+
+def _optional_str(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned if cleaned else None
+
+
+def _build_voice_transcription_config(
+    transport_config: dict[str, object],
+) -> TelegramVoiceTranscriptionConfig:
+    return TelegramVoiceTranscriptionConfig(
+        enabled=bool(transport_config.get("voice_transcription", False)),
+        model=_optional_str(transport_config.get("voice_transcription_model"))
+        or "gpt-4o-mini-transcribe",
+        language=_optional_str(transport_config.get("voice_transcription_language")),
+        prompt=_optional_str(transport_config.get("voice_transcription_prompt")),
+        chunking_strategy=_optional_str(
+            transport_config.get("voice_transcription_chunking")
+        )
+        or "auto",
+        echo=bool(transport_config.get("voice_transcription_echo", False)),
+        openai_api_key=_optional_str(transport_config.get("openai_api_key")),
     )
 
 
@@ -87,12 +113,14 @@ class TelegramBackend(TransportBackend):
             presenter=presenter,
             final_notify=final_notify,
         )
+        voice_transcription = _build_voice_transcription_config(transport_config)
         cfg = TelegramBridgeConfig(
             bot=bot,
             runtime=runtime,
             chat_id=chat_id,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
+            voice_transcription=voice_transcription,
         )
         anyio.run(run_main_loop, cfg)
 

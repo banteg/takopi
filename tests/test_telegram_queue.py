@@ -92,6 +92,14 @@ class _FakeBot:
         self._updates_attempts += 1
         return []
 
+    async def get_file(self, file_id: str) -> dict | None:
+        _ = file_id
+        return None
+
+    async def download_file(self, file_path: str) -> bytes | None:
+        _ = file_path
+        return None
+
     async def close(self) -> None:
         return None
 

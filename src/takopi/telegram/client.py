@@ -18,7 +18,7 @@ import httpx
 import anyio
 
 from ..logging import get_logger
-from .types import TelegramIncomingMessage
+from .types import TelegramIncomingMessage, TelegramVoice
 
 logger = get_logger(__name__)
 
@@ -50,8 +50,30 @@ def parse_incoming_update(
     if not isinstance(msg, dict):
         return None
     text = msg.get("text")
+    voice_payload: TelegramVoice | None = None
     if not isinstance(text, str):
-        return None
+        voice = msg.get("voice")
+        if not isinstance(voice, dict):
+            return None
+        file_id = voice.get("file_id")
+        if not isinstance(file_id, str) or not file_id:
+            return None
+        voice_payload = TelegramVoice(
+            file_id=file_id,
+            mime_type=voice.get("mime_type")
+            if isinstance(voice.get("mime_type"), str)
+            else None,
+            file_size=voice.get("file_size")
+            if isinstance(voice.get("file_size"), int)
+            and not isinstance(voice.get("file_size"), bool)
+            else None,
+            duration=voice.get("duration")
+            if isinstance(voice.get("duration"), int)
+            and not isinstance(voice.get("duration"), bool)
+            else None,
+            raw=voice,
+        )
+        text = ""
     chat = msg.get("chat")
     if not isinstance(chat, dict):
         return None
@@ -87,6 +109,7 @@ def parse_incoming_update(
         reply_to_message_id=reply_to_message_id,
         reply_to_text=reply_to_text,
         sender_id=sender_id,
+        voice=voice_payload,
         raw=msg,
     )
 
@@ -122,6 +145,10 @@ class BotClient(Protocol):
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
     ) -> list[dict] | None: ...
+
+    async def get_file(self, file_id: str) -> dict | None: ...
+
+    async def download_file(self, file_path: str) -> bytes | None: ...
 
     async def send_message(
         self,
@@ -356,6 +383,7 @@ class TelegramClient:
                 raise ValueError("Provide either token or client, not both.")
             self._client_override = client
             self._base = None
+            self._file_base = None
             self._http_client = None
             self._owns_http_client = False
         else:
@@ -363,6 +391,7 @@ class TelegramClient:
                 raise ValueError("Telegram token is empty")
             self._client_override = None
             self._base = f"https://api.telegram.org/bot{token}"
+            self._file_base = f"https://api.telegram.org/file/bot{token}"
             self._http_client = http_client or httpx.AsyncClient(timeout=timeout_s)
             self._owns_http_client = http_client is None
         self._clock = clock
@@ -555,6 +584,46 @@ class TelegramClient:
                 return result if isinstance(result, list) else None
             except TelegramRetryAfter as exc:
                 await self._sleep(exc.retry_after)
+
+    async def get_file(self, file_id: str) -> dict | None:
+        while True:
+            try:
+                if self._client_override is not None:
+                    return await self._client_override.get_file(file_id)
+                result = await self._post("getFile", {"file_id": file_id})
+                return result if isinstance(result, dict) else None
+            except TelegramRetryAfter as exc:
+                await self._sleep(exc.retry_after)
+
+    async def download_file(self, file_path: str) -> bytes | None:
+        if self._client_override is not None:
+            return await self._client_override.download_file(file_path)
+        if self._http_client is None or self._file_base is None:
+            raise RuntimeError("TelegramClient is configured without an HTTP client.")
+        url = f"{self._file_base}/{file_path}"
+        try:
+            resp = await self._http_client.get(url)
+        except httpx.HTTPError as exc:
+            request_url = getattr(exc.request, "url", None)
+            logger.error(
+                "telegram.file_network_error",
+                url=str(request_url) if request_url is not None else None,
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            return None
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "telegram.file_http_error",
+                status=resp.status_code,
+                url=str(resp.request.url),
+                error=str(exc),
+                body=resp.text,
+            )
+            return None
+        return resp.content
 
     async def send_message(
         self,

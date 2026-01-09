@@ -106,6 +106,14 @@ class _FakeBot:
         _ = allowed_updates
         return []
 
+    async def get_file(self, file_id: str) -> dict | None:
+        _ = file_id
+        return None
+
+    async def download_file(self, file_path: str) -> bytes | None:
+        _ = file_path
+        return None
+
     async def send_message(
         self,
         chat_id: int,
@@ -384,6 +392,14 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             timeout_s: int = 50,
             allowed_updates: list[str] | None = None,
         ) -> list[dict] | None:
+            return None
+
+        async def get_file(self, file_id: str) -> dict | None:
+            _ = file_id
+            return None
+
+        async def download_file(self, file_path: str) -> bytes | None:
+            _ = file_path
             return None
 
         async def send_message(

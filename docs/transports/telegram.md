@@ -16,6 +16,31 @@ This document captures current behavior so transport changes stay intentional.
 4. High-value messages enqueue a send.
 5. All writes go through the outbox.
 
+## Incoming messages
+
+`parse_incoming_update` accepts text messages and voice notes.
+
+If voice transcription is enabled, takopi downloads the voice payload from Telegram,
+transcribes it with OpenAI, and routes the transcript through the same command and
+directive pipeline as typed text.
+
+Configuration (under `[transports.telegram]`):
+
+```toml
+voice_transcription = true
+voice_transcription_model = "gpt-4o-mini-transcribe"
+voice_transcription_language = "en"   # optional
+voice_transcription_prompt = ""       # optional
+voice_transcription_chunking = "auto" # optional
+voice_transcription_echo = false
+
+# optional if OPENAI_API_KEY is set in the environment
+openai_api_key = "sk-..."
+```
+
+If transcription is enabled but the API key is missing or the audio download fails,
+takopi replies with a short error and skips the run.
+
 ## Outbox model
 
 - Single worker processes one op at a time.
