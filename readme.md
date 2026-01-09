@@ -68,6 +68,8 @@ voice_transcription = true
 [codex]
 # optional: profile from ~/.codex/config.toml
 profile = "takopi"
+# optional: extra codex CLI args (exec flags are managed by Takopi)
+# extra_args = ["-c", "notify=[]"]
 
 [claude]
 model = "sonnet"

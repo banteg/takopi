@@ -12,7 +12,7 @@ from takopi.model import (
     StartedEvent,
     TakopiEvent,
 )
-from takopi.runners.codex import CodexRunner
+from takopi.runners.codex import CodexRunner, _find_exec_only_flag
 
 CODEX_ENGINE = EngineId("codex")
 
@@ -131,7 +131,7 @@ async def test_run_allows_parallel_different_sessions() -> None:
 def test_codex_exec_flags_after_exec() -> None:
     runner = CodexRunner(
         codex_cmd="codex",
-        extra_args=["-c", "notify=[]", "--skip-git-repo-check"],
+        extra_args=["-c", "notify=[]"],
     )
     state = runner.new_state("hi", None)
     args = runner.build_args("hi", None, state=state)
@@ -139,10 +139,27 @@ def test_codex_exec_flags_after_exec() -> None:
         "-c",
         "notify=[]",
         "exec",
-        "--skip-git-repo-check",
         "--json",
+        "--skip-git-repo-check",
+        "--color=never",
         "-",
     ]
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected"),
+    [
+        ([], None),
+        (["-c", "notify=[]"], None),
+        (["--skip-git-repo-check"], "--skip-git-repo-check"),
+        (["--color=never"], "--color=never"),
+        (["--output-schema", "schema.json"], "--output-schema"),
+        (["--output-last-message=out.txt"], "--output-last-message=out.txt"),
+        (["-o", "out.txt"], "-o"),
+    ],
+)
+def test_find_exec_only_flag(extra_args: list[str], expected: str | None) -> None:
+    assert _find_exec_only_flag(extra_args) == expected
 
 
 @pytest.mark.anyio
