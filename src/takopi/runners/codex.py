@@ -25,18 +25,29 @@ _RECONNECTING_RE = re.compile(
     r"^Reconnecting\.{3}\s*(?P<attempt>\d+)/(?P<max>\d+)\s*$",
     re.IGNORECASE,
 )
-_EXEC_ONLY_FLAGS = {"--skip-git-repo-check"}
+_EXEC_ONLY_FLAGS = {
+    "--skip-git-repo-check",
+    "--json",
+    "--output-schema",
+    "--output-last-message",
+    "--color",
+    "-o",
+}
+_EXEC_ONLY_PREFIXES = (
+    "--output-schema=",
+    "--output-last-message=",
+    "--color=",
+)
 
 
-def _split_exec_flags(extra_args: list[str]) -> tuple[list[str], list[str]]:
-    base_args: list[str] = []
-    exec_args: list[str] = []
+def _find_exec_only_flag(extra_args: list[str]) -> str | None:
     for arg in extra_args:
         if arg in _EXEC_ONLY_FLAGS:
-            exec_args.append(arg)
-        else:
-            base_args.append(arg)
-    return base_args, exec_args
+            return arg
+        for prefix in _EXEC_ONLY_PREFIXES:
+            if arg.startswith(prefix):
+                return arg
+    return None
 
 
 def _parse_reconnect_message(message: str) -> tuple[int, int] | None:
@@ -409,8 +420,13 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         state: Any,
     ) -> list[str]:
         _ = prompt, state
-        base_args, exec_args = _split_exec_flags(self.extra_args)
-        args = [*base_args, "exec", *exec_args, "--json"]
+        args = [
+            *self.extra_args,
+            "exec",
+            "--json",
+            "--skip-git-repo-check",
+            "--color=never",
+        ]
         if resume:
             args.extend(["resume", resume.value, "-"])
         else:
@@ -585,7 +601,7 @@ def build_runner(config: EngineConfig, config_path: Path) -> Runner:
 
     extra_args_value = config.get("extra_args")
     if extra_args_value is None:
-        extra_args = ["-c", "notify=[]", "--skip-git-repo-check"]
+        extra_args = ["-c", "notify=[]"]
     elif isinstance(extra_args_value, list) and all(
         isinstance(item, str) for item in extra_args_value
     ):
@@ -593,6 +609,13 @@ def build_runner(config: EngineConfig, config_path: Path) -> Runner:
     else:
         raise ConfigError(
             f"Invalid `codex.extra_args` in {config_path}; expected a list of strings."
+        )
+
+    exec_only_flag = _find_exec_only_flag(extra_args)
+    if exec_only_flag:
+        raise ConfigError(
+            f"Invalid `codex.extra_args` in {config_path}; exec-only flag "
+            f"{exec_only_flag!r} is managed by Takopi."
         )
 
     title = "Codex"
