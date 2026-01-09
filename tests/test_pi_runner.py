@@ -1,11 +1,17 @@
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import patch
 
 import anyio
 import pytest
 
 from takopi.model import ActionEvent, CompletedEvent, ResumeToken, StartedEvent
-from takopi.runners.pi import ENGINE, PiRunner, PiStreamState, translate_pi_event
+from takopi.runners.pi import (
+    ENGINE,
+    PiRunner,
+    PiStreamState,
+    _default_session_dir,
+    translate_pi_event,
+)
 from takopi.schemas import pi as pi_schema
 
 
@@ -152,3 +158,11 @@ def test_session_path_prefers_run_base_dir(tmp_path: Path) -> None:
 
     default_session_dir.assert_called_once_with(project_cwd)
     assert str(session_root) in session_path
+
+
+def test_session_path_sanitizes_windows_separators() -> None:
+    cwd = PureWindowsPath("C:\\foo\\bar")
+    session_dir = _default_session_dir(cwd)
+    name = session_dir.name
+    assert "\\" not in name
+    assert ":" not in name

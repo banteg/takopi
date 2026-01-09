@@ -448,7 +448,7 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 def _default_session_dir(cwd: Path) -> Path:
     agent_dir = os.environ.get("PI_CODING_AGENT_DIR")
     base = Path(agent_dir).expanduser() if agent_dir else Path.home() / ".pi" / "agent"
-    safe_path = f"--{str(cwd).lstrip('/\\\\').replace('/', '-').replace('\\\\', '-').replace(':', '-')}--"
+    safe_path = f"--{str(cwd).lstrip('/\\\\').replace('/', '-').replace(\"\\\\\", \"-\").replace(':', '-')}--"
     return base / "sessions" / safe_path
 
 
