@@ -9,6 +9,7 @@ from typing import (
     Awaitable,
     Callable,
     Hashable,
+    Iterable,
     Protocol,
     TYPE_CHECKING,
 )
@@ -44,7 +45,10 @@ def is_group_chat_id(chat_id: int) -> bool:
 
 
 def parse_incoming_update(
-    update: dict[str, Any], *, chat_id: int
+    update: dict[str, Any],
+    *,
+    chat_id: int | None = None,
+    chat_ids: set[int] | None = None,
 ) -> TelegramIncomingMessage | None:
     msg = update.get("message")
     if not isinstance(msg, dict):
@@ -78,7 +82,12 @@ def parse_incoming_update(
     if not isinstance(chat, dict):
         return None
     msg_chat_id = chat.get("id")
-    if not isinstance(msg_chat_id, int) or msg_chat_id != chat_id:
+    if not isinstance(msg_chat_id, int):
+        return None
+    allowed = chat_ids
+    if allowed is None and chat_id is not None:
+        allowed = {chat_id}
+    if allowed is not None and msg_chat_id not in allowed:
         return None
     message_id = msg.get("message_id")
     if not isinstance(message_id, int):
@@ -117,9 +126,13 @@ def parse_incoming_update(
 async def poll_incoming(
     bot: BotClient,
     *,
-    chat_id: int,
+    chat_id: int | None = None,
+    chat_ids: Iterable[int] | None = None,
     offset: int | None = None,
 ) -> AsyncIterator[TelegramIncomingMessage]:
+    allowed = set(chat_ids) if chat_ids is not None else None
+    if allowed is None and chat_id is not None:
+        allowed = {chat_id}
     while True:
         updates = await bot.get_updates(
             offset=offset, timeout_s=50, allowed_updates=["message"]
@@ -131,7 +144,7 @@ async def poll_incoming(
         logger.debug("loop.updates", updates=updates)
         for upd in updates:
             offset = upd["update_id"] + 1
-            msg = parse_incoming_update(upd, chat_id=chat_id)
+            msg = parse_incoming_update(upd, chat_ids=allowed)
             if msg is not None:
                 yield msg
 

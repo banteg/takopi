@@ -70,6 +70,7 @@ class ProjectSettings(BaseModel):
     worktrees_dir: str = ".worktrees"
     default_engine: str | None = None
     worktree_base: str | None = None
+    chat_id: int | None = None
 
     model_config = ConfigDict(extra="allow")
 
@@ -90,6 +91,15 @@ class ProjectSettings(BaseModel):
         if not cleaned:
             raise ValueError(f"{info.field_name} must be a non-empty string")
         return cleaned
+
+    @field_validator("chat_id", mode="before")
+    @classmethod
+    def _validate_chat_id(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError("chat_id must be an integer")
+        return value
 
 
 class TakopiSettings(BaseSettings):
@@ -194,10 +204,12 @@ class TakopiSettings(BaseSettings):
         reserved: Iterable[str] = ("cancel",),
     ) -> ProjectsConfig:
         default_project = self.default_project
+        default_chat_id = self.transports.telegram.chat_id
 
         reserved_lower = {value.lower() for value in reserved}
         engine_map = {engine.lower(): engine for engine in engine_ids}
         projects: dict[str, ProjectConfig] = {}
+        chat_map: dict[int, str] = {}
 
         for raw_alias, entry in self.projects.items():
             if not isinstance(raw_alias, str) or not raw_alias.strip():
@@ -258,12 +270,33 @@ class TakopiSettings(BaseSettings):
                     )
                 worktree_base = worktree_base_raw.strip()
 
+            chat_id = entry.chat_id
+            if chat_id is not None:
+                if isinstance(chat_id, bool) or not isinstance(chat_id, int):
+                    raise ConfigError(
+                        f"Invalid `projects.{alias}.chat_id` in {config_path}; "
+                        "expected an integer."
+                    )
+                if default_chat_id is not None and chat_id == default_chat_id:
+                    raise ConfigError(
+                        f"Invalid `projects.{alias}.chat_id` in {config_path}; "
+                        "must not match transports.telegram.chat_id."
+                    )
+                if chat_id in chat_map:
+                    existing = chat_map[chat_id]
+                    raise ConfigError(
+                        f"Duplicate `projects.*.chat_id` {chat_id} in {config_path}; "
+                        f"already used by {existing!r}."
+                    )
+                chat_map[chat_id] = alias_key
+
             projects[alias_key] = ProjectConfig(
                 alias=alias,
                 path=path,
                 worktrees_dir=worktrees_dir,
                 default_engine=default_engine,
                 worktree_base=worktree_base,
+                chat_id=chat_id,
             )
 
         if default_project is not None:
@@ -275,7 +308,11 @@ class TakopiSettings(BaseSettings):
                 )
             default_project = default_key
 
-        return ProjectsConfig(projects=projects, default_project=default_project)
+        return ProjectsConfig(
+            projects=projects,
+            default_project=default_project,
+            chat_map=chat_map,
+        )
 
 
 def load_settings(path: str | Path | None = None) -> tuple[TakopiSettings, Path]:

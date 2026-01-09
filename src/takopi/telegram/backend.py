@@ -97,10 +97,12 @@ class TelegramBackend(TransportBackend):
             final_notify=final_notify,
         )
         voice_transcription = _build_voice_transcription_config(transport_config)
+        chat_ids = (chat_id, *runtime.project_chat_ids())
         cfg = TelegramBridgeConfig(
             bot=bot,
             runtime=runtime,
             chat_id=chat_id,
+            chat_ids=chat_ids,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
             voice_transcription=voice_transcription,

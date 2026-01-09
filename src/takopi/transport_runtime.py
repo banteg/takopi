@@ -110,7 +110,13 @@ class TransportRuntime:
             )
         return dict(raw)
 
-    def resolve_message(self, *, text: str, reply_text: str | None) -> ResolvedMessage:
+    def resolve_message(
+        self,
+        *,
+        text: str,
+        reply_text: str | None,
+        chat_id: int | None = None,
+    ) -> ResolvedMessage:
         directives = parse_directives(
             text,
             engine_ids=self._router.engine_ids,
@@ -118,13 +124,17 @@ class TransportRuntime:
         )
         reply_ctx = parse_context_line(reply_text, projects=self._projects)
         resume_token = self._router.resolve_resume(directives.prompt, reply_text)
+        chat_project = self._projects.project_for_chat(chat_id)
 
         if resume_token is not None:
+            context = reply_ctx
+            if context is None and chat_project is not None:
+                context = RunContext(project=chat_project, branch=None)
             return ResolvedMessage(
                 prompt=directives.prompt,
                 resume_token=resume_token,
                 engine_override=None,
-                context=reply_ctx,
+                context=context,
             )
 
         if reply_ctx is not None:
@@ -141,8 +151,8 @@ class TransportRuntime:
             )
 
         project_key = directives.project
-        if project_key is None and self._projects.default_project is not None:
-            project_key = self._projects.default_project
+        if project_key is None:
+            project_key = chat_project or self._projects.default_project
 
         context = None
         if project_key is not None or directives.branch is not None:
@@ -160,6 +170,15 @@ class TransportRuntime:
             engine_override=engine_override,
             context=context,
         )
+
+    def default_context_for_chat(self, chat_id: int | None) -> RunContext | None:
+        project_key = self._projects.project_for_chat(chat_id)
+        if project_key is None:
+            return None
+        return RunContext(project=project_key, branch=None)
+
+    def project_chat_ids(self) -> tuple[int, ...]:
+        return self._projects.project_chat_ids()
 
     def resolve_runner(
         self,

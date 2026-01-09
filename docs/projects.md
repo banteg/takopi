@@ -31,6 +31,7 @@ path = "~/dev/z80"             # required (repo root)
 worktrees_dir = ".worktrees"   # optional, default ".worktrees"
 default_engine = "codex"       # optional, per-project override
 worktree_base = "master"       # optional, base for new branches
+chat_id = -123                 # optional, project chat id
 ```
 
 Legacy config note: top-level `bot_token` / `chat_id` are auto-migrated into
@@ -52,6 +53,7 @@ Validation rules:
 - `default_project` must match a configured project alias.
 - Project aliases cannot collide with engine ids or reserved commands (`/cancel`).
 - `default_engine` and per-project `default_engine` must be valid engine ids.
+- `projects.<alias>.chat_id` must be unique and must not match `transports.telegram.chat_id`.
 - `transport` defaults to `"telegram"` when omitted; override per-run with `--transport`.
 
 ## `takopi init`
@@ -94,6 +96,10 @@ code (backticked):
 - Without branch: `` `ctx: <project>` ``
 
 The `ctx:` line is parsed from replies and takes precedence over new directives.
+
+When a message arrives in a chat whose `chat_id` matches `projects.<alias>.chat_id`,
+Takopi defaults the project context to that alias unless a reply `ctx:` or explicit
+`/project` directive is present.
 
 ## Worktree resolution
 

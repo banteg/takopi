@@ -912,6 +912,90 @@ async def test_run_main_loop_command_uses_project_default_engine(
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_command_defaults_to_chat_project(
+    monkeypatch,
+) -> None:
+    class _Command:
+        id = "auto_ctx"
+        description = "auto context"
+
+        async def handle(self, ctx):
+            result = await ctx.executor.run_one(
+                commands.RunRequest(prompt="hello"),
+                mode="capture",
+            )
+            return commands.CommandResult(text=f"ran:{result.engine}")
+
+    entrypoints = [
+        FakeEntryPoint(
+            "auto_ctx",
+            "takopi.commands.auto_ctx:BACKEND",
+            plugins.COMMAND_GROUP,
+            loader=_Command,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    transport = _FakeTransport()
+    bot = _FakeBot()
+    codex_runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    pi_runner = ScriptRunner([Return(answer="ok")], engine=EngineId("pi"))
+    router = AutoRouter(
+        entries=[
+            RunnerEntry(engine=codex_runner.engine, runner=codex_runner),
+            RunnerEntry(engine=pi_runner.engine, runner=pi_runner),
+        ],
+        default_engine=codex_runner.engine,
+    )
+    projects = ProjectsConfig(
+        projects={
+            "proj": ProjectConfig(
+                alias="proj",
+                path=Path("."),
+                worktrees_dir=Path(".worktrees"),
+                default_engine=pi_runner.engine,
+                chat_id=-42,
+            )
+        },
+        default_project=None,
+        chat_map={-42: "proj"},
+    )
+    runtime = TransportRuntime(
+        router=router,
+        projects=projects,
+    )
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=-42,
+            message_id=1,
+            text="/auto_ctx",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert codex_runner.calls == []
+    assert len(pi_runner.calls) == 1
+    assert transport.send_calls[-1]["message"].text == "ran:pi"
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_refreshes_command_ids(monkeypatch) -> None:
     class _Command:
         id = "late_cmd"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -41,6 +41,7 @@ class ProjectConfig:
     worktrees_dir: Path
     default_engine: str | None = None
     worktree_base: str | None = None
+    chat_id: int | None = None
 
     @property
     def worktrees_root(self) -> Path:
@@ -53,6 +54,7 @@ class ProjectConfig:
 class ProjectsConfig:
     projects: dict[str, ProjectConfig]
     default_project: str | None = None
+    chat_map: dict[int, str] = field(default_factory=dict)
 
     def resolve(self, alias: str | None) -> ProjectConfig | None:
         if alias is None:
@@ -60,6 +62,14 @@ class ProjectsConfig:
                 return None
             return self.projects.get(self.default_project)
         return self.projects.get(alias.lower())
+
+    def project_for_chat(self, chat_id: int | None) -> str | None:
+        if chat_id is None:
+            return None
+        return self.chat_map.get(chat_id)
+
+    def project_chat_ids(self) -> tuple[int, ...]:
+        return tuple(self.chat_map.keys())
 
 
 def empty_projects_config() -> ProjectsConfig:
@@ -99,6 +109,7 @@ def parse_projects_config(
     config_path: Path,
     engine_ids: Iterable[str],
     reserved: Iterable[str] = ("cancel",),
+    default_chat_id: int | None = None,
 ) -> ProjectsConfig:
     default_project_raw = config.get("default_project")
     default_project = None
@@ -116,6 +127,7 @@ def parse_projects_config(
     reserved_lower = {value.lower() for value in reserved}
     engine_lower = {value.lower() for value in engine_ids}
     projects: dict[str, ProjectConfig] = {}
+    chat_map: dict[int, str] = {}
 
     for raw_alias, raw_entry in projects_raw.items():
         if not isinstance(raw_alias, str) or not raw_alias.strip():
@@ -173,12 +185,35 @@ def parse_projects_config(
                 )
             worktree_base = worktree_base_raw.strip()
 
+        chat_id_raw = raw_entry.get("chat_id")
+        chat_id = None
+        if chat_id_raw is not None:
+            if isinstance(chat_id_raw, bool) or not isinstance(chat_id_raw, int):
+                raise ConfigError(
+                    f"Invalid `projects.{alias}.chat_id` in {config_path}; "
+                    "expected an integer."
+                )
+            chat_id = chat_id_raw
+            if default_chat_id is not None and chat_id == default_chat_id:
+                raise ConfigError(
+                    f"Invalid `projects.{alias}.chat_id` in {config_path}; "
+                    "must not match transports.telegram.chat_id."
+                )
+            if chat_id in chat_map:
+                existing = chat_map[chat_id]
+                raise ConfigError(
+                    f"Duplicate `projects.*.chat_id` {chat_id} in {config_path}; "
+                    f"already used by {existing!r}."
+                )
+            chat_map[chat_id] = alias_key
+
         projects[alias_key] = ProjectConfig(
             alias=alias,
             path=path,
             worktrees_dir=worktrees_dir,
             default_engine=default_engine,
             worktree_base=worktree_base,
+            chat_id=chat_id,
         )
 
     if default_project is not None:
@@ -190,7 +225,11 @@ def parse_projects_config(
             )
         default_project = default_key
 
-    return ProjectsConfig(projects=projects, default_project=default_project)
+    return ProjectsConfig(
+        projects=projects,
+        default_project=default_project,
+        chat_map=chat_map,
+    )
 
 
 def _toml_escape(value: str) -> str:

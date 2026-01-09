@@ -87,6 +87,37 @@ def test_projects_default_engine_unknown() -> None:
         )
 
 
+def test_projects_chat_id_cannot_match_transport_chat_id() -> None:
+    config = {
+        "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
+        "projects": {"z80": {"path": "/tmp/repo", "chat_id": 123}},
+    }
+    settings = TakopiSettings.model_validate(config)
+    with pytest.raises(ConfigError, match="chat_id"):
+        settings.to_projects_config(
+            config_path=Path("takopi.toml"),
+            engine_ids=["codex"],
+            reserved=("cancel",),
+        )
+
+
+def test_projects_chat_id_must_be_unique() -> None:
+    config = {
+        "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
+        "projects": {
+            "a": {"path": "/tmp/a", "chat_id": -10},
+            "b": {"path": "/tmp/b", "chat_id": -10},
+        },
+    }
+    settings = TakopiSettings.model_validate(config)
+    with pytest.raises(ConfigError, match="chat_id"):
+        settings.to_projects_config(
+            config_path=Path("takopi.toml"),
+            engine_ids=["codex"],
+            reserved=("cancel",),
+        )
+
+
 def test_projects_relative_path_resolves(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
     settings = TakopiSettings.model_validate({"projects": {"z80": {"path": "repo"}}})

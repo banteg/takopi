@@ -325,7 +325,7 @@ See `docs/adding-a-runner.md` for the full guide and a worked example.
 ```
 Telegram Update
     ↓
-telegram/bridge.poll_updates() drains backlog, long-polls, filters chat_id == cfg.chat_id
+telegram/bridge.poll_updates() drains backlog, long-polls, filters allowed chat ids
     ↓
 telegram/bridge.run_main_loop() spawns tasks in TaskGroup
     ↓

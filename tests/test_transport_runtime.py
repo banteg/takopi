@@ -43,3 +43,31 @@ def test_resolve_engine_prefers_override() -> None:
         context=RunContext(project="proj"),
     )
     assert engine == "codex"
+
+
+def test_resolve_message_defaults_to_chat_project() -> None:
+    codex = ScriptRunner([Return(answer="ok")], engine="codex")
+    router = AutoRouter(
+        entries=[RunnerEntry(engine=codex.engine, runner=codex)],
+        default_engine=codex.engine,
+    )
+    project = ProjectConfig(
+        alias="proj",
+        path=Path("."),
+        worktrees_dir=Path(".worktrees"),
+        chat_id=-42,
+    )
+    projects = ProjectsConfig(
+        projects={"proj": project},
+        default_project=None,
+        chat_map={-42: "proj"},
+    )
+    runtime = TransportRuntime(router=router, projects=projects)
+
+    resolved = runtime.resolve_message(
+        text="hello",
+        reply_text=None,
+        chat_id=-42,
+    )
+
+    assert resolved.context == RunContext(project="proj", branch=None)

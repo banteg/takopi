@@ -297,6 +297,13 @@ class TelegramBridgeConfig:
     startup_msg: str
     exec_cfg: ExecBridgeConfig
     voice_transcription: TelegramVoiceTranscriptionConfig | None = None
+    chat_ids: tuple[int, ...] | None = None
+
+
+def _allowed_chat_ids(cfg: TelegramBridgeConfig) -> set[int]:
+    allowed = set(cfg.chat_ids or ())
+    allowed.add(cfg.chat_id)
+    return allowed
 
 
 async def _send_plain(
@@ -353,7 +360,11 @@ async def poll_updates(
     offset = await _drain_backlog(cfg, offset)
     await _send_startup(cfg)
 
-    async for msg in poll_incoming(cfg.bot, chat_id=cfg.chat_id, offset=offset):
+    async for msg in poll_incoming(
+        cfg.bot,
+        chat_ids=_allowed_chat_ids(cfg),
+        offset=offset,
+    ):
         yield msg
 
 
@@ -746,6 +757,18 @@ class _TelegramCommandExecutor(CommandExecutor):
         self._user_msg_id = user_msg_id
         self._reply_ref = MessageRef(channel_id=chat_id, message_id=user_msg_id)
 
+    def _apply_default_context(self, request: RunRequest) -> RunRequest:
+        if request.context is not None:
+            return request
+        context = self._runtime.default_context_for_chat(self._chat_id)
+        if context is None:
+            return request
+        return RunRequest(
+            prompt=request.prompt,
+            engine=request.engine,
+            context=context,
+        )
+
     async def send(
         self,
         message: RenderedMessage | str,
@@ -768,6 +791,7 @@ class _TelegramCommandExecutor(CommandExecutor):
     async def run_one(
         self, request: RunRequest, *, mode: RunMode = "emit"
     ) -> RunResult:
+        request = self._apply_default_context(request)
         engine = self._runtime.resolve_engine(
             engine_override=request.engine,
             context=request.context,
@@ -999,6 +1023,7 @@ async def run_main_loop(
                     resolved = cfg.runtime.resolve_message(
                         text=text,
                         reply_text=reply_text,
+                        chat_id=chat_id,
                     )
                 except DirectiveError as exc:
                     await _send_plain(

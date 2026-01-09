@@ -111,6 +111,7 @@ path = "~/dev/z80"
 worktrees_dir = ".worktrees"
 default_engine = "codex"
 worktree_base = "master"
+chat_id = -123456789        # optional, project chat id
 ```
 
 note: the default `worktrees_dir` lives inside the repo, so `.worktrees/` will
@@ -163,7 +164,7 @@ see:
 
 ## notes
 
-* the bot only responds to the configured `chat_id` (private or group)
+* the bot only responds to the primary `chat_id` plus any per-project `chat_id`
 * run only one takopi instance per bot token: multiple instances will race telegram's `getUpdates` offsets and cause missed updates
 
 ## development
