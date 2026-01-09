@@ -62,13 +62,8 @@ transport = "telegram"
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 voice_transcription = true
-voice_transcription_model = "gpt-4o-mini-transcribe"
-voice_transcription_language = "en"
-voice_transcription_prompt = ""
-voice_transcription_chunking = "auto"
-voice_transcription_echo = false
-# optional if OPENAI_API_KEY is set in the environment
-openai_api_key = "sk-..."
+
+# set OPENAI_API_KEY in your environment for voice transcription
 
 [codex]
 # optional: profile from ~/.codex/config.toml

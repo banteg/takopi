@@ -48,6 +48,8 @@ logger = get_logger(__name__)
 
 _MAX_BOT_COMMANDS = 100
 _OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
+_OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
+_OPENAI_TRANSCRIPTION_CHUNKING = "auto"
 
 
 def _is_cancel_command(text: str) -> bool:
@@ -198,12 +200,6 @@ class TelegramPresenter:
 @dataclass(frozen=True)
 class TelegramVoiceTranscriptionConfig:
     enabled: bool = False
-    model: str = "gpt-4o-mini-transcribe"
-    language: str | None = None
-    prompt: str | None = None
-    chunking_strategy: str | None = "auto"
-    echo: bool = False
-    openai_api_key: str | None = None
 
 
 def _as_int(value: int | str, *, label: str) -> int:
@@ -369,10 +365,6 @@ def _resolve_openai_api_key(
         env_key = env_key.strip()
         if env_key:
             return env_key
-    if cfg.openai_api_key:
-        key = cfg.openai_api_key.strip()
-        if key:
-            return key
     return None
 
 
@@ -460,10 +452,8 @@ async def _transcribe_voice(
         audio_bytes,
         filename=filename,
         api_key=api_key,
-        model=settings.model,
-        language=settings.language,
-        prompt=settings.prompt,
-        chunking_strategy=settings.chunking_strategy,
+        model=_OPENAI_TRANSCRIPTION_MODEL,
+        chunking_strategy=_OPENAI_TRANSCRIPTION_CHUNKING,
         mime_type=voice.mime_type,
     )
     if transcript is None:
@@ -483,13 +473,6 @@ async def _transcribe_voice(
             text="voice transcription returned empty text.",
         )
         return None
-    if settings.echo:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=transcript,
-        )
     return transcript
 
 

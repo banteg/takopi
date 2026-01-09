@@ -26,12 +26,6 @@ class TelegramTransportSettings(BaseModel):
     bot_token: SecretStr | None = None
     chat_id: int | None = None
     voice_transcription: bool = False
-    voice_transcription_model: str = "gpt-4o-mini-transcribe"
-    voice_transcription_language: str | None = None
-    voice_transcription_prompt: str | None = None
-    voice_transcription_chunking: str | None = "auto"
-    voice_transcription_echo: bool = False
-    openai_api_key: SecretStr | None = None
 
     @field_validator("bot_token", mode="before")
     @classmethod
@@ -51,21 +45,8 @@ class TelegramTransportSettings(BaseModel):
             raise ValueError("chat_id must be an integer")
         return value
 
-    @field_validator("openai_api_key", mode="before")
-    @classmethod
-    def _validate_openai_api_key(cls, value: Any) -> Any:
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            raise ValueError("openai_api_key must be a string")
-        return value
-
     @field_serializer("bot_token")
     def _dump_token(self, value: SecretStr | None) -> str | None:
-        return value.get_secret_value() if value else None
-
-    @field_serializer("openai_api_key")
-    def _dump_openai_api_key(self, value: SecretStr | None) -> str | None:
         return value.get_secret_value() if value else None
 
 

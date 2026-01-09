@@ -28,18 +28,11 @@ Configuration (under `[transports.telegram]`):
 
 ```toml
 voice_transcription = true
-voice_transcription_model = "gpt-4o-mini-transcribe"
-voice_transcription_language = "en"   # optional
-voice_transcription_prompt = ""       # optional
-voice_transcription_chunking = "auto" # optional
-voice_transcription_echo = false
-
-# optional if OPENAI_API_KEY is set in the environment
-openai_api_key = "sk-..."
 ```
 
-If transcription is enabled but the API key is missing or the audio download fails,
-takopi replies with a short error and skips the run.
+Set `OPENAI_API_KEY` in the environment. If transcription is enabled but the API key
+is missing or the audio download fails, takopi replies with a short error and skips
+the run.
 
 ## Outbox model
 
