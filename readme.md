@@ -56,6 +56,8 @@ global config `~/.takopi/takopi.toml`
 
 ```toml
 default_engine = "codex"
+# optional: reload config changes without restarting
+watch_config = true
 
 # optional, defaults to "telegram"
 transport = "telegram"
@@ -90,6 +92,7 @@ extra_args = ["--no-color"]
 ```
 
 note: configs with top-level `bot_token` / `chat_id` are migrated to `[transports.telegram]` on startup.
+note: `watch_config` reloads runtime settings (projects, engines, plugins). transport changes still require a restart.
 
 ## projects
 

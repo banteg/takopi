@@ -19,6 +19,7 @@ from ..commands import (
 )
 from ..context import RunContext
 from ..config import ConfigError
+from ..config_watch import ConfigReload, watch_config as watch_config_changes
 from ..directives import DirectiveError
 from ..ids import RESERVED_COMMAND_IDS, is_valid_id
 from ..runner_bridge import (
@@ -141,6 +142,43 @@ def _build_bot_commands(runtime: TransportRuntime) -> list[dict[str, str]]:
         if not any(cmd["command"] == "cancel" for cmd in commands):
             commands[-1] = {"command": "cancel", "description": "cancel run"}
     return commands
+
+
+def _reserved_commands(runtime: TransportRuntime) -> set[str]:
+    return {
+        *{engine.lower() for engine in runtime.engine_ids},
+        *{alias.lower() for alias in runtime.project_aliases()},
+        *RESERVED_COMMAND_IDS,
+    }
+
+
+@dataclass(slots=True)
+class RuntimeCommandCache:
+    command_ids: set[str]
+    reserved_commands: set[str]
+
+    @classmethod
+    def from_runtime(cls, runtime: TransportRuntime) -> "RuntimeCommandCache":
+        allowlist = runtime.allowlist
+        return cls(
+            command_ids={
+                command_id.lower()
+                for command_id in list_command_ids(allowlist=allowlist)
+            },
+            reserved_commands=_reserved_commands(runtime),
+        )
+
+    def refresh(self, runtime: TransportRuntime) -> None:
+        allowlist = runtime.allowlist
+        self.command_ids = {
+            command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
+        }
+        self.reserved_commands = _reserved_commands(runtime)
+
+
+def _diff_keys(old: dict[str, object], new: dict[str, object]) -> list[str]:
+    keys = set(old) | set(new)
+    return sorted(key for key in keys if old.get(key) != new.get(key))
 
 
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
@@ -303,6 +341,7 @@ class TelegramBridgeConfig:
 def _allowed_chat_ids(cfg: TelegramBridgeConfig) -> set[int]:
     allowed = set(cfg.chat_ids or ())
     allowed.add(cfg.chat_id)
+    allowed.update(cfg.runtime.project_chat_ids())
     return allowed
 
 
@@ -362,7 +401,7 @@ async def poll_updates(
 
     async for msg in poll_incoming(
         cfg.bot,
-        chat_ids=_allowed_chat_ids(cfg),
+        chat_ids=lambda: _allowed_chat_ids(cfg),
         offset=offset,
     ):
         yield msg
@@ -927,21 +966,62 @@ async def run_main_loop(
     poller: Callable[[TelegramBridgeConfig], AsyncIterator[TelegramIncomingMessage]] = (
         poll_updates
     ),
+    *,
+    watch_config: bool | None = None,
+    default_engine_override: str | None = None,
+    transport_id: str | None = None,
+    transport_config: dict[str, object] | None = None,
 ) -> None:
     running_tasks: RunningTasks = {}
+    command_cache = RuntimeCommandCache.from_runtime(cfg.runtime)
+    transport_snapshot = (
+        dict(transport_config) if transport_config is not None else None
+    )
 
     try:
         await _set_command_menu(cfg)
-        allowlist = cfg.runtime.allowlist
-        command_ids = {
-            command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
-        }
-        reserved_commands = {
-            *{engine.lower() for engine in cfg.runtime.engine_ids},
-            *{alias.lower() for alias in cfg.runtime.project_aliases()},
-            *RESERVED_COMMAND_IDS,
-        }
         async with anyio.create_task_group() as tg:
+            config_path = cfg.runtime.config_path
+            watch_enabled = bool(watch_config) and config_path is not None
+
+            async def handle_reload(reload: ConfigReload) -> None:
+                nonlocal transport_snapshot, transport_id
+                command_cache.refresh(cfg.runtime)
+                await _set_command_menu(cfg)
+                if transport_snapshot is not None:
+                    new_snapshot = reload.settings.transports.telegram.model_dump()
+                    changed = _diff_keys(transport_snapshot, new_snapshot)
+                    if changed:
+                        logger.warning(
+                            "config.reload.transport_config_changed",
+                            transport="telegram",
+                            keys=changed,
+                            restart_required=True,
+                        )
+                        transport_snapshot = new_snapshot
+                if (
+                    transport_id is not None
+                    and reload.settings.transport != transport_id
+                ):
+                    logger.warning(
+                        "config.reload.transport_changed",
+                        old=transport_id,
+                        new=reload.settings.transport,
+                        restart_required=True,
+                    )
+                    transport_id = reload.settings.transport
+
+            if watch_enabled and config_path is not None:
+
+                async def run_config_watch() -> None:
+                    await watch_config_changes(
+                        config_path=config_path,
+                        runtime=cfg.runtime,
+                        default_engine_override=default_engine_override,
+                        on_reload=handle_reload,
+                    )
+
+                tg.start_soon(run_config_watch)
 
             async def run_job(
                 chat_id: int,
@@ -1000,12 +1080,13 @@ async def run_main_loop(
                     continue
 
                 command_id, args_text = _parse_slash_command(text)
-                if command_id is not None and command_id not in reserved_commands:
-                    if command_id not in command_ids:
-                        command_ids = {
-                            cid.lower() for cid in list_command_ids(allowlist=allowlist)
-                        }
-                    if command_id in command_ids:
+                if (
+                    command_id is not None
+                    and command_id not in command_cache.reserved_commands
+                ):
+                    if command_id not in command_cache.command_ids:
+                        command_cache.refresh(cfg.runtime)
+                    if command_id in command_cache.command_ids:
                         tg.start_soon(
                             _dispatch_command,
                             cfg,

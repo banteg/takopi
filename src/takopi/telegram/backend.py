@@ -7,7 +7,9 @@ import anyio
 
 from ..backends import EngineBackend
 from ..runner_bridge import ExecBridgeConfig
-from ..settings import require_telegram_config
+from ..config import ConfigError
+from ..logging import get_logger
+from ..settings import load_settings, require_telegram_config
 from ..transports import SetupResult, TransportBackend
 from ..transport_runtime import TransportRuntime
 from .bridge import (
@@ -19,6 +21,8 @@ from .bridge import (
 )
 from .client import TelegramClient
 from .onboarding import check_setup, interactive_setup
+
+logger = get_logger(__name__)
 
 
 def _build_startup_message(
@@ -82,7 +86,17 @@ class TelegramBackend(TransportBackend):
         final_notify: bool,
         default_engine_override: str | None,
     ) -> None:
-        _ = default_engine_override
+        watch_enabled = False
+        try:
+            settings, _ = load_settings(config_path)
+        except ConfigError as exc:
+            logger.warning(
+                "config.watch.disabled",
+                error=str(exc),
+            )
+        else:
+            watch_enabled = settings.watch_config
+
         token, chat_id = require_telegram_config(transport_config, config_path)
         startup_msg = _build_startup_message(
             runtime,
@@ -97,17 +111,25 @@ class TelegramBackend(TransportBackend):
             final_notify=final_notify,
         )
         voice_transcription = _build_voice_transcription_config(transport_config)
-        chat_ids = (chat_id, *runtime.project_chat_ids())
         cfg = TelegramBridgeConfig(
             bot=bot,
             runtime=runtime,
             chat_id=chat_id,
-            chat_ids=chat_ids,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
             voice_transcription=voice_transcription,
         )
-        anyio.run(run_main_loop, cfg)
+
+        async def run_loop() -> None:
+            await run_main_loop(
+                cfg,
+                watch_config=watch_enabled,
+                default_engine_override=default_engine_override,
+                transport_id=self.id,
+                transport_config=transport_config,
+            )
+
+        anyio.run(run_loop)
 
 
 telegram_backend = TelegramBackend()

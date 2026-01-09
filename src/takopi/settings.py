@@ -109,6 +109,7 @@ class TakopiSettings(BaseSettings):
         env_nested_delimiter="__",
     )
 
+    watch_config: bool = False
     default_engine: str = "codex"
     default_project: str | None = None
     projects: dict[str, ProjectSettings] = Field(default_factory=dict)

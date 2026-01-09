@@ -55,6 +55,21 @@ class TransportRuntime:
         self._config_path = config_path
         self._plugin_configs = dict(plugin_configs or {})
 
+    def update(
+        self,
+        *,
+        router: AutoRouter,
+        projects: ProjectsConfig,
+        allowlist: Iterable[str] | None = None,
+        config_path: Path | None = None,
+        plugin_configs: Mapping[str, Any] | None = None,
+    ) -> None:
+        self._router = router
+        self._projects = projects
+        self._allowlist = normalize_allowlist(allowlist)
+        self._config_path = config_path
+        self._plugin_configs = dict(plugin_configs or {})
+
     @property
     def default_engine(self) -> EngineId:
         return self._router.default_engine
