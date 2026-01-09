@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 from uuid import uuid4
 
@@ -445,7 +445,7 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         return f'"{escaped}"'
 
 
-def _default_session_dir(cwd: Path) -> Path:
+def _default_session_dir(cwd: PurePath) -> Path:
     agent_dir = os.environ.get("PI_CODING_AGENT_DIR")
     base = Path(agent_dir).expanduser() if agent_dir else Path.home() / ".pi" / "agent"
     safe_path = f"--{str(cwd).lstrip('/\\\\').replace('/', '-').replace('\\', '-').replace(':', '-')}--"
