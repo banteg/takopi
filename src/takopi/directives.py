@@ -126,7 +126,10 @@ def parse_context_line(
                 branch = tokens[1][1:]
         project_key = project.lower()
         if project_key not in projects.projects:
-            raise DirectiveError(f"unknown project {project!r} in ctx line")
+            raise DirectiveError(
+                f"unknown project {project!r} in ctx line; start a new thread or "
+                "add it back to your config"
+            )
         ctx = RunContext(project=project_key, branch=branch)
     return ctx
 
