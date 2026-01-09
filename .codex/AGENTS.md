@@ -1,2 +1,3 @@
 after you finish work, commit with a conventional message. only commit the files you edited.
-run `just check` and fix any errors before committing.
+always run `just check` before code commits.
+if you fix anything from `just check`, rerun it and confirm it passes before committing.
