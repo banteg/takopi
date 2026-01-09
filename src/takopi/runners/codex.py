@@ -25,6 +25,18 @@ _RECONNECTING_RE = re.compile(
     r"^Reconnecting\.{3}\s*(?P<attempt>\d+)/(?P<max>\d+)\s*$",
     re.IGNORECASE,
 )
+_EXEC_ONLY_FLAGS = {"--skip-git-repo-check"}
+
+
+def _split_exec_flags(extra_args: list[str]) -> tuple[list[str], list[str]]:
+    base_args: list[str] = []
+    exec_args: list[str] = []
+    for arg in extra_args:
+        if arg in _EXEC_ONLY_FLAGS:
+            exec_args.append(arg)
+        else:
+            base_args.append(arg)
+    return base_args, exec_args
 
 
 def _parse_reconnect_message(message: str) -> tuple[int, int] | None:
@@ -397,7 +409,8 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         state: Any,
     ) -> list[str]:
         _ = prompt, state
-        args = [*self.extra_args, "exec", "--json"]
+        base_args, exec_args = _split_exec_flags(self.extra_args)
+        args = [*base_args, "exec", *exec_args, "--json"]
         if resume:
             args.extend(["resume", resume.value, "-"])
         else:

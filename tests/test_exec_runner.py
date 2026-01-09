@@ -128,6 +128,23 @@ async def test_run_allows_parallel_different_sessions() -> None:
     assert max_in_flight == 2
 
 
+def test_codex_exec_flags_after_exec() -> None:
+    runner = CodexRunner(
+        codex_cmd="codex",
+        extra_args=["-c", "notify=[]", "--skip-git-repo-check"],
+    )
+    state = runner.new_state("hi", None)
+    args = runner.build_args("hi", None, state=state)
+    assert args == [
+        "-c",
+        "notify=[]",
+        "exec",
+        "--skip-git-repo-check",
+        "--json",
+        "-",
+    ]
+
+
 @pytest.mark.anyio
 async def test_run_serializes_new_session_after_session_is_known(
     tmp_path, monkeypatch
