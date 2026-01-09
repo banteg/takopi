@@ -123,7 +123,7 @@ takopi opencode
 takopi pi
 ```
 
-list available plugins (engines/transports), and override in a run:
+list available plugins (engines/transports/commands), and override in a run:
 
 ```sh
 takopi plugins
@@ -147,7 +147,7 @@ if you prefer no notifications, `--no-final-notify` edits the progress message i
 
 ## plugins
 
-Takopi supports entrypoint-based plugins for engines and transports.
+Takopi supports entrypoint-based plugins for engines, transports, and command backends.
 
 See:
 
