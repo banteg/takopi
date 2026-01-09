@@ -195,9 +195,6 @@ async def poll_incoming(
     chat_ids: Iterable[int] | Callable[[], Iterable[int]] | None = None,
     offset: int | None = None,
 ) -> AsyncIterator[TelegramIncomingUpdate]:
-    allowed = set(chat_ids) if chat_ids is not None else None
-    if allowed is None and chat_id is not None:
-        allowed = {chat_id}
     while True:
         updates = await bot.get_updates(
             offset=offset,

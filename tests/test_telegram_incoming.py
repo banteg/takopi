@@ -1,4 +1,8 @@
-from takopi.telegram import TelegramCallbackQuery, parse_incoming_update
+from takopi.telegram import (
+    TelegramCallbackQuery,
+    TelegramIncomingMessage,
+    parse_incoming_update,
+)
 
 
 def test_parse_incoming_update_maps_fields() -> None:
@@ -15,6 +19,7 @@ def test_parse_incoming_update_maps_fields() -> None:
 
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
+    assert isinstance(msg, TelegramIncomingMessage)
     assert msg.transport == "telegram"
     assert msg.chat_id == 123
     assert msg.message_id == 10
@@ -66,6 +71,7 @@ def test_parse_incoming_update_voice_message() -> None:
 
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
+    assert isinstance(msg, TelegramIncomingMessage)
     assert msg.text == ""
     assert msg.voice is not None
     assert msg.voice.file_id == "voice-id"

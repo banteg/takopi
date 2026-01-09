@@ -110,6 +110,15 @@ class _FakeBot:
     async def get_me(self) -> dict | None:
         return {"id": 1}
 
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+        show_alert: bool | None = None,
+    ) -> bool:
+        _ = callback_query_id, text, show_alert
+        return True
+
 
 @pytest.mark.anyio
 async def test_edits_coalesce_latest() -> None:

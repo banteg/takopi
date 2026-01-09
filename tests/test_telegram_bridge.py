@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import anyio
 import pytest
@@ -539,6 +540,15 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
         async def close(self) -> None:
             return None
 
+        async def answer_callback_query(
+            self,
+            callback_query_id: str,
+            text: str | None = None,
+            show_alert: bool | None = None,
+        ) -> bool:
+            _ = callback_query_id, text, show_alert
+            return True
+
     bot = _OutboxBot()
     transport = TelegramTransport(bot)
     ref = MessageRef(channel_id=123, message_id=1)
@@ -688,8 +698,9 @@ async def test_handle_callback_cancel_cancels_running_task() -> None:
 
     assert running_task.cancel_requested.is_set() is True
     assert len(transport.send_calls) == 0
-    assert cfg.bot.callback_calls
-    assert cfg.bot.callback_calls[-1]["text"] == "cancelling..."
+    bot = cast(_FakeBot, cfg.bot)
+    assert bot.callback_calls
+    assert bot.callback_calls[-1]["text"] == "cancelling..."
 
 
 @pytest.mark.anyio
@@ -708,8 +719,9 @@ async def test_handle_callback_cancel_without_task_acknowledges() -> None:
     await _handle_callback_cancel(cfg, query, {})
 
     assert len(transport.send_calls) == 0
-    assert cfg.bot.callback_calls
-    assert "nothing is currently running" in cfg.bot.callback_calls[-1]["text"].lower()
+    bot = cast(_FakeBot, cfg.bot)
+    assert bot.callback_calls
+    assert "nothing is currently running" in bot.callback_calls[-1]["text"].lower()
 
 
 def test_cancel_command_accepts_extra_text() -> None:
