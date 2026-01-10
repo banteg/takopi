@@ -800,12 +800,20 @@ async def _handle_download(
     
     ext = Path(file_path).suffix or ".jpg"
     filename = f"{file_unique_id}{ext}"
+    ext = Path(file_path).suffix or ".jpg"
+    filename = f"{file_unique_id}{ext}"
     download_dir = cfg.download_path
-    download_dir.mkdir(exist_ok=True, parents=True)
-    local_path = download_dir / filename
-    local_path.write_bytes(image_bytes)
     
-    return f"\n[User uploaded image to: {local_path.absolute()}]"
+    def _save_file() -> Path:
+        download_dir.mkdir(exist_ok=True, parents=True)
+        local_path = download_dir / filename
+        local_path.write_bytes(image_bytes)
+        return local_path
+
+    local_path = await anyio.to_thread.run_sync(_save_file)
+    
+    # Return a more explicit system instruction for the agent
+    return f"\n\n[SYSTEM: The user has attached an image. It has been saved to: {local_path.absolute()}. Please read this file to view the image.]"
 
 
 async def _run_image_cleanup(
@@ -1694,13 +1702,17 @@ async def run_main_loop(
             ) -> None:
                 # Handle downloads if present (non-blocking to the main loop, blocking to *this* job)
                 download_note = None
-                if photo_obj:
-                    # It's a TelegramPhoto (last one)
-                    download_note = await _handle_download(cfg, photo_obj.file_id, photo_obj.file_unique_id)
-                elif doc_obj:
-                    # It's a TelegramDocument
-                    download_note = await _handle_download(cfg, doc_obj.file_id, doc_obj.file_unique_id)
-                
+                try:
+                    if photo_obj:
+                        download_note = await _handle_download(cfg, photo_obj.file_id, photo_obj.file_unique_id)
+                    elif doc_obj:
+                        download_note = await _handle_download(cfg, doc_obj.file_id, doc_obj.file_unique_id)
+                except Exception as exc:
+                    logger.error("download.processing.failed", error=str(exc))
+                    # We continue without the image note if prompt failed, or maybe we should notify user?
+                    # For now, let's append an error note so the agent knows something went wrong.
+                    download_note = f"\n\n[SYSTEM: User tried to attach an image but processing failed: {exc}]"
+
                 if download_note:
                     text = (text or "") + download_note
                     
