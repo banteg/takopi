@@ -110,7 +110,14 @@ worktrees_dir = "~/.takopi/worktrees/z80"
 ## 5. Per-project chat routing
 
 If you want a dedicated Telegram chat per project, set `projects.<alias>.chat_id`.
-Messages from that chat default to the project.
+Messages from that chat default to the project. The easiest way is to run:
+
+```sh
+takopi chat-id --project z80
+```
+
+That command listens for a message in the project chat and writes the chat id
+directly into your config.
 
 ```toml
 [projects.z80]
@@ -123,7 +130,7 @@ Notes:
 - `projects.*.chat_id` must be unique.
 - It must not match `transports.telegram.chat_id`.
 
-Tip: capture a chat id without full onboarding:
+Tip: capture a one-off chat id without editing config:
 
 ```sh
 takopi chat-id
