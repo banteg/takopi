@@ -73,8 +73,7 @@ voice_transcription = true
 
 [transports.telegram.topics]
 enabled = true
-mode = "multi_project_chat" # or "per_project_chat"
-# per_project_chat uses projects.<alias>.chat_id to infer the project
+# If any project chats are configured, topics are managed there; otherwise main chat.
 
 [codex]
 # optional: profile from ~/.codex/config.toml

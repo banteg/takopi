@@ -821,13 +821,13 @@ def test_topic_title_matches_command_syntax() -> None:
     assert title == "@main"
 
 
-def test_topic_title_per_project_chat_includes_project() -> None:
+def test_topic_title_projects_scope_includes_project() -> None:
     transport = _FakeTransport()
     cfg = replace(
         _make_cfg(transport),
         topics=bridge.TelegramTopicsConfig(
             enabled=True,
-            mode="per_project_chat",
+            scope="projects",
         ),
     )
 
@@ -1056,7 +1056,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
 
 
 @pytest.mark.anyio
-async def test_run_main_loop_persists_topic_sessions_in_per_project_chat(
+async def test_run_main_loop_persists_topic_sessions_in_project_scope(
     tmp_path: Path,
 ) -> None:
     project_chat_id = -100
@@ -1099,7 +1099,7 @@ async def test_run_main_loop_persists_topic_sessions_in_per_project_chat(
         exec_cfg=exec_cfg,
         topics=bridge.TelegramTopicsConfig(
             enabled=True,
-            mode="per_project_chat",
+            scope="projects",
         ),
     )
 
@@ -1122,6 +1122,51 @@ async def test_run_main_loop_persists_topic_sessions_in_per_project_chat(
     store = TopicStateStore(state_path)
     stored = await store.get_session_resume(project_chat_id, 77, CODEX_ENGINE)
     assert stored == ResumeToken(engine=CODEX_ENGINE, value=resume_value)
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_replies_in_same_thread() -> None:
+    transport = _FakeTransport()
+    bot = _FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=empty_projects_config(),
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            thread_id=77,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    reply_calls = [
+        call
+        for call in transport.send_calls
+        if call["options"] is not None and call["options"].reply_to is not None
+    ]
+    assert reply_calls
+    assert all(call["options"].thread_id == 77 for call in reply_calls)
 
 
 @pytest.mark.anyio
