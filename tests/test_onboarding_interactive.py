@@ -226,3 +226,51 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
     saved = config_path.read_text(encoding="utf-8")
     assert "[transports.telegram]" in saved
     assert 'bot_token = "123456789:ABCdef"' in saved
+
+
+def test_capture_chat_id_with_token(monkeypatch) -> None:
+    def _fake_run(func, *args, **kwargs):
+        if func is onboarding._get_bot_info:
+            return {"username": "my_bot"}
+        if func is onboarding._wait_for_chat:
+            return onboarding.ChatInfo(
+                chat_id=456,
+                username=None,
+                title="takopi",
+                first_name=None,
+                last_name=None,
+                chat_type="supergroup",
+            )
+        raise AssertionError(f"unexpected anyio.run target: {func}")
+
+    monkeypatch.setattr(onboarding.anyio, "run", _fake_run)
+
+    chat = onboarding.capture_chat_id(token="123456789:ABCdef")
+
+    assert chat is not None
+    assert chat.chat_id == 456
+
+
+def test_capture_chat_id_prompts_for_token(monkeypatch) -> None:
+    monkeypatch.setattr(
+        onboarding, "_prompt_token", lambda _console: ("token", {"username": "bot"})
+    )
+
+    def _fake_run(func, *args, **kwargs):
+        if func is onboarding._wait_for_chat:
+            return onboarding.ChatInfo(
+                chat_id=789,
+                username="alice",
+                title=None,
+                first_name="Alice",
+                last_name=None,
+                chat_type="private",
+            )
+        raise AssertionError(f"unexpected anyio.run target: {func}")
+
+    monkeypatch.setattr(onboarding.anyio, "run", _fake_run)
+
+    chat = onboarding.capture_chat_id()
+
+    assert chat is not None
+    assert chat.chat_id == 789

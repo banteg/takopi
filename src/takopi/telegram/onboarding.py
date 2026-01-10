@@ -344,6 +344,41 @@ def _prompt_token(console: Console) -> tuple[str, dict[str, Any]] | None:
             return None
 
 
+def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
+    console = Console()
+    with _suppress_logging():
+        if token is not None:
+            token = token.strip()
+            if not token:
+                console.print("  token cannot be empty")
+                return None
+            console.print("  validating...")
+            info = anyio.run(_get_bot_info, token)
+            if not info:
+                console.print("  failed to connect, check the token and try again")
+                return None
+        else:
+            token_info = _prompt_token(console)
+            if token_info is None:
+                return None
+            token, info = token_info
+
+        bot_ref = f"@{info['username']}"
+        console.print("")
+        console.print(f"  send /start to {bot_ref} (works in groups too)")
+        console.print("  waiting...")
+        try:
+            chat = anyio.run(_wait_for_chat, token)
+        except KeyboardInterrupt:
+            console.print("  cancelled")
+            return None
+        if chat is None:
+            console.print("  cancelled")
+            return None
+        console.print(f"  got chat_id {chat.chat_id} from {chat.display}")
+        return chat
+
+
 def interactive_setup(*, force: bool) -> bool:
     console = Console()
     config_path = HOME_CONFIG_PATH

@@ -38,6 +38,7 @@ from .plugins import (
 from .transports import SetupResult, get_transport
 from .transport_runtime import TransportRuntime
 from .utils.git import resolve_default_base, resolve_main_worktree_root
+from .telegram import onboarding
 
 logger = get_logger(__name__)
 
@@ -514,6 +515,32 @@ def init(
     typer.echo(f"saved project {alias!r} to {_config_path_display(config_path)}")
 
 
+def chat_id(
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        help="Telegram bot token (defaults to config if available).",
+    ),
+    project: str | None = typer.Option(
+        None,
+        "--project",
+        help="Project alias to print a chat_id snippet for.",
+    ),
+) -> None:
+    """Capture a Telegram chat id and exit."""
+    if token is None:
+        settings, _ = _load_settings_optional()
+        if settings is not None:
+            tg = settings.transports.telegram
+            if tg.bot_token is not None:
+                token = tg.bot_token.get_secret_value().strip() or None
+    chat = onboarding.capture_chat_id(token=token)
+    if chat is None:
+        raise typer.Exit(code=1)
+    if project:
+        typer.echo(f"projects.{project}.chat_id = {chat.chat_id}")
+
+
 def _print_entrypoints(
     label: str, entrypoints: list[EntryPoint], *, allowlist: set[str] | None
 ) -> None:
@@ -704,6 +731,7 @@ def create_app() -> typer.Typer:
         help="Run takopi with auto-router (subcommands override the default engine).",
     )
     app.command(name="init")(init)
+    app.command(name="chat-id")(chat_id)
     app.command(name="plugins")(plugins_cmd)
     app.callback()(app_main)
     for engine_id in _engine_ids_for_cli():
