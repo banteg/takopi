@@ -158,7 +158,7 @@ def parse_projects_config(
             raise ConfigError(
                 f"Invalid `worktrees_dir` for project {alias!r} in {config_path}."
             )
-        worktrees_dir = Path(worktrees_dir_raw.strip())
+        worktrees_dir = Path(worktrees_dir_raw.strip()).expanduser()
 
         default_engine_raw = raw_entry.get("default_engine")
         default_engine = None

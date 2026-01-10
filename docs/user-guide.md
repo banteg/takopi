@@ -1,40 +1,59 @@
-# User Guide
+# Takopi User Guide
 
-This guide starts with the simplest possible handoff and gradually layers on
-projects, worktrees, and topics. Use it as a path from "just make it work" to a
-fully organized multi-repo setup.
+Takopi is a command-line tool that lets you control coding agents—like Codex, Claude, and others—through Telegram. Send a message, and takopi runs the agent in your repo, streaming progress back to your chat. It supports multi-repo workflows, git worktrees, and per-project routing.
 
-## 0. Install and onboard
+This guide starts simple and layers on features as you go. Jump to any section or read straight through.
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- A Telegram account
+- Python 3.14+ and `uv` installed
+- At least one supported agent CLI installed and on your `PATH` (codex, claude, opencode, pi)
+- Basic familiarity with git (especially if you plan to use worktrees)
+
+## Key concepts
+
+A few terms you'll see throughout:
+
+| Term | Meaning |
+|------|---------|
+| **Engine** | A coding agent backend (Codex, Claude, opencode, pi) |
+| **Project** | A registered git repository with an alias |
+| **Worktree** | A git feature that lets you check out multiple branches simultaneously in separate directories |
+| **Topic** | A Telegram forum thread bound to a specific project/branch context |
+| **Resume token** | State that allows an engine to continue from where it left off |
+
+---
+
+## 1. Installation and setup
+
+Install takopi with:
 
 ```sh
 uv tool install -U takopi
+```
+
+Run it once to start the onboarding wizard:
+
+```sh
 takopi
 ```
 
-The first run guides you through:
+The wizard walks you through:
 
-- creating a Telegram bot token (via @BotFather)
-- capturing your `chat_id`
-- choosing a default engine
+1. Creating a Telegram bot token via [@BotFather](https://t.me/BotFather)
+2. Capturing your `chat_id` (the wizard listens for a message from you)
+3. Choosing a default engine
 
-To re-run onboarding (and overwrite config), use `takopi --onboard`.
+To re-run onboarding later, use `takopi --onboard`.
 
-Config lives at `~/.takopi/takopi.toml`.
+Your configuration is stored at `~/.takopi/takopi.toml`.
 
-## 1. The simplest handoff
+### Minimal configuration
 
-1) `cd` into the repo you want to work on
-2) run `takopi`
-3) send a message to the bot
-
-Takopi streams progress in the chat and sends a final response.
-
-Basics:
-
-- **reply** to a bot message with more instructions to keep going
-- click **cancel** or reply to a progress message with `/cancel` to stop a run
-
-Minimal config looks like this:
+After onboarding, your config looks something like this:
 
 ```toml
 default_engine = "codex"
@@ -45,9 +64,30 @@ bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 ```
 
-## 2. Pick engines per message
+> **Security note:** Keep your `bot_token` and `chat_id` private. Anyone with these values can send commands to your bot.
 
-Prefix with an engine directive:
+---
+
+## 2. Your first handoff
+
+The simplest workflow:
+
+1. `cd` into any git repository
+2. Run `takopi`
+3. Send a message to your bot
+
+Takopi streams progress in the chat and sends a final response when the agent finishes.
+
+### Basic controls
+
+- **Reply** to a bot message with more instructions to continue the conversation
+- **Cancel** a run by clicking the cancel button or replying to the progress message with `/cancel`
+
+---
+
+## 3. Switching engines
+
+Prefix your message with an engine directive to override the default:
 
 ```
 /codex fix the flaky test
@@ -58,122 +98,197 @@ Prefix with an engine directive:
 
 Directives are only parsed at the start of the first non-empty line.
 
-## 3. Projects and branches
+### Setting up engines
 
-Register a repo as a project alias:
+Takopi shells out to the agent CLIs. Install them and make sure they're on your `PATH`
+(codex, claude, opencode, pi). Authentication is handled by each CLI (login,
+config files, or environment variables).
+
+---
+
+## 4. Projects
+
+For repos you work with often, register them as projects:
 
 ```sh
-takopi init takopi
+cd ~/dev/myproject
+takopi init myproject
 ```
 
-Then use:
-
-- `/takopi` to pick the project
-- `@branch` to run in a worktree for that branch
-
-Example:
-
-```
-/takopi @feat/streaming fix the renderer
-```
-
-Config example:
+This adds a project entry to your config (for example):
 
 ```toml
-default_project = "takopi"
+[projects.myproject]
+path = "~/dev/myproject"
+```
 
-[projects.takopi]
-path = "~/dev/takopi"
+Now you can target it from anywhere using the `/project` directive:
+
+```
+/myproject fix the login bug
+```
+
+If you expect to add or edit projects while takopi is running, enable config
+watching so changes are picked up automatically:
+
+```toml
+watch_config = true
+```
+
+### Project-specific settings
+
+Projects can override global defaults:
+
+```toml
+[projects.myproject]
+path = "~/dev/myproject"
+default_engine = "claude"
 worktrees_dir = ".worktrees"
-default_engine = "codex"
-worktree_base = "master"
+worktree_base = "main"
 ```
 
-Takopi adds a `ctx:` footer to messages with project context and uses it when
-you reply, so the context sticks without re-typing directives.
+### Setting a default project
 
-## 4. Automatic worktrees
-
-When you use `@branch`, takopi creates (or reuses) a git worktree:
-
-```
-<project.path>/<worktrees_dir>/<branch>
-```
-
-If you want worktrees outside the repo (to avoid untracked files), set
-`worktrees_dir` to an external path, for example:
+If you mostly work in one repo:
 
 ```toml
-worktrees_dir = "~/.takopi/worktrees/takopi"
+default_project = "myproject"
 ```
 
-## 5. Per-project chat routing
+---
 
-If you want a dedicated Telegram chat per project, set `projects.<alias>.chat_id`.
-Messages from that chat default to the project. The easiest way is to run:
+## 5. Worktrees
+
+Worktrees let you work on multiple branches without switching back and forth. Use `@branch` to run a task in a dedicated worktree:
+
+```
+/myproject @feat/streaming fix the renderer
+```
+
+Takopi creates (or reuses) a worktree at:
+
+```
+<worktrees_root>/<branch>
+```
+
+`worktrees_root` is `<project.path>/<worktrees_dir>` unless `worktrees_dir` is an
+absolute path. If the branch matches the repo's current branch, Takopi runs in the
+main repo instead of creating a new worktree.
+
+### Worktree configuration
+
+```toml
+[projects.myproject]
+path = "~/dev/myproject"
+worktrees_dir = ".worktrees"      # relative to project path
+worktree_base = "main"            # base branch for new worktrees
+```
+
+To avoid `.worktrees/` showing up as untracked, add it to your global gitignore:
 
 ```sh
-takopi chat-id --project takopi
+git config --global core.excludesfile ~/.config/git/ignore
+echo ".worktrees/" >> ~/.config/git/ignore
 ```
 
-That command listens for a message in the project chat and writes the chat id
-directly into your config.
+### Context persistence
+
+Takopi adds a `ctx:` footer to messages with project and branch info. When you reply, this context carries forward—no need to repeat `/project @branch` each time.
+
+---
+
+## 6. Per-project chat routing
+
+Give each project its own Telegram chat:
+
+```sh
+takopi chat-id --project myproject
+```
+
+Send any message in the target chat. Takopi captures the `chat_id` and updates your config:
 
 ```toml
-[projects.takopi]
-path = "~/dev/takopi"
-chat_id = -123456789
+[projects.myproject]
+path = "~/dev/myproject"
+chat_id = -1001234567890
 ```
 
-Telegram uses positive IDs for private chats and negative IDs for groups/supergroups.
+Messages from that chat automatically route to the project.
 
-Notes:
+### Rules for chat IDs
 
-- `projects.*.chat_id` must be unique.
-- It must not match `transports.telegram.chat_id`.
+- Each `projects.*.chat_id` must be unique
+- Project chat IDs must not match `transports.telegram.chat_id`
+- Telegram uses positive IDs for private chats and negative IDs for groups/supergroups
 
-Tip: capture a one-off chat id without editing config:
+### Capture a chat ID without saving
+
+To see a chat ID without writing to config:
 
 ```sh
 takopi chat-id
 ```
 
-If you want to update a project chat id directly:
+---
 
-```sh
-takopi chat-id --project takopi
-```
+## 7. Topics
 
-## 6. Topics
+Topics bind Telegram forum threads to specific project/branch contexts. They also preserve resume tokens, so agents can pick up where they left off.
 
-Forum topics let you bind a thread to a project/branch and keep session resumes per-topic.
-
-Enable topics:
+### Enabling topics
 
 ```toml
 [transports.telegram.topics]
 enabled = true
-mode = "multi_project_chat" # or "per_project_chat"
+mode = "multi_project_chat"   # or "per_project_chat"
 ```
 
-Commands (inside a topic):
+Your bot needs **Manage Topics** permission in the group.
 
-- `/topic <project> @branch` creates a new topic bound to a context
-- `/ctx` shows the bound context
-- `/ctx set ...` updates the binding
-- `/ctx clear` removes the binding
-- `/new` clears stored resume tokens for that topic
+### Topic modes explained
 
-The bot needs **Manage Topics** permission in the group for topic creation and renames.
+**`multi_project_chat`** — One forum-enabled supergroup for everything. Create topics per project/branch combination.
 
-Topic names are derived from the context and follow the command style:
-`project @branch` (no space after `@`). Renaming happens when the context changes.
+```
+┌─────────────────────────────────────┐
+│  Shared Forum Group                 │
+├─────────────────────────────────────┤
+│  ├── takopi @main                   │
+│  ├── takopi @feat/streaming         │
+│  ├── otherproject @main             │
+│  └── otherproject @bugfix           │
+└─────────────────────────────────────┘
+```
 
-State is stored in `telegram_topics_state.json` next to the config file.
+**`per_project_chat`** — Each project has its own forum-enabled supergroup. Topics are branch-only since the project is inferred from the chat. Regular messages in that chat also infer the project, so `/project` is usually optional.
 
-### 6a. One shared chat with topics (`multi_project_chat`)
+```
+┌──────────────────┐  ┌──────────────────┐
+│  takopi Group    │  │  other Group     │
+├──────────────────┤  ├──────────────────┤
+│  ├── @main       │  │  ├── @main       │
+│  ├── @feat/x     │  │  └── @bugfix     │
+│  └── @feat/y     │  │                  │
+└──────────────────┘  └──────────────────┘
+```
 
-Use a single forum-enabled supergroup and create topics per project/branch.
+### Topic commands
+
+Run these inside a topic thread:
+
+| Command | Description |
+|---------|-------------|
+| `/topic <project> @branch` | Create a new topic bound to context |
+| `/ctx` | Show the current binding |
+| `/ctx set <project> @branch` | Update the binding |
+| `/ctx clear` | Remove the binding |
+| `/new` | Clear resume tokens for this topic |
+
+In `per_project_chat` mode, omit the project: `/topic @branch` or `/ctx set @branch`.
+
+### Configuration examples
+
+**Multi-project chat:**
 
 ```toml
 [transports.telegram]
@@ -184,23 +299,11 @@ enabled = true
 mode = "multi_project_chat"
 ```
 
-Create a topic:
-
-```
-/topic takopi @main
-```
-
-No default project is assumed in this mode. Bind a topic (or use directives)
-before running without explicit `/project` or `@branch`.
-
-### 6b. One chat per project with topics (`per_project_chat`)
-
-Each project gets its own forum-enabled supergroup. The project is inferred
-from the chat.
+**Per-project chat:**
 
 ```toml
 [transports.telegram]
-chat_id = 123456789 # main chat (must not match project chats)
+chat_id = 123456789   # main chat (private, for non-project messages)
 
 [transports.telegram.topics]
 enabled = true
@@ -208,33 +311,102 @@ mode = "per_project_chat"
 
 [projects.takopi]
 path = "~/dev/takopi"
-chat_id = -1001111111111
+chat_id = -1001111111111   # forum-enabled group
 ```
 
-Create a topic in the project chat:
+Topic state is stored in `telegram_topics_state.json` next to your config file.
 
-```
-/topic @main
-```
+---
 
-In this mode, `/ctx set @branch` is enough because the project comes from the
-chat.
+## 8. Voice notes
 
-## 7. Voice notes (optional)
-
-Enable voice transcription:
+Dictate tasks instead of typing:
 
 ```toml
 [transports.telegram]
 voice_transcription = true
 ```
 
-Set `OPENAI_API_KEY` in the environment. If transcription fails, takopi replies
-with a short error and skips the run.
+Set `OPENAI_API_KEY` in your environment (uses OpenAI's transcription API with the
+`gpt-4o-mini-transcribe` model).
 
-## 8. Tips and common gotchas
+When you send a voice note, takopi transcribes it and runs the result as a normal text message. If transcription fails, you'll get an error message and the run is skipped.
 
-- `watch_config = true` hot-reloads projects and engines (transport changes still
-  require a restart).
-- If a topic isn't bound, takopi will prompt you to use `/ctx set` or `/topic`.
-- `--debug` writes `debug.log` in JSON format by default.
+---
+
+## 9. Configuration reference
+
+Full example with all options:
+
+```toml
+# Global defaults
+default_engine = "codex"
+default_project = "takopi"
+transport = "telegram"
+watch_config = true   # hot-reload on config changes (except transport)
+
+[transports.telegram]
+bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+chat_id = 123456789
+voice_transcription = true
+
+[transports.telegram.topics]
+enabled = true
+mode = "multi_project_chat"
+
+# Project definitions
+[projects.takopi]
+path = "~/dev/takopi"
+default_engine = "codex"
+worktrees_dir = ".worktrees"
+worktree_base = "main"
+# chat_id = -1001234567890   # optional: dedicated chat
+
+[projects.frontend]
+path = "~/dev/frontend"
+default_engine = "claude"
+worktrees_dir = "~/.takopi/worktrees/frontend"
+worktree_base = "develop"
+```
+
+---
+
+## 10. Command cheatsheet
+
+### Message directives
+
+| Directive | Example | Description |
+|-----------|---------|-------------|
+| `/engine` | `/codex fix tests` | Use a specific engine |
+| `/project` | `/myapp add feature` | Target a project |
+| `@branch` | `@feat/login fix auth` | Run in a worktree |
+| Combined | `/myapp @dev fix bug` | Project + branch |
+
+### In-chat commands
+
+| Command | Description |
+|---------|-------------|
+| `/cancel` | Reply to the progress message to stop the current run |
+| `/topic <project> @branch` | Create/bind a topic |
+| `/ctx` | Show current context |
+| `/ctx set <project> @branch` | Update context binding |
+| `/ctx clear` | Remove context binding |
+| `/new` | Clear resume tokens |
+
+### CLI commands
+
+| Command | Description |
+|---------|-------------|
+| `takopi` | Start the bot (runs onboarding if first time) |
+| `takopi --onboard` | Re-run onboarding wizard |
+| `takopi init <alias>` | Register current directory as a project |
+| `takopi chat-id` | Capture a chat ID |
+| `takopi chat-id --project <alias>` | Set a project's chat ID |
+| `takopi --debug` | Write debug logs to `debug.log` |
+
+---
+
+## 11. Troubleshooting
+
+If something isn't working, rerun with `takopi --debug` and check `debug.log`
+for errors. Include it when reporting issues.
