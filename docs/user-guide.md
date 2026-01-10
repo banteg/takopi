@@ -32,7 +32,7 @@ Takopi streams progress in the chat and sends a final response.
 Basics:
 
 - **reply** to a bot message with more instructions to keep going
-- click **cancel** or reply to a progress message with `/cancel`  to stop a run
+- click **cancel** or reply to a progress message with `/cancel` to stop a run
 
 Minimal config looks like this:
 
@@ -63,27 +63,27 @@ Directives are only parsed at the start of the first non-empty line.
 Register a repo as a project alias:
 
 ```sh
-takopi init z80
+takopi init takopi
 ```
 
 Then use:
 
-- `/z80` to pick the project
+- `/takopi` to pick the project
 - `@branch` to run in a worktree for that branch
 
 Example:
 
 ```
-/z80 @feat/streaming fix the renderer
+/takopi @feat/streaming fix the renderer
 ```
 
 Config example:
 
 ```toml
-default_project = "z80"
+default_project = "takopi"
 
-[projects.z80]
-path = "~/dev/z80"
+[projects.takopi]
+path = "~/dev/takopi"
 worktrees_dir = ".worktrees"
 default_engine = "codex"
 worktree_base = "master"
@@ -104,7 +104,7 @@ If you want worktrees outside the repo (to avoid untracked files), set
 `worktrees_dir` to an external path, for example:
 
 ```toml
-worktrees_dir = "~/.takopi/worktrees/z80"
+worktrees_dir = "~/.takopi/worktrees/takopi"
 ```
 
 ## 5. Per-project chat routing
@@ -113,17 +113,19 @@ If you want a dedicated Telegram chat per project, set `projects.<alias>.chat_id
 Messages from that chat default to the project. The easiest way is to run:
 
 ```sh
-takopi chat-id --project z80
+takopi chat-id --project takopi
 ```
 
 That command listens for a message in the project chat and writes the chat id
 directly into your config.
 
 ```toml
-[projects.z80]
-path = "~/dev/z80"
+[projects.takopi]
+path = "~/dev/takopi"
 chat_id = -123456789
 ```
+
+Telegram uses positive IDs for private chats and negative IDs for groups/supergroups.
 
 Notes:
 
@@ -139,7 +141,7 @@ takopi chat-id
 If you want to update a project chat id directly:
 
 ```sh
-takopi chat-id --project z80
+takopi chat-id --project takopi
 ```
 
 ## 6. Topics
@@ -156,10 +158,13 @@ mode = "multi_project_chat" # or "per_project_chat"
 
 Commands (inside a topic):
 
+- `/topic <project> @branch` creates a new topic bound to a context
 - `/ctx` shows the bound context
 - `/ctx set ...` updates the binding
 - `/ctx clear` removes the binding
 - `/new` clears stored resume tokens for that topic
+
+The bot needs **Manage Topics** permission in the group for topic creation and renames.
 
 Topic names are derived from the context and follow the command style:
 `project @branch` (no space after `@`). Renaming happens when the context changes.
@@ -182,7 +187,7 @@ mode = "multi_project_chat"
 Create a topic:
 
 ```
-/topic z80 @main
+/topic takopi @main
 ```
 
 No default project is assumed in this mode. Bind a topic (or use directives)
@@ -201,8 +206,8 @@ chat_id = 123456789 # main chat (must not match project chats)
 enabled = true
 mode = "per_project_chat"
 
-[projects.z80]
-path = "~/dev/z80"
+[projects.takopi]
+path = "~/dev/takopi"
 chat_id = -1001111111111
 ```
 
@@ -229,7 +234,6 @@ with a short error and skips the run.
 
 ## 8. Tips and common gotchas
 
-- Bot needs **Manage Topics** permission for topic creation/renames.
 - `watch_config = true` hot-reloads projects and engines (transport changes still
   require a restart).
 - If a topic isn't bound, takopi will prompt you to use `/ctx set` or `/topic`.
