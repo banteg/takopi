@@ -44,6 +44,7 @@ from ..transport_runtime import TransportRuntime
 from .client import BotClient, poll_incoming
 from .types import (
     TelegramCallbackQuery,
+    TelegramDocument,
     TelegramIncomingMessage,
     TelegramIncomingUpdate,
     TelegramPhoto,
