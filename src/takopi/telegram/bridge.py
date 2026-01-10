@@ -233,8 +233,7 @@ def _format_ctx_status(
         topic_usage = _usage_topic(cfg).removeprefix("usage: ").strip()
         ctx_usage = _usage_ctx_set(cfg).removeprefix("usage: ").strip()
         lines.append(
-            "note: unbound topic; default project ignored. "
-            f"bind with {topic_usage} or {ctx_usage}"
+            f"note: unbound topic — bind with `{topic_usage}` or `{ctx_usage}`"
         )
     sessions = None
     if snapshot is not None and snapshot.sessions:
