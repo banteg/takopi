@@ -988,11 +988,13 @@ async def _handle_topic_command(
         chat_project=chat_project,
     )
     if error is not None or context is None:
+        usage = _usage_topic(cfg)
+        text = f"error:\n{error}\n{usage}" if error else usage
         await _send_plain(
             cfg.exec_cfg.transport,
             chat_id=msg.chat_id,
             user_msg_id=msg.message_id,
-            text=f"error:\n{error or _usage_topic(cfg)}\n{_usage_topic(cfg)}",
+            text=text,
         )
         return
     target_chat_id = (
