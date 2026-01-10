@@ -45,6 +45,7 @@ from .types import (
     TelegramCallbackQuery,
     TelegramIncomingMessage,
     TelegramIncomingUpdate,
+    TelegramPhoto,
 )
 from .render import prepare_telegram
 from .topic_state import TopicStateStore, TopicThreadSnapshot, resolve_state_path
@@ -524,7 +525,11 @@ class TelegramBridgeConfig:
     exec_cfg: ExecBridgeConfig
     voice_transcription: TelegramVoiceTranscriptionConfig | None = None
     chat_ids: tuple[int, ...] | None = None
+    chat_ids: tuple[int, ...] | None = None
     topics: TelegramTopicsConfig = TelegramTopicsConfig()
+    download_path: Path = Path("downloads")
+    cleanup_interval_s: float = 3600.0
+    cleanup_retention_s: float = 10800.0
 
 
 def _allowed_chat_ids(cfg: TelegramBridgeConfig) -> set[int]:
@@ -771,6 +776,75 @@ async def _transcribe_voice(
         )
         return None
     return transcript
+
+
+async def _handle_photo(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+) -> str | None:
+    photos = msg.photo
+    if not photos:
+        return None
+    # Use the last item (highest resolution)
+    photo = photos[-1]
+    
+    file_info = await cfg.bot.get_file(photo.file_id)
+    if not isinstance(file_info, dict):
+        # We fail silently or log debug, effectively ignoring the image if we can't get it
+        logger.debug("photo.get_file.failed", file_id=photo.file_id)
+        return None
+    
+    file_path = file_info.get("file_path")
+    if not isinstance(file_path, str) or not file_path:
+        return None
+        
+    image_bytes = await cfg.bot.download_file(file_path)
+    if not image_bytes:
+        logger.debug("photo.download.failed", file_path=file_path)
+        return None
+    
+    
+    # Save to downloads/
+    # We use file_unique_id to avoid collisions if possible, or just file_id
+    ext = Path(file_path).suffix or ".jpg"
+    filename = f"{photo.file_unique_id}{ext}"
+    download_dir = cfg.download_path
+    download_dir.mkdir(exist_ok=True)
+    local_path = download_dir / filename
+    local_path.write_bytes(image_bytes)
+    
+    # Return independent line to append
+    return f"\n[User uploaded image to: {local_path.absolute()}]"
+
+
+async def _run_image_cleanup(
+    cfg: TelegramBridgeConfig,
+) -> None:
+    download_dir = cfg.download_path
+    retention_s = cfg.cleanup_retention_s
+    interval_s = cfg.cleanup_interval_s
+    logger.info("cleanup.worker.started", retention_s=retention_s)
+    while True:
+        await anyio.sleep(interval_s)
+        if not download_dir.exists():
+            continue
+        now = time.time()
+        count = 0
+        try:
+            for item in download_dir.iterdir():
+                if not item.is_file():
+                    continue
+                try:
+                    mtime = item.stat().st_mtime
+                    if now - mtime > retention_s:
+                        item.unlink()
+                        count += 1
+                except Exception as exc:
+                    logger.warning("cleanup.failed_file", file=str(item), error=str(exc))
+            if count > 0:
+                logger.info("cleanup.drained", count=count)
+        except Exception as exc:
+            logger.error("cleanup.scan_failed", error=str(exc))
 
 
 def _topic_title(
@@ -1592,6 +1666,9 @@ async def run_main_loop(
 
                 tg.start_soon(run_config_watch)
 
+            # Start image cleanup worker (runs every hour, deletes files older than 3 hours)
+            tg.start_soon(_run_image_cleanup, cfg)
+
             def wrap_on_thread_known(
                 base_cb: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
                 topic_key: tuple[int, int] | None,
@@ -1671,6 +1748,10 @@ async def run_main_loop(
                     text = await _transcribe_voice(cfg, msg)
                     if text is None:
                         continue
+                if msg.photo:
+                    photo_note = await _handle_photo(cfg, msg)
+                    if photo_note:
+                        text = (text or "") + photo_note
                 user_msg_id = msg.message_id
                 chat_id = msg.chat_id
                 reply_id = msg.reply_to_message_id

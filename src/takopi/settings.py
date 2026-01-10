@@ -53,6 +53,9 @@ class TelegramTransportSettings(BaseModel):
     chat_id: int | None = None
     voice_transcription: bool = False
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
+    download_path: str = "downloads"
+    cleanup_interval_s: int = 3600
+    cleanup_retention_s: int = 10800
 
     @field_validator("bot_token", mode="before")
     @classmethod

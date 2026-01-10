@@ -27,7 +27,29 @@ class TelegramIncomingMessage:
     chat_type: str | None = None
     is_forum: bool | None = None
     voice: TelegramVoice | None = None
+    photo: list[TelegramPhoto] | None = None
+    document: TelegramDocument | None = None
     raw: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TelegramPhoto:
+    file_id: str
+    file_unique_id: str
+    width: int
+    height: int
+    file_size: int | None
+    raw: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class TelegramDocument:
+    file_id: str
+    file_unique_id: str
+    mime_type: str | None
+    file_size: int | None
+    file_name: str | None
+    raw: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)

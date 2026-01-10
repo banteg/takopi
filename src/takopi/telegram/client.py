@@ -23,6 +23,7 @@ from .types import (
     TelegramCallbackQuery,
     TelegramIncomingMessage,
     TelegramIncomingUpdate,
+    TelegramPhoto,
     TelegramVoice,
 )
 
@@ -141,6 +142,43 @@ def _parse_incoming_message(
     is_topic_message = msg.get("is_topic_message")
     if not isinstance(is_topic_message, bool):
         is_topic_message = None
+
+    photo_payload: list[TelegramPhoto] | None = None
+    photo_data = msg.get("photo")
+    if isinstance(photo_data, list):
+        parsed_photos = []
+        for p in photo_data:
+            if not isinstance(p, dict):
+                continue
+            fid = p.get("file_id")
+            uid = p.get("file_unique_id")
+            w = p.get("width")
+            h = p.get("height")
+            if (
+                isinstance(fid, str)
+                and isinstance(uid, str)
+                and isinstance(w, int)
+                and isinstance(h, int)
+            ):
+                size = p.get("file_size")
+                if not isinstance(size, int):
+                    size = None
+                parsed_photos.append(
+                    TelegramPhoto(
+                        file_id=fid,
+                        file_unique_id=uid,
+                        width=w,
+                        height=h,
+                        file_size=size,
+                        raw=p,
+                    )
+                )
+        if parsed_photos:
+            photo_payload = parsed_photos
+            # If text is missing but we have a photo, caption might be the text
+            if not text:
+                text = msg.get("caption", "")
+
     return TelegramIncomingMessage(
         transport="telegram",
         chat_id=msg_chat_id,
@@ -154,6 +192,7 @@ def _parse_incoming_message(
         chat_type=chat_type,
         is_forum=is_forum,
         voice=voice_payload,
+        photo=photo_payload,
         raw=msg,
     )
 
