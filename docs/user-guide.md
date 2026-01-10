@@ -129,7 +129,7 @@ Tip: capture a chat id without full onboarding:
 takopi chat-id
 ```
 
-If you want a snippet for a specific project:
+If you want to update a project chat id directly:
 
 ```sh
 takopi chat-id --project z80

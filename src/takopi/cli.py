@@ -538,7 +538,39 @@ def chat_id(
     if chat is None:
         raise typer.Exit(code=1)
     if project:
-        typer.echo(f"projects.{project}.chat_id = {chat.chat_id}")
+        project = project.strip()
+        if not project:
+            raise ConfigError("Invalid `--project`; expected a non-empty string.")
+
+        config, config_path = load_or_init_config()
+        if config_path.exists():
+            applied = migrate_config(config, config_path=config_path)
+            if applied:
+                write_config(config, config_path)
+
+        projects = _ensure_projects_table(config, config_path)
+        entry = projects.get(project)
+        if entry is None:
+            lowered = project.lower()
+            for key, value in projects.items():
+                if isinstance(key, str) and key.lower() == lowered:
+                    entry = value
+                    project = key
+                    break
+        if entry is None:
+            raise ConfigError(
+                f"Unknown project {project!r}; run `takopi init {project}` first."
+            )
+        if not isinstance(entry, dict):
+            raise ConfigError(
+                f"Invalid `projects.{project}` in {config_path}; expected a table."
+            )
+        entry["chat_id"] = chat.chat_id
+        write_config(config, config_path)
+        typer.echo(f"updated projects.{project}.chat_id = {chat.chat_id}")
+        return
+
+    typer.echo(f"chat_id = {chat.chat_id}")
 
 
 def _print_entrypoints(
