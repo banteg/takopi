@@ -54,9 +54,9 @@ class ResumeTokenMixin:
 
 class SessionLockMixin:
     engine: EngineId
-    session_locks: WeakValueDictionary[str, anyio.Lock] | None = None
+    session_locks: WeakValueDictionary[str, anyio.Semaphore] | None = None
 
-    def lock_for(self, token: ResumeToken) -> anyio.Lock:
+    def lock_for(self, token: ResumeToken) -> anyio.Semaphore:
         locks = self.session_locks
         if locks is None:
             locks = WeakValueDictionary()
@@ -64,7 +64,7 @@ class SessionLockMixin:
         key = f"{token.engine}:{token.value}"
         lock = locks.get(key)
         if lock is None:
-            lock = anyio.Lock()
+            lock = anyio.Semaphore(1)
             locks[key] = lock
         return lock
 
@@ -105,7 +105,7 @@ class BaseRunner(SessionLockMixin):
                 yield evt
             return
 
-        lock: anyio.Lock | None = None
+        lock: anyio.Semaphore | None = None
         acquired = False
         try:
             async for evt in self.run_impl(prompt, None):

@@ -302,9 +302,11 @@ async def run_runner_with_cancel(
                         bind_run_context(resume=evt.resume.value)
                         if running_task is not None and running_task.resume is None:
                             running_task.resume = evt.resume
-                            running_task.resume_ready.set()
-                            if on_thread_known is not None:
-                                await on_thread_known(evt.resume, running_task.done)
+                            try:
+                                if on_thread_known is not None:
+                                    await on_thread_known(evt.resume, running_task.done)
+                            finally:
+                                running_task.resume_ready.set()
                     elif isinstance(evt, CompletedEvent):
                         outcome.resume = evt.resume or outcome.resume
                         outcome.completed = evt

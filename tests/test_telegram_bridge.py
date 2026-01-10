@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import anyio
 import pytest
@@ -18,6 +18,7 @@ from takopi.telegram.bridge import (
     _send_with_resume,
     run_main_loop,
 )
+from takopi.telegram.client import BotClient
 from takopi.context import RunContext
 from takopi.config import ProjectConfig, ProjectsConfig, empty_projects_config
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
@@ -92,7 +93,7 @@ class _FakeTransport:
         return None
 
 
-class _FakeBot:
+class _FakeBot(BotClient):
     def __init__(self) -> None:
         self.command_calls: list[dict] = []
         self.callback_calls: list[dict] = []
@@ -105,13 +106,13 @@ class _FakeBot:
         offset: int | None,
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
-    ) -> list[dict] | None:
+    ) -> list[dict[str, Any]] | None:
         _ = offset
         _ = timeout_s
         _ = allowed_updates
         return []
 
-    async def get_file(self, file_id: str) -> dict | None:
+    async def get_file(self, file_id: str) -> dict[str, Any] | None:
         _ = file_id
         return None
 
@@ -125,18 +126,20 @@ class _FakeBot:
         text: str,
         reply_to_message_id: int | None = None,
         disable_notification: bool | None = False,
-        entities: list[dict] | None = None,
+        message_thread_id: int | None = None,
+        entities: list[dict[str, Any]] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict | None = None,
         *,
         replace_message_id: int | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         self.send_calls.append(
             {
                 "chat_id": chat_id,
                 "text": text,
                 "reply_to_message_id": reply_to_message_id,
                 "disable_notification": disable_notification,
+                "message_thread_id": message_thread_id,
                 "entities": entities,
                 "parse_mode": parse_mode,
                 "reply_markup": reply_markup,
@@ -150,12 +153,12 @@ class _FakeBot:
         chat_id: int,
         message_id: int,
         text: str,
-        entities: list[dict] | None = None,
+        entities: list[dict[str, Any]] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict | None = None,
         *,
         wait: bool = True,
-    ) -> dict:
+    ) -> dict[str, Any]:
         self.edit_calls.append(
             {
                 "chat_id": chat_id,
@@ -175,9 +178,9 @@ class _FakeBot:
 
     async def set_my_commands(
         self,
-        commands: list[dict],
+        commands: list[dict[str, Any]],
         *,
-        scope: dict | None = None,
+        scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool:
         self.command_calls.append(
@@ -189,8 +192,26 @@ class _FakeBot:
         )
         return True
 
-    async def get_me(self) -> dict | None:
+    async def get_me(self) -> dict[str, Any] | None:
         return {"id": 1}
+
+    async def get_chat(self, chat_id: int) -> dict[str, Any] | None:
+        _ = chat_id
+        return {"id": chat_id, "type": "supergroup", "is_forum": True}
+
+    async def get_chat_member(
+        self, chat_id: int, user_id: int
+    ) -> dict[str, Any] | None:
+        _ = chat_id
+        _ = user_id
+        return {"status": "administrator", "can_manage_topics": True}
+
+    async def create_forum_topic(
+        self, chat_id: int, name: str
+    ) -> dict[str, Any] | None:
+        _ = chat_id
+        _ = name
+        return {"message_thread_id": 1}
 
     async def close(self) -> None:
         return None
@@ -457,19 +478,19 @@ async def test_telegram_transport_passes_reply_markup() -> None:
 
 @pytest.mark.anyio
 async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
-    class _OutboxBot:
+    class _OutboxBot(BotClient):
         def __init__(self) -> None:
-            self.edit_calls: list[dict[str, object]] = []
+            self.edit_calls: list[dict[str, Any]] = []
 
         async def get_updates(
             self,
             offset: int | None,
             timeout_s: int = 50,
             allowed_updates: list[str] | None = None,
-        ) -> list[dict] | None:
+        ) -> list[dict[str, Any]] | None:
             return None
 
-        async def get_file(self, file_id: str) -> dict | None:
+        async def get_file(self, file_id: str) -> dict[str, Any] | None:
             _ = file_id
             return None
 
@@ -483,7 +504,8 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             text: str,
             reply_to_message_id: int | None = None,
             disable_notification: bool | None = False,
-            entities: list[dict] | None = None,
+            message_thread_id: int | None = None,
+            entities: list[dict[str, Any]] | None = None,
             parse_mode: str | None = None,
             reply_markup: dict | None = None,
             *,
@@ -497,7 +519,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             chat_id: int,
             message_id: int,
             text: str,
-            entities: list[dict] | None = None,
+            entities: list[dict[str, Any]] | None = None,
             parse_mode: str | None = None,
             reply_markup: dict | None = None,
             *,
@@ -527,14 +549,14 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
 
         async def set_my_commands(
             self,
-            commands: list[dict[str, object]],
+            commands: list[dict[str, Any]],
             *,
-            scope: dict[str, object] | None = None,
+            scope: dict[str, Any] | None = None,
             language_code: str | None = None,
         ) -> bool:
             return False
 
-        async def get_me(self) -> dict | None:
+        async def get_me(self) -> dict[str, Any] | None:
             return None
 
         async def close(self) -> None:
@@ -759,7 +781,7 @@ def test_resolve_message_accepts_backticked_ctx_line() -> None:
 async def test_send_with_resume_waits_for_token() -> None:
     transport = _FakeTransport()
     cfg = _make_cfg(transport)
-    sent: list[tuple[int, int, str, ResumeToken, RunContext | None]] = []
+    sent: list[tuple[int, int, str, ResumeToken, RunContext | None, int | None]] = []
 
     async def enqueue(
         chat_id: int,
@@ -767,8 +789,9 @@ async def test_send_with_resume_waits_for_token() -> None:
         text: str,
         resume: ResumeToken,
         context: RunContext | None,
+        thread_id: int | None,
     ) -> None:
-        sent.append((chat_id, user_msg_id, text, resume, context))
+        sent.append((chat_id, user_msg_id, text, resume, context, thread_id))
 
     running_task = RunningTask()
 
@@ -785,11 +808,19 @@ async def test_send_with_resume_waits_for_token() -> None:
             running_task,
             123,
             10,
+            None,
             "hello",
         )
 
     assert sent == [
-        (123, 10, "hello", ResumeToken(engine=CODEX_ENGINE, value="abc123"), None)
+        (
+            123,
+            10,
+            "hello",
+            ResumeToken(engine=CODEX_ENGINE, value="abc123"),
+            None,
+            None,
+        )
     ]
     assert transport.send_calls == []
 
@@ -798,7 +829,7 @@ async def test_send_with_resume_waits_for_token() -> None:
 async def test_send_with_resume_reports_when_missing() -> None:
     transport = _FakeTransport()
     cfg = _make_cfg(transport)
-    sent: list[tuple[int, int, str, ResumeToken, RunContext | None]] = []
+    sent: list[tuple[int, int, str, ResumeToken, RunContext | None, int | None]] = []
 
     async def enqueue(
         chat_id: int,
@@ -806,8 +837,9 @@ async def test_send_with_resume_reports_when_missing() -> None:
         text: str,
         resume: ResumeToken,
         context: RunContext | None,
+        thread_id: int | None,
     ) -> None:
-        sent.append((chat_id, user_msg_id, text, resume, context))
+        sent.append((chat_id, user_msg_id, text, resume, context, thread_id))
 
     running_task = RunningTask()
     running_task.done.set()
@@ -818,6 +850,7 @@ async def test_send_with_resume_reports_when_missing() -> None:
         running_task,
         123,
         10,
+        None,
         "hello",
     )
 
