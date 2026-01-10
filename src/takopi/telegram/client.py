@@ -21,6 +21,7 @@ import anyio
 from ..logging import get_logger
 from .types import (
     TelegramCallbackQuery,
+    TelegramDocument,
     TelegramIncomingMessage,
     TelegramIncomingUpdate,
     TelegramVoice,
@@ -74,31 +75,59 @@ def _parse_incoming_message(
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
 ) -> TelegramIncomingMessage | None:
-    text = msg.get("text")
+    raw_text = msg.get("text")
+    text = raw_text if isinstance(raw_text, str) else None
+    caption = msg.get("caption")
+    if text is None and isinstance(caption, str):
+        text = caption
+    if text is None:
+        text = ""
     voice_payload: TelegramVoice | None = None
-    if not isinstance(text, str):
-        voice = msg.get("voice")
-        if not isinstance(voice, dict):
-            return None
+    voice = msg.get("voice")
+    if isinstance(voice, dict):
         file_id = voice.get("file_id")
         if not isinstance(file_id, str) or not file_id:
-            return None
-        voice_payload = TelegramVoice(
-            file_id=file_id,
-            mime_type=voice.get("mime_type")
-            if isinstance(voice.get("mime_type"), str)
-            else None,
-            file_size=voice.get("file_size")
-            if isinstance(voice.get("file_size"), int)
-            and not isinstance(voice.get("file_size"), bool)
-            else None,
-            duration=voice.get("duration")
-            if isinstance(voice.get("duration"), int)
-            and not isinstance(voice.get("duration"), bool)
-            else None,
-            raw=voice,
-        )
-        text = ""
+            file_id = None
+        if file_id is not None:
+            voice_payload = TelegramVoice(
+                file_id=file_id,
+                mime_type=voice.get("mime_type")
+                if isinstance(voice.get("mime_type"), str)
+                else None,
+                file_size=voice.get("file_size")
+                if isinstance(voice.get("file_size"), int)
+                and not isinstance(voice.get("file_size"), bool)
+                else None,
+                duration=voice.get("duration")
+                if isinstance(voice.get("duration"), int)
+                and not isinstance(voice.get("duration"), bool)
+                else None,
+                raw=voice,
+            )
+            if not isinstance(raw_text, str) and not isinstance(caption, str):
+                text = ""
+    document_payload: TelegramDocument | None = None
+    document = msg.get("document")
+    if isinstance(document, dict):
+        file_id = document.get("file_id")
+        if isinstance(file_id, str) and file_id:
+            document_payload = TelegramDocument(
+                file_id=file_id,
+                file_name=document.get("file_name")
+                if isinstance(document.get("file_name"), str)
+                else None,
+                mime_type=document.get("mime_type")
+                if isinstance(document.get("mime_type"), str)
+                else None,
+                file_size=document.get("file_size")
+                if isinstance(document.get("file_size"), int)
+                and not isinstance(document.get("file_size"), bool)
+                else None,
+                raw=document,
+            )
+    has_text = isinstance(raw_text, str) or isinstance(caption, str)
+    if not has_text and voice_payload is None and document_payload is None:
+        return None
     chat = msg.get("chat")
     if not isinstance(chat, dict):
         return None
@@ -154,6 +183,7 @@ def _parse_incoming_message(
         chat_type=chat_type,
         is_forum=is_forum,
         voice=voice_payload,
+        document=document_payload,
         raw=msg,
     )
 
@@ -257,6 +287,17 @@ class BotClient(Protocol):
         reply_markup: dict[str, Any] | None = None,
         *,
         replace_message_id: int | None = None,
+    ) -> dict | None: ...
+
+    async def send_document(
+        self,
+        chat_id: int,
+        filename: str,
+        content: bytes,
+        reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
+        disable_notification: bool | None = False,
+        caption: str | None = None,
     ) -> dict | None: ...
 
     async def edit_message_text(
@@ -683,6 +724,106 @@ class TelegramClient:
         logger.debug("telegram.response", method=method, payload=payload)
         return payload.get("result")
 
+    async def _post_form(
+        self,
+        method: str,
+        data: dict[str, Any],
+        files: dict[str, Any],
+    ) -> Any | None:
+        if self._http_client is None or self._base is None:
+            raise RuntimeError("TelegramClient is configured without an HTTP client.")
+        logger.debug("telegram.request", method=method, payload=data)
+        try:
+            resp = await self._http_client.post(
+                f"{self._base}/{method}", data=data, files=files
+            )
+        except httpx.HTTPError as e:
+            url = getattr(e.request, "url", None)
+            logger.error(
+                "telegram.network_error",
+                method=method,
+                url=str(url) if url is not None else None,
+                error=str(e),
+                error_type=e.__class__.__name__,
+            )
+            return None
+
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            if resp.status_code == 429:
+                retry_after: float | None = None
+                try:
+                    payload = resp.json()
+                except Exception:
+                    payload = None
+                if isinstance(payload, dict):
+                    retry_after = retry_after_from_payload(payload)
+                retry_after = 5.0 if retry_after is None else retry_after
+                logger.warning(
+                    "telegram.rate_limited",
+                    method=method,
+                    status=resp.status_code,
+                    url=str(resp.request.url),
+                    retry_after=retry_after,
+                )
+                raise TelegramRetryAfter(retry_after) from e
+            body = resp.text
+            logger.error(
+                "telegram.http_error",
+                method=method,
+                status=resp.status_code,
+                url=str(resp.request.url),
+                error=str(e),
+                body=body,
+            )
+            return None
+
+        try:
+            payload = resp.json()
+        except Exception as e:
+            body = resp.text
+            logger.error(
+                "telegram.bad_response",
+                method=method,
+                status=resp.status_code,
+                error=str(e),
+                error_type=e.__class__.__name__,
+                body=body,
+            )
+            return None
+
+        if not isinstance(payload, dict):
+            logger.error(
+                "telegram.invalid_payload",
+                method=method,
+                url=str(resp.request.url),
+                payload=payload,
+            )
+            return None
+
+        if not payload.get("ok"):
+            if payload.get("error_code") == 429:
+                retry_after = retry_after_from_payload(payload)
+                retry_after = 5.0 if retry_after is None else retry_after
+                logger.warning(
+                    "telegram.rate_limited",
+                    method=method,
+                    url=str(resp.request.url),
+                    retry_after=retry_after,
+                )
+                raise TelegramRetryAfter(retry_after)
+            logger.error(
+                "telegram.api_error",
+                method=method,
+                url=str(resp.request.url),
+                payload=payload,
+            )
+            return None
+
+        logger.debug("telegram.response", method=method, payload=payload)
+        return payload.get("result")
+
     async def get_updates(
         self,
         offset: int | None,
@@ -805,6 +946,51 @@ class TelegramClient:
         if replace_message_id is not None and result is not None:
             await self.delete_message(chat_id=chat_id, message_id=replace_message_id)
         return result
+
+    async def send_document(
+        self,
+        chat_id: int,
+        filename: str,
+        content: bytes,
+        reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
+        disable_notification: bool | None = False,
+        caption: str | None = None,
+    ) -> dict | None:
+        async def execute() -> dict | None:
+            if self._client_override is not None:
+                return await self._client_override.send_document(
+                    chat_id=chat_id,
+                    filename=filename,
+                    content=content,
+                    reply_to_message_id=reply_to_message_id,
+                    message_thread_id=message_thread_id,
+                    disable_notification=disable_notification,
+                    caption=caption,
+                )
+            params: dict[str, Any] = {"chat_id": chat_id}
+            if disable_notification is not None:
+                params["disable_notification"] = disable_notification
+            if reply_to_message_id is not None:
+                params["reply_to_message_id"] = reply_to_message_id
+            if message_thread_id is not None:
+                params["message_thread_id"] = message_thread_id
+            if caption is not None:
+                params["caption"] = caption
+            result = await self._post_form(
+                "sendDocument",
+                params,
+                files={"document": (filename, content)},
+            )
+            return result if isinstance(result, dict) else None
+
+        return await self.enqueue_op(
+            key=self.unique_key("send_document"),
+            label="send_document",
+            execute=execute,
+            priority=SEND_PRIORITY,
+            chat_id=chat_id,
+        )
 
     async def edit_message_text(
         self,

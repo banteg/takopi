@@ -32,6 +32,7 @@ def test_parse_incoming_update_maps_fields() -> None:
     assert msg.chat_type == "supergroup"
     assert msg.is_forum is True
     assert msg.voice is None
+    assert msg.document is None
     assert msg.raw == update["message"]
 
 
@@ -82,6 +83,34 @@ def test_parse_incoming_update_voice_message() -> None:
     assert msg.voice.mime_type == "audio/ogg"
     assert msg.voice.file_size == 1234
     assert msg.voice.duration == 3
+
+
+def test_parse_incoming_update_document_message() -> None:
+    update = {
+        "update_id": 1,
+        "message": {
+            "message_id": 10,
+            "caption": "/file put incoming/doc.txt",
+            "chat": {"id": 123},
+            "document": {
+                "file_id": "doc-id",
+                "file_unique_id": "uniq",
+                "file_name": "doc.txt",
+                "mime_type": "text/plain",
+                "file_size": 4321,
+            },
+        },
+    }
+
+    msg = parse_incoming_update(update, chat_id=123)
+    assert msg is not None
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.text == "/file put incoming/doc.txt"
+    assert msg.document is not None
+    assert msg.document.file_id == "doc-id"
+    assert msg.document.file_name == "doc.txt"
+    assert msg.document.mime_type == "text/plain"
+    assert msg.document.file_size == 4321
 
 
 def test_parse_incoming_update_callback_query() -> None:

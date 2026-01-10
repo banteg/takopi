@@ -333,7 +333,69 @@ When you send a voice note, takopi transcribes it and runs the result as a norma
 
 ---
 
-## 9. Configuration reference
+---
+
+## 9. File transfer
+
+Upload files into the active repo/worktree or fetch files back into Telegram.
+
+### Upload a file
+
+Send a document with a caption:
+
+```
+/file put <path>
+```
+
+Examples:
+
+```
+/file put docs/spec.pdf
+/file put /happy-gadgets @feat/camera assets/logo.png
+```
+
+If you send a file **without a caption**, takopi saves it to:
+
+```
+incoming/<original_filename>
+```
+
+Use `--force` to overwrite an existing file:
+
+```
+/file put --force docs/spec.pdf
+```
+
+### Fetch a file
+
+Send:
+
+```
+/file get <path>
+```
+
+Directories are zipped automatically.
+
+### File transfer config
+
+```toml
+[transports.telegram.files]
+enabled = true
+auto_put = true
+uploads_dir = "incoming"
+max_upload_mb = 20
+max_download_mb = 50
+allowed_user_ids = [123456789]
+deny_globs = [".git/**", ".env", "**/*.pem", "**/.ssh/**"]
+```
+
+Notes:
+- File transfer is **disabled by default**.
+- If `allowed_user_ids` is empty, private chats are allowed and group usage requires admin privileges.
+
+---
+
+## 10. Configuration reference
 
 Full example with all options:
 
@@ -348,6 +410,15 @@ watch_config = true   # hot-reload on config changes (except transport)
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 voice_transcription = true
+
+[transports.telegram.files]
+enabled = true
+auto_put = true
+uploads_dir = "incoming"
+max_upload_mb = 20
+max_download_mb = 50
+allowed_user_ids = [123456789]
+deny_globs = [".git/**", ".env", "**/*.pem", "**/.ssh/**"]
 
 [transports.telegram.topics]
 enabled = true
@@ -370,7 +441,7 @@ worktree_base = "develop"
 
 ---
 
-## 10. Command cheatsheet
+## 11. Command cheatsheet
 
 ### Message directives
 
@@ -386,6 +457,8 @@ worktree_base = "develop"
 | Command | Description |
 |---------|-------------|
 | `/cancel` | Reply to the progress message to stop the current run |
+| `/file put <path>` | Upload a document into the repo/worktree |
+| `/file get <path>` | Fetch a file (directories are zipped) |
 | `/topic <project> @branch` | Create/bind a topic |
 | `/ctx` | Show current context |
 | `/ctx set <project> @branch` | Update context binding |

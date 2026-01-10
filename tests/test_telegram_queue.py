@@ -40,6 +40,28 @@ class _FakeBot(BotClient):
         self.calls.append("send_message")
         return {"message_id": 1}
 
+    async def send_document(
+        self,
+        chat_id: int,
+        filename: str,
+        content: bytes,
+        reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
+        disable_notification: bool | None = False,
+        caption: str | None = None,
+    ) -> dict[str, Any]:
+        _ = (
+            chat_id,
+            filename,
+            content,
+            reply_to_message_id,
+            message_thread_id,
+            disable_notification,
+            caption,
+        )
+        self.calls.append("send_document")
+        return {"message_id": 1}
+
     async def edit_message_text(
         self,
         chat_id: int,

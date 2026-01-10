@@ -14,6 +14,15 @@ class TelegramVoice:
 
 
 @dataclass(frozen=True, slots=True)
+class TelegramDocument:
+    file_id: str
+    file_name: str | None
+    mime_type: str | None
+    file_size: int | None
+    raw: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class TelegramIncomingMessage:
     transport: str
     chat_id: int
@@ -27,6 +36,7 @@ class TelegramIncomingMessage:
     chat_type: str | None = None
     is_forum: bool | None = None
     voice: TelegramVoice | None = None
+    document: TelegramDocument | None = None
     raw: dict[str, Any] | None = None
 
 

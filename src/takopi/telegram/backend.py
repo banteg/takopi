@@ -11,13 +11,19 @@ from ..config import ConfigError
 from ..logging import get_logger
 from pydantic import ValidationError
 
-from ..settings import TelegramTopicsSettings, load_settings, require_telegram_config
+from ..settings import (
+    TelegramFilesSettings,
+    TelegramTopicsSettings,
+    load_settings,
+    require_telegram_config,
+)
 from ..transports import SetupResult, TransportBackend
 from ..transport_runtime import TransportRuntime
 from .bridge import (
     TelegramBridgeConfig,
     TelegramPresenter,
     TelegramTransport,
+    TelegramFilesConfig,
     TelegramTopicsConfig,
     TelegramVoiceTranscriptionConfig,
     run_main_loop,
@@ -79,6 +85,31 @@ def _build_topics_config(
     )
 
 
+def _build_files_config(
+    transport_config: dict[str, object],
+    *,
+    config_path: Path,
+) -> TelegramFilesConfig:
+    raw = transport_config.get("files") or {}
+    if not isinstance(raw, dict):
+        raise ConfigError(
+            f"Invalid `transports.telegram.files` in {config_path}; expected a table."
+        )
+    try:
+        settings = TelegramFilesSettings.model_validate(raw)
+    except ValidationError as exc:
+        raise ConfigError(f"Invalid files config in {config_path}: {exc}") from exc
+    return TelegramFilesConfig(
+        enabled=settings.enabled,
+        auto_put=settings.auto_put,
+        uploads_dir=settings.uploads_dir,
+        max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
+        max_download_bytes=settings.max_download_mb * 1024 * 1024,
+        allowed_user_ids=frozenset(settings.allowed_user_ids),
+        deny_globs=tuple(settings.deny_globs),
+    )
+
+
 class TelegramBackend(TransportBackend):
     id = "telegram"
     description = "Telegram bot"
@@ -135,6 +166,7 @@ class TelegramBackend(TransportBackend):
         )
         voice_transcription = _build_voice_transcription_config(transport_config)
         topics = _build_topics_config(transport_config, config_path=config_path)
+        files = _build_files_config(transport_config, config_path=config_path)
         cfg = TelegramBridgeConfig(
             bot=bot,
             runtime=runtime,
@@ -143,6 +175,7 @@ class TelegramBackend(TransportBackend):
             exec_cfg=exec_cfg,
             voice_transcription=voice_transcription,
             topics=topics,
+            files=files,
         )
 
         async def run_loop() -> None:

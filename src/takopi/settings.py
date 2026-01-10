@@ -46,6 +46,72 @@ class TelegramTopicsSettings(BaseModel):
         return cleaned
 
 
+class TelegramFilesSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    auto_put: bool = True
+    uploads_dir: str = "incoming"
+    max_upload_mb: int = 20
+    max_download_mb: int = 50
+    allowed_user_ids: list[int] = Field(default_factory=list)
+    deny_globs: list[str] = Field(
+        default_factory=lambda: [".git/**", ".env", "**/*.pem", "**/.ssh/**"]
+    )
+
+    @field_validator("uploads_dir", mode="before")
+    @classmethod
+    def _validate_uploads_dir(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("files.uploads_dir must be a string")
+        if not isinstance(value, str):
+            raise ValueError("files.uploads_dir must be a string")
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("files.uploads_dir must be a non-empty string")
+        if Path(cleaned).is_absolute():
+            raise ValueError("files.uploads_dir must be a relative path")
+        return cleaned
+
+    @field_validator("max_upload_mb", "max_download_mb", mode="before")
+    @classmethod
+    def _validate_mb(cls, value: Any, info) -> Any:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ValueError(f"files.{info.field_name} must be an integer")
+        if value <= 0:
+            raise ValueError(f"files.{info.field_name} must be positive")
+        return value
+
+    @field_validator("allowed_user_ids", mode="before")
+    @classmethod
+    def _validate_allowed_users(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("files.allowed_user_ids must be a list of integers")
+        for item in value:
+            if isinstance(item, bool) or not isinstance(item, int):
+                raise ValueError("files.allowed_user_ids must be a list of integers")
+        return value
+
+    @field_validator("deny_globs", mode="before")
+    @classmethod
+    def _validate_deny_globs(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError("files.deny_globs must be a list of strings")
+        cleaned: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                raise ValueError("files.deny_globs must be a list of strings")
+            stripped = item.strip()
+            if not stripped:
+                raise ValueError("files.deny_globs entries must be non-empty strings")
+            cleaned.append(stripped)
+        return cleaned
+
+
 class TelegramTransportSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -53,6 +119,7 @@ class TelegramTransportSettings(BaseModel):
     chat_id: int | None = None
     voice_transcription: bool = False
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
+    files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
 
     @field_validator("bot_token", mode="before")
     @classmethod
