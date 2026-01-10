@@ -121,7 +121,7 @@ def test_parse_incoming_update_topic_fields() -> None:
     }
 
     msg = parse_incoming_update(update, chat_id=-100)
-    assert msg is not None
+    assert isinstance(msg, TelegramIncomingMessage)
     assert msg.thread_id == 77
     assert msg.is_topic_message is True
     assert msg.chat_type == "supergroup"
