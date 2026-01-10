@@ -226,3 +226,4 @@ with a short error and skips the run.
 - `watch_config = true` hot-reloads projects and engines (transport changes still
   require a restart).
 - If a topic isn't bound, takopi will prompt you to use `/ctx set` or `/topic`.
+- `--debug` writes `debug.log` in JSON format by default.
