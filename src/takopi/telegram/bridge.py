@@ -136,14 +136,14 @@ def _topics_command_error(cfg: TelegramBridgeConfig, chat_id: int) -> str | None
         if cfg.topics.scope == "auto":
             return (
                 "topics commands are only available in the main chat (auto scope). "
-                'To use topics in project chats, set `topics.scope = "projects"`.'
+                'to use topics in project chats, set `topics.scope = "projects"`.'
             )
         return "topics commands are only available in the main chat."
     if resolved == "projects":
         if cfg.topics.scope == "auto":
             return (
                 "topics commands are only available in project chats (auto scope). "
-                'To use topics in the main chat, set `topics.scope = "main"`.'
+                'to use topics in the main chat, set `topics.scope = "main"`.'
             )
         return "topics commands are only available in project chats."
     return "topics commands are only available in the main or project chats."
@@ -612,11 +612,11 @@ async def _validate_topics_setup(cfg: TelegramBridgeConfig) -> None:
     me = await cfg.bot.get_me()
     bot_id = me.get("id") if isinstance(me, dict) else None
     if not isinstance(bot_id, int):
-        raise ConfigError("Failed to fetch bot id for topics validation.")
+        raise ConfigError("failed to fetch bot id for topics validation.")
     scope, chat_ids = _resolve_topics_scope(cfg)
     if scope == "projects" and not chat_ids:
         raise ConfigError(
-            "Topics enabled but no project chats are configured; "
+            "topics enabled but no project chats are configured; "
             'set projects.<alias>.chat_id for forum chats or use scope="main".'
         )
 
@@ -624,37 +624,37 @@ async def _validate_topics_setup(cfg: TelegramBridgeConfig) -> None:
         chat = await cfg.bot.get_chat(chat_id)
         if not isinstance(chat, dict):
             raise ConfigError(
-                f"Failed to fetch chat info for topics validation ({chat_id})."
+                f"failed to fetch chat info for topics validation ({chat_id})."
             )
         chat_type = chat.get("type")
         is_forum = chat.get("is_forum")
         if chat_type != "supergroup":
             raise ConfigError(
-                "Topics enabled but chat is not a supergroup "
-                f"(chat_id={chat_id}); convert the group and enable Topics."
+                "topics enabled but chat is not a supergroup "
+                f"(chat_id={chat_id}); convert the group and enable topics."
             )
         if is_forum is not True:
             raise ConfigError(
-                "Topics enabled but chat does not have Topics enabled "
-                f"(chat_id={chat_id}); turn on Topics in group settings."
+                "topics enabled but chat does not have topics enabled "
+                f"(chat_id={chat_id}); turn on topics in group settings."
             )
         member = await cfg.bot.get_chat_member(chat_id, bot_id)
         if not isinstance(member, dict):
             raise ConfigError(
-                "Failed to fetch bot permissions "
-                f"(chat_id={chat_id}); promote the bot to admin with Manage Topics."
+                "failed to fetch bot permissions "
+                f"(chat_id={chat_id}); promote the bot to admin with manage topics."
             )
         status = member.get("status")
         if status == "creator":
             continue
         if status != "administrator":
             raise ConfigError(
-                "Topics enabled but bot is not an admin "
-                f"(chat_id={chat_id}); promote it and grant Manage Topics."
+                "topics enabled but bot is not an admin "
+                f"(chat_id={chat_id}); promote it and grant manage topics."
             )
         if member.get("can_manage_topics") is not True:
             raise ConfigError(
-                "Topics enabled but bot lacks Manage Topics permission "
+                "topics enabled but bot lacks manage topics permission "
                 f"(chat_id={chat_id}); grant can_manage_topics."
             )
 
@@ -1614,7 +1614,7 @@ async def run_main_loop(
             config_path = cfg.runtime.config_path
             if config_path is None:
                 raise ConfigError(
-                    "Topics enabled but config path is not set; cannot locate state file."
+                    "topics enabled but config path is not set; cannot locate state file."
                 )
             topic_store = TopicStateStore(resolve_state_path(config_path))
             await _validate_topics_setup(cfg)
