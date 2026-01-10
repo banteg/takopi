@@ -123,6 +123,12 @@ class _FakeBot(BotClient):
         _ = callback_query_id, text, show_alert
         return True
 
+    async def edit_forum_topic(
+        self, chat_id: int, message_thread_id: int, name: str
+    ) -> bool:
+        _ = chat_id, message_thread_id, name
+        return True
+
 
 @pytest.mark.anyio
 async def test_edits_coalesce_latest() -> None:

@@ -304,6 +304,13 @@ class BotClient(Protocol):
         name: str,
     ) -> dict | None: ...
 
+    async def edit_forum_topic(
+        self,
+        chat_id: int,
+        message_thread_id: int,
+        name: str,
+    ) -> bool: ...
+
 
 if TYPE_CHECKING:
     from anyio.abc import TaskGroup
@@ -998,4 +1005,32 @@ class TelegramClient:
             execute=execute,
             priority=SEND_PRIORITY,
             chat_id=chat_id,
+        )
+
+    async def edit_forum_topic(
+        self, chat_id: int, message_thread_id: int, name: str
+    ) -> bool:
+        async def execute() -> bool:
+            if self._client_override is not None:
+                return await self._client_override.edit_forum_topic(
+                    chat_id, message_thread_id, name
+                )
+            result = await self._post(
+                "editForumTopic",
+                {
+                    "chat_id": chat_id,
+                    "message_thread_id": message_thread_id,
+                    "name": name,
+                },
+            )
+            return bool(result)
+
+        return bool(
+            await self.enqueue_op(
+                key=self.unique_key("edit_forum_topic"),
+                label="edit_forum_topic",
+                execute=execute,
+                priority=SEND_PRIORITY,
+                chat_id=chat_id,
+            )
         )

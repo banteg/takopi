@@ -99,6 +99,7 @@ class _FakeBot(BotClient):
         self.callback_calls: list[dict] = []
         self.send_calls: list[dict] = []
         self.edit_calls: list[dict] = []
+        self.edit_topic_calls: list[dict[str, Any]] = []
         self.delete_calls: list[dict] = []
 
     async def get_updates(
@@ -212,6 +213,18 @@ class _FakeBot(BotClient):
         _ = chat_id
         _ = name
         return {"message_thread_id": 1}
+
+    async def edit_forum_topic(
+        self, chat_id: int, message_thread_id: int, name: str
+    ) -> bool:
+        self.edit_topic_calls.append(
+            {
+                "chat_id": chat_id,
+                "message_thread_id": message_thread_id,
+                "name": name,
+            }
+        )
+        return True
 
     async def close(self) -> None:
         return None

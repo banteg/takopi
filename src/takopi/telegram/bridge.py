@@ -777,11 +777,41 @@ def _topic_title(
         if context.project is not None
         else ""
     )
-    if cfg.topics.mode == "per_project_chat":
-        return context.branch or project or "topic"
     if context.branch:
-        return f"{project} @ {context.branch}".strip()
+        if project:
+            return f"{project} @{context.branch}"
+        return f"@{context.branch}"
     return project or "topic"
+
+
+async def _maybe_rename_topic(
+    cfg: TelegramBridgeConfig,
+    store: TopicStateStore,
+    *,
+    chat_id: int,
+    thread_id: int,
+    context: RunContext,
+    snapshot: TopicThreadSnapshot | None = None,
+) -> None:
+    title = _topic_title(cfg=cfg, runtime=cfg.runtime, context=context)
+    if snapshot is None:
+        snapshot = await store.get_thread(chat_id, thread_id)
+    if snapshot is not None and snapshot.topic_title == title:
+        return
+    updated = await cfg.bot.edit_forum_topic(
+        chat_id=chat_id,
+        message_thread_id=thread_id,
+        name=title,
+    )
+    if not updated:
+        logger.warning(
+            "topics.rename.failed",
+            chat_id=chat_id,
+            thread_id=thread_id,
+            title=title,
+        )
+        return
+    await store.set_context(chat_id, thread_id, context, topic_title=title)
 
 
 async def _handle_ctx_command(
@@ -867,6 +897,13 @@ async def _handle_ctx_command(
             )
             return
         await store.set_context(*tkey, context)
+        await _maybe_rename_topic(
+            cfg,
+            store,
+            chat_id=tkey[0],
+            thread_id=tkey[1],
+            context=context,
+        )
         await _send_plain(
             cfg.exec_cfg.transport,
             chat_id=msg.chat_id,
@@ -1720,6 +1757,13 @@ async def run_main_loop(
                     and resolved.context_source == "directives"
                 ):
                     await topic_store.set_context(*topic_key, resolved.context)
+                    await _maybe_rename_topic(
+                        cfg,
+                        topic_store,
+                        chat_id=topic_key[0],
+                        thread_id=topic_key[1],
+                        context=resolved.context,
+                    )
                     ambient_context = resolved.context
                 if (
                     topic_store is not None
