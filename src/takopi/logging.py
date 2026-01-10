@@ -253,11 +253,19 @@ def setup_logging(
             structlog.processors.TimeStamper(fmt="iso", utc=True),
             structlog.processors.add_log_level,
             _add_logger_name,
-            structlog.processors.format_exc_info,
-            _redact_event_dict,
-            _file_sink,
-            cast(Processor, renderer),
         ],
+    )
+    if format_value == "json":
+        processors.append(structlog.processors.format_exc_info)
+    processors.extend(
+        cast(
+            list[Processor],
+            [
+                _redact_event_dict,
+                _file_sink,
+                cast(Processor, renderer),
+            ],
+        )
     )
 
     structlog.configure(
