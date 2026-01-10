@@ -248,7 +248,7 @@ class TopicStateStore:
             self._data = {"version": STATE_VERSION, "threads": {}}
             return
         try:
-            payload = json.loads(self._path.read_text())
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
         except Exception as exc:
             logger.warning(
                 "telegram.topic_state.load_failed",
