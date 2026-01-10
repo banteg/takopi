@@ -20,6 +20,8 @@ parallel runs across threads, per thread queue support.
 
 optional voice note transcription for telegram (routes transcript like typed text).
 
+telegram forum topics: bind a topic to a project/branch and keep per-topic session resumes.
+
 per-project chat routing: assign different telegram chats to different projects.
 
 ## requirements
@@ -66,6 +68,11 @@ transport = "telegram"
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 voice_transcription = true
+
+[transports.telegram.topics]
+enabled = true
+mode = "multi_project_chat" # or "per_project_chat"
+# project = "z80" # required when mode = "per_project_chat"
 
 [codex]
 # optional: profile from ~/.codex/config.toml
