@@ -785,20 +785,25 @@ async def _handle_download(
     cfg: TelegramBridgeConfig,
     file_id: str,
     file_unique_id: str,
-) -> str | None:
+) -> tuple[str | None, Path | None]:
+    """Download image from Telegram and save to disk.
+
+    Returns:
+        tuple: (download_note to append to prompt, local_path for cleanup)
+    """
     file_info = await cfg.bot.get_file(file_id)
     if not isinstance(file_info, dict):
         logger.debug("download.get_file.failed", file_id=file_id)
-        return None
+        return None, None
 
     file_path = file_info.get("file_path")
     if not isinstance(file_path, str) or not file_path:
-        return None
+        return None, None
 
     image_bytes = await cfg.bot.download_file(file_path)
     if not image_bytes:
         logger.debug("download.failed", file_path=file_path)
-        return None
+        return None, None
 
     ext = Path(file_path).suffix or ".jpg"
     filename = f"{file_unique_id}{ext}"
@@ -816,9 +821,21 @@ async def _handle_download(
     if cfg.download_base_url:
         base_url = cfg.download_base_url.rstrip("/")
         image_url = f"{base_url}/{filename}"
-        return f"\n\n[Image: {image_url}]"
+        return f"\n\n[Image: {image_url}]", local_path
     else:
-        return f"\n\n[SYSTEM: The user has attached an image. It has been saved to: {local_path.absolute()}. Please read this file to view the image.]"
+        return f"\n\n[SYSTEM: The user has attached an image. It has been saved to: {local_path.absolute()}. Please read this file to view the image.]", local_path
+
+
+async def _cleanup_downloaded_file(local_path: Path | None) -> None:
+    """Delete a downloaded image file after processing."""
+    if local_path is None:
+        return
+    try:
+        if local_path.exists():
+            await anyio.to_thread.run_sync(local_path.unlink)
+            logger.debug("download.cleanup.deleted", path=str(local_path))
+    except Exception as exc:
+        logger.warning("download.cleanup.failed", path=str(local_path), error=str(exc))
 
 
 async def _run_image_cleanup(
@@ -1707,11 +1724,12 @@ async def run_main_loop(
             ) -> None:
                 # Handle downloads if present (non-blocking to the main loop, blocking to *this* job)
                 download_note = None
+                downloaded_file_path = None
                 try:
                     if photo_obj:
-                        download_note = await _handle_download(cfg, photo_obj.file_id, photo_obj.file_unique_id)
+                        download_note, downloaded_file_path = await _handle_download(cfg, photo_obj.file_id, photo_obj.file_unique_id)
                     elif doc_obj:
-                        download_note = await _handle_download(cfg, doc_obj.file_id, doc_obj.file_unique_id)
+                        download_note, downloaded_file_path = await _handle_download(cfg, doc_obj.file_id, doc_obj.file_unique_id)
                 except Exception as exc:
                     logger.error("download.processing.failed", error=str(exc))
                     # We continue without the image note if prompt failed, or maybe we should notify user?
@@ -1728,19 +1746,23 @@ async def run_main_loop(
                     and _topics_chat_allowed(cfg, chat_id)
                     else None
                 )
-                await _run_engine(
-                    exec_cfg=cfg.exec_cfg,
-                    runtime=cfg.runtime,
-                    running_tasks=running_tasks,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    text=text,
-                    resume_token=resume_token,
-                    context=context,
-                    reply_ref=reply_ref,
-                    on_thread_known=wrap_on_thread_known(on_thread_known, topic_key),
-                    engine_override=engine_override,
-                )
+                try:
+                    await _run_engine(
+                        exec_cfg=cfg.exec_cfg,
+                        runtime=cfg.runtime,
+                        running_tasks=running_tasks,
+                        chat_id=chat_id,
+                        user_msg_id=user_msg_id,
+                        text=text,
+                        resume_token=resume_token,
+                        context=context,
+                        reply_ref=reply_ref,
+                        on_thread_known=wrap_on_thread_known(on_thread_known, topic_key),
+                        engine_override=engine_override,
+                    )
+                finally:
+                    # Clean up downloaded image after processing (regardless of success/failure)
+                    await _cleanup_downloaded_file(downloaded_file_path)
 
             async def run_thread_job(job: ThreadJob) -> None:
                 await run_job(
