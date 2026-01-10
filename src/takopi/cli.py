@@ -528,6 +528,7 @@ def chat_id(
     ),
 ) -> None:
     """Capture a Telegram chat id and exit."""
+    setup_logging(debug=False, cache_logger_on_first_use=False)
     if token is None:
         settings, _ = _load_settings_optional()
         if settings is not None:

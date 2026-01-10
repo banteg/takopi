@@ -206,7 +206,9 @@ class SafeWriter(io.TextIOBase):
             pass
 
 
-def setup_logging(*, debug: bool = False) -> None:
+def setup_logging(
+    *, debug: bool = False, cache_logger_on_first_use: bool = True
+) -> None:
     global _MIN_LEVEL, _PIPELINE_LEVEL_NAME
     global _log_file_handle
 
@@ -261,7 +263,7 @@ def setup_logging(*, debug: bool = False) -> None:
     structlog.configure(
         processors=processors,
         logger_factory=structlog.PrintLoggerFactory(file=safe_stream),
-        cache_logger_on_first_use=True,
+        cache_logger_on_first_use=cache_logger_on_first_use,
     )
 
 
