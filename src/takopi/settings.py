@@ -25,7 +25,6 @@ class TelegramTopicsSettings(BaseModel):
 
     enabled: bool = False
     mode: str = "multi_project_chat"
-    project: str | None = None
 
     @field_validator("mode", mode="before")
     @classmethod
@@ -38,26 +37,6 @@ class TelegramTopicsSettings(BaseModel):
                 "topics.mode must be 'per_project_chat' or 'multi_project_chat'"
             )
         return cleaned
-
-    @field_validator("project", mode="before")
-    @classmethod
-    def _validate_project(cls, value: Any) -> str | None:
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            raise ValueError("topics.project must be a string")
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError("topics.project must be a non-empty string")
-        return cleaned
-
-    @model_validator(mode="after")
-    def _validate_required_project(self) -> "TelegramTopicsSettings":
-        if self.enabled and self.mode == "per_project_chat" and self.project is None:
-            raise ValueError(
-                "topics.project is required when topics.mode is per_project_chat"
-            )
-        return self
 
 
 class TelegramTransportSettings(BaseModel):

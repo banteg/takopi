@@ -72,7 +72,7 @@ voice_transcription = true
 [transports.telegram.topics]
 enabled = true
 mode = "multi_project_chat" # or "per_project_chat"
-# project = "z80" # required when mode = "per_project_chat"
+# per_project_chat uses projects.<alias>.chat_id to infer the project
 
 [codex]
 # optional: profile from ~/.codex/config.toml

@@ -11,11 +11,7 @@ from ..config import ConfigError
 from ..logging import get_logger
 from pydantic import ValidationError
 
-from ..settings import (
-    TelegramTopicsSettings,
-    load_settings,
-    require_telegram_config,
-)
+from ..settings import TelegramTopicsSettings, load_settings, require_telegram_config
 from ..transports import SetupResult, TransportBackend
 from ..transport_runtime import TransportRuntime
 from .bridge import (
@@ -80,7 +76,6 @@ def _build_topics_config(
     return TelegramTopicsConfig(
         enabled=settings.enabled,
         mode=settings.mode,
-        project=settings.project,
     )
 
 

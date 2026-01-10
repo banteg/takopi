@@ -95,12 +95,44 @@ def _parse_slash_command(text: str) -> tuple[str | None, str]:
 _TOPICS_COMMANDS = {"ctx", "new", "topic"}
 
 
+def _topics_chat_project(cfg: TelegramBridgeConfig, chat_id: int) -> str | None:
+    context = cfg.runtime.default_context_for_chat(chat_id)
+    return context.project if context is not None else None
+
+
+def _topics_chat_allowed(cfg: TelegramBridgeConfig, chat_id: int) -> bool:
+    if cfg.topics.mode == "per_project_chat":
+        return _topics_chat_project(cfg, chat_id) is not None
+    return chat_id == cfg.chat_id
+
+
+def _topics_command_error(cfg: TelegramBridgeConfig, chat_id: int) -> str | None:
+    if cfg.topics.mode == "per_project_chat":
+        if _topics_chat_project(cfg, chat_id) is None:
+            return "topics commands are only available in project chats."
+    elif chat_id != cfg.chat_id:
+        return "topics commands are only available in the main chat."
+    return None
+
+
+def _merge_topic_context(
+    *, chat_project: str | None, bound: RunContext | None
+) -> RunContext | None:
+    if chat_project is None:
+        return bound
+    if bound is None:
+        return RunContext(project=chat_project, branch=None)
+    if bound.project is None:
+        return RunContext(project=chat_project, branch=bound.branch)
+    return bound
+
+
 def _topic_key(
     msg: TelegramIncomingMessage, cfg: TelegramBridgeConfig
 ) -> tuple[int, int] | None:
     if not cfg.topics.enabled:
         return None
-    if msg.chat_id != cfg.chat_id:
+    if not _topics_chat_allowed(cfg, msg.chat_id):
         return None
     if msg.thread_id is None:
         return None
@@ -134,6 +166,7 @@ def _parse_project_branch_args(
     runtime: TransportRuntime,
     cfg: TelegramBridgeConfig,
     require_branch: bool,
+    chat_project: str | None,
 ) -> tuple[RunContext | None, str | None]:
     tokens = _split_command_args(args_text)
     if not tokens:
@@ -153,14 +186,23 @@ def _parse_project_branch_args(
                 return None, "branch must be prefixed with @"
             branch = second[1:] or None
 
-    if cfg.topics.mode == "per_project_chat":
-        if project_token is None:
-            project_token = cfg.topics.project
-    elif project_token is None:
-        return None, "project is required in multi_project_chat mode"
-
     project_key: str | None = None
-    if project_token is not None:
+    if cfg.topics.mode == "per_project_chat":
+        if chat_project is None:
+            return None, "topics are only available in project chats"
+        if project_token is None:
+            project_key = chat_project
+        else:
+            normalized = runtime.normalize_project_key(project_token)
+            if normalized is None:
+                return None, f"unknown project {project_token!r}"
+            if normalized != chat_project:
+                expected = runtime.project_alias_for_key(chat_project)
+                return None, (f"project mismatch for this chat; expected {expected!r}.")
+            project_key = normalized
+    else:
+        if project_token is None:
+            return None, "project is required in multi_project_chat mode"
         project_key = runtime.normalize_project_key(project_token)
         if project_key is None:
             return None, f"unknown project {project_token!r}"
@@ -370,7 +412,6 @@ class TelegramVoiceTranscriptionConfig:
 class TelegramTopicsConfig:
     enabled: bool = False
     mode: str = "multi_project_chat"
-    project: str | None = None
 
 
 def _as_int(value: int | str, *, label: str) -> int:
@@ -521,46 +562,57 @@ async def _send_startup(cfg: TelegramBridgeConfig) -> None:
 async def _validate_topics_setup(cfg: TelegramBridgeConfig) -> None:
     if not cfg.topics.enabled:
         return
-    if cfg.topics.mode == "per_project_chat":
-        project = cfg.topics.project or ""
-        project_key = cfg.runtime.normalize_project_key(project)
-        if project_key is None:
-            raise ConfigError(
-                f"Invalid topics.project {project!r}; no matching project alias."
-            )
-    chat = await cfg.bot.get_chat(cfg.chat_id)
-    if not isinstance(chat, dict):
-        raise ConfigError("Failed to fetch chat info for topics validation.")
-    chat_type = chat.get("type")
-    is_forum = chat.get("is_forum")
-    if chat_type != "supergroup":
-        raise ConfigError(
-            "Topics enabled but chat is not a supergroup; convert the group and enable Topics."
-        )
-    if is_forum is not True:
-        raise ConfigError(
-            "Topics enabled but chat does not have Topics enabled; turn on Topics in group settings."
-        )
     me = await cfg.bot.get_me()
     bot_id = me.get("id") if isinstance(me, dict) else None
     if not isinstance(bot_id, int):
         raise ConfigError("Failed to fetch bot id for topics validation.")
-    member = await cfg.bot.get_chat_member(cfg.chat_id, bot_id)
-    if not isinstance(member, dict):
-        raise ConfigError(
-            "Failed to fetch bot permissions; promote the bot to admin with Manage Topics."
-        )
-    status = member.get("status")
-    if status == "creator":
-        return
-    if status != "administrator":
-        raise ConfigError(
-            "Topics enabled but bot is not an admin; promote it and grant Manage Topics."
-        )
-    if member.get("can_manage_topics") is not True:
-        raise ConfigError(
-            "Topics enabled but bot lacks Manage Topics permission; grant can_manage_topics."
-        )
+    if cfg.topics.mode == "per_project_chat":
+        chat_ids = cfg.runtime.project_chat_ids()
+        if not chat_ids:
+            raise ConfigError(
+                "Topics enabled but no project chats are configured; "
+                "set projects.<alias>.chat_id for forum chats."
+            )
+    else:
+        chat_ids = (cfg.chat_id,)
+
+    for chat_id in chat_ids:
+        chat = await cfg.bot.get_chat(chat_id)
+        if not isinstance(chat, dict):
+            raise ConfigError(
+                f"Failed to fetch chat info for topics validation ({chat_id})."
+            )
+        chat_type = chat.get("type")
+        is_forum = chat.get("is_forum")
+        if chat_type != "supergroup":
+            raise ConfigError(
+                "Topics enabled but chat is not a supergroup; convert the group "
+                "and enable Topics."
+            )
+        if is_forum is not True:
+            raise ConfigError(
+                "Topics enabled but chat does not have Topics enabled; "
+                "turn on Topics in group settings."
+            )
+        member = await cfg.bot.get_chat_member(chat_id, bot_id)
+        if not isinstance(member, dict):
+            raise ConfigError(
+                "Failed to fetch bot permissions; promote the bot to admin with "
+                "Manage Topics."
+            )
+        status = member.get("status")
+        if status == "creator":
+            continue
+        if status != "administrator":
+            raise ConfigError(
+                "Topics enabled but bot is not an admin; promote it and grant "
+                "Manage Topics."
+            )
+        if member.get("can_manage_topics") is not True:
+            raise ConfigError(
+                "Topics enabled but bot lacks Manage Topics permission; "
+                "grant can_manage_topics."
+            )
 
 
 async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int | None:
@@ -738,14 +790,20 @@ async def _handle_ctx_command(
     args_text: str,
     store: TopicStateStore,
 ) -> None:
-    if msg.chat_id != cfg.chat_id:
+    error = _topics_command_error(cfg, msg.chat_id)
+    if error is not None:
         await _send_plain(
             cfg.exec_cfg.transport,
             chat_id=msg.chat_id,
             user_msg_id=msg.message_id,
-            text="topics commands are only available in the main chat.",
+            text=error,
         )
         return
+    chat_project = (
+        _topics_chat_project(cfg, msg.chat_id)
+        if cfg.topics.mode == "per_project_chat"
+        else None
+    )
     tkey = _topic_key(msg, cfg)
     if tkey is None:
         await _send_plain(
@@ -760,11 +818,12 @@ async def _handle_ctx_command(
     if action in {"show", ""}:
         snapshot = await store.get_thread(*tkey)
         bound = snapshot.context if snapshot is not None else None
+        ambient = _merge_topic_context(chat_project=chat_project, bound=bound)
         resolved = cfg.runtime.resolve_message(
             text="",
             reply_text=msg.reply_to_text,
             chat_id=msg.chat_id,
-            ambient_context=bound,
+            ambient_context=ambient,
         )
         text = _format_ctx_status(
             cfg=cfg,
@@ -789,6 +848,7 @@ async def _handle_ctx_command(
             runtime=cfg.runtime,
             cfg=cfg,
             require_branch=False,
+            chat_project=chat_project,
         )
         if error is not None:
             await _send_plain(
@@ -836,12 +896,13 @@ async def _handle_new_command(
     msg: TelegramIncomingMessage,
     store: TopicStateStore,
 ) -> None:
-    if msg.chat_id != cfg.chat_id:
+    error = _topics_command_error(cfg, msg.chat_id)
+    if error is not None:
         await _send_plain(
             cfg.exec_cfg.transport,
             chat_id=msg.chat_id,
             user_msg_id=msg.message_id,
-            text="topics commands are only available in the main chat.",
+            text=error,
         )
         return
     tkey = _topic_key(msg, cfg)
@@ -868,19 +929,26 @@ async def _handle_topic_command(
     args_text: str,
     store: TopicStateStore,
 ) -> None:
-    if msg.chat_id != cfg.chat_id:
+    error = _topics_command_error(cfg, msg.chat_id)
+    if error is not None:
         await _send_plain(
             cfg.exec_cfg.transport,
             chat_id=msg.chat_id,
             user_msg_id=msg.message_id,
-            text="topics commands are only available in the main chat.",
+            text=error,
         )
         return
+    chat_project = (
+        _topics_chat_project(cfg, msg.chat_id)
+        if cfg.topics.mode == "per_project_chat"
+        else None
+    )
     context, error = _parse_project_branch_args(
         args_text,
         runtime=cfg.runtime,
         cfg=cfg,
         require_branch=True,
+        chat_project=chat_project,
     )
     if error is not None or context is None:
         await _send_plain(
@@ -890,7 +958,10 @@ async def _handle_topic_command(
             text=f"error:\n{error or _usage_topic(cfg)}\n{_usage_topic(cfg)}",
         )
         return
-    existing = await store.find_thread_for_context(cfg.chat_id, context)
+    target_chat_id = (
+        msg.chat_id if cfg.topics.mode == "per_project_chat" else cfg.chat_id
+    )
+    existing = await store.find_thread_for_context(target_chat_id, context)
     if existing is not None:
         await _send_plain(
             cfg.exec_cfg.transport,
@@ -901,7 +972,7 @@ async def _handle_topic_command(
         )
         return
     title = _topic_title(cfg=cfg, runtime=cfg.runtime, context=context)
-    created = await cfg.bot.create_forum_topic(cfg.chat_id, title)
+    created = await cfg.bot.create_forum_topic(target_chat_id, title)
     thread_id = created.get("message_thread_id") if isinstance(created, dict) else None
     if isinstance(thread_id, bool) or not isinstance(thread_id, int):
         await _send_plain(
@@ -912,7 +983,7 @@ async def _handle_topic_command(
         )
         return
     await store.set_context(
-        cfg.chat_id,
+        target_chat_id,
         thread_id,
         context,
         topic_title=title,
@@ -925,7 +996,7 @@ async def _handle_topic_command(
         text=f"created topic {title!r} (thread_id {thread_id}).",
     )
     await cfg.exec_cfg.transport.send(
-        channel_id=cfg.chat_id,
+        channel_id=target_chat_id,
         message=RenderedMessage(
             text=f"topic bound to {_format_context(cfg.runtime, context)}"
         ),
@@ -1567,10 +1638,18 @@ async def run_main_loop(
                     else None
                 )
                 topic_key = _topic_key(msg, cfg) if topic_store is not None else None
-                ambient_context = (
+                chat_project = (
+                    _topics_chat_project(cfg, chat_id)
+                    if cfg.topics.enabled and cfg.topics.mode == "per_project_chat"
+                    else None
+                )
+                bound_context = (
                     await topic_store.get_context(*topic_key)
                     if topic_store is not None and topic_key is not None
                     else None
+                )
+                ambient_context = _merge_topic_context(
+                    chat_project=chat_project, bound=bound_context
                 )
 
                 if _is_cancel_command(text):

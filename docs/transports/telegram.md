@@ -45,24 +45,29 @@ Configuration (under `[transports.telegram]`):
 [transports.telegram.topics]
 enabled = true
 mode = "multi_project_chat" # or "per_project_chat"
-# project = "myproj" # required when mode = "per_project_chat"
 ```
 
 Requirements:
 
-- `chat_id` must be a forum-enabled supergroup (topics enabled).
-- The bot needs the **Manage Topics** permission in that chat.
+- `multi_project_chat`: `chat_id` must be a forum-enabled supergroup (topics enabled).
+- `per_project_chat`: each `projects.<alias>.chat_id` must point to a forum-enabled
+  supergroup for that project.
+- The bot needs the **Manage Topics** permission in the relevant chat(s).
 
 Commands:
 
-- `/topic <project> @branch` creates a new topic in the main chat and binds it.
-  In `per_project_chat` mode, use `/topic @branch`.
+- `multi_project_chat`: `/topic <project> @branch` creates a topic in the main chat
+  and binds it.
+- `per_project_chat`: `/topic @branch` creates a topic in the project chat and binds it.
 - `/ctx` inside a topic shows the bound context and stored session engines.
   `/ctx set ...` and `/ctx clear` update the binding.
 - `/new` inside a topic clears stored resume tokens for that topic.
 
 State is stored in `telegram_topics_state.json` alongside the config file.
 Delete it to reset all topic bindings and stored sessions.
+
+Note: `multi_project_chat` does not assume a default project; topics must be bound
+before running without directives.
 
 ## Outbox model
 
