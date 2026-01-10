@@ -142,7 +142,7 @@ Projects can override global defaults:
 path = "~/dev/happy-gadgets"
 default_engine = "claude"
 worktrees_dir = ".worktrees"
-worktree_base = "main"
+worktree_base = "master"
 ```
 
 ### Setting a default project
@@ -179,7 +179,7 @@ main repo instead of creating a new worktree.
 [projects.happy-gadgets]
 path = "~/dev/happy-gadgets"
 worktrees_dir = ".worktrees"      # relative to project path
-worktree_base = "main"            # base branch for new worktrees
+worktree_base = "master"          # base branch for new worktrees
 ```
 
 To avoid `.worktrees/` showing up as untracked, add it to your global gitignore:
@@ -357,7 +357,7 @@ mode = "multi_project_chat"
 path = "~/dev/takopi"
 default_engine = "codex"
 worktrees_dir = ".worktrees"
-worktree_base = "main"
+worktree_base = "master"
 # chat_id = -1001234567890   # optional: dedicated chat
 
 [projects.happy-planet]
