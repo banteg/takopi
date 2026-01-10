@@ -75,7 +75,7 @@ def _build_topics_config(
         raise ConfigError(f"Invalid topics config in {config_path}: {exc}") from exc
     return TelegramTopicsConfig(
         enabled=settings.enabled,
-        mode=settings.mode,
+        scope=settings.scope,
     )
 
 

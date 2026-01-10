@@ -238,14 +238,14 @@ Topics bind Telegram forum threads to specific project/branch contexts. They als
 ```toml
 [transports.telegram.topics]
 enabled = true
-mode = "multi_project_chat"   # or "per_project_chat"
 ```
 
 Your bot needs **Manage Topics** permission in the group.
 
-### Topic modes explained
+If any `projects.<alias>.chat_id` are configured, topics are managed in those
+project chats; otherwise topics are managed in the main chat.
 
-**`multi_project_chat`** — One forum-enabled supergroup for everything. Create topics per project/branch combination.
+### Topic behavior
 
 ```
 ┌────────────────────────────┐
@@ -258,7 +258,10 @@ Your bot needs **Manage Topics** permission in the group.
 └────────────────────────────┘
 ```
 
-**`per_project_chat`** — Each project has its own forum-enabled supergroup. Topics still include the project name for consistency, but the project is inferred from the chat. Regular messages in that chat also infer the project, so `/project` is usually optional.
+Each project can have its own forum-enabled supergroup. Topics still
+include the project name for consistency, but the project is inferred from the
+chat. Regular messages in that chat also infer the project, so `/project` is
+usually optional.
 
 ```
 ┌────────────────────────────────┐  ┌───────────────────────────────────┐
@@ -282,11 +285,11 @@ Run these inside a topic thread:
 | `/ctx clear` | Remove the binding |
 | `/new` | Clear resume tokens for this topic |
 
-In `per_project_chat` mode, omit the project: `/topic @branch` or `/ctx set @branch`.
+In project chats, omit the project: `/topic @branch` or `/ctx set @branch`.
 
 ### Configuration examples
 
-**Multi-project chat:**
+**Main chat only:**
 
 ```toml
 [transports.telegram]
@@ -294,10 +297,9 @@ chat_id = -1001234567890
 
 [transports.telegram.topics]
 enabled = true
-mode = "multi_project_chat"
 ```
 
-**Per-project chat:**
+**Project chats:**
 
 ```toml
 [transports.telegram]
@@ -305,7 +307,6 @@ chat_id = 123456789   # main chat (private, for non-project messages)
 
 [transports.telegram.topics]
 enabled = true
-mode = "per_project_chat"
 
 [projects.takopi]
 path = "~/dev/takopi"
@@ -350,7 +351,7 @@ voice_transcription = true
 
 [transports.telegram.topics]
 enabled = true
-mode = "multi_project_chat"
+scope = "auto"
 
 # Project definitions
 [projects.takopi]

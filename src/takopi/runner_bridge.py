@@ -79,6 +79,7 @@ class IncomingMessage:
     message_id: MessageId
     text: str
     reply_to: MessageRef | None = None
+    thread_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,7 @@ async def _send_or_edit_message(
     reply_to: MessageRef | None = None,
     notify: bool = True,
     replace_ref: MessageRef | None = None,
+    thread_id: int | None = None,
 ) -> tuple[MessageRef | None, bool]:
     msg = message
     if edit_ref is not None:
@@ -135,6 +137,7 @@ async def _send_or_edit_message(
             reply_to=reply_to,
             notify=notify,
             replace=replace_ref,
+            thread_id=thread_id,
         ),
     )
     return sent, False
@@ -236,6 +239,7 @@ async def send_initial_progress(
     tracker: ProgressTracker,
     resume_formatter: Callable[[ResumeToken], str] | None = None,
     context_line: str | None = None,
+    thread_id: int | None = None,
 ) -> ProgressMessageState:
     progress_ref: MessageRef | None = None
     last_rendered: RenderedMessage | None = None
@@ -258,7 +262,7 @@ async def send_initial_progress(
     progress_ref = await cfg.transport.send(
         channel_id=channel_id,
         message=initial_rendered,
-        options=SendOptions(reply_to=reply_to, notify=False),
+        options=SendOptions(reply_to=reply_to, notify=False, thread_id=thread_id),
     )
     if progress_ref is not None:
         last_rendered = initial_rendered
@@ -345,6 +349,7 @@ async def send_result_message(
     edit_ref: MessageRef | None,
     replace_ref: MessageRef | None = None,
     delete_tag: str = "final",
+    thread_id: int | None = None,
 ) -> None:
     final_msg, edited = await _send_or_edit_message(
         cfg.transport,
@@ -354,6 +359,7 @@ async def send_result_message(
         reply_to=reply_to,
         notify=notify,
         replace_ref=replace_ref,
+        thread_id=thread_id,
     )
     if final_msg is None:
         return
@@ -411,6 +417,7 @@ async def handle_message(
         tracker=progress_tracker,
         resume_formatter=runner.format_resume,
         context_line=context_line,
+        thread_id=incoming.thread_id,
     )
     progress_ref = progress_state.ref
 
@@ -506,6 +513,7 @@ async def handle_message(
             edit_ref=progress_ref,
             replace_ref=progress_ref,
             delete_tag="error",
+            thread_id=incoming.thread_id,
         )
         return
 
@@ -535,6 +543,7 @@ async def handle_message(
             edit_ref=progress_ref,
             replace_ref=progress_ref,
             delete_tag="cancel",
+            thread_id=incoming.thread_id,
         )
         return
 
@@ -598,4 +607,5 @@ async def handle_message(
         edit_ref=edit_ref,
         replace_ref=progress_ref,
         delete_tag="final",
+        thread_id=incoming.thread_id,
     )

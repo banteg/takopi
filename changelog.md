@@ -1,5 +1,15 @@
 # changelog
 
+## v0.14.1 (2026-01-10)
+
+### changes
+
+- add topic scope and thread-aware replies for telegram topics [#81](https://github.com/banteg/takopi/pull/81)
+
+### docs
+
+- update telegram topics docs and user guide for topic scoping [#81](https://github.com/banteg/takopi/pull/81)
+
 ## v0.14.0 (2026-01-10)
 
 ### changes

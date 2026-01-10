@@ -54,10 +54,60 @@ def _migrate_legacy_telegram(config: dict[str, Any], *, config_path: Path) -> bo
     return True
 
 
+def _migrate_topics_scope(config: dict[str, Any], *, config_path: Path) -> bool:
+    transports = config.get("transports")
+    if transports is None:
+        return False
+    if not isinstance(transports, dict):
+        raise ConfigError(f"Invalid `transports` in {config_path}; expected a table.")
+
+    telegram = transports.get("telegram")
+    if telegram is None:
+        return False
+    if not isinstance(telegram, dict):
+        raise ConfigError(
+            f"Invalid `transports.telegram` in {config_path}; expected a table."
+        )
+
+    topics = telegram.get("topics")
+    if topics is None:
+        return False
+    if not isinstance(topics, dict):
+        raise ConfigError(
+            f"Invalid `transports.telegram.topics` in {config_path}; expected a table."
+        )
+    if "mode" not in topics:
+        return False
+
+    if "scope" not in topics:
+        mode = topics.get("mode")
+        if not isinstance(mode, str):
+            raise ConfigError(
+                f"Invalid `transports.telegram.topics.mode` in {config_path}; "
+                "expected a string."
+            )
+        cleaned = mode.strip()
+        mapping = {
+            "multi_project_chat": "main",
+            "per_project_chat": "projects",
+        }
+        if cleaned not in mapping:
+            raise ConfigError(
+                f"Invalid `transports.telegram.topics.mode` in {config_path}; "
+                "expected 'multi_project_chat' or 'per_project_chat'."
+            )
+        topics["scope"] = mapping[cleaned]
+
+    topics.pop("mode", None)
+    return True
+
+
 def migrate_config(config: dict[str, Any], *, config_path: Path) -> list[str]:
     applied: list[str] = []
     if _migrate_legacy_telegram(config, config_path=config_path):
         applied.append("legacy-telegram")
+    if _migrate_topics_scope(config, config_path=config_path):
+        applied.append("topics-scope")
     return applied
 
 

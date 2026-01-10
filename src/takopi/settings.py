@@ -31,17 +31,17 @@ class TelegramTopicsSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
-    mode: str = "multi_project_chat"
+    scope: str = "auto"
 
-    @field_validator("mode", mode="before")
+    @field_validator("scope", mode="before")
     @classmethod
-    def _validate_mode(cls, value: Any) -> str:
+    def _validate_scope(cls, value: Any) -> str:
         if not isinstance(value, str):
-            raise ValueError("topics.mode must be a string")
+            raise ValueError("topics.scope must be a string")
         cleaned = value.strip()
-        if cleaned not in {"per_project_chat", "multi_project_chat"}:
+        if cleaned not in {"auto", "main", "projects", "all"}:
             raise ValueError(
-                "topics.mode must be 'per_project_chat' or 'multi_project_chat'"
+                "topics.scope must be 'auto', 'main', 'projects', or 'all'"
             )
         return cleaned
 
