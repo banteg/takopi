@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shlex
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -524,7 +525,6 @@ class TelegramBridgeConfig:
     startup_msg: str
     exec_cfg: ExecBridgeConfig
     voice_transcription: TelegramVoiceTranscriptionConfig | None = None
-    chat_ids: tuple[int, ...] | None = None
     chat_ids: tuple[int, ...] | None = None
     topics: TelegramTopicsConfig = TelegramTopicsConfig()
     download_path: Path = Path("downloads")
@@ -1688,20 +1688,9 @@ async def run_main_loop(
                 on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
                 | None = None,
                 engine_override: EngineId | None = None,
-            async def run_job(
-                chat_id: int,
-                user_msg_id: int,
-                text: str,
-                resume_token: ResumeToken | None,
-                context: RunContext | None,
-                thread_id: int | None = None,
-                reply_ref: MessageRef | None = None,
-                on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
-                | None = None,
-                engine_override: EngineId | None = None,
                 # New args for deferred download
-                photo_obj: Any = None,
-                doc_obj: Any = None,
+                photo_obj: TelegramPhoto | None = None,
+                doc_obj: TelegramDocument | None = None,
             ) -> None:
                 # Handle downloads if present (non-blocking to the main loop, blocking to *this* job)
                 download_note = None
