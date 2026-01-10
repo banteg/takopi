@@ -11,6 +11,7 @@ class _FakeBot(BotClient):
         self.calls: list[str] = []
         self.edit_calls: list[str] = []
         self.delete_calls: list[tuple[int, int]] = []
+        self.topic_calls: list[tuple[int, int, str]] = []
         self._edit_attempts = 0
         self._updates_attempts = 0
         self.retry_after: float | None = None
@@ -126,8 +127,23 @@ class _FakeBot(BotClient):
     async def edit_forum_topic(
         self, chat_id: int, message_thread_id: int, name: str
     ) -> bool:
-        _ = chat_id, message_thread_id, name
+        self.calls.append("edit_forum_topic")
+        self.topic_calls.append((chat_id, message_thread_id, name))
         return True
+
+
+@pytest.mark.anyio
+async def test_edit_forum_topic_uses_outbox() -> None:
+    bot = _FakeBot()
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
+
+    result = await client.edit_forum_topic(
+        chat_id=7, message_thread_id=42, name="takopi @main"
+    )
+
+    assert result is True
+    assert bot.calls == ["edit_forum_topic"]
+    assert bot.topic_calls == [(7, 42, "takopi @main")]
 
 
 @pytest.mark.anyio

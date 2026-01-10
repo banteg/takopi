@@ -19,6 +19,7 @@ from takopi.telegram.bridge import (
     run_main_loop,
 )
 from takopi.telegram.client import BotClient
+from takopi.telegram.topic_state import TopicStateStore
 from takopi.context import RunContext
 from takopi.config import ProjectConfig, ProjectsConfig, empty_projects_config
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
@@ -788,6 +789,91 @@ def test_resolve_message_accepts_backticked_ctx_line() -> None:
     assert resolved.resume_token is None
     assert resolved.engine_override is None
     assert resolved.context == RunContext(project="takopi", branch="feat/api")
+
+
+def test_topic_title_matches_command_syntax() -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+
+    title = bridge._topic_title(
+        cfg=cfg,
+        runtime=cfg.runtime,
+        context=RunContext(project="takopi", branch="master"),
+    )
+
+    assert title == "takopi @master"
+
+    title = bridge._topic_title(
+        cfg=cfg,
+        runtime=cfg.runtime,
+        context=RunContext(project="takopi", branch=None),
+    )
+
+    assert title == "takopi"
+
+    title = bridge._topic_title(
+        cfg=cfg,
+        runtime=cfg.runtime,
+        context=RunContext(project=None, branch="main"),
+    )
+
+    assert title == "@main"
+
+
+@pytest.mark.anyio
+async def test_maybe_rename_topic_updates_title(tmp_path: Path) -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+    store = TopicStateStore(tmp_path / "telegram_topics_state.json")
+
+    await store.set_context(
+        123,
+        77,
+        RunContext(project="takopi", branch="old"),
+        topic_title="takopi @old",
+    )
+
+    await bridge._maybe_rename_topic(
+        cfg,
+        store,
+        chat_id=123,
+        thread_id=77,
+        context=RunContext(project="takopi", branch="new"),
+    )
+
+    bot = cast(_FakeBot, cfg.bot)
+    assert bot.edit_topic_calls
+    assert bot.edit_topic_calls[-1]["name"] == "takopi @new"
+    snapshot = await store.get_thread(123, 77)
+    assert snapshot is not None
+    assert snapshot.topic_title == "takopi @new"
+
+
+@pytest.mark.anyio
+async def test_maybe_rename_topic_skips_when_title_matches(tmp_path: Path) -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+    store = TopicStateStore(tmp_path / "telegram_topics_state.json")
+
+    await store.set_context(
+        123,
+        77,
+        RunContext(project="takopi", branch="main"),
+        topic_title="takopi @main",
+    )
+    snapshot = await store.get_thread(123, 77)
+
+    await bridge._maybe_rename_topic(
+        cfg,
+        store,
+        chat_id=123,
+        thread_id=77,
+        context=RunContext(project="takopi", branch="main"),
+        snapshot=snapshot,
+    )
+
+    bot = cast(_FakeBot, cfg.bot)
+    assert bot.edit_topic_calls == []
 
 
 @pytest.mark.anyio
