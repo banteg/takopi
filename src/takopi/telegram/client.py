@@ -115,6 +115,7 @@ def _parse_incoming_message(
 
     if text is None:
         text = ""
+    chat = msg.get("chat")
     if not isinstance(chat, dict):
         return None
     msg_chat_id = chat.get("id")
