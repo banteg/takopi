@@ -100,8 +100,21 @@ def _parse_incoming_message(
             else None,
             raw=voice,
         )
+        # If we have voice, text is effectively empty for processing purposes here
         text = ""
-    chat = msg.get("chat")
+        
+    # Bug Fix: If text is missing (and not voice), verify if it is other media before returning None
+    pass_check = (
+        isinstance(text, str) 
+        or voice_payload is not None
+        or msg.get("photo") is not None
+        or msg.get("document") is not None
+    )
+    if not pass_check:
+        return None
+
+    if text is None:
+        text = ""
     if not isinstance(chat, dict):
         return None
     msg_chat_id = chat.get("id")
@@ -144,11 +157,12 @@ def _parse_incoming_message(
     if not isinstance(is_topic_message, bool):
         is_topic_message = None
 
-    photo_payload: list[TelegramPhoto] | None = None
-    photo_data = msg.get("photo")
-    if isinstance(photo_data, list):
-        parsed_photos = []
-        for p in photo_data:
+    def _parse_photos(m: dict) -> list[TelegramPhoto] | None:
+        pdata = m.get("photo")
+        if not isinstance(pdata, list):
+            return None
+        parsed = []
+        for p in pdata:
             if not isinstance(p, dict):
                 continue
             fid = p.get("file_id")
@@ -164,7 +178,7 @@ def _parse_incoming_message(
                 size = p.get("file_size")
                 if not isinstance(size, int):
                     size = None
-                parsed_photos.append(
+                parsed.append(
                     TelegramPhoto(
                         file_id=fid,
                         file_unique_id=uid,
@@ -174,32 +188,42 @@ def _parse_incoming_message(
                         raw=p,
                     )
                 )
-        if parsed_photos:
-            photo_payload = parsed_photos
-            # If text is missing but we have a photo, caption might be the text
-            if not text:
-                text = msg.get("caption", "")
+        return parsed or None
 
-    document_payload: TelegramDocument | None = None
-    doc = msg.get("document")
-    if isinstance(doc, dict):
-        fid = doc.get("file_id")
-        uid = doc.get("file_unique_id")
-        mime = doc.get("mime_type", "")
+    def _parse_doc(m: dict) -> TelegramDocument | None:
+        d = m.get("document")
+        if not isinstance(d, dict):
+            return None
+        fid = d.get("file_id")
+        uid = d.get("file_unique_id")
+        mime = d.get("mime_type", "")
         if isinstance(fid, str) and isinstance(uid, str):
-            # Only allow images if they are sent as documents
             if isinstance(mime, str) and mime.startswith("image/"):
-                size = doc.get("file_size")
-                document_payload = TelegramDocument(
+                size = d.get("file_size")
+                return TelegramDocument(
                     file_id=fid,
                     file_unique_id=uid,
                     mime_type=mime,
                     file_size=size if isinstance(size, int) else None,
-                    file_name=doc.get("file_name"),
-                    raw=doc,
+                    file_name=d.get("file_name"),
+                    raw=d,
                 )
-                if not text:
-                    text = msg.get("caption", "")
+        return None
+
+    photo_payload = _parse_photos(msg)
+    if photo_payload and not text:
+        text = msg.get("caption", "")
+
+    document_payload = _parse_doc(msg)
+    if document_payload and not text:
+        text = msg.get("caption", "")
+    
+    reply_photo_payload: list[TelegramPhoto] | None = None
+    reply_document_payload: TelegramDocument | None = None
+    
+    if isinstance(reply, dict):
+        reply_photo_payload = _parse_photos(reply)
+        reply_document_payload = _parse_doc(reply)
 
     return TelegramIncomingMessage(
         transport="telegram",
@@ -216,6 +240,8 @@ def _parse_incoming_message(
         voice=voice_payload,
         photo=photo_payload,
         document=document_payload,
+        reply_to_photo=reply_photo_payload,
+        reply_to_document=reply_document_payload,
         raw=msg,
     )
 

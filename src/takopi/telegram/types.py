@@ -29,6 +29,8 @@ class TelegramIncomingMessage:
     voice: TelegramVoice | None = None
     photo: list[TelegramPhoto] | None = None
     document: TelegramDocument | None = None
+    reply_to_photo: list[TelegramPhoto] | None = None
+    reply_to_document: TelegramDocument | None = None
     raw: dict[str, Any] | None = None
 
 

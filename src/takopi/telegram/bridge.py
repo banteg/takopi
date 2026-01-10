@@ -1769,12 +1769,18 @@ async def run_main_loop(
                 
                 # Check for photos or documents but do NOT verify/download here.
                 # Pass them to run_job so parsing happens concurrently.
+                # Priority: Current message media > Reply media
                 photo_arg = None
                 doc_arg = None
+                
                 if msg.photo:
                     photo_arg = msg.photo[-1]
                 elif msg.document:
                     doc_arg = msg.document
+                elif msg.reply_to_photo:
+                    photo_arg = msg.reply_to_photo[-1]
+                elif msg.reply_to_document:
+                    doc_arg = msg.reply_to_document
                 
                 user_msg_id = msg.message_id
                 chat_id = msg.chat_id
