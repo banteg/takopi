@@ -64,8 +64,6 @@ bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 ```
 
-> **Security note:** Keep your `bot_token` and `chat_id` private. Anyone with these values can send commands to your bot.
-
 ---
 
 ## 2. Your first handoff
@@ -162,7 +160,7 @@ default_project = "myproject"
 Worktrees let you work on multiple branches without switching back and forth. Use `@branch` to run a task in a dedicated worktree:
 
 ```
-/myproject @feat/renderer-cache fix the renderer
+/myproject @feat/cache fix the renderer
 ```
 
 Takopi creates (or reuses) a worktree at:
@@ -250,26 +248,26 @@ Your bot needs **Manage Topics** permission in the group.
 **`multi_project_chat`** — One forum-enabled supergroup for everything. Create topics per project/branch combination.
 
 ```
-┌─────────────────────────────────────┐
-│  Shared Forum Group                 │
-├─────────────────────────────────────┤
-│  ├── takopi @main                   │
-│  ├── takopi @feat/renderer-cache    │
-│  ├── happy-gadgets @main            │
-│  └── happy-gadgets @bugfix/auth-timeout │
-└─────────────────────────────────────┘
+┌────────────────────────────┐
+│ takopi projects            │
+├────────────────────────────┤
+│ takopi @master             │
+│ takopi @feat/topics        │
+│ happy-gadgets @master      │
+│ happy-gadgets @feat/camera │
+└────────────────────────────┘
 ```
 
 **`per_project_chat`** — Each project has its own forum-enabled supergroup. Topics are branch-only since the project is inferred from the chat. Regular messages in that chat also infer the project, so `/project` is usually optional.
 
 ```
-┌──────────────────┐  ┌──────────────────┐
-│  takopi Group    │  │  other Group     │
-├──────────────────┤  ├──────────────────┤
-│  ├── @main       │  │  ├── @main       │
-│  ├── @feat/search-filters │  │  └── @bugfix/payment-webhook │
-│  └── @feat/async-import   │  │                              │
-└──────────────────┘  └──────────────────┘
+┌──────────────┐  ┌────────────────────┐
+│ takopi       │  │ happy-gadgets      │
+├──────────────┤  ├────────────────────┤
+│ @master      │  │ @master            │
+│ @feat/topics │  │ @feat/happy-camera │
+│ @feat/voice  │  │ @feat/memory-box   │
+└──────────────┘  └────────────────────┘
 ```
 
 ### Topic commands
@@ -379,7 +377,7 @@ worktree_base = "develop"
 |-----------|---------|-------------|
 | `/engine` | `/codex fix tests` | Use a specific engine |
 | `/project` | `/myapp add feature` | Target a project |
-| `@branch` | `@feat/auth-refresh refresh tokens` | Run in a worktree |
+| `@branch` | `@feat/auth refresh tokens` | Run in a worktree |
 | Combined | `/myapp @dev fix bug` | Project + branch |
 
 ### In-chat commands
