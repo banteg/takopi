@@ -258,16 +258,16 @@ Your bot needs **Manage Topics** permission in the group.
 └────────────────────────────┘
 ```
 
-**`per_project_chat`** — Each project has its own forum-enabled supergroup. Topics are branch-only since the project is inferred from the chat. Regular messages in that chat also infer the project, so `/project` is usually optional.
+**`per_project_chat`** — Each project has its own forum-enabled supergroup. Topics still include the project name for consistency, but the project is inferred from the chat. Regular messages in that chat also infer the project, so `/project` is usually optional.
 
 ```
-┌──────────────┐  ┌────────────────────┐
-│ takopi       │  │ happy-gadgets      │
-├──────────────┤  ├────────────────────┤
-│ @master      │  │ @master            │
-│ @feat/topics │  │ @feat/happy-camera │
-│ @feat/voice  │  │ @feat/memory-box   │
-└──────────────┘  └────────────────────┘
+┌────────────────────────────────┐  ┌───────────────────────────────────┐
+│ takopi                         │  │ happy-gadgets                     │
+├────────────────────────────────┤  ├───────────────────────────────────┤
+│ takopi @master                 │  │ happy-gadgets @master             │
+│ takopi @feat/topics            │  │ happy-gadgets @feat/happy-camera  │
+│ takopi @feat/voice             │  │ happy-gadgets @feat/memory-box    │
+└────────────────────────────────┘  └───────────────────────────────────┘
 ```
 
 ### Topic commands

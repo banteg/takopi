@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -19,7 +20,7 @@ from takopi.telegram.bridge import (
     run_main_loop,
 )
 from takopi.telegram.client import BotClient
-from takopi.telegram.topic_state import TopicStateStore
+from takopi.telegram.topic_state import TopicStateStore, resolve_state_path
 from takopi.context import RunContext
 from takopi.config import ProjectConfig, ProjectsConfig, empty_projects_config
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
@@ -820,6 +821,25 @@ def test_topic_title_matches_command_syntax() -> None:
     assert title == "@main"
 
 
+def test_topic_title_per_project_chat_includes_project() -> None:
+    transport = _FakeTransport()
+    cfg = replace(
+        _make_cfg(transport),
+        topics=bridge.TelegramTopicsConfig(
+            enabled=True,
+            mode="per_project_chat",
+        ),
+    )
+
+    title = bridge._topic_title(
+        cfg=cfg,
+        runtime=cfg.runtime,
+        context=RunContext(project="takopi", branch="master"),
+    )
+
+    assert title == "takopi @master"
+
+
 @pytest.mark.anyio
 async def test_maybe_rename_topic_updates_title(tmp_path: Path) -> None:
     transport = _FakeTransport()
@@ -1033,6 +1053,75 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
             hold.set()
             stop_polling.set()
             tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_persists_topic_sessions_in_per_project_chat(
+    tmp_path: Path,
+) -> None:
+    project_chat_id = -100
+    resume_value = "resume-123"
+
+    transport = _FakeTransport()
+    bot = _FakeBot()
+    runner = ScriptRunner(
+        [Return(answer="ok")],
+        engine=CODEX_ENGINE,
+        resume_value=resume_value,
+    )
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    projects = ProjectsConfig(
+        projects={
+            "takopi": ProjectConfig(
+                alias="takopi",
+                path=Path("."),
+                worktrees_dir=Path(".worktrees"),
+                chat_id=project_chat_id,
+            )
+        },
+        default_project=None,
+        chat_map={project_chat_id: "takopi"},
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=projects,
+        config_path=tmp_path / "takopi.toml",
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        topics=bridge.TelegramTopicsConfig(
+            enabled=True,
+            mode="per_project_chat",
+        ),
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=project_chat_id,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            thread_id=77,
+        )
+
+    with anyio.fail_after(2):
+        await run_main_loop(cfg, poller)
+
+    state_path = resolve_state_path(runtime.config_path or tmp_path / "takopi.toml")
+    store = TopicStateStore(state_path)
+    stored = await store.get_session_resume(project_chat_id, 77, CODEX_ENGINE)
+    assert stored == ResumeToken(engine=CODEX_ENGINE, value=resume_value)
 
 
 @pytest.mark.anyio

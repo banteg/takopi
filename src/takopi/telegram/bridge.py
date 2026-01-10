@@ -144,7 +144,7 @@ def _format_context(runtime: TransportRuntime, context: RunContext | None) -> st
         return "none"
     project = runtime.project_alias_for_key(context.project)
     if context.branch:
-        return f"{project} @ {context.branch}"
+        return f"{project} @{context.branch}"
     return project
 
 
@@ -229,6 +229,13 @@ def _format_ctx_status(
         f"bound ctx: {_format_context(runtime, bound)}",
         f"resolved ctx: {_format_context(runtime, resolved)} (source: {context_source})",
     ]
+    if cfg.topics.mode == "multi_project_chat" and bound is None:
+        topic_usage = _usage_topic(cfg).removeprefix("usage: ").strip()
+        ctx_usage = _usage_ctx_set(cfg).removeprefix("usage: ").strip()
+        lines.append(
+            "note: unbound topic; default project ignored. "
+            f"bind with {topic_usage} or {ctx_usage}"
+        )
     sessions = None
     if snapshot is not None and snapshot.sessions:
         sessions = ", ".join(sorted(snapshot.sessions))
@@ -1622,7 +1629,7 @@ async def run_main_loop(
                     (chat_id, thread_id)
                     if topic_store is not None
                     and thread_id is not None
-                    and chat_id == cfg.chat_id
+                    and _topics_chat_allowed(cfg, chat_id)
                     else None
                 )
                 await _run_engine(
