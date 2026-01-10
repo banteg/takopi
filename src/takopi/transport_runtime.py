@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .config import ConfigError, ProjectsConfig
 from .context import RunContext
@@ -21,6 +21,13 @@ class ResolvedMessage:
     resume_token: ResumeToken | None
     engine_override: EngineId | None
     context: RunContext | None
+    context_source: Literal[
+        "reply_ctx",
+        "directives",
+        "ambient",
+        "default_project",
+        "none",
+    ] = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +137,7 @@ class TransportRuntime:
         *,
         text: str,
         reply_text: str | None,
+        ambient_context: RunContext | None = None,
         chat_id: int | None = None,
     ) -> ResolvedMessage:
         directives = parse_directives(
@@ -140,51 +148,75 @@ class TransportRuntime:
         reply_ctx = parse_context_line(reply_text, projects=self._projects)
         resume_token = self._router.resolve_resume(directives.prompt, reply_text)
         chat_project = self._projects.project_for_chat(chat_id)
+        default_project = chat_project or self._projects.default_project
 
-        if resume_token is not None:
-            context = reply_ctx
-            if context is None and chat_project is not None:
-                context = RunContext(project=chat_project, branch=None)
-            return ResolvedMessage(
-                prompt=directives.prompt,
-                resume_token=resume_token,
-                engine_override=None,
-                context=context,
-            )
+        context_source: Literal[
+            "reply_ctx",
+            "directives",
+            "ambient",
+            "default_project",
+            "none",
+        ] = "none"
+        context: RunContext | None = None
 
         if reply_ctx is not None:
-            engine_override = None
-            if reply_ctx.project is not None:
-                project = self._projects.projects.get(reply_ctx.project)
-                if project is not None and project.default_engine is not None:
-                    engine_override = project.default_engine
-            return ResolvedMessage(
-                prompt=directives.prompt,
-                resume_token=None,
-                engine_override=engine_override,
-                context=reply_ctx,
-            )
-
-        project_key = directives.project
-        if project_key is None:
-            project_key = chat_project or self._projects.default_project
-
-        context = None
-        if project_key is not None or directives.branch is not None:
-            context = RunContext(project=project_key, branch=directives.branch)
+            context = reply_ctx
+            context_source = "reply_ctx"
+        else:
+            project_key = directives.project
+            branch = directives.branch
+            if project_key is None:
+                if ambient_context is not None and ambient_context.project is not None:
+                    project_key = ambient_context.project
+                else:
+                    project_key = default_project
+            if branch is None:
+                if (
+                    ambient_context is not None
+                    and ambient_context.branch is not None
+                    and project_key == ambient_context.project
+                ):
+                    branch = ambient_context.branch
+            if project_key is not None or branch is not None:
+                context = RunContext(project=project_key, branch=branch)
+            if directives.project is not None or directives.branch is not None:
+                context_source = "directives"
+            elif ambient_context is not None and ambient_context.project is not None:
+                context_source = "ambient"
+            elif default_project is not None:
+                context_source = "default_project"
 
         engine_override = directives.engine
-        if engine_override is None and project_key is not None:
-            project = self._projects.projects.get(project_key)
+        if engine_override is None and context is not None:
+            project = (
+                self._projects.projects.get(context.project)
+                if context.project is not None
+                else None
+            )
             if project is not None and project.default_engine is not None:
                 engine_override = project.default_engine
 
         return ResolvedMessage(
             prompt=directives.prompt,
-            resume_token=None,
+            resume_token=resume_token,
             engine_override=engine_override,
             context=context,
+            context_source=context_source,
         )
+
+    @property
+    def default_project(self) -> str | None:
+        return self._projects.default_project
+
+    def normalize_project_key(self, value: str) -> str | None:
+        key = value.strip().lower()
+        if key in self._projects.projects:
+            return key
+        return None
+
+    def project_alias_for_key(self, key: str) -> str:
+        project = self._projects.projects.get(key)
+        return project.alias if project is not None else key
 
     def default_context_for_chat(self, chat_id: int | None) -> RunContext | None:
         project_key = self._projects.project_for_chat(chat_id)

@@ -25,6 +25,7 @@ class SendOptions:
     reply_to: MessageRef | None = None
     notify: bool = True
     replace: MessageRef | None = None
+    thread_id: int | None = None
 
 
 class Transport(Protocol):

@@ -71,3 +71,93 @@ def test_resolve_message_defaults_to_chat_project() -> None:
     )
 
     assert resolved.context == RunContext(project="proj", branch=None)
+
+
+def test_resolve_message_uses_ambient_context() -> None:
+    runtime = _make_runtime()
+    ambient = RunContext(project="proj", branch="feat/ambient")
+
+    resolved = runtime.resolve_message(
+        text="hello",
+        reply_text=None,
+        ambient_context=ambient,
+    )
+
+    assert resolved.context == ambient
+    assert resolved.context_source == "ambient"
+
+
+def test_resolve_message_reply_ctx_overrides_ambient() -> None:
+    runtime = _make_runtime()
+    ambient = RunContext(project="proj", branch="feat/ambient")
+
+    resolved = runtime.resolve_message(
+        text="hello",
+        reply_text="`ctx: proj @ reply`",
+        ambient_context=ambient,
+    )
+
+    assert resolved.context == RunContext(project="proj", branch="reply")
+    assert resolved.context_source == "reply_ctx"
+
+
+def test_resolve_message_directives_override_ambient() -> None:
+    runtime = _make_runtime()
+    ambient = RunContext(project="proj", branch="feat/ambient")
+
+    resolved = runtime.resolve_message(
+        text="/proj @main do it",
+        reply_text=None,
+        ambient_context=ambient,
+    )
+
+    assert resolved.context == RunContext(project="proj", branch="main")
+    assert resolved.context_source == "directives"
+
+
+def test_resolve_message_branch_directive_merges_with_ambient_project() -> None:
+    runtime = _make_runtime()
+    ambient = RunContext(project="proj", branch="feat/ambient")
+
+    resolved = runtime.resolve_message(
+        text="@hotfix do it",
+        reply_text=None,
+        ambient_context=ambient,
+    )
+
+    assert resolved.context == RunContext(project="proj", branch="hotfix")
+    assert resolved.context_source == "directives"
+
+
+def test_resolve_message_project_directive_clears_ambient_branch() -> None:
+    codex = ScriptRunner([Return(answer="ok")], engine="codex")
+    router = AutoRouter(
+        entries=[RunnerEntry(engine=codex.engine, runner=codex)],
+        default_engine=codex.engine,
+    )
+    projects = ProjectsConfig(
+        projects={
+            "proj": ProjectConfig(
+                alias="proj",
+                path=Path("."),
+                worktrees_dir=Path(".worktrees"),
+            ),
+            "other": ProjectConfig(
+                alias="other",
+                path=Path("."),
+                worktrees_dir=Path(".worktrees"),
+            ),
+        },
+        default_project=None,
+    )
+    runtime = TransportRuntime(router=router, projects=projects)
+    ambient = RunContext(project="proj", branch="feat/ambient")
+
+    resolved = runtime.resolve_message(
+        text="/other do it",
+        reply_text=None,
+        ambient_context=ambient,
+    )
+
+    assert resolved.context == RunContext(project="other", branch=None)
+    assert resolved.context_source == "directives"

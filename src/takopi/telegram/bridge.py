@@ -47,6 +47,7 @@ from .types import (
     TelegramIncomingUpdate,
 )
 from .render import prepare_telegram
+from .topic_state import TopicStateStore, TopicThreadSnapshot, resolve_state_path
 from .transcribe import transcribe_audio
 
 logger = get_logger(__name__)
@@ -89,6 +90,108 @@ def _parse_slash_command(text: str) -> tuple[str | None, str]:
         tail = "\n".join(lines[1:])
         args_text = f"{args_text}\n{tail}" if args_text else tail
     return command.lower(), args_text
+
+
+_TOPICS_COMMANDS = {"ctx", "new", "topic"}
+
+
+def _topic_key(
+    msg: TelegramIncomingMessage, cfg: TelegramBridgeConfig
+) -> tuple[int, int] | None:
+    if not cfg.topics.enabled:
+        return None
+    if msg.chat_id != cfg.chat_id:
+        return None
+    if msg.thread_id is None:
+        return None
+    return (msg.chat_id, msg.thread_id)
+
+
+def _format_context(runtime: TransportRuntime, context: RunContext | None) -> str:
+    if context is None or context.project is None:
+        return "none"
+    project = runtime.project_alias_for_key(context.project)
+    if context.branch:
+        return f"{project} @ {context.branch}"
+    return project
+
+
+def _usage_ctx_set(cfg: TelegramBridgeConfig) -> str:
+    if cfg.topics.mode == "per_project_chat":
+        return "usage: /ctx set [@branch]"
+    return "usage: /ctx set <project> [@branch]"
+
+
+def _usage_topic(cfg: TelegramBridgeConfig) -> str:
+    if cfg.topics.mode == "per_project_chat":
+        return "usage: /topic @branch"
+    return "usage: /topic <project> @branch"
+
+
+def _parse_project_branch_args(
+    args_text: str,
+    *,
+    runtime: TransportRuntime,
+    cfg: TelegramBridgeConfig,
+    require_branch: bool,
+) -> tuple[RunContext | None, str | None]:
+    tokens = _split_command_args(args_text)
+    if not tokens:
+        return None, _usage_topic(cfg) if require_branch else _usage_ctx_set(cfg)
+    if len(tokens) > 2:
+        return None, "too many arguments"
+    project_token: str | None = None
+    branch: str | None = None
+    first = tokens[0]
+    if first.startswith("@"):
+        branch = first[1:] or None
+    else:
+        project_token = first
+        if len(tokens) == 2:
+            second = tokens[1]
+            if not second.startswith("@"):
+                return None, "branch must be prefixed with @"
+            branch = second[1:] or None
+
+    if cfg.topics.mode == "per_project_chat":
+        if project_token is None:
+            project_token = cfg.topics.project
+    elif project_token is None:
+        return None, "project is required in multi_project_chat mode"
+
+    project_key: str | None = None
+    if project_token is not None:
+        project_key = runtime.normalize_project_key(project_token)
+        if project_key is None:
+            return None, f"unknown project {project_token!r}"
+
+    if require_branch and not branch:
+        return None, "branch is required"
+
+    return RunContext(project=project_key, branch=branch), None
+
+
+def _format_ctx_status(
+    *,
+    cfg: TelegramBridgeConfig,
+    runtime: TransportRuntime,
+    thread_id: int | None,
+    bound: RunContext | None,
+    resolved: RunContext | None,
+    context_source: str,
+    snapshot: TopicThreadSnapshot | None,
+) -> str:
+    lines = [
+        f"topics: enabled ({cfg.topics.mode})",
+        f"thread_id: {thread_id if thread_id is not None else 'none'}",
+        f"bound ctx: {_format_context(runtime, bound)}",
+        f"resolved ctx: {_format_context(runtime, resolved)} (source: {context_source})",
+    ]
+    sessions = None
+    if snapshot is not None and snapshot.sessions:
+        sessions = ", ".join(sorted(snapshot.sessions))
+    lines.append(f"sessions: {sessions or 'none'}")
+    return "\n".join(lines)
 
 
 def _build_bot_commands(runtime: TransportRuntime) -> list[dict[str, str]]:
@@ -263,6 +366,13 @@ class TelegramVoiceTranscriptionConfig:
     enabled: bool = False
 
 
+@dataclass(frozen=True)
+class TelegramTopicsConfig:
+    enabled: bool = False
+    mode: str = "multi_project_chat"
+    project: str | None = None
+
+
 def _as_int(value: int | str, *, label: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"Telegram {label} must be int")
@@ -286,6 +396,7 @@ class TelegramTransport:
         chat_id = _as_int(channel_id, label="chat_id")
         reply_to_message_id: int | None = None
         replace_message_id: int | None = None
+        message_thread_id: int | None = None
         disable_notification = None
         if options is not None:
             disable_notification = not options.notify
@@ -297,6 +408,10 @@ class TelegramTransport:
                 replace_message_id = _as_int(
                     options.replace.message_id, label="replace_message_id"
                 )
+            if options.thread_id is not None:
+                message_thread_id = _as_int(
+                    options.thread_id, label="message_thread_id"
+                )
         entities = message.extra.get("entities")
         parse_mode = message.extra.get("parse_mode")
         reply_markup = message.extra.get("reply_markup")
@@ -305,6 +420,7 @@ class TelegramTransport:
             text=message.text,
             reply_to_message_id=reply_to_message_id,
             disable_notification=disable_notification,
+            message_thread_id=message_thread_id,
             entities=entities,
             parse_mode=parse_mode,
             reply_markup=reply_markup,
@@ -363,6 +479,7 @@ class TelegramBridgeConfig:
     exec_cfg: ExecBridgeConfig
     voice_transcription: TelegramVoiceTranscriptionConfig | None = None
     chat_ids: tuple[int, ...] | None = None
+    topics: TelegramTopicsConfig = TelegramTopicsConfig()
 
 
 def _allowed_chat_ids(cfg: TelegramBridgeConfig) -> set[int]:
@@ -399,6 +516,51 @@ async def _send_startup(cfg: TelegramBridgeConfig) -> None:
     )
     if sent is not None:
         logger.info("startup.sent", chat_id=cfg.chat_id)
+
+
+async def _validate_topics_setup(cfg: TelegramBridgeConfig) -> None:
+    if not cfg.topics.enabled:
+        return
+    if cfg.topics.mode == "per_project_chat":
+        project = cfg.topics.project or ""
+        project_key = cfg.runtime.normalize_project_key(project)
+        if project_key is None:
+            raise ConfigError(
+                f"Invalid topics.project {project!r}; no matching project alias."
+            )
+    chat = await cfg.bot.get_chat(cfg.chat_id)
+    if not isinstance(chat, dict):
+        raise ConfigError("Failed to fetch chat info for topics validation.")
+    chat_type = chat.get("type")
+    is_forum = chat.get("is_forum")
+    if chat_type != "supergroup":
+        raise ConfigError(
+            "Topics enabled but chat is not a supergroup; convert the group and enable Topics."
+        )
+    if is_forum is not True:
+        raise ConfigError(
+            "Topics enabled but chat does not have Topics enabled; turn on Topics in group settings."
+        )
+    me = await cfg.bot.get_me()
+    bot_id = me.get("id") if isinstance(me, dict) else None
+    if not isinstance(bot_id, int):
+        raise ConfigError("Failed to fetch bot id for topics validation.")
+    member = await cfg.bot.get_chat_member(cfg.chat_id, bot_id)
+    if not isinstance(member, dict):
+        raise ConfigError(
+            "Failed to fetch bot permissions; promote the bot to admin with Manage Topics."
+        )
+    status = member.get("status")
+    if status == "creator":
+        return
+    if status != "administrator":
+        raise ConfigError(
+            "Topics enabled but bot is not an admin; promote it and grant Manage Topics."
+        )
+    if member.get("can_manage_topics") is not True:
+        raise ConfigError(
+            "Topics enabled but bot lacks Manage Topics permission; grant can_manage_topics."
+        )
 
 
 async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int | None:
@@ -555,6 +717,222 @@ async def _transcribe_voice(
     return transcript
 
 
+def _topic_title(
+    *, cfg: TelegramBridgeConfig, runtime: TransportRuntime, context: RunContext
+) -> str:
+    project = (
+        runtime.project_alias_for_key(context.project)
+        if context.project is not None
+        else ""
+    )
+    if cfg.topics.mode == "per_project_chat":
+        return context.branch or project or "topic"
+    if context.branch:
+        return f"{project} @ {context.branch}".strip()
+    return project or "topic"
+
+
+async def _handle_ctx_command(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    args_text: str,
+    store: TopicStateStore,
+) -> None:
+    if msg.chat_id != cfg.chat_id:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="topics commands are only available in the main chat.",
+        )
+        return
+    tkey = _topic_key(msg, cfg)
+    if tkey is None:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="this command only works inside a topic.",
+        )
+        return
+    tokens = _split_command_args(args_text)
+    action = tokens[0].lower() if tokens else "show"
+    if action in {"show", ""}:
+        snapshot = await store.get_thread(*tkey)
+        bound = snapshot.context if snapshot is not None else None
+        resolved = cfg.runtime.resolve_message(
+            text="",
+            reply_text=msg.reply_to_text,
+            chat_id=msg.chat_id,
+            ambient_context=bound,
+        )
+        text = _format_ctx_status(
+            cfg=cfg,
+            runtime=cfg.runtime,
+            thread_id=msg.thread_id,
+            bound=bound,
+            resolved=resolved.context,
+            context_source=resolved.context_source,
+            snapshot=snapshot,
+        )
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text=text,
+        )
+        return
+    if action == "set":
+        rest = " ".join(tokens[1:])
+        context, error = _parse_project_branch_args(
+            rest,
+            runtime=cfg.runtime,
+            cfg=cfg,
+            require_branch=False,
+        )
+        if error is not None:
+            await _send_plain(
+                cfg.exec_cfg.transport,
+                chat_id=msg.chat_id,
+                user_msg_id=msg.message_id,
+                text=f"error:\n{error}\n{_usage_ctx_set(cfg)}",
+            )
+            return
+        if context is None:
+            await _send_plain(
+                cfg.exec_cfg.transport,
+                chat_id=msg.chat_id,
+                user_msg_id=msg.message_id,
+                text=f"error:\n{_usage_ctx_set(cfg)}",
+            )
+            return
+        await store.set_context(*tkey, context)
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text=f"topic bound to {_format_context(cfg.runtime, context)}",
+        )
+        return
+    if action == "clear":
+        await store.clear_context(*tkey)
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="topic binding cleared.",
+        )
+        return
+    await _send_plain(
+        cfg.exec_cfg.transport,
+        chat_id=msg.chat_id,
+        user_msg_id=msg.message_id,
+        text="unknown /ctx command. use /ctx, /ctx set, or /ctx clear.",
+    )
+
+
+async def _handle_new_command(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    store: TopicStateStore,
+) -> None:
+    if msg.chat_id != cfg.chat_id:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="topics commands are only available in the main chat.",
+        )
+        return
+    tkey = _topic_key(msg, cfg)
+    if tkey is None:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="this command only works inside a topic.",
+        )
+        return
+    await store.clear_sessions(*tkey)
+    await _send_plain(
+        cfg.exec_cfg.transport,
+        chat_id=msg.chat_id,
+        user_msg_id=msg.message_id,
+        text="cleared stored sessions for this topic.",
+    )
+
+
+async def _handle_topic_command(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    args_text: str,
+    store: TopicStateStore,
+) -> None:
+    if msg.chat_id != cfg.chat_id:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="topics commands are only available in the main chat.",
+        )
+        return
+    context, error = _parse_project_branch_args(
+        args_text,
+        runtime=cfg.runtime,
+        cfg=cfg,
+        require_branch=True,
+    )
+    if error is not None or context is None:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text=f"error:\n{error or _usage_topic(cfg)}\n{_usage_topic(cfg)}",
+        )
+        return
+    existing = await store.find_thread_for_context(cfg.chat_id, context)
+    if existing is not None:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text=f"topic already exists for {_format_context(cfg.runtime, context)} "
+            f"(thread_id {existing}).",
+        )
+        return
+    title = _topic_title(cfg=cfg, runtime=cfg.runtime, context=context)
+    created = await cfg.bot.create_forum_topic(cfg.chat_id, title)
+    thread_id = created.get("message_thread_id") if isinstance(created, dict) else None
+    if isinstance(thread_id, bool) or not isinstance(thread_id, int):
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="failed to create topic.",
+        )
+        return
+    await store.set_context(
+        cfg.chat_id,
+        thread_id,
+        context,
+        topic_title=title,
+        created_by_bot=True,
+    )
+    await _send_plain(
+        cfg.exec_cfg.transport,
+        chat_id=msg.chat_id,
+        user_msg_id=msg.message_id,
+        text=f"created topic {title!r} (thread_id {thread_id}).",
+    )
+    await cfg.exec_cfg.transport.send(
+        channel_id=cfg.chat_id,
+        message=RenderedMessage(
+            text=f"topic bound to {_format_context(cfg.runtime, context)}"
+        ),
+        options=SendOptions(thread_id=thread_id),
+    )
+
+
 async def _handle_cancel(
     cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
@@ -650,10 +1028,13 @@ async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
 
 async def _send_with_resume(
     cfg: TelegramBridgeConfig,
-    enqueue: Callable[[int, int, str, ResumeToken, RunContext | None], Awaitable[None]],
+    enqueue: Callable[
+        [int, int, str, ResumeToken, RunContext | None, int | None], Awaitable[None]
+    ],
     running_task: RunningTask,
     chat_id: int,
     user_msg_id: int,
+    thread_id: int | None,
     text: str,
 ) -> None:
     resume = await _wait_for_resume(running_task)
@@ -666,7 +1047,14 @@ async def _send_with_resume(
             notify=False,
         )
         return
-    await enqueue(chat_id, user_msg_id, text, resume, running_task.context)
+    await enqueue(
+        chat_id,
+        user_msg_id,
+        text,
+        resume,
+        running_task.context,
+        thread_id,
+    )
 
 
 async def _send_runner_unavailable(
@@ -1031,8 +1419,22 @@ async def run_main_loop(
     transport_snapshot = (
         dict(transport_config) if transport_config is not None else None
     )
+    topic_store: TopicStateStore | None = None
 
     try:
+        if cfg.topics.enabled:
+            config_path = cfg.runtime.config_path
+            if config_path is None:
+                raise ConfigError(
+                    "Topics enabled but config path is not set; cannot locate state file."
+                )
+            topic_store = TopicStateStore(resolve_state_path(config_path))
+            await _validate_topics_setup(cfg)
+            logger.info(
+                "topics.enabled",
+                mode=cfg.topics.mode,
+                state_path=str(resolve_state_path(config_path)),
+            )
         await _set_command_menu(cfg)
         async with anyio.create_task_group() as tg:
             config_path = cfg.runtime.config_path
@@ -1077,17 +1479,42 @@ async def run_main_loop(
 
                 tg.start_soon(run_config_watch)
 
+            def wrap_on_thread_known(
+                base_cb: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
+                topic_key: tuple[int, int] | None,
+            ) -> Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None:
+                if base_cb is None and topic_key is None:
+                    return None
+
+                async def _wrapped(token: ResumeToken, done: anyio.Event) -> None:
+                    if base_cb is not None:
+                        await base_cb(token, done)
+                    if topic_store is not None and topic_key is not None:
+                        await topic_store.set_session_resume(
+                            topic_key[0], topic_key[1], token
+                        )
+
+                return _wrapped
+
             async def run_job(
                 chat_id: int,
                 user_msg_id: int,
                 text: str,
                 resume_token: ResumeToken | None,
                 context: RunContext | None,
+                thread_id: int | None = None,
                 reply_ref: MessageRef | None = None,
                 on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
                 | None = None,
                 engine_override: EngineId | None = None,
             ) -> None:
+                topic_key = (
+                    (chat_id, thread_id)
+                    if topic_store is not None
+                    and thread_id is not None
+                    and chat_id == cfg.chat_id
+                    else None
+                )
                 await _run_engine(
                     exec_cfg=cfg.exec_cfg,
                     runtime=cfg.runtime,
@@ -1098,7 +1525,7 @@ async def run_main_loop(
                     resume_token=resume_token,
                     context=context,
                     reply_ref=reply_ref,
-                    on_thread_known=on_thread_known,
+                    on_thread_known=wrap_on_thread_known(on_thread_known, topic_key),
                     engine_override=engine_override,
                 )
 
@@ -1109,7 +1536,9 @@ async def run_main_loop(
                     job.text,
                     job.resume_token,
                     job.context,
+                    job.thread_id,
                     None,
+                    scheduler.note_thread_known,
                 )
 
             scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
@@ -1137,12 +1566,34 @@ async def run_main_loop(
                     if reply_id is not None
                     else None
                 )
+                topic_key = _topic_key(msg, cfg) if topic_store is not None else None
+                ambient_context = (
+                    await topic_store.get_context(*topic_key)
+                    if topic_store is not None and topic_key is not None
+                    else None
+                )
 
                 if _is_cancel_command(text):
                     tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
                     continue
 
                 command_id, args_text = _parse_slash_command(text)
+                if (
+                    cfg.topics.enabled
+                    and topic_store is not None
+                    and command_id in _TOPICS_COMMANDS
+                ):
+                    if command_id == "ctx":
+                        tg.start_soon(
+                            _handle_ctx_command, cfg, msg, args_text, topic_store
+                        )
+                    elif command_id == "new":
+                        tg.start_soon(_handle_new_command, cfg, msg, topic_store)
+                    else:
+                        tg.start_soon(
+                            _handle_topic_command, cfg, msg, args_text, topic_store
+                        )
+                    continue
                 if (
                     command_id is not None
                     and command_id not in command_cache.reserved_commands
@@ -1167,6 +1618,7 @@ async def run_main_loop(
                     resolved = cfg.runtime.resolve_message(
                         text=text,
                         reply_text=reply_text,
+                        ambient_context=ambient_context,
                         chat_id=chat_id,
                     )
                 except DirectiveError as exc:
@@ -1182,6 +1634,30 @@ async def run_main_loop(
                 resume_token = resolved.resume_token
                 engine_override = resolved.engine_override
                 context = resolved.context
+                if (
+                    topic_store is not None
+                    and topic_key is not None
+                    and resolved.context is not None
+                    and resolved.context_source == "directives"
+                ):
+                    await topic_store.set_context(*topic_key, resolved.context)
+                    ambient_context = resolved.context
+                if (
+                    topic_store is not None
+                    and topic_key is not None
+                    and ambient_context is None
+                    and resolved.context_source not in {"directives", "reply_ctx"}
+                ):
+                    await _send_plain(
+                        cfg.exec_cfg.transport,
+                        chat_id=chat_id,
+                        user_msg_id=user_msg_id,
+                        text=(
+                            "this topic isn't bound to a project yet.\n"
+                            f"{_usage_ctx_set(cfg)} or {_usage_topic(cfg)}"
+                        ),
+                    )
+                    continue
                 if resume_token is None and reply_id is not None:
                     running_task = running_tasks.get(
                         MessageRef(channel_id=chat_id, message_id=reply_id)
@@ -1194,9 +1670,24 @@ async def run_main_loop(
                             running_task,
                             chat_id,
                             user_msg_id,
+                            msg.thread_id,
                             text,
                         )
                         continue
+                if (
+                    resume_token is None
+                    and topic_store is not None
+                    and topic_key is not None
+                ):
+                    engine_for_session = cfg.runtime.resolve_engine(
+                        engine_override=engine_override,
+                        context=context,
+                    )
+                    stored = await topic_store.get_session_resume(
+                        topic_key[0], topic_key[1], engine_for_session
+                    )
+                    if stored is not None:
+                        resume_token = stored
 
                 if resume_token is None:
                     tg.start_soon(
@@ -1206,6 +1697,7 @@ async def run_main_loop(
                         text,
                         None,
                         context,
+                        msg.thread_id,
                         reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
@@ -1217,6 +1709,7 @@ async def run_main_loop(
                         text,
                         resume_token,
                         context,
+                        msg.thread_id,
                     )
     finally:
         await cfg.exec_cfg.transport.close()

@@ -105,6 +105,10 @@ def _parse_incoming_message(
     msg_chat_id = chat.get("id")
     if not isinstance(msg_chat_id, int):
         return None
+    chat_type = chat.get("type") if isinstance(chat.get("type"), str) else None
+    is_forum = chat.get("is_forum")
+    if not isinstance(is_forum, bool):
+        is_forum = None
     allowed = chat_ids
     if allowed is None and chat_id is not None:
         allowed = {chat_id}
@@ -131,6 +135,12 @@ def _parse_incoming_message(
         if isinstance(sender, dict) and isinstance(sender.get("id"), int)
         else None
     )
+    thread_id = msg.get("message_thread_id")
+    if isinstance(thread_id, bool) or not isinstance(thread_id, int):
+        thread_id = None
+    is_topic_message = msg.get("is_topic_message")
+    if not isinstance(is_topic_message, bool):
+        is_topic_message = None
     return TelegramIncomingMessage(
         transport="telegram",
         chat_id=msg_chat_id,
@@ -139,6 +149,10 @@ def _parse_incoming_message(
         reply_to_message_id=reply_to_message_id,
         reply_to_text=reply_to_text,
         sender_id=sender_id,
+        thread_id=thread_id,
+        is_topic_message=is_topic_message,
+        chat_type=chat_type,
+        is_forum=is_forum,
         voice=voice_payload,
         raw=msg,
     )
@@ -237,6 +251,7 @@ class BotClient(Protocol):
         text: str,
         reply_to_message_id: int | None = None,
         disable_notification: bool | None = False,
+        message_thread_id: int | None = None,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict[str, Any] | None = None,
@@ -278,6 +293,16 @@ class BotClient(Protocol):
         text: str | None = None,
         show_alert: bool | None = None,
     ) -> bool: ...
+
+    async def get_chat(self, chat_id: int) -> dict | None: ...
+
+    async def get_chat_member(self, chat_id: int, user_id: int) -> dict | None: ...
+
+    async def create_forum_topic(
+        self,
+        chat_id: int,
+        name: str,
+    ) -> dict | None: ...
 
 
 if TYPE_CHECKING:
@@ -721,6 +746,7 @@ class TelegramClient:
         text: str,
         reply_to_message_id: int | None = None,
         disable_notification: bool | None = False,
+        message_thread_id: int | None = None,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict[str, Any] | None = None,
@@ -734,6 +760,7 @@ class TelegramClient:
                     text=text,
                     reply_to_message_id=reply_to_message_id,
                     disable_notification=disable_notification,
+                    message_thread_id=message_thread_id,
                     entities=entities,
                     parse_mode=parse_mode,
                     reply_markup=reply_markup,
@@ -744,6 +771,8 @@ class TelegramClient:
                 params["disable_notification"] = disable_notification
             if reply_to_message_id is not None:
                 params["reply_to_message_id"] = reply_to_message_id
+            if message_thread_id is not None:
+                params["message_thread_id"] = message_thread_id
             if entities is not None:
                 params["entities"] = entities
             if parse_mode is not None:
@@ -920,4 +949,53 @@ class TelegramClient:
                 priority=SEND_PRIORITY,
                 chat_id=None,
             )
+        )
+
+    async def get_chat(self, chat_id: int) -> dict | None:
+        async def execute() -> dict | None:
+            if self._client_override is not None:
+                return await self._client_override.get_chat(chat_id)
+            result = await self._post("getChat", {"chat_id": chat_id})
+            return result if isinstance(result, dict) else None
+
+        return await self.enqueue_op(
+            key=self.unique_key("get_chat"),
+            label="get_chat",
+            execute=execute,
+            priority=SEND_PRIORITY,
+            chat_id=chat_id,
+        )
+
+    async def get_chat_member(self, chat_id: int, user_id: int) -> dict | None:
+        async def execute() -> dict | None:
+            if self._client_override is not None:
+                return await self._client_override.get_chat_member(chat_id, user_id)
+            result = await self._post(
+                "getChatMember", {"chat_id": chat_id, "user_id": user_id}
+            )
+            return result if isinstance(result, dict) else None
+
+        return await self.enqueue_op(
+            key=self.unique_key("get_chat_member"),
+            label="get_chat_member",
+            execute=execute,
+            priority=SEND_PRIORITY,
+            chat_id=chat_id,
+        )
+
+    async def create_forum_topic(self, chat_id: int, name: str) -> dict | None:
+        async def execute() -> dict | None:
+            if self._client_override is not None:
+                return await self._client_override.create_forum_topic(chat_id, name)
+            result = await self._post(
+                "createForumTopic", {"chat_id": chat_id, "name": name}
+            )
+            return result if isinstance(result, dict) else None
+
+        return await self.enqueue_op(
+            key=self.unique_key("create_forum_topic"),
+            label="create_forum_topic",
+            execute=execute,
+            priority=SEND_PRIORITY,
+            chat_id=chat_id,
         )

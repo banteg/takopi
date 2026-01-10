@@ -11,7 +11,7 @@ def test_parse_incoming_update_maps_fields() -> None:
         "message": {
             "message_id": 10,
             "text": "hello",
-            "chat": {"id": 123},
+            "chat": {"id": 123, "type": "supergroup", "is_forum": True},
             "from": {"id": 99},
             "reply_to_message": {"message_id": 5, "text": "prev"},
         },
@@ -27,6 +27,10 @@ def test_parse_incoming_update_maps_fields() -> None:
     assert msg.reply_to_message_id == 5
     assert msg.reply_to_text == "prev"
     assert msg.sender_id == 99
+    assert msg.thread_id is None
+    assert msg.is_topic_message is None
+    assert msg.chat_type == "supergroup"
+    assert msg.is_forum is True
     assert msg.voice is None
     assert msg.raw == update["message"]
 
@@ -102,3 +106,23 @@ def test_parse_incoming_update_callback_query() -> None:
     assert msg.callback_query_id == "cbq-1"
     assert msg.data == "takopi:cancel"
     assert msg.sender_id == 321
+
+
+def test_parse_incoming_update_topic_fields() -> None:
+    update = {
+        "update_id": 1,
+        "message": {
+            "message_id": 10,
+            "text": "hello",
+            "message_thread_id": 77,
+            "is_topic_message": True,
+            "chat": {"id": -100, "type": "supergroup", "is_forum": True},
+        },
+    }
+
+    msg = parse_incoming_update(update, chat_id=-100)
+    assert msg is not None
+    assert msg.thread_id == 77
+    assert msg.is_topic_message is True
+    assert msg.chat_type == "supergroup"
+    assert msg.is_forum is True

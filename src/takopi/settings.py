@@ -20,12 +20,53 @@ from .config import ConfigError, ProjectConfig, ProjectsConfig, HOME_CONFIG_PATH
 from .config_migrations import migrate_config_file
 
 
+class TelegramTopicsSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    mode: str = "multi_project_chat"
+    project: str | None = None
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _validate_mode(cls, value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError("topics.mode must be a string")
+        cleaned = value.strip()
+        if cleaned not in {"per_project_chat", "multi_project_chat"}:
+            raise ValueError(
+                "topics.mode must be 'per_project_chat' or 'multi_project_chat'"
+            )
+        return cleaned
+
+    @field_validator("project", mode="before")
+    @classmethod
+    def _validate_project(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("topics.project must be a string")
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("topics.project must be a non-empty string")
+        return cleaned
+
+    @model_validator(mode="after")
+    def _validate_required_project(self) -> "TelegramTopicsSettings":
+        if self.enabled and self.mode == "per_project_chat" and self.project is None:
+            raise ValueError(
+                "topics.project is required when topics.mode is per_project_chat"
+            )
+        return self
+
+
 class TelegramTransportSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bot_token: SecretStr | None = None
     chat_id: int | None = None
     voice_transcription: bool = False
+    topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
 
     @field_validator("bot_token", mode="before")
     @classmethod
