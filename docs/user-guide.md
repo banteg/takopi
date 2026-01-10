@@ -162,7 +162,7 @@ default_project = "myproject"
 Worktrees let you work on multiple branches without switching back and forth. Use `@branch` to run a task in a dedicated worktree:
 
 ```
-/myproject @feat/streaming fix the renderer
+/myproject @feat/renderer-cache fix the renderer
 ```
 
 Takopi creates (or reuses) a worktree at:
@@ -254,9 +254,9 @@ Your bot needs **Manage Topics** permission in the group.
 │  Shared Forum Group                 │
 ├─────────────────────────────────────┤
 │  ├── takopi @main                   │
-│  ├── takopi @feat/streaming         │
-│  ├── otherproject @main             │
-│  └── otherproject @bugfix           │
+│  ├── takopi @feat/renderer-cache    │
+│  ├── happy-gadgets @main            │
+│  └── happy-gadgets @bugfix/auth-timeout │
 └─────────────────────────────────────┘
 ```
 
@@ -267,8 +267,8 @@ Your bot needs **Manage Topics** permission in the group.
 │  takopi Group    │  │  other Group     │
 ├──────────────────┤  ├──────────────────┤
 │  ├── @main       │  │  ├── @main       │
-│  ├── @feat/x     │  │  └── @bugfix     │
-│  └── @feat/y     │  │                  │
+│  ├── @feat/search-filters │  │  └── @bugfix/payment-webhook │
+│  └── @feat/async-import   │  │                              │
 └──────────────────┘  └──────────────────┘
 ```
 
@@ -379,7 +379,7 @@ worktree_base = "develop"
 |-----------|---------|-------------|
 | `/engine` | `/codex fix tests` | Use a specific engine |
 | `/project` | `/myapp add feature` | Target a project |
-| `@branch` | `@feat/login fix auth` | Run in a worktree |
+| `@branch` | `@feat/auth-refresh refresh tokens` | Run in a worktree |
 | Combined | `/myapp @dev fix bug` | Project + branch |
 
 ### In-chat commands
