@@ -52,7 +52,7 @@ def test_parse_incoming_update_filters_non_matching_chat() -> None:
 def test_parse_incoming_update_filters_non_text_and_non_voice() -> None:
     update = {
         "update_id": 1,
-        "message": {"message_id": 10, "chat": {"id": 123}, "photo": []},
+        "message": {"message_id": 10, "chat": {"id": 123}, "sticker": {}},
     }
 
     assert parse_incoming_update(update, chat_id=123) is None
@@ -111,6 +111,42 @@ def test_parse_incoming_update_document_message() -> None:
     assert msg.document.file_name == "doc.txt"
     assert msg.document.mime_type == "text/plain"
     assert msg.document.file_size == 4321
+
+
+def test_parse_incoming_update_photo_message() -> None:
+    update = {
+        "update_id": 1,
+        "message": {
+            "message_id": 10,
+            "caption": "/file put incoming/photo.jpg",
+            "chat": {"id": 123},
+            "photo": [
+                {
+                    "file_id": "small",
+                    "file_unique_id": "uniq-small",
+                    "file_size": 100,
+                    "width": 90,
+                    "height": 90,
+                },
+                {
+                    "file_id": "large",
+                    "file_unique_id": "uniq-large",
+                    "file_size": 1000,
+                    "width": 800,
+                    "height": 600,
+                },
+            ],
+        },
+    }
+
+    msg = parse_incoming_update(update, chat_id=123)
+    assert msg is not None
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.text == "/file put incoming/photo.jpg"
+    assert msg.document is not None
+    assert msg.document.file_id == "large"
+    assert msg.document.file_name is None
+    assert msg.document.file_size == 1000
 
 
 def test_parse_incoming_update_callback_query() -> None:

@@ -188,14 +188,14 @@ def _format_context(runtime: TransportRuntime, context: RunContext | None) -> st
 
 def _usage_ctx_set(*, chat_project: str | None) -> str:
     if chat_project is not None:
-        return "usage: /ctx set [@branch]"
-    return "usage: /ctx set <project> [@branch]"
+        return "usage: `/ctx set [@branch]`"
+    return "usage: `/ctx set <project> [@branch]`"
 
 
 def _usage_topic(*, chat_project: str | None) -> str:
     if chat_project is not None:
-        return "usage: /topic @branch"
-    return "usage: /topic <project> @branch"
+        return "usage: `/topic @branch`"
+    return "usage: `/topic <project> @branch`"
 
 
 def _parse_project_branch_args(
@@ -276,9 +276,7 @@ def _format_ctx_status(
         ctx_usage = (
             _usage_ctx_set(chat_project=chat_project).removeprefix("usage: ").strip()
         )
-        lines.append(
-            f"note: unbound topic — bind with `{topic_usage}` or `{ctx_usage}`"
-        )
+        lines.append(f"note: unbound topic — bind with {topic_usage} or {ctx_usage}")
     sessions = None
     if snapshot is not None and snapshot.sessions:
         sessions = ", ".join(sorted(snapshot.sessions))
@@ -839,15 +837,15 @@ async def _transcribe_voice(
 
 
 def _file_usage() -> str:
-    return "usage: /file put <path> or /file get <path>"
+    return "usage: `/file put <path>` or `/file get <path>`"
 
 
 def _file_put_usage() -> str:
-    return "usage: /file put <path>"
+    return "usage: `/file put <path>`"
 
 
 def _file_get_usage() -> str:
-    return "usage: /file get <path>"
+    return "usage: `/file get <path>`"
 
 
 def _parse_file_command(args_text: str) -> tuple[str | None, str, str | None]:
@@ -994,8 +992,12 @@ async def _maybe_update_topic_context(
     )
 
 
-def _default_upload_path(cfg: TelegramBridgeConfig, filename: str | None) -> Path:
-    name = Path(filename or "upload.bin").name
+def _default_upload_path(
+    cfg: TelegramBridgeConfig, filename: str | None, file_path: str | None
+) -> Path:
+    name = Path(filename or "").name
+    if not name and file_path:
+        name = Path(file_path).name
     if not name:
         name = "upload.bin"
     return Path(cfg.files.uploads_dir) / name
@@ -1143,59 +1145,58 @@ async def _handle_file_put(
             thread_id=msg.thread_id,
         )
         return
-    rel_path = (
-        _normalize_relative_path(path_value)
-        if path_value
-        else _default_upload_path(cfg, document.file_name)
-    )
-    if rel_path is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="invalid upload path.",
-            thread_id=msg.thread_id,
-        )
-        return
-    deny_reason = _deny_reason(rel_path, cfg.files.deny_globs)
-    if deny_reason is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=f"path denied by rule: {deny_reason}",
-            thread_id=msg.thread_id,
-        )
-        return
-    target = _resolve_path_within_root(run_root, rel_path)
-    if target is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="upload path escapes the repo root.",
-            thread_id=msg.thread_id,
-        )
-        return
-    if target.exists():
-        if target.is_dir():
+    rel_path: Path | None = None
+    target: Path | None = None
+    if path_value:
+        rel_path = _normalize_relative_path(path_value)
+        if rel_path is None:
             await _send_plain(
                 cfg.exec_cfg.transport,
                 chat_id=msg.chat_id,
                 user_msg_id=msg.message_id,
-                text="upload target is a directory.",
+                text="invalid upload path.",
                 thread_id=msg.thread_id,
             )
             return
-        if not force:
+        deny_reason = _deny_reason(rel_path, cfg.files.deny_globs)
+        if deny_reason is not None:
             await _send_plain(
                 cfg.exec_cfg.transport,
                 chat_id=msg.chat_id,
                 user_msg_id=msg.message_id,
-                text="file already exists; use --force to overwrite.",
+                text=f"path denied by rule: {deny_reason}",
                 thread_id=msg.thread_id,
             )
             return
+        target = _resolve_path_within_root(run_root, rel_path)
+        if target is None:
+            await _send_plain(
+                cfg.exec_cfg.transport,
+                chat_id=msg.chat_id,
+                user_msg_id=msg.message_id,
+                text="upload path escapes the repo root.",
+                thread_id=msg.thread_id,
+            )
+            return
+        if target.exists():
+            if target.is_dir():
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text="upload target is a directory.",
+                    thread_id=msg.thread_id,
+                )
+                return
+            if not force:
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text="file already exists; use --force to overwrite.",
+                    thread_id=msg.thread_id,
+                )
+                return
     if (
         document.file_size is not None
         and document.file_size > cfg.files.max_upload_bytes
@@ -1225,6 +1226,56 @@ async def _handle_file_put(
             chat_id=msg.chat_id,
             user_msg_id=msg.message_id,
             text="failed to fetch file metadata.",
+            thread_id=msg.thread_id,
+        )
+        return
+    if rel_path is None:
+        rel_path = _default_upload_path(cfg, document.file_name, file_path)
+        deny_reason = _deny_reason(rel_path, cfg.files.deny_globs)
+        if deny_reason is not None:
+            await _send_plain(
+                cfg.exec_cfg.transport,
+                chat_id=msg.chat_id,
+                user_msg_id=msg.message_id,
+                text=f"path denied by rule: {deny_reason}",
+                thread_id=msg.thread_id,
+            )
+            return
+        target = _resolve_path_within_root(run_root, rel_path)
+        if target is None:
+            await _send_plain(
+                cfg.exec_cfg.transport,
+                chat_id=msg.chat_id,
+                user_msg_id=msg.message_id,
+                text="upload path escapes the repo root.",
+                thread_id=msg.thread_id,
+            )
+            return
+        if target.exists():
+            if target.is_dir():
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text="upload target is a directory.",
+                    thread_id=msg.thread_id,
+                )
+                return
+            if not force:
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text="file already exists; use --force to overwrite.",
+                    thread_id=msg.thread_id,
+                )
+                return
+    if target is None:
+        await _send_plain(
+            cfg.exec_cfg.transport,
+            chat_id=msg.chat_id,
+            user_msg_id=msg.message_id,
+            text="invalid upload path.",
             thread_id=msg.thread_id,
         )
         return
@@ -1585,7 +1636,7 @@ async def _handle_ctx_command(
         cfg.exec_cfg.transport,
         chat_id=msg.chat_id,
         user_msg_id=msg.message_id,
-        text="unknown /ctx command. use /ctx, /ctx set, or /ctx clear.",
+        text="unknown `/ctx` command. use `/ctx`, `/ctx set`, or `/ctx clear`.",
         thread_id=msg.thread_id,
     )
 
@@ -1695,7 +1746,7 @@ async def _handle_topic_command(
         cfg.exec_cfg.transport,
         chat_id=msg.chat_id,
         user_msg_id=msg.message_id,
-        text=f"created topic {title!r}.",
+        text=f"created topic `{title}`.",
         thread_id=msg.thread_id,
     )
     await cfg.exec_cfg.transport.send(

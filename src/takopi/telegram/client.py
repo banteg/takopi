@@ -125,6 +125,43 @@ def _parse_incoming_message(
                 else None,
                 raw=document,
             )
+    if document_payload is None:
+        photo = msg.get("photo")
+        if isinstance(photo, list):
+            best: dict[str, Any] | None = None
+            best_score = -1
+            for item in photo:
+                if not isinstance(item, dict):
+                    continue
+                file_id = item.get("file_id")
+                if not isinstance(file_id, str) or not file_id:
+                    continue
+                size = item.get("file_size")
+                if isinstance(size, int) and not isinstance(size, bool):
+                    score = size
+                else:
+                    width = item.get("width")
+                    height = item.get("height")
+                    if isinstance(width, int) and isinstance(height, int):
+                        score = width * height
+                    else:
+                        score = 0
+                if score > best_score:
+                    best_score = score
+                    best = item
+            if best is not None:
+                file_id = best.get("file_id")
+                if isinstance(file_id, str) and file_id:
+                    document_payload = TelegramDocument(
+                        file_id=file_id,
+                        file_name=None,
+                        mime_type=None,
+                        file_size=best.get("file_size")
+                        if isinstance(best.get("file_size"), int)
+                        and not isinstance(best.get("file_size"), bool)
+                        else None,
+                        raw=best,
+                    )
     has_text = isinstance(raw_text, str) or isinstance(caption, str)
     if not has_text and voice_payload is None and document_payload is None:
         return None
