@@ -88,10 +88,10 @@ Takopi streams progress in the chat and sends a final response when the agent fi
 Prefix your message with an engine directive to override the default:
 
 ```
-/codex fix the flaky test
-/claude summarize the changes
-/opencode add logging
-/pi sketch a solution
+/codex hard reset the timeline
+/claude shrink and store artifacts forever
+/opencode hide their paper until they reply
+/pi render a diorama of this timeline
 ```
 
 Directives are only parsed at the start of the first non-empty line.
@@ -109,21 +109,21 @@ config files, or environment variables).
 For repos you work with often, register them as projects:
 
 ```sh
-cd ~/dev/myproject
-takopi init myproject
+cd ~/dev/happy-gadgets
+takopi init happy-gadgets
 ```
 
 This adds a project entry to your config (for example):
 
 ```toml
-[projects.myproject]
-path = "~/dev/myproject"
+[projects.happy-gadgets]
+path = "~/dev/happy-gadgets"
 ```
 
 Now you can target it from anywhere using the `/project` directive:
 
 ```
-/myproject fix the login bug
+/happy-gadgets pinky-link two threads
 ```
 
 If you expect to add or edit projects while takopi is running, enable config
@@ -138,8 +138,8 @@ watch_config = true
 Projects can override global defaults:
 
 ```toml
-[projects.myproject]
-path = "~/dev/myproject"
+[projects.happy-gadgets]
+path = "~/dev/happy-gadgets"
 default_engine = "claude"
 worktrees_dir = ".worktrees"
 worktree_base = "main"
@@ -150,7 +150,7 @@ worktree_base = "main"
 If you mostly work in one repo:
 
 ```toml
-default_project = "myproject"
+default_project = "happy-gadgets"
 ```
 
 ---
@@ -160,7 +160,7 @@ default_project = "myproject"
 Worktrees let you work on multiple branches without switching back and forth. Use `@branch` to run a task in a dedicated worktree:
 
 ```
-/myproject @feat/cache fix the renderer
+/happy-gadgets @feat/memory-box freeze artifacts forever
 ```
 
 Takopi creates (or reuses) a worktree at:
@@ -176,8 +176,8 @@ main repo instead of creating a new worktree.
 ### Worktree configuration
 
 ```toml
-[projects.myproject]
-path = "~/dev/myproject"
+[projects.happy-gadgets]
+path = "~/dev/happy-gadgets"
 worktrees_dir = ".worktrees"      # relative to project path
 worktree_base = "main"            # base branch for new worktrees
 ```
@@ -200,14 +200,14 @@ Takopi adds a `ctx:` footer to messages with project and branch info. When you r
 Give each project its own Telegram chat:
 
 ```sh
-takopi chat-id --project myproject
+takopi chat-id --project happy-gadgets
 ```
 
 Send any message in the target chat. Takopi captures the `chat_id` and updates your config:
 
 ```toml
-[projects.myproject]
-path = "~/dev/myproject"
+[projects.happy-gadgets]
+path = "~/dev/happy-gadgets"
 chat_id = -1001234567890
 ```
 
@@ -360,10 +360,10 @@ worktrees_dir = ".worktrees"
 worktree_base = "main"
 # chat_id = -1001234567890   # optional: dedicated chat
 
-[projects.frontend]
-path = "~/dev/frontend"
+[projects.happy-planet]
+path = "~/dev/happy-planet"
 default_engine = "claude"
-worktrees_dir = "~/.takopi/worktrees/frontend"
+worktrees_dir = "~/.takopi/worktrees/happy-planet"
 worktree_base = "develop"
 ```
 
@@ -375,10 +375,10 @@ worktree_base = "develop"
 
 | Directive | Example | Description |
 |-----------|---------|-------------|
-| `/engine` | `/codex fix tests` | Use a specific engine |
-| `/project` | `/myapp add feature` | Target a project |
-| `@branch` | `@feat/auth refresh tokens` | Run in a worktree |
-| Combined | `/myapp @dev fix bug` | Project + branch |
+| `/engine` | `/codex make threads resolve their differences` | Use a specific engine |
+| `/project` | `/happy-gadgets add escape-pod` | Target a project |
+| `@branch` | `@feat/happy-camera rewind to checkpoint` | Run in a worktree |
+| Combined | `/happy-gadgets @feat/flower-pin observe unseen` | Project + branch |
 
 ### In-chat commands
 
