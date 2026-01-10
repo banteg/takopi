@@ -24,6 +24,42 @@ telegram forum topics: bind a topic to a project/branch and keep per-topic sessi
 
 per-project chat routing: assign different telegram chats to different projects.
 
+## images
+
+send images (compressed or as documents) to the bot to include them in your prompt.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant TelegramBot as Telegram Bot (Takopi)
+    participant Worker as Job Worker
+    participant DownloadDir as Local Storage (downloads/)
+    participant Agent as Agent (Claude)
+
+    User->>TelegramBot: Send Image (Photo or Document)
+    TelegramBot->>TelegramBot: Parse Message
+    TelegramBot->>Worker: Spawn Job (Async)
+    Note over TelegramBot: Main loop continues polling
+    
+    rect rgb(240, 248, 255)
+        Note over Worker: Job Start
+        Worker->>TelegramBot: Get File Info (API)
+        Worker->>TelegramBot: Download File Content (API)
+        Worker->>DownloadDir: Save to unique path
+        Worker->>Worker: Append path to User's message
+        Worker->>Agent: Send Prompt + Image Path
+        Agent->>DownloadDir: Read Image File
+        Agent->>Agent: Analyze Image
+        Agent->>Worker: Return Response
+        Worker->>User: Send Agent Response
+    end
+    
+    loop Every Hour
+        TelegramBot->>DownloadDir: Cleanup Logic
+        DownloadDir->>DownloadDir: Delete files > 3 hours old
+    end
+```
+
 ## requirements
 
 `uv` for installation (`curl -LsSf https://astral.sh/uv/install.sh | sh`)

@@ -21,6 +21,7 @@ import anyio
 from ..logging import get_logger
 from .types import (
     TelegramCallbackQuery,
+    TelegramDocument,
     TelegramIncomingMessage,
     TelegramIncomingUpdate,
     TelegramPhoto,
@@ -179,6 +180,27 @@ def _parse_incoming_message(
             if not text:
                 text = msg.get("caption", "")
 
+    document_payload: TelegramDocument | None = None
+    doc = msg.get("document")
+    if isinstance(doc, dict):
+        fid = doc.get("file_id")
+        uid = doc.get("file_unique_id")
+        mime = doc.get("mime_type", "")
+        if isinstance(fid, str) and isinstance(uid, str):
+            # Only allow images if they are sent as documents
+            if isinstance(mime, str) and mime.startswith("image/"):
+                size = doc.get("file_size")
+                document_payload = TelegramDocument(
+                    file_id=fid,
+                    file_unique_id=uid,
+                    mime_type=mime,
+                    file_size=size if isinstance(size, int) else None,
+                    file_name=doc.get("file_name"),
+                    raw=doc,
+                )
+                if not text:
+                    text = msg.get("caption", "")
+
     return TelegramIncomingMessage(
         transport="telegram",
         chat_id=msg_chat_id,
@@ -193,6 +215,7 @@ def _parse_incoming_message(
         is_forum=is_forum,
         voice=voice_payload,
         photo=photo_payload,
+        document=document_payload,
         raw=msg,
     )
 

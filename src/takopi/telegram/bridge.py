@@ -778,20 +778,15 @@ async def _transcribe_voice(
     return transcript
 
 
-async def _handle_photo(
+
+async def _handle_download(
     cfg: TelegramBridgeConfig,
-    msg: TelegramIncomingMessage,
+    file_id: str,
+    file_unique_id: str,
 ) -> str | None:
-    photos = msg.photo
-    if not photos:
-        return None
-    # Use the last item (highest resolution)
-    photo = photos[-1]
-    
-    file_info = await cfg.bot.get_file(photo.file_id)
+    file_info = await cfg.bot.get_file(file_id)
     if not isinstance(file_info, dict):
-        # We fail silently or log debug, effectively ignoring the image if we can't get it
-        logger.debug("photo.get_file.failed", file_id=photo.file_id)
+        logger.debug("download.get_file.failed", file_id=file_id)
         return None
     
     file_path = file_info.get("file_path")
@@ -800,20 +795,16 @@ async def _handle_photo(
         
     image_bytes = await cfg.bot.download_file(file_path)
     if not image_bytes:
-        logger.debug("photo.download.failed", file_path=file_path)
+        logger.debug("download.failed", file_path=file_path)
         return None
     
-    
-    # Save to downloads/
-    # We use file_unique_id to avoid collisions if possible, or just file_id
     ext = Path(file_path).suffix or ".jpg"
-    filename = f"{photo.file_unique_id}{ext}"
+    filename = f"{file_unique_id}{ext}"
     download_dir = cfg.download_path
-    download_dir.mkdir(exist_ok=True)
+    download_dir.mkdir(exist_ok=True, parents=True)
     local_path = download_dir / filename
     local_path.write_bytes(image_bytes)
     
-    # Return independent line to append
     return f"\n[User uploaded image to: {local_path.absolute()}]"
 
 
@@ -1697,7 +1688,33 @@ async def run_main_loop(
                 on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
                 | None = None,
                 engine_override: EngineId | None = None,
+            async def run_job(
+                chat_id: int,
+                user_msg_id: int,
+                text: str,
+                resume_token: ResumeToken | None,
+                context: RunContext | None,
+                thread_id: int | None = None,
+                reply_ref: MessageRef | None = None,
+                on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
+                | None = None,
+                engine_override: EngineId | None = None,
+                # New args for deferred download
+                photo_obj: Any = None,
+                doc_obj: Any = None,
             ) -> None:
+                # Handle downloads if present (non-blocking to the main loop, blocking to *this* job)
+                download_note = None
+                if photo_obj:
+                    # It's a TelegramPhoto (last one)
+                    download_note = await _handle_download(cfg, photo_obj.file_id, photo_obj.file_unique_id)
+                elif doc_obj:
+                    # It's a TelegramDocument
+                    download_note = await _handle_download(cfg, doc_obj.file_id, doc_obj.file_unique_id)
+                
+                if download_note:
+                    text = (text or "") + download_note
+                    
                 topic_key = (
                     (chat_id, thread_id)
                     if topic_store is not None
@@ -1748,10 +1765,16 @@ async def run_main_loop(
                     text = await _transcribe_voice(cfg, msg)
                     if text is None:
                         continue
+                
+                # Check for photos or documents but do NOT verify/download here.
+                # Pass them to run_job so parsing happens concurrently.
+                photo_arg = None
+                doc_arg = None
                 if msg.photo:
-                    photo_note = await _handle_photo(cfg, msg)
-                    if photo_note:
-                        text = (text or "") + photo_note
+                    photo_arg = msg.photo[-1]
+                elif msg.document:
+                    doc_arg = msg.document
+                
                 user_msg_id = msg.message_id
                 chat_id = msg.chat_id
                 reply_id = msg.reply_to_message_id
@@ -1910,6 +1933,8 @@ async def run_main_loop(
                         reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
+                        photo_arg,
+                        doc_arg,
                     )
                 else:
                     await scheduler.enqueue_resume(
