@@ -73,7 +73,6 @@ voice_transcription = true
 
 [transports.telegram.topics]
 enabled = true
-# If any project chats are configured, topics are managed there; otherwise main chat.
 
 [codex]
 # optional: profile from ~/.codex/config.toml
