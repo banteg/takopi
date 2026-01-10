@@ -529,6 +529,7 @@ class TelegramBridgeConfig:
     chat_ids: tuple[int, ...] | None = None
     topics: TelegramTopicsConfig = TelegramTopicsConfig()
     download_path: Path = Path("downloads")
+    download_base_url: str | None = None
     cleanup_interval_s: float = 3600.0
     cleanup_retention_s: float = 10800.0
 
@@ -789,22 +790,20 @@ async def _handle_download(
     if not isinstance(file_info, dict):
         logger.debug("download.get_file.failed", file_id=file_id)
         return None
-    
+
     file_path = file_info.get("file_path")
     if not isinstance(file_path, str) or not file_path:
         return None
-        
+
     image_bytes = await cfg.bot.download_file(file_path)
     if not image_bytes:
         logger.debug("download.failed", file_path=file_path)
         return None
-    
-    ext = Path(file_path).suffix or ".jpg"
-    filename = f"{file_unique_id}{ext}"
+
     ext = Path(file_path).suffix or ".jpg"
     filename = f"{file_unique_id}{ext}"
     download_dir = cfg.download_path
-    
+
     def _save_file() -> Path:
         download_dir.mkdir(exist_ok=True, parents=True)
         local_path = download_dir / filename
@@ -812,9 +811,14 @@ async def _handle_download(
         return local_path
 
     local_path = await anyio.to_thread.run_sync(_save_file)
-    
-    # Return a more explicit system instruction for the agent
-    return f"\n\n[SYSTEM: The user has attached an image. It has been saved to: {local_path.absolute()}. Please read this file to view the image.]"
+
+    # If download_base_url is configured, return a URL; otherwise fall back to file path
+    if cfg.download_base_url:
+        base_url = cfg.download_base_url.rstrip("/")
+        image_url = f"{base_url}/{filename}"
+        return f"\n\n[Image: {image_url}]"
+    else:
+        return f"\n\n[SYSTEM: The user has attached an image. It has been saved to: {local_path.absolute()}. Please read this file to view the image.]"
 
 
 async def _run_image_cleanup(
@@ -1773,14 +1777,18 @@ async def run_main_loop(
                 # Priority: Current message media > Reply media
                 photo_arg = None
                 doc_arg = None
-                
+
                 if msg.photo:
+                    logger.debug("photo.detected", count=len(msg.photo))
                     photo_arg = msg.photo[-1]
                 elif msg.document:
+                    logger.debug("document.detected", mime_type=msg.document.mime_type)
                     doc_arg = msg.document
                 elif msg.reply_to_photo:
+                    logger.debug("reply_to_photo.detected", count=len(msg.reply_to_photo))
                     photo_arg = msg.reply_to_photo[-1]
                 elif msg.reply_to_document:
+                    logger.debug("reply_to_document.detected", mime_type=msg.reply_to_document.mime_type)
                     doc_arg = msg.reply_to_document
                 
                 user_msg_id = msg.message_id

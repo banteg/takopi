@@ -54,6 +54,7 @@ class TelegramTransportSettings(BaseModel):
     voice_transcription: bool = False
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
     download_path: str = "downloads"
+    download_base_url: str | None = None
     cleanup_interval_s: int = 3600
     cleanup_retention_s: int = 10800
 

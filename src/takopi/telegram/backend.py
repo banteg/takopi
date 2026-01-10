@@ -135,6 +135,13 @@ class TelegramBackend(TransportBackend):
         )
         voice_transcription = _build_voice_transcription_config(transport_config)
         topics = _build_topics_config(transport_config, config_path=config_path)
+
+        # Get download settings
+        download_path = Path(transport_config.get("download_path", "downloads"))
+        download_base_url = transport_config.get("download_base_url")
+        cleanup_interval_s = float(transport_config.get("cleanup_interval_s", 3600))
+        cleanup_retention_s = float(transport_config.get("cleanup_retention_s", 10800))
+
         cfg = TelegramBridgeConfig(
             bot=bot,
             runtime=runtime,
@@ -143,6 +150,10 @@ class TelegramBackend(TransportBackend):
             exec_cfg=exec_cfg,
             voice_transcription=voice_transcription,
             topics=topics,
+            download_path=download_path,
+            download_base_url=download_base_url,
+            cleanup_interval_s=cleanup_interval_s,
+            cleanup_retention_s=cleanup_retention_s,
         )
 
         async def run_loop() -> None:
