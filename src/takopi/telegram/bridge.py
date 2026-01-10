@@ -217,7 +217,6 @@ def _format_ctx_status(
     *,
     cfg: TelegramBridgeConfig,
     runtime: TransportRuntime,
-    thread_id: int | None,
     bound: RunContext | None,
     resolved: RunContext | None,
     context_source: str,
@@ -225,7 +224,6 @@ def _format_ctx_status(
 ) -> str:
     lines = [
         f"topics: enabled ({cfg.topics.mode})",
-        f"thread_id: {thread_id if thread_id is not None else 'none'}",
         f"bound ctx: {_format_context(runtime, bound)}",
         f"resolved ctx: {_format_context(runtime, resolved)} (source: {context_source})",
     ]
@@ -864,7 +862,6 @@ async def _handle_ctx_command(
         text = _format_ctx_status(
             cfg=cfg,
             runtime=cfg.runtime,
-            thread_id=msg.thread_id,
             bound=bound,
             resolved=resolved.context,
             context_source=resolved.context_source,
@@ -1013,7 +1010,7 @@ async def _handle_topic_command(
             chat_id=msg.chat_id,
             user_msg_id=msg.message_id,
             text=f"topic already exists for {_format_context(cfg.runtime, context)} "
-            f"(thread_id {existing}).",
+            "in this chat.",
         )
         return
     title = _topic_title(cfg=cfg, runtime=cfg.runtime, context=context)
@@ -1038,7 +1035,7 @@ async def _handle_topic_command(
         cfg.exec_cfg.transport,
         chat_id=msg.chat_id,
         user_msg_id=msg.message_id,
-        text=f"created topic {title!r} (thread_id {thread_id}).",
+        text=f"created topic {title!r}.",
     )
     await cfg.exec_cfg.transport.send(
         channel_id=target_chat_id,
