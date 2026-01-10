@@ -428,4 +428,3 @@ def _load_settings_from_path(cfg_path: Path) -> TakopiSettings:
         raise ConfigError(f"Invalid config in {cfg_path}: {exc}") from exc
     except Exception as exc:  # pragma: no cover - safety net
         raise ConfigError(f"Failed to load config {cfg_path}: {exc}") from exc
-
