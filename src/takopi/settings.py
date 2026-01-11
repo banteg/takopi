@@ -149,7 +149,6 @@ class TransportsSettings(BaseModel):
 
 class PluginsSettings(BaseModel):
     enabled: list[str] = Field(default_factory=list)
-    auto_install: bool = False
 
     model_config = ConfigDict(extra="allow")
 
