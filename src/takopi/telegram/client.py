@@ -412,7 +412,6 @@ class OutboxOp:
     execute: Callable[[], Awaitable[Any]]
     priority: int
     queued_at: float
-    updated_at: float
     chat_id: int | None
     label: str | None = None
     done: anyio.Event = field(default_factory=anyio.Event)
@@ -465,8 +464,6 @@ class TelegramOutbox:
             if previous is not None:
                 op.queued_at = previous.queued_at
                 previous.set_result(None)
-            else:
-                op.queued_at = op.updated_at
             self._pending[key] = op
             self._cond.notify()
         if not wait:
@@ -661,8 +658,7 @@ class TelegramClient:
         request = OutboxOp(
             execute=execute,
             priority=priority,
-            queued_at=0.0,
-            updated_at=self._clock(),
+            queued_at=self._clock(),
             chat_id=chat_id,
             label=label,
         )
