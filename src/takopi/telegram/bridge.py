@@ -1922,8 +1922,7 @@ async def _handle_topic_command(
             thread_id=msg.thread_id,
         )
         return
-    target_chat_id = msg.chat_id
-    existing = await store.find_thread_for_context(target_chat_id, context)
+    existing = await store.find_thread_for_context(msg.chat_id, context)
     if existing is not None:
         await _send_plain(
             cfg.exec_cfg.transport,
@@ -1935,7 +1934,7 @@ async def _handle_topic_command(
         )
         return
     title = _topic_title(runtime=cfg.runtime, context=context)
-    created = await cfg.bot.create_forum_topic(target_chat_id, title)
+    created = await cfg.bot.create_forum_topic(msg.chat_id, title)
     thread_id = created.get("message_thread_id") if isinstance(created, dict) else None
     if isinstance(thread_id, bool) or not isinstance(thread_id, int):
         await _send_plain(
@@ -1947,7 +1946,7 @@ async def _handle_topic_command(
         )
         return
     await store.set_context(
-        target_chat_id,
+        msg.chat_id,
         thread_id,
         context,
         topic_title=title,
@@ -1961,7 +1960,7 @@ async def _handle_topic_command(
         thread_id=msg.thread_id,
     )
     await cfg.exec_cfg.transport.send(
-        channel_id=target_chat_id,
+        channel_id=msg.chat_id,
         message=RenderedMessage(
             text=f"topic bound to `{_format_context(cfg.runtime, context)}`"
         ),
@@ -2446,7 +2445,6 @@ async def _dispatch_command(
     if result is not None:
         reply_to = message_ref if result.reply_to is None else result.reply_to
         await executor.send(result.text, reply_to=reply_to, notify=result.notify)
-    return None
 
 
 async def run_main_loop(
