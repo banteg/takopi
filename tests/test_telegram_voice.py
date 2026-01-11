@@ -147,11 +147,11 @@ class _Bot(BotClient):
         raise AssertionError("edit_forum_topic should not be called")
 
 
-def _voice_message() -> TelegramIncomingMessage:
+def _voice_message(*, file_size: int = 123) -> TelegramIncomingMessage:
     voice = TelegramVoice(
         file_id="voice-id",
         mime_type="audio/ogg",
-        file_size=123,
+        file_size=file_size,
         duration=1,
         raw={},
     )
@@ -204,3 +204,32 @@ async def test_transcribe_voice_handles_missing_download() -> None:
 
     assert result is None
     assert replies[-1] == "failed to download voice file."
+
+
+@pytest.mark.anyio
+async def test_transcribe_voice_rejects_large_voice_without_downloading() -> None:
+    replies: list[str] = []
+
+    async def reply(**kwargs) -> None:
+        replies.append(kwargs["text"])
+
+    class _NoFetchBot(_Bot):
+        async def get_file(self, file_id: str) -> File | None:  # type: ignore[override]
+            _ = file_id
+            raise AssertionError("get_file should not be called")
+
+        async def download_file(self, file_path: str) -> bytes | None:  # type: ignore[override]
+            _ = file_path
+            raise AssertionError("download_file should not be called")
+
+    bot = _NoFetchBot(file_info=None, audio=None)
+    result = await transcribe_voice(
+        bot=bot,
+        msg=_voice_message(file_size=10_000),
+        enabled=True,
+        max_bytes=100,
+        reply=reply,
+    )
+
+    assert result is None
+    assert replies[-1] == "voice message is too large to transcribe."

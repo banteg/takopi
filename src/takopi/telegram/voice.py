@@ -28,6 +28,7 @@ async def transcribe_voice(
     bot: BotClient,
     msg: TelegramIncomingMessage,
     enabled: bool,
+    max_bytes: int | None = None,
     reply: Callable[..., Awaitable[None]],
 ) -> str | None:
     voice = msg.voice
@@ -36,6 +37,13 @@ async def transcribe_voice(
     if not enabled:
         await reply(text=VOICE_TRANSCRIPTION_DISABLED_HINT)
         return None
+    if (
+        max_bytes is not None
+        and voice.file_size is not None
+        and voice.file_size > max_bytes
+    ):
+        await reply(text="voice message is too large to transcribe.")
+        return None
     file_info = await bot.get_file(voice.file_id)
     if file_info is None:
         await reply(text="failed to fetch voice file.")
@@ -43,6 +51,9 @@ async def transcribe_voice(
     audio_bytes = await bot.download_file(file_info.file_path)
     if audio_bytes is None:
         await reply(text="failed to download voice file.")
+        return None
+    if max_bytes is not None and len(audio_bytes) > max_bytes:
+        await reply(text="voice message is too large to transcribe.")
         return None
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = "voice.ogg"

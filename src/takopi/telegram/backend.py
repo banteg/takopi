@@ -103,6 +103,7 @@ class TelegramBackend(TransportBackend):
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
             voice_transcription=settings.voice_transcription,
+            voice_max_bytes=int(settings.voice_max_bytes),
             topics=settings.topics,
             files=settings.files,
         )
