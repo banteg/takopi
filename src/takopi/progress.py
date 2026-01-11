@@ -25,6 +25,7 @@ class ProgressState:
     resume: ResumeToken | None
     resume_line: str | None
     context_line: str | None
+    header_suffix: str | None = None
 
 
 class ProgressTracker:
@@ -82,6 +83,7 @@ class ProgressTracker:
         *,
         resume_formatter: Callable[[ResumeToken], str] | None = None,
         context_line: str | None = None,
+        header_suffix: str | None = None,
     ) -> ProgressState:
         resume_line: str | None = None
         if self.resume is not None and resume_formatter is not None:
@@ -96,4 +98,5 @@ class ProgressTracker:
             resume=self.resume,
             resume_line=resume_line,
             context_line=context_line,
+            header_suffix=header_suffix,
         )

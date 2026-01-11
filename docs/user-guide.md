@@ -437,7 +437,42 @@ worktree_base = "develop"
 
 ---
 
-## 11. Command cheatsheet
+## 11. Ralph loop (iterative execution)
+
+Ralph loop runs the agent multiple times, with each iteration reviewing the previous work. This is useful for complex tasks that benefit from self-review.
+
+### Basic usage
+
+Add `!N` to your message to run up to N iterations:
+
+```
+!3 refactor the authentication module
+/claude !5 implement the new API endpoints
+/happy-gadgets @feat/api !3 add tests for all routes
+```
+
+### How it works
+
+1. First iteration runs your original prompt
+2. Subsequent iterations run with: "review your previous work and continue"
+3. The agent signals completion with `RALPH_COMPLETE: <summary>`
+4. Loop ends when agent signals completion or max iterations reached
+
+### Progress display
+
+Progress shows the current iteration:
+
+```
+working · claude · 2m 34s · step 12 · loop 2/3
+```
+
+### Design philosophy
+
+Each iteration starts fresh—no session continuity. The agent re-reads the codebase to understand current state. This prevents context pollution and drift, encouraging the agent to rely on the actual state of files rather than stale memory.
+
+---
+
+## 12. Command cheatsheet
 
 ### Message directives
 
@@ -446,6 +481,7 @@ worktree_base = "develop"
 | `/engine` | `/codex make threads resolve their differences` | Use a specific engine |
 | `/project` | `/happy-gadgets add escape-pod` | Target a project |
 | `@branch` | `@feat/happy-camera rewind to checkpoint` | Run in a worktree |
+| `!N` | `!3 refactor auth module` | Run up to N iterations (ralph loop) |
 | Combined | `/happy-gadgets @feat/flower-pin observe unseen` | Project + branch |
 
 ### In-chat commands
@@ -474,7 +510,7 @@ worktree_base = "develop"
 
 ---
 
-## 11. Troubleshooting
+## 13. Troubleshooting
 
 If something isn't working, rerun with `takopi --debug` and check `debug.log`
 for errors. Include it when reporting issues.

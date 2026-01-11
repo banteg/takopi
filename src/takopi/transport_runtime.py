@@ -28,6 +28,7 @@ class ResolvedMessage:
         "default_project",
         "none",
     ] = "none"
+    iterations: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +212,7 @@ class TransportRuntime:
             engine_override=engine_override,
             context=context,
             context_source=context_source,
+            iterations=directives.iterations,
         )
 
     @property

@@ -356,6 +356,48 @@ def test_parse_directives_only_first_non_empty_line() -> None:
     assert directives.prompt == "hello\n/claude hi"
 
 
+def test_parse_directives_iterations() -> None:
+    directives = parse_directives(
+        "!3 do something",
+        engine_ids=("codex", "claude"),
+        projects=_empty_projects(),
+    )
+    assert directives.iterations == 3
+    assert directives.prompt == "do something"
+
+
+def test_parse_directives_iterations_with_engine() -> None:
+    directives = parse_directives(
+        "/claude !5 build it",
+        engine_ids=("codex", "claude"),
+        projects=_empty_projects(),
+    )
+    assert directives.engine == "claude"
+    assert directives.iterations == 5
+    assert directives.prompt == "build it"
+
+
+def test_parse_directives_iterations_with_branch() -> None:
+    directives = parse_directives(
+        "@feat/test !2 review",
+        engine_ids=("codex", "claude"),
+        projects=_empty_projects(),
+    )
+    assert directives.branch == "feat/test"
+    assert directives.iterations == 2
+    assert directives.prompt == "review"
+
+
+def test_parse_directives_iterations_no_value() -> None:
+    directives = parse_directives(
+        "! do something",
+        engine_ids=("codex", "claude"),
+        projects=_empty_projects(),
+    )
+    assert directives.iterations is None
+    assert directives.prompt == "! do something"
+
+
 def test_build_bot_commands_includes_cancel_and_engine() -> None:
     runner = ScriptRunner(
         [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"

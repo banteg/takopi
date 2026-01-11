@@ -47,13 +47,20 @@ def format_elapsed(elapsed_s: float) -> str:
 
 
 def format_header(
-    elapsed_s: float, item: int | None, *, label: str, engine: str
+    elapsed_s: float,
+    item: int | None,
+    *,
+    label: str,
+    engine: str,
+    suffix: str | None = None,
 ) -> str:
     elapsed = format_elapsed(elapsed_s)
     parts = [label, engine]
     parts.append(elapsed)
     if item is not None:
         parts.append(f"step {item}")
+    if suffix is not None:
+        parts.append(suffix)
     return HEADER_SEP.join(parts)
 
 
@@ -208,6 +215,7 @@ class MarkdownFormatter:
             step,
             label=label,
             engine=state.engine,
+            suffix=state.header_suffix,
         )
         body = self._assemble_body(self._format_actions(state))
         return MarkdownParts(
@@ -228,6 +236,7 @@ class MarkdownFormatter:
             step,
             label=status,
             engine=state.engine,
+            suffix=state.header_suffix,
         )
         answer = (answer or "").strip()
         body = answer if answer else None

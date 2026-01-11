@@ -31,6 +31,7 @@ from ..runner_bridge import (
     IncomingMessage as RunnerIncomingMessage,
     RunningTasks,
     handle_message,
+    handle_message_ralph,
 )
 from ..scheduler import ThreadScheduler
 from ..transport import MessageRef, RenderedMessage, SendOptions
@@ -1095,6 +1096,7 @@ async def _run_engine(
     | None = None,
     engine_override: EngineId | None = None,
     thread_id: int | None = None,
+    iterations: int | None = None,
 ) -> None:
     reply = partial(
         send_plain,
@@ -1151,17 +1153,31 @@ async def _run_engine(
                 reply_to=reply_ref,
                 thread_id=thread_id,
             )
-            await handle_message(
-                exec_cfg,
-                runner=entry.runner,
-                incoming=incoming,
-                resume_token=resume_token,
-                context=context,
-                context_line=context_line,
-                strip_resume_line=runtime.is_resume_line,
-                running_tasks=running_tasks,
-                on_thread_known=on_thread_known,
-            )
+            if iterations is not None:
+                await handle_message_ralph(
+                    exec_cfg,
+                    runner=entry.runner,
+                    incoming=incoming,
+                    resume_token=resume_token,
+                    max_iterations=iterations,
+                    context=context,
+                    context_line=context_line,
+                    strip_resume_line=runtime.is_resume_line,
+                    running_tasks=running_tasks,
+                    on_thread_known=on_thread_known,
+                )
+            else:
+                await handle_message(
+                    exec_cfg,
+                    runner=entry.runner,
+                    incoming=incoming,
+                    resume_token=resume_token,
+                    context=context,
+                    context_line=context_line,
+                    strip_resume_line=runtime.is_resume_line,
+                    running_tasks=running_tasks,
+                    on_thread_known=on_thread_known,
+                )
         finally:
             reset_run_base_dir(run_base_token)
     except Exception as exc:
