@@ -54,6 +54,7 @@ from .files import (
     resolve_path_within_root,
     split_command_args,
     write_bytes_atomic,
+    ZipTooLargeError,
     zip_directory,
 )
 from .types import (
@@ -1575,11 +1576,14 @@ async def _handle_file_get(
     payload: bytes
     filename: str
     if target.is_dir():
-        payload = zip_directory(run_root, rel_path, cfg.files.deny_globs)
-        filename = f"{rel_path.name or 'archive'}.zip"
-    else:
-        size = target.stat().st_size
-        if size > cfg.files.max_download_bytes:
+        try:
+            payload = zip_directory(
+                run_root,
+                rel_path,
+                cfg.files.deny_globs,
+                max_bytes=cfg.files.max_download_bytes,
+            )
+        except ZipTooLargeError:
             await _send_plain(
                 cfg.exec_cfg.transport,
                 chat_id=msg.chat_id,
@@ -1588,7 +1592,38 @@ async def _handle_file_get(
                 thread_id=msg.thread_id,
             )
             return
-        payload = target.read_bytes()
+        except OSError as exc:
+            await _send_plain(
+                cfg.exec_cfg.transport,
+                chat_id=msg.chat_id,
+                user_msg_id=msg.message_id,
+                text=f"failed to read directory: {exc}",
+                thread_id=msg.thread_id,
+            )
+            return
+        filename = f"{rel_path.name or 'archive'}.zip"
+    else:
+        try:
+            size = target.stat().st_size
+            if size > cfg.files.max_download_bytes:
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text="file is too large to send.",
+                    thread_id=msg.thread_id,
+                )
+                return
+            payload = target.read_bytes()
+        except OSError as exc:
+            await _send_plain(
+                cfg.exec_cfg.transport,
+                chat_id=msg.chat_id,
+                user_msg_id=msg.message_id,
+                text=f"failed to read file: {exc}",
+                thread_id=msg.thread_id,
+            )
+            return
         filename = target.name
     if len(payload) > cfg.files.max_download_bytes:
         await _send_plain(

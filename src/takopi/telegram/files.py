@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import shlex
 import tempfile
 import zipfile
@@ -135,19 +136,35 @@ def write_bytes_atomic(path: Path, payload: bytes) -> None:
     Path(temp_name).replace(path)
 
 
+class ZipTooLargeError(Exception):
+    pass
+
+
 def zip_directory(
     root: Path,
     rel_path: Path,
     deny_globs: Sequence[str],
+    *,
+    max_bytes: int | None = None,
 ) -> bytes:
     target = root / rel_path
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for item in sorted(target.rglob("*")):
-            if item.is_dir():
-                continue
-            rel_item = rel_path / item.relative_to(target)
-            if deny_reason(rel_item, deny_globs) is not None:
-                continue
-            archive.write(item, arcname=rel_item.as_posix())
-    return buffer.getvalue()
+        for dirpath, _, filenames in os.walk(target, followlinks=False):
+            dir_path = Path(dirpath)
+            for filename in filenames:
+                item = dir_path / filename
+                if item.is_symlink():
+                    continue
+                if not item.is_file():
+                    continue
+                rel_item = rel_path / item.relative_to(target)
+                if deny_reason(rel_item, deny_globs) is not None:
+                    continue
+                archive.write(item, arcname=rel_item.as_posix())
+                if max_bytes is not None and buffer.tell() > max_bytes:
+                    raise ZipTooLargeError()
+    payload = buffer.getvalue()
+    if max_bytes is not None and len(payload) > max_bytes:
+        raise ZipTooLargeError()
+    return payload
