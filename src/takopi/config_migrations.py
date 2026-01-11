@@ -3,8 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .config import ConfigError
-from .config_store import read_raw_toml, write_raw_toml
+from .config import ConfigError, read_config, write_config
 from .logging import get_logger
 
 logger = get_logger(__name__)
@@ -130,10 +129,10 @@ def migrate_config(config: dict[str, Any], *, config_path: Path) -> list[str]:
 
 
 def migrate_config_file(path: Path) -> list[str]:
-    config = read_raw_toml(path)
+    config = read_config(path)
     applied = migrate_config(config, config_path=path)
     if applied:
-        write_raw_toml(config, path)
+        write_config(config, path)
         for migration in applied:
             logger.info(
                 "config.migrated",

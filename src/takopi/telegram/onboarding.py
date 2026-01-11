@@ -22,8 +22,7 @@ from rich.table import Table
 
 from ..backends import EngineBackend, SetupIssue
 from ..backends_helpers import install_issue
-from ..config import ConfigError, dump_toml
-from ..config_store import read_raw_toml, write_raw_toml
+from ..config import ConfigError, dump_toml, read_config, write_config
 from ..engines import list_backends
 from ..logging import suppress_logs
 from ..settings import HOME_CONFIG_PATH, load_settings, require_telegram
@@ -471,7 +470,7 @@ def interactive_setup(*, force: bool) -> bool:
         raw_config: dict[str, Any] = {}
         if config_path.exists():
             try:
-                raw_config = read_raw_toml(config_path)
+                raw_config = read_config(config_path)
             except ConfigError as exc:
                 console.print(f"[yellow]warning:[/] config is malformed: {exc}")
                 backup = config_path.with_suffix(".toml.bak")
@@ -499,7 +498,7 @@ def interactive_setup(*, force: bool) -> bool:
         telegram["chat_id"] = chat.chat_id
         merged.pop("bot_token", None)
         merged.pop("chat_id", None)
-        write_raw_toml(merged, config_path)
+        write_config(merged, config_path)
         console.print(f"  config saved to {_display_path(config_path)}")
 
         done_panel = Panel(

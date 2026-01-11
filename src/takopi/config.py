@@ -12,7 +12,7 @@ class ConfigError(RuntimeError):
     pass
 
 
-def _read_config(cfg_path: Path) -> dict:
+def read_config(cfg_path: Path) -> dict:
     try:
         raw = cfg_path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -31,7 +31,7 @@ def load_or_init_config(path: str | Path | None = None) -> tuple[dict, Path]:
         raise ConfigError(f"Config path {cfg_path} exists but is not a file.") from None
     if not cfg_path.exists():
         return {}, cfg_path
-    return _read_config(cfg_path), cfg_path
+    return read_config(cfg_path), cfg_path
 
 
 @dataclass(frozen=True, slots=True)
