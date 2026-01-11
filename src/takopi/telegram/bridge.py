@@ -919,6 +919,20 @@ def _deny_reason(rel_path: Path, deny_globs: Sequence[str]) -> str | None:
     return None
 
 
+def _format_bytes(value: int) -> str:
+    size = max(0.0, float(value))
+    units = ("B", "KB", "MB", "GB", "TB")
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size)} B"
+            if size < 10:
+                return f"{size:.1f} {unit}"
+            return f"{size:.0f} {unit}"
+        size /= 1024
+    return f"{int(size)} B"
+
+
 async def _check_file_permissions(
     cfg: TelegramBridgeConfig, msg: TelegramIncomingMessage
 ) -> bool:
@@ -1320,7 +1334,7 @@ async def _handle_file_put(
         user_msg_id=msg.message_id,
         text=(
             f"saved `{rel_path.as_posix()}` "
-            f"in `{context_label}` ({len(payload)} bytes)."
+            f"in `{context_label}` ({_format_bytes(len(payload))})."
         ),
         thread_id=msg.thread_id,
     )
