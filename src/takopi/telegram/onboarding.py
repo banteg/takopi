@@ -22,7 +22,7 @@ from rich.table import Table
 
 from ..backends import EngineBackend, SetupIssue
 from ..backends_helpers import install_issue
-from ..config import ConfigError
+from ..config import ConfigError, dump_toml
 from ..config_store import read_raw_toml, write_raw_toml
 from ..engines import list_backends
 from ..logging import suppress_logs
@@ -115,23 +115,6 @@ def _mask_token(token: str) -> str:
     if len(token) <= 12:
         return "*" * len(token)
     return f"{token[:9]}...{token[-5:]}"
-
-
-def _toml_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def _render_config(token: str, chat_id: int, default_engine: str | None) -> str:
-    lines: list[str] = []
-    if default_engine:
-        lines.append(f'default_engine = "{_toml_escape(default_engine)}"')
-        lines.append("")
-    lines.append('transport = "telegram"')
-    lines.append("")
-    lines.append("[transports.telegram]")
-    lines.append(f'bot_token = "{_toml_escape(token)}"')
-    lines.append(f"chat_id = {chat_id}")
-    return "\n".join(lines) + "\n"
 
 
 def _ensure_table(
@@ -461,11 +444,17 @@ def interactive_setup(*, force: bool) -> bool:
             if not save_anyway:
                 return False
 
-        config_preview = _render_config(
-            _mask_token(token),
-            chat.chat_id,
-            default_engine,
-        ).rstrip()
+        preview_config: dict[str, Any] = {}
+        if default_engine is not None:
+            preview_config["default_engine"] = default_engine
+        preview_config["transport"] = "telegram"
+        preview_config["transports"] = {
+            "telegram": {
+                "bot_token": _mask_token(token),
+                "chat_id": chat.chat_id,
+            }
+        }
+        config_preview = dump_toml(preview_config).rstrip()
         console.print("\nstep 3: save configuration\n")
         console.print(f"  {_display_path(config_path)}\n")
         for line in config_preview.splitlines():
