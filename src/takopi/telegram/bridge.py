@@ -2410,10 +2410,7 @@ async def run_main_loop(
                             scope_chat_ids=topics_chat_ids,
                         )
                     continue
-                if (
-                    command_id is not None
-                    and command_id not in reserved_commands
-                ):
+                if command_id is not None and command_id not in reserved_commands:
                     if command_id not in command_ids:
                         refresh_commands()
                     if command_id in command_ids:
