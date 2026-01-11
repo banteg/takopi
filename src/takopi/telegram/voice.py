@@ -67,25 +67,25 @@ async def transcribe_voice(
         return None
     api_key = resolve_openai_api_key()
     if not api_key:
-        await reply(text="voice transcription requires OPENAI_API_KEY.")
+        await reply(text="voice transcription requires OPENAI_API_KEY")
         return None
     if voice.file_size is not None and voice.file_size > OPENAI_AUDIO_MAX_BYTES:
-        await reply(text="voice message is too large to transcribe.")
+        await reply(text="voice message is too large to transcribe")
         return None
     file_info = await bot.get_file(voice.file_id)
     if not isinstance(file_info, dict):
-        await reply(text="failed to fetch voice file.")
+        await reply(text="failed to fetch voice file")
         return None
     file_path = file_info.get("file_path")
     if not isinstance(file_path, str) or not file_path:
-        await reply(text="failed to fetch voice file.")
+        await reply(text="failed to fetch voice file")
         return None
     audio_bytes = await bot.download_file(file_path)
     if not audio_bytes:
-        await reply(text="failed to download voice message.")
+        await reply(text="failed to download voice message")
         return None
     if len(audio_bytes) > OPENAI_AUDIO_MAX_BYTES:
-        await reply(text="voice message is too large to transcribe.")
+        await reply(text="voice message is too large to transcribe")
         return None
     filename = normalize_voice_filename(file_path, voice.mime_type)
     transcript = await transcribe_audio(
@@ -97,10 +97,10 @@ async def transcribe_voice(
         mime_type=voice.mime_type,
     )
     if transcript is None:
-        await reply(text="voice transcription failed.")
+        await reply(text="voice transcription failed")
         return None
     transcript = transcript.strip()
     if not transcript:
-        await reply(text="voice transcription returned empty text.")
+        await reply(text="voice transcription returned empty text")
         return None
     return transcript
