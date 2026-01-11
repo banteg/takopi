@@ -12,10 +12,10 @@ from ..logging import get_logger
 from pydantic import ValidationError
 
 from ..settings import (
+    TelegramTransportSettings,
     TelegramFilesSettings,
     TelegramTopicsSettings,
     load_settings,
-    require_telegram_config,
 )
 from ..transports import SetupResult, TransportBackend
 from ..transport_runtime import TransportRuntime
@@ -108,6 +108,28 @@ def _build_files_config(
     )
 
 
+def _require_transport_config(
+    transport_config: dict[str, object],
+    *,
+    config_path: Path,
+) -> tuple[str, int]:
+    try:
+        settings = TelegramTransportSettings.model_validate(transport_config)
+    except ValidationError as exc:
+        raise ConfigError(
+            f"Invalid `transports.telegram` in {config_path}: {exc}"
+        ) from exc
+    token = settings.bot_token.get_secret_value().strip() if settings.bot_token else ""
+    if not token:
+        raise ConfigError(f"Missing bot token in {config_path}.")
+    chat_id = settings.chat_id
+    if chat_id is None:
+        raise ConfigError(f"Missing chat_id in {config_path}.")
+    if isinstance(chat_id, bool) or not isinstance(chat_id, int):
+        raise ConfigError(f"Invalid `chat_id` in {config_path}; expected an integer.")
+    return token, chat_id
+
+
 class TelegramBackend(TransportBackend):
     id = "telegram"
     description = "Telegram bot"
@@ -126,7 +148,10 @@ class TelegramBackend(TransportBackend):
     def lock_token(
         self, *, transport_config: dict[str, object], config_path: Path
     ) -> str | None:
-        token, _ = require_telegram_config(transport_config, config_path)
+        token, _ = _require_transport_config(
+            transport_config,
+            config_path=config_path,
+        )
         return token
 
     def build_and_run(
@@ -149,7 +174,10 @@ class TelegramBackend(TransportBackend):
         else:
             watch_enabled = settings.watch_config
 
-        token, chat_id = require_telegram_config(transport_config, config_path)
+        token, chat_id = _require_transport_config(
+            transport_config,
+            config_path=config_path,
+        )
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),
