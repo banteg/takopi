@@ -101,6 +101,12 @@ def _parse_incoming_message(
         text = caption
     if text is None:
         text = ""
+    file_command = False
+    if isinstance(text, str):
+        stripped = text.lstrip()
+        if stripped.startswith("/"):
+            token = stripped.split(maxsplit=1)[0]
+            file_command = token.startswith("/file")
     voice_payload: TelegramVoice | None = None
     voice = msg.get("voice")
     if isinstance(voice, dict):
@@ -159,7 +165,7 @@ def _parse_incoming_message(
                     best = item
             if best is not None:
                 document_payload = _parse_document_payload(best)
-    if document_payload is None:
+    if document_payload is None and file_command:
         sticker = msg.get("sticker")
         if isinstance(sticker, dict):
             document_payload = _parse_document_payload(sticker)

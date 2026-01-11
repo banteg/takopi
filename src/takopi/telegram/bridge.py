@@ -298,7 +298,9 @@ def _format_ctx_status(
     return "\n".join(lines)
 
 
-def _build_bot_commands(runtime: TransportRuntime) -> list[dict[str, str]]:
+def _build_bot_commands(
+    runtime: TransportRuntime, *, include_file: bool = True
+) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     seen: set[str] = set()
     for engine_id in runtime.available_engine_ids():
@@ -346,7 +348,7 @@ def _build_bot_commands(runtime: TransportRuntime) -> list[dict[str, str]]:
         description = backend.description or f"command: {cmd}"
         commands.append({"command": cmd, "description": description})
         seen.add(cmd)
-    if "file" not in seen:
+    if include_file and "file" not in seen:
         commands.append({"command": "file", "description": "upload or fetch files"})
         seen.add("file")
     if "cancel" not in seen:
@@ -401,7 +403,7 @@ def _diff_keys(old: dict[str, object], new: dict[str, object]) -> list[str]:
 
 
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
-    commands = _build_bot_commands(cfg.runtime)
+    commands = _build_bot_commands(cfg.runtime, include_file=cfg.files.enabled)
     if not commands:
         return
     try:
@@ -1206,23 +1208,65 @@ async def _handle_file_put(
     if plan is None:
         return
     rel_path: Path | None = None
+    base_dir: Path | None = None
     if plan.path_value:
-        rel_path = normalize_relative_path(plan.path_value)
-        if rel_path is None:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text="invalid upload path.",
-                thread_id=msg.thread_id,
-            )
-            return
+        if plan.path_value.endswith("/"):
+            base_dir = normalize_relative_path(plan.path_value)
+            if base_dir is None:
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text="invalid upload path.",
+                    thread_id=msg.thread_id,
+                )
+                return
+            deny_rule = deny_reason(base_dir, cfg.files.deny_globs)
+            if deny_rule is not None:
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text=f"path denied by rule: {deny_rule}",
+                    thread_id=msg.thread_id,
+                )
+                return
+            base_target = resolve_path_within_root(plan.run_root, base_dir)
+            if base_target is None:
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text="upload path escapes the repo root.",
+                    thread_id=msg.thread_id,
+                )
+                return
+            if base_target.exists() and not base_target.is_dir():
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text="upload path is a file.",
+                    thread_id=msg.thread_id,
+                )
+                return
+        else:
+            rel_path = normalize_relative_path(plan.path_value)
+            if rel_path is None:
+                await _send_plain(
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    text="invalid upload path.",
+                    thread_id=msg.thread_id,
+                )
+                return
     result = await _save_document_payload(
         cfg,
         document=document,
         run_root=plan.run_root,
         rel_path=rel_path,
-        base_dir=None,
+        base_dir=base_dir,
         force=plan.force,
     )
     if result.error is not None:

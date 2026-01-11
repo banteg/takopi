@@ -211,6 +211,7 @@ def test_parse_incoming_update_sticker_message() -> None:
         "update_id": 1,
         "message": {
             "message_id": 10,
+            "caption": "/file put incoming/sticker.webp",
             "chat": {"id": 123},
             "sticker": {
                 "file_id": "sticker-id",
@@ -223,7 +224,7 @@ def test_parse_incoming_update_sticker_message() -> None:
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
     assert isinstance(msg, TelegramIncomingMessage)
-    assert msg.text == ""
+    assert msg.text == "/file put incoming/sticker.webp"
     assert msg.document is not None
     assert msg.document.file_id == "sticker-id"
     assert msg.document.file_name is None
