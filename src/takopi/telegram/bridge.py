@@ -12,7 +12,11 @@ from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
 from ..transport_runtime import TransportRuntime
 from ..context import RunContext
 from ..model import ResumeToken
-from ..settings import TelegramFilesSettings, TelegramTopicsSettings
+from ..settings import (
+    TelegramFilesSettings,
+    TelegramTopicsSettings,
+    TelegramTransportSettings,
+)
 from .client import BotClient
 from .render import prepare_telegram
 from .types import TelegramCallbackQuery, TelegramIncomingMessage
@@ -263,7 +267,7 @@ async def run_main_loop(
     watch_config: bool | None = None,
     default_engine_override: str | None = None,
     transport_id: str | None = None,
-    transport_config: dict[str, object] | None = None,
+    transport_config: TelegramTransportSettings | None = None,
 ) -> None:
     from .loop import run_main_loop as _run_main_loop
 

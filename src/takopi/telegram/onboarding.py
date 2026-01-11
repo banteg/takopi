@@ -397,7 +397,7 @@ def interactive_setup(*, force: bool) -> bool:
         if token_info is None:
             return False
         token, info = token_info
-        bot_ref = f"@{info['username']}"
+        bot_ref = f"@{info.username}"
 
         console.print("")
         console.print(f"  send /start to {bot_ref} (works in groups too)")

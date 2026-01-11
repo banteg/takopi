@@ -545,7 +545,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
         ) -> list[dict[str, Any]] | None:
             return None
 
-        async def get_file(self, file_id: str) -> dict[str, Any] | None:
+        async def get_file(self, file_id: str) -> File | None:
             _ = file_id
             return None
 
@@ -565,7 +565,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             reply_markup: dict | None = None,
             *,
             replace_message_id: int | None = None,
-        ) -> dict | None:
+        ) -> Message | None:
             _ = reply_markup
             return None
 
@@ -578,7 +578,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             message_thread_id: int | None = None,
             disable_notification: bool | None = False,
             caption: str | None = None,
-        ) -> dict | None:
+        ) -> Message | None:
             _ = (
                 chat_id,
                 filename,
@@ -600,7 +600,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             reply_markup: dict | None = None,
             *,
             wait: bool = True,
-        ) -> dict | None:
+        ) -> Message | None:
             self.edit_calls.append(
                 {
                     "chat_id": chat_id,
@@ -614,7 +614,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             )
             if not wait:
                 return None
-            return {"message_id": message_id}
+            return Message(message_id=message_id)
 
         async def delete_message(
             self,
@@ -632,7 +632,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
         ) -> bool:
             return False
 
-        async def get_me(self) -> dict[str, Any] | None:
+        async def get_me(self) -> User | None:
             return None
 
         async def close(self) -> None:
@@ -781,9 +781,9 @@ async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
     payload = b"hello"
 
     class _FileBot(_FakeBot):
-        async def get_file(self, file_id: str) -> dict[str, Any] | None:
+        async def get_file(self, file_id: str) -> File | None:
             _ = file_id
-            return {"file_path": "files/hello.txt"}
+            return File(file_path="files/hello.txt")
 
         async def download_file(self, file_path: str) -> bytes | None:
             _ = file_path
@@ -1366,11 +1366,11 @@ async def test_run_main_loop_batches_media_group_upload(
     }
 
     class _MediaBot(_FakeBot):
-        async def get_file(self, file_id: str) -> dict[str, Any] | None:
+        async def get_file(self, file_id: str) -> File | None:
             file_path = file_map.get(file_id)
             if file_path is None:
                 return None
-            return {"file_path": file_path}
+            return File(file_path=file_path)
 
         async def download_file(self, file_path: str) -> bytes | None:
             return payloads.get(file_path)

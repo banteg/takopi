@@ -2,15 +2,28 @@ from __future__ import annotations
 
 import pytest
 
-from takopi.telegram.api_models import File
+from takopi.telegram.api_models import Chat, ChatMember, File, ForumTopic, Message, User
+from takopi.telegram.client import BotClient
 from takopi.telegram.types import TelegramIncomingMessage, TelegramVoice
 from takopi.telegram.voice import transcribe_voice
 
 
-class _Bot:
+class _Bot(BotClient):
     def __init__(self, *, file_info: File | None, audio: bytes | None) -> None:
         self._file_info = file_info
         self._audio = audio
+
+    async def close(self) -> None:
+        return None
+
+    async def get_updates(
+        self,
+        offset: int | None,
+        timeout_s: int = 50,
+        allowed_updates: list[str] | None = None,
+    ) -> list[dict] | None:
+        _ = offset, timeout_s, allowed_updates
+        return []
 
     async def get_file(self, file_id: str) -> File | None:
         _ = file_id
@@ -19,6 +32,119 @@ class _Bot:
     async def download_file(self, file_path: str) -> bytes | None:
         _ = file_path
         return self._audio
+
+    async def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        reply_to_message_id: int | None = None,
+        disable_notification: bool | None = False,
+        message_thread_id: int | None = None,
+        entities: list[dict] | None = None,
+        parse_mode: str | None = None,
+        reply_markup: dict | None = None,
+        *,
+        replace_message_id: int | None = None,
+    ) -> Message | None:
+        _ = (
+            chat_id,
+            text,
+            reply_to_message_id,
+            disable_notification,
+            message_thread_id,
+            entities,
+            parse_mode,
+            reply_markup,
+            replace_message_id,
+        )
+        raise AssertionError("send_message should not be called")
+
+    async def send_document(
+        self,
+        chat_id: int,
+        filename: str,
+        content: bytes,
+        reply_to_message_id: int | None = None,
+        message_thread_id: int | None = None,
+        disable_notification: bool | None = False,
+        caption: str | None = None,
+    ) -> Message | None:
+        _ = (
+            chat_id,
+            filename,
+            content,
+            reply_to_message_id,
+            message_thread_id,
+            disable_notification,
+            caption,
+        )
+        raise AssertionError("send_document should not be called")
+
+    async def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        entities: list[dict] | None = None,
+        parse_mode: str | None = None,
+        reply_markup: dict | None = None,
+        *,
+        wait: bool = True,
+    ) -> Message | None:
+        _ = (
+            chat_id,
+            message_id,
+            text,
+            entities,
+            parse_mode,
+            reply_markup,
+            wait,
+        )
+        raise AssertionError("edit_message_text should not be called")
+
+    async def delete_message(self, chat_id: int, message_id: int) -> bool:
+        _ = chat_id, message_id
+        raise AssertionError("delete_message should not be called")
+
+    async def set_my_commands(
+        self,
+        commands: list[dict],
+        *,
+        scope: dict | None = None,
+        language_code: str | None = None,
+    ) -> bool:
+        _ = commands, scope, language_code
+        raise AssertionError("set_my_commands should not be called")
+
+    async def get_me(self) -> User | None:
+        raise AssertionError("get_me should not be called")
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: str | None = None,
+        show_alert: bool | None = None,
+    ) -> bool:
+        _ = callback_query_id, text, show_alert
+        raise AssertionError("answer_callback_query should not be called")
+
+    async def get_chat(self, chat_id: int) -> Chat | None:
+        _ = chat_id
+        raise AssertionError("get_chat should not be called")
+
+    async def get_chat_member(self, chat_id: int, user_id: int) -> ChatMember | None:
+        _ = chat_id, user_id
+        raise AssertionError("get_chat_member should not be called")
+
+    async def create_forum_topic(self, chat_id: int, name: str) -> ForumTopic | None:
+        _ = chat_id, name
+        raise AssertionError("create_forum_topic should not be called")
+
+    async def edit_forum_topic(
+        self, chat_id: int, message_thread_id: int, name: str
+    ) -> bool:
+        _ = chat_id, message_thread_id, name
+        raise AssertionError("edit_forum_topic should not be called")
 
 
 def _voice_message() -> TelegramIncomingMessage:

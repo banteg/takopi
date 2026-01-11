@@ -23,6 +23,12 @@ from .onboarding import check_setup, interactive_setup
 logger = get_logger(__name__)
 
 
+def _expect_transport_settings(transport_config: object) -> TelegramTransportSettings:
+    if isinstance(transport_config, TelegramTransportSettings):
+        return transport_config
+    raise TypeError("transport_config must be TelegramTransportSettings")
+
+
 def _build_startup_message(
     runtime: TransportRuntime,
     *,
@@ -61,23 +67,23 @@ class TelegramBackend(TransportBackend):
     def interactive_setup(self, *, force: bool) -> bool:
         return interactive_setup(force=force)
 
-    def lock_token(
-        self, *, transport_config: TelegramTransportSettings, config_path: Path
-    ) -> str | None:
+    def lock_token(self, *, transport_config: object, config_path: Path) -> str | None:
         _ = config_path
-        return transport_config.bot_token
+        settings = _expect_transport_settings(transport_config)
+        return settings.bot_token
 
     def build_and_run(
         self,
         *,
-        transport_config: TelegramTransportSettings,
+        transport_config: object,
         config_path: Path,
         runtime: TransportRuntime,
         final_notify: bool,
         default_engine_override: str | None,
     ) -> None:
-        token = transport_config.bot_token
-        chat_id = transport_config.chat_id
+        settings = _expect_transport_settings(transport_config)
+        token = settings.bot_token
+        chat_id = settings.chat_id
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),
@@ -96,9 +102,9 @@ class TelegramBackend(TransportBackend):
             chat_id=chat_id,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
-            voice_transcription=transport_config.voice_transcription,
-            topics=transport_config.topics,
-            files=transport_config.files,
+            voice_transcription=settings.voice_transcription,
+            topics=settings.topics,
+            files=settings.files,
         )
 
         async def run_loop() -> None:
@@ -107,7 +113,7 @@ class TelegramBackend(TransportBackend):
                 watch_config=runtime.watch_config,
                 default_engine_override=default_engine_override,
                 transport_id=self.id,
-                transport_config=transport_config,
+                transport_config=settings,
             )
 
         anyio.run(run_loop)

@@ -9,7 +9,11 @@ from takopi.config import ProjectsConfig
 from takopi.model import EngineId
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
-from takopi.settings import TelegramFilesSettings, TelegramTransportSettings
+from takopi.settings import (
+    TelegramFilesSettings,
+    TelegramTopicsSettings,
+    TelegramTransportSettings,
+)
 from takopi.telegram import backend as telegram_backend
 from takopi.transport_runtime import TransportRuntime
 
@@ -90,8 +94,8 @@ def test_telegram_backend_build_and_run_wires_config(
         bot_token="token",
         chat_id=321,
         voice_transcription=True,
-        files={"enabled": True, "allowed_user_ids": [1, 2]},
-        topics={"enabled": True, "scope": "main"},
+        files=TelegramFilesSettings(enabled=True, allowed_user_ids=[1, 2]),
+        topics=TelegramTopicsSettings(enabled=True, scope="main"),
     )
 
     telegram_backend.TelegramBackend().build_and_run(

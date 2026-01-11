@@ -30,7 +30,7 @@ class _FakeBot(BotClient):
         reply_markup: dict | None = None,
         *,
         replace_message_id: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> Message | None:
         _ = reply_to_message_id
         _ = disable_notification
         _ = message_thread_id
@@ -50,7 +50,7 @@ class _FakeBot(BotClient):
         message_thread_id: int | None = None,
         disable_notification: bool | None = False,
         caption: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> Message | None:
         _ = (
             chat_id,
             filename,
@@ -73,7 +73,7 @@ class _FakeBot(BotClient):
         reply_markup: dict | None = None,
         *,
         wait: bool = True,
-    ) -> dict[str, Any]:
+    ) -> Message | None:
         _ = chat_id
         _ = message_id
         _ = entities
@@ -188,7 +188,7 @@ async def test_edits_coalesce_latest() -> None:
             reply_markup: dict | None = None,
             *,
             wait: bool = True,
-        ) -> dict:
+        ) -> Message | None:
             if self._block_first:
                 self._block_first = False
                 self.edit_started.set()
@@ -306,7 +306,8 @@ async def test_retry_after_retries_once() -> None:
         text="retry",
     )
 
-    assert result == {"message_id": 1}
+    assert result is not None
+    assert result.message_id == 1
     assert bot._edit_attempts == 2
 
 

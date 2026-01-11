@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from takopi.backends import EngineBackend
 from takopi.config import dump_toml
 from takopi.telegram import onboarding
-from takopi.backends import EngineBackend
+from takopi.telegram.api_models import User
 
 
 def test_mask_token_short() -> None:
@@ -91,7 +92,7 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
 
     def _fake_run(func, *args, **kwargs):
         if func is onboarding.get_bot_info:
-            return {"username": "my_bot"}
+            return User(id=1, username="my_bot")
         if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=123,
@@ -136,7 +137,7 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
 
     def _fake_run(func, *args, **kwargs):
         if func is onboarding.get_bot_info:
-            return {"username": "my_bot"}
+            return User(id=1, username="my_bot")
         if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=123,
@@ -173,7 +174,7 @@ def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
 
     def _fake_run(func, *args, **kwargs):
         if func is onboarding.get_bot_info:
-            return {"username": "my_bot"}
+            return User(id=1, username="my_bot")
         if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=123,
@@ -211,7 +212,7 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
 
     def _fake_run(func, *args, **kwargs):
         if func is onboarding.get_bot_info:
-            return {"username": "my_bot"}
+            return User(id=1, username="my_bot")
         if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=123,
@@ -239,7 +240,7 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
 def test_capture_chat_id_with_token(monkeypatch) -> None:
     def _fake_run(func, *args, **kwargs):
         if func is onboarding.get_bot_info:
-            return {"username": "my_bot"}
+            return User(id=1, username="my_bot")
         if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=456,
@@ -261,7 +262,9 @@ def test_capture_chat_id_with_token(monkeypatch) -> None:
 
 def test_capture_chat_id_prompts_for_token(monkeypatch) -> None:
     monkeypatch.setattr(
-        onboarding, "_prompt_token", lambda _console: ("token", {"username": "bot"})
+        onboarding,
+        "_prompt_token",
+        lambda _console: ("token", User(id=1, username="bot")),
     )
 
     def _fake_run(func, *args, **kwargs):
