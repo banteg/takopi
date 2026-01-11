@@ -41,12 +41,10 @@ from ..plugins import COMMAND_GROUP, list_entrypoints
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
 from ..transport_runtime import ResolvedMessage, TransportRuntime
 from .client import BotClient, poll_incoming
-from .files import (
+from ..utils.files import (
     default_upload_name,
     default_upload_path,
     deny_reason,
-    file_get_usage,
-    file_put_usage,
     format_bytes,
     normalize_relative_path,
     parse_file_command,
@@ -94,6 +92,8 @@ CANCEL_MARKUP = {
     "inline_keyboard": [[{"text": "cancel", "callback_data": CANCEL_CALLBACK_DATA}]]
 }
 CLEAR_MARKUP = {"inline_keyboard": []}
+FILE_PUT_USAGE = "usage: `/file put <path>`"
+FILE_GET_USAGE = "usage: `/file get <path>`"
 
 
 def is_cancel_command(text: str) -> bool:
@@ -1115,7 +1115,7 @@ async def _handle_file_put(
     )
     document = msg.document
     if document is None:
-        await reply(file_put_usage())
+        await reply(FILE_PUT_USAGE)
         return
     plan = await _prepare_file_put_plan(
         cfg,
@@ -1190,7 +1190,7 @@ async def _handle_file_put_group(
     )
     documents = [item.document for item in messages if item.document is not None]
     if not documents:
-        await reply(file_put_usage())
+        await reply(FILE_PUT_USAGE)
         return
     plan = await _prepare_file_put_plan(
         cfg,
@@ -1319,7 +1319,7 @@ async def _handle_media_group(
                 topic_store,
             )
         else:
-            await reply(file_put_usage())
+            await reply(FILE_PUT_USAGE)
         return
     if cfg.files.enabled and cfg.files.auto_put and not command_msg.text.strip():
         await _handle_file_put_group(
@@ -1332,7 +1332,7 @@ async def _handle_media_group(
         )
         return
     if cfg.files.enabled:
-        await reply(file_put_usage())
+        await reply(FILE_PUT_USAGE)
 
 
 async def _handle_file_get(
@@ -1382,7 +1382,7 @@ async def _handle_file_get(
         return
     path_value, _, error = parse_file_prompt(resolved.prompt, allow_empty=False)
     if error is not None:
-        await reply(file_get_usage())
+        await reply(FILE_GET_USAGE)
         return
     rel_path = normalize_relative_path(path_value or "")
     if rel_path is None:
@@ -2422,7 +2422,7 @@ async def run_main_loop(
                     elif cfg.files.enabled:
                         tg.start_soon(
                             reply,
-                            file_put_usage(),
+                            FILE_PUT_USAGE,
                         )
                     continue
                 if (
