@@ -36,9 +36,8 @@ async def transcribe_voice(
         return None
     file_path = (await bot.get_file(voice.file_id) or {}).get("file_path", "")
     audio_bytes = await bot.download_file(file_path) or b""
-    filename = "voice.ogg"
     audio_file = io.BytesIO(audio_bytes)
-    audio_file.name = filename
+    audio_file.name = "voice.ogg"
     async with AsyncOpenAI(timeout=120) as client:
         try:
             response = await client.audio.transcriptions.create(
