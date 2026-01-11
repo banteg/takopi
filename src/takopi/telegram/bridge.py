@@ -41,7 +41,7 @@ from ..plugins import COMMAND_GROUP, list_entrypoints
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
 from ..transport_runtime import ResolvedMessage, TransportRuntime
 from .client import BotClient, poll_incoming
-from ..utils.files import (
+from .files import (
     default_upload_name,
     default_upload_path,
     deny_reason,
