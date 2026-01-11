@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import os
 import io
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 from ..logging import get_logger
 from openai import AsyncOpenAI
@@ -27,15 +25,10 @@ class TelegramVoiceTranscriptionConfig:
     enabled: bool = False
 
 
-def resolve_openai_api_key() -> str | None:
-    return os.environ.get("OPENAI_API_KEY")
-
-
 async def transcribe_audio(
     audio_bytes: bytes,
     *,
     filename: str,
-    api_key: str,
     model: str,
     language: str | None = None,
     prompt: str | None = None,
@@ -44,7 +37,7 @@ async def transcribe_audio(
 ) -> str | None:
     close_client = client is None
     if client is None:
-        client = AsyncOpenAI(api_key=api_key, timeout=timeout_s)
+        client = AsyncOpenAI(timeout=timeout_s)
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = filename
     request: dict[str, object] = {
@@ -104,10 +97,6 @@ async def transcribe_voice(
             )
         )
         return None
-    api_key = resolve_openai_api_key()
-    if not api_key:
-        await reply(text="voice transcription requires OPENAI_API_KEY")
-        return None
     if voice.file_size is not None and voice.file_size > OPENAI_AUDIO_MAX_BYTES:
         await reply(text="voice message is too large to transcribe")
         return None
@@ -130,7 +119,6 @@ async def transcribe_voice(
     transcript = await transcribe_audio(
         audio_bytes,
         filename=filename,
-        api_key=api_key,
         model=OPENAI_TRANSCRIPTION_MODEL,
     )
     if transcript is None:
