@@ -1638,7 +1638,6 @@ async def _handle_cancel(
     running_tasks: RunningTasks,
 ) -> None:
     chat_id = msg.chat_id
-    user_msg_id = msg.message_id
     reply_id = msg.reply_to_message_id
 
     if reply_id is None:
