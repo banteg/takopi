@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import io
 from collections.abc import Awaitable, Callable
+from typing import cast
+
 from ..logging import get_logger
 from openai import AsyncOpenAI, OpenAIError
+
 from .client import BotClient
 from .types import TelegramIncomingMessage
 
@@ -34,8 +37,9 @@ async def transcribe_voice(
     if not enabled:
         await reply(text=VOICE_TRANSCRIPTION_DISABLED_HINT)
         return None
-    file_path = (await bot.get_file(voice.file_id))["file_path"]
-    audio_bytes = await bot.download_file(file_path)
+    file_info = cast(dict[str, object], await bot.get_file(voice.file_id))
+    file_path = cast(str, file_info["file_path"])
+    audio_bytes = cast(bytes, await bot.download_file(file_path))
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = "voice.ogg"
     async with AsyncOpenAI(timeout=120) as client:
@@ -49,7 +53,6 @@ async def transcribe_voice(
                 "openai.transcribe.error",
                 error=str(exc),
                 error_type=exc.__class__.__name__,
-                status_code=exc.status_code,
             )
             await reply(text=str(exc).strip() or "voice transcription failed")
             return None
