@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from takopi.config import ConfigError, ProjectsConfig
+from takopi.config import ProjectsConfig
 from takopi.model import EngineId
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
@@ -26,7 +26,9 @@ def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
         default_engine=codex,
     )
     runtime = TransportRuntime(
-        router=router, projects=ProjectsConfig(projects={}, default_project=None)
+        router=router,
+        projects=ProjectsConfig(projects={}, default_project=None),
+        watch_config=True,
     )
 
     message = telegram_backend._build_startup_message(
@@ -57,7 +59,9 @@ def test_telegram_backend_build_and_run_wires_config(
         default_engine=codex,
     )
     runtime = TransportRuntime(
-        router=router, projects=ProjectsConfig(projects={}, default_project=None)
+        router=router,
+        projects=ProjectsConfig(projects={}, default_project=None),
+        watch_config=True,
     )
 
     captured: dict[str, Any] = {}
@@ -104,12 +108,10 @@ def test_telegram_backend_build_and_run_wires_config(
     assert kwargs["transport_id"] == "telegram"
 
 
-def test_build_files_config_rejects_non_dict(tmp_path: Path) -> None:
-    config_path = tmp_path / "takopi.toml"
-    transport_config: dict[str, object] = {"files": ["nope"]}
+def test_build_files_config_defaults() -> None:
+    cfg = telegram_backend._build_files_config({})
 
-    with pytest.raises(ConfigError, match="transports.telegram.files"):
-        telegram_backend._build_files_config(
-            transport_config,
-            config_path=config_path,
-        )
+    assert cfg.enabled is False
+    assert cfg.auto_put is True
+    assert cfg.uploads_dir == "incoming"
+    assert cfg.allowed_user_ids == frozenset()

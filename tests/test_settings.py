@@ -37,8 +37,8 @@ def test_load_settings_from_toml(tmp_path: Path) -> None:
     assert token == "token"
     assert chat_id == 123
 
-    dumped = settings.model_dump()
-    assert dumped["transports"]["telegram"]["bot_token"] == "token"
+    transport = settings.telegram_transport_dict()
+    assert transport["bot_token"] == "token"
 
 
 def test_env_overrides_toml(tmp_path: Path, monkeypatch) -> None:

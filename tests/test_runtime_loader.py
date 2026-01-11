@@ -14,6 +14,7 @@ def test_build_runtime_spec_minimal(
     settings = TakopiSettings.model_validate(
         {
             "transport": "telegram",
+            "watch_config": True,
             "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
         }
     )
@@ -32,6 +33,7 @@ def test_build_runtime_spec_minimal(
     assert spec.router.default_engine == settings.default_engine
     runtime = spec.to_runtime(config_path=config_path)
     assert runtime.default_engine == settings.default_engine
+    assert runtime.watch_config is True
 
 
 def test_resolve_default_engine_unknown(tmp_path: Path) -> None:
