@@ -11,7 +11,6 @@ logger = get_logger(__name__)
 
 __all__ = ["transcribe_voice"]
 
-OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
 OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 
 
@@ -36,9 +35,6 @@ async def transcribe_voice(
             )
         )
         return None
-    if voice.file_size is not None and voice.file_size > OPENAI_AUDIO_MAX_BYTES:
-        await reply(text="voice message is too large to transcribe")
-        return None
     file_info = await bot.get_file(voice.file_id)
     if not isinstance(file_info, dict):
         await reply(text="failed to fetch voice file")
@@ -50,9 +46,6 @@ async def transcribe_voice(
     audio_bytes = await bot.download_file(file_path)
     if not audio_bytes:
         await reply(text="failed to download voice message")
-        return None
-    if len(audio_bytes) > OPENAI_AUDIO_MAX_BYTES:
-        await reply(text="voice message is too large to transcribe")
         return None
     filename = "voice.ogg"
     audio_file = io.BytesIO(audio_bytes)
