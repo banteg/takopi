@@ -7,6 +7,9 @@ import pytest
 
 from takopi import commands, plugins
 import takopi.telegram.bridge as bridge
+import takopi.telegram.loop as telegram_loop
+import takopi.telegram.commands as telegram_commands
+import takopi.telegram.topics as telegram_topics
 from takopi.directives import parse_directives
 from takopi.telegram.bridge import (
     TelegramBridgeConfig,
@@ -828,7 +831,9 @@ async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
         ),
     )
 
-    await bridge._handle_file_put(cfg, msg, "/proj uploads/hello.txt", None, None)
+    await telegram_commands._handle_file_put(
+        cfg, msg, "/proj uploads/hello.txt", None, None
+    )
 
     target = tmp_path / "uploads" / "hello.txt"
     assert target.read_bytes() == payload
@@ -887,7 +892,7 @@ async def test_handle_file_get_sends_document_for_allowed_user(
         chat_type="supergroup",
     )
 
-    await bridge._handle_file_get(cfg, msg, "/proj hello.txt", None, None)
+    await telegram_commands._handle_file_get(cfg, msg, "/proj hello.txt", None, None)
 
     assert bot.document_calls
     assert bot.document_calls[0]["filename"] == "hello.txt"
@@ -975,21 +980,21 @@ def test_topic_title_matches_command_syntax() -> None:
     transport = _FakeTransport()
     cfg = _make_cfg(transport)
 
-    title = bridge._topic_title(
+    title = telegram_topics._topic_title(
         runtime=cfg.runtime,
         context=RunContext(project="takopi", branch="master"),
     )
 
     assert title == "takopi @master"
 
-    title = bridge._topic_title(
+    title = telegram_topics._topic_title(
         runtime=cfg.runtime,
         context=RunContext(project="takopi", branch=None),
     )
 
     assert title == "takopi"
 
-    title = bridge._topic_title(
+    title = telegram_topics._topic_title(
         runtime=cfg.runtime,
         context=RunContext(project=None, branch="main"),
     )
@@ -1007,7 +1012,7 @@ def test_topic_title_projects_scope_includes_project() -> None:
         ),
     )
 
-    title = bridge._topic_title(
+    title = telegram_topics._topic_title(
         runtime=cfg.runtime,
         context=RunContext(project="takopi", branch="master"),
     )
@@ -1028,7 +1033,7 @@ async def test_maybe_rename_topic_updates_title(tmp_path: Path) -> None:
         topic_title="takopi @old",
     )
 
-    await bridge._maybe_rename_topic(
+    await telegram_topics._maybe_rename_topic(
         cfg,
         store,
         chat_id=123,
@@ -1058,7 +1063,7 @@ async def test_maybe_rename_topic_skips_when_title_matches(tmp_path: Path) -> No
     )
     snapshot = await store.get_thread(123, 77)
 
-    await bridge._maybe_rename_topic(
+    await telegram_topics._maybe_rename_topic(
         cfg,
         store,
         chat_id=123,
@@ -1714,7 +1719,7 @@ async def test_run_main_loop_refreshes_command_ids(monkeypatch) -> None:
             return []
         return ["late_cmd"]
 
-    monkeypatch.setattr(bridge, "list_command_ids", _list_command_ids)
+    monkeypatch.setattr(telegram_loop, "list_command_ids", _list_command_ids)
 
     transport = _FakeTransport()
     bot = _FakeBot()
