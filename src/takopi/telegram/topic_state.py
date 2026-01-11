@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -26,8 +25,6 @@ class TopicThreadSnapshot:
     context: RunContext | None
     sessions: dict[str, str]
     topic_title: str | None
-    created_by_bot: bool | None
-    updated_at: float | None
 
 
 def resolve_state_path(config_path: Path) -> Path:
@@ -104,7 +101,6 @@ class TopicStateStore:
         context: RunContext,
         *,
         topic_title: str | None = None,
-        created_by_bot: bool | None = None,
     ) -> None:
         async with self._lock:
             self._reload_locked_if_needed()
@@ -112,9 +108,6 @@ class TopicStateStore:
             thread["context"] = _dump_context(context)
             if topic_title is not None:
                 thread["topic_title"] = topic_title
-            if created_by_bot is not None:
-                thread["created_by_bot"] = created_by_bot
-            thread["updated_at"] = time.time()
             self._save_locked()
 
     async def clear_context(self, chat_id: int, thread_id: int) -> None:
@@ -124,7 +117,6 @@ class TopicStateStore:
             if thread is None:
                 return
             thread.pop("context", None)
-            thread["updated_at"] = time.time()
             self._save_locked()
 
     async def get_session_resume(
@@ -158,9 +150,7 @@ class TopicStateStore:
                 thread["sessions"] = sessions
             sessions[token.engine] = {
                 "resume": token.value,
-                "updated_at": time.time(),
             }
-            thread["updated_at"] = time.time()
             self._save_locked()
 
     async def clear_sessions(self, chat_id: int, thread_id: int) -> None:
@@ -170,7 +160,6 @@ class TopicStateStore:
             if thread is None:
                 return
             thread.pop("sessions", None)
-            thread["updated_at"] = time.time()
             self._save_locked()
 
     async def find_thread_for_context(
@@ -210,23 +199,15 @@ class TopicStateStore:
                 value = entry.get("resume")
                 if isinstance(value, str) and value:
                     sessions[engine] = value
-        updated_at = thread.get("updated_at")
-        if not isinstance(updated_at, (int, float)):
-            updated_at = None
         topic_title = thread.get("topic_title")
         if not isinstance(topic_title, str):
             topic_title = None
-        created_by_bot = thread.get("created_by_bot")
-        if not isinstance(created_by_bot, bool):
-            created_by_bot = None
         return TopicThreadSnapshot(
             chat_id=chat_id,
             thread_id=thread_id,
             context=_parse_context(thread.get("context")),
             sessions=sessions,
             topic_title=topic_title,
-            created_by_bot=created_by_bot,
-            updated_at=updated_at,
         )
 
     def _stat_mtime_ns(self) -> int | None:

@@ -1602,7 +1602,6 @@ async def _handle_topic_command(
         thread_id,
         context,
         topic_title=title,
-        created_by_bot=True,
     )
     await _reply(cfg, msg, f"created topic `{title}`.")
     await cfg.exec_cfg.transport.send(
