@@ -35,7 +35,6 @@ from .commands import (
 )
 from .context import _merge_topic_context, _usage_ctx_set, _usage_topic
 from .topics import (
-    _TOPICS_COMMANDS,
     _maybe_rename_topic,
     _resolve_topics_scope,
     _topic_key,
@@ -81,6 +80,76 @@ async def _send_startup(cfg: TelegramBridgeConfig) -> None:
     )
     if sent is not None:
         logger.info("startup.sent", chat_id=cfg.chat_id)
+
+
+def _dispatch_builtin_command(
+    *,
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    command_id: str,
+    args_text: str,
+    ambient_context: RunContext | None,
+    topic_store: TopicStateStore | None,
+    resolved_scope: str | None,
+    scope_chat_ids: frozenset[int],
+    reply: Callable[..., Awaitable[None]],
+    task_group: anyio.abc.TaskGroup,
+) -> bool:
+    handlers: dict[str, Callable[[], Awaitable[None]]] = {}
+
+    if command_id == "file":
+        if not cfg.files.enabled:
+            handlers["file"] = partial(
+                reply,
+                text="file transfer disabled; enable `[transports.telegram.files]`.",
+            )
+        else:
+            handlers["file"] = partial(
+                _handle_file_command,
+                cfg,
+                msg,
+                args_text,
+                ambient_context,
+                topic_store,
+            )
+
+    if cfg.topics.enabled and topic_store is not None:
+        handlers.update(
+            {
+                "ctx": partial(
+                    _handle_ctx_command,
+                    cfg,
+                    msg,
+                    args_text,
+                    topic_store,
+                    resolved_scope=resolved_scope,
+                    scope_chat_ids=scope_chat_ids,
+                ),
+                "new": partial(
+                    _handle_new_command,
+                    cfg,
+                    msg,
+                    topic_store,
+                    resolved_scope=resolved_scope,
+                    scope_chat_ids=scope_chat_ids,
+                ),
+                "topic": partial(
+                    _handle_topic_command,
+                    cfg,
+                    msg,
+                    args_text,
+                    topic_store,
+                    resolved_scope=resolved_scope,
+                    scope_chat_ids=scope_chat_ids,
+                ),
+            }
+        )
+
+    handler = handlers.get(command_id)
+    if handler is None:
+        return False
+    task_group.start_soon(handler)
+    return True
 
 
 async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int | None:
@@ -447,24 +516,18 @@ async def run_main_loop(
                     continue
 
                 command_id, args_text = _parse_slash_command(text)
-                if command_id == "file":
-                    if not cfg.files.enabled:
-                        tg.start_soon(
-                            partial(
-                                reply,
-                                text="file transfer disabled; enable "
-                                "`[transports.telegram.files]`.",
-                            )
-                        )
-                    else:
-                        tg.start_soon(
-                            _handle_file_command,
-                            cfg,
-                            msg,
-                            args_text,
-                            ambient_context,
-                            topic_store,
-                        )
+                if command_id is not None and _dispatch_builtin_command(
+                    cfg=cfg,
+                    msg=msg,
+                    command_id=command_id,
+                    args_text=args_text,
+                    ambient_context=ambient_context,
+                    topic_store=topic_store,
+                    resolved_scope=resolved_topics_scope,
+                    scope_chat_ids=topics_chat_ids,
+                    reply=reply,
+                    task_group=tg,
+                ):
                     continue
                 if msg.document is not None:
                     if cfg.files.enabled and cfg.files.auto_put and not text.strip():
@@ -478,47 +541,6 @@ async def run_main_loop(
                     elif cfg.files.enabled:
                         tg.start_soon(
                             partial(reply, text=FILE_PUT_USAGE),
-                        )
-                    continue
-                if (
-                    cfg.topics.enabled
-                    and topic_store is not None
-                    and command_id in _TOPICS_COMMANDS
-                ):
-                    if command_id == "ctx":
-                        tg.start_soon(
-                            partial(
-                                _handle_ctx_command,
-                                cfg,
-                                msg,
-                                args_text,
-                                topic_store,
-                                resolved_scope=resolved_topics_scope,
-                                scope_chat_ids=topics_chat_ids,
-                            )
-                        )
-                    elif command_id == "new":
-                        tg.start_soon(
-                            partial(
-                                _handle_new_command,
-                                cfg,
-                                msg,
-                                topic_store,
-                                resolved_scope=resolved_topics_scope,
-                                scope_chat_ids=topics_chat_ids,
-                            )
-                        )
-                    else:
-                        tg.start_soon(
-                            partial(
-                                _handle_topic_command,
-                                cfg,
-                                msg,
-                                args_text,
-                                topic_store,
-                                resolved_scope=resolved_topics_scope,
-                                scope_chat_ids=topics_chat_ids,
-                            )
                         )
                     continue
                 if command_id is not None and command_id not in reserved_commands:
