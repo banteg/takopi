@@ -216,7 +216,6 @@ def _parse_project_branch_args(
     args_text: str,
     *,
     runtime: TransportRuntime,
-    cfg: TelegramBridgeConfig,
     require_branch: bool,
     chat_project: str | None,
 ) -> tuple[RunContext | None, str | None]:
@@ -734,9 +733,7 @@ async def poll_updates(
         yield msg
 
 
-def _resolve_openai_api_key(
-    cfg: TelegramVoiceTranscriptionConfig,
-) -> str | None:
+def _resolve_openai_api_key() -> str | None:
     env_key = os.environ.get("OPENAI_API_KEY")
     if isinstance(env_key, str):
         env_key = env_key.strip()
@@ -773,7 +770,7 @@ async def _transcribe_voice(
             thread_id=msg.thread_id,
         )
         return None
-    api_key = _resolve_openai_api_key(settings)
+    api_key = _resolve_openai_api_key()
     if not api_key:
         await _send_plain(
             cfg.exec_cfg.transport,
@@ -1696,9 +1693,7 @@ async def _handle_file_get(
         return
 
 
-def _topic_title(
-    *, cfg: TelegramBridgeConfig, runtime: TransportRuntime, context: RunContext
-) -> str:
+def _topic_title(*, runtime: TransportRuntime, context: RunContext) -> str:
     project = (
         runtime.project_alias_for_key(context.project)
         if context.project is not None
@@ -1720,7 +1715,7 @@ async def _maybe_rename_topic(
     context: RunContext,
     snapshot: TopicThreadSnapshot | None = None,
 ) -> None:
-    title = _topic_title(cfg=cfg, runtime=cfg.runtime, context=context)
+    title = _topic_title(runtime=cfg.runtime, context=context)
     if snapshot is None:
         snapshot = await store.get_thread(chat_id, thread_id)
     if snapshot is not None and snapshot.topic_title == title:
@@ -1802,7 +1797,6 @@ async def _handle_ctx_command(
         context, error = _parse_project_branch_args(
             rest,
             runtime=cfg.runtime,
-            cfg=cfg,
             require_branch=False,
             chat_project=chat_project,
         )
@@ -1914,7 +1908,6 @@ async def _handle_topic_command(
     context, error = _parse_project_branch_args(
         args_text,
         runtime=cfg.runtime,
-        cfg=cfg,
         require_branch=True,
         chat_project=chat_project,
     )
@@ -1941,7 +1934,7 @@ async def _handle_topic_command(
             thread_id=msg.thread_id,
         )
         return
-    title = _topic_title(cfg=cfg, runtime=cfg.runtime, context=context)
+    title = _topic_title(runtime=cfg.runtime, context=context)
     created = await cfg.bot.create_forum_topic(target_chat_id, title)
     thread_id = created.get("message_thread_id") if isinstance(created, dict) else None
     if isinstance(thread_id, bool) or not isinstance(thread_id, int):
