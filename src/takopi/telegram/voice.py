@@ -5,7 +5,17 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from ..logging import get_logger
-from openai import AsyncOpenAI
+from openai import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    AuthenticationError,
+    OpenAIError,
+    PermissionDeniedError,
+    RateLimitError,
+)
 from .client import BotClient
 from .types import TelegramIncomingMessage
 
@@ -23,6 +33,51 @@ OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 @dataclass(frozen=True)
 class TelegramVoiceTranscriptionConfig:
     enabled: bool = False
+
+
+def extract_openai_error_message(exc: APIError) -> str | None:
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        error = body.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message.strip():
+                return " ".join(message.split())
+        message = body.get("message")
+        if isinstance(message, str) and message.strip():
+            return " ".join(message.split())
+    message = getattr(exc, "message", None)
+    if isinstance(message, str) and message.strip():
+        return " ".join(message.split())
+    return None
+
+
+def format_openai_error(exc: OpenAIError) -> str:
+    message: str | None = None
+    if isinstance(exc, APIError):
+        message = extract_openai_error_message(exc)
+    if isinstance(exc, AuthenticationError):
+        detail = message or "authentication failed"
+        return f"openai authentication failed: {detail}"
+    if isinstance(exc, PermissionDeniedError):
+        detail = message or "permission denied"
+        return f"openai permission denied: {detail}"
+    if isinstance(exc, RateLimitError):
+        detail = message or "rate limit exceeded"
+        return f"openai rate limit: {detail}"
+    if isinstance(exc, APITimeoutError):
+        return "openai request timed out"
+    if isinstance(exc, APIConnectionError):
+        return (
+            f"openai connection error: {message}"
+            if message
+            else "openai connection error"
+        )
+    if isinstance(exc, APIStatusError):
+        detail = message or "request failed"
+        return f"openai error ({exc.status_code}): {detail}"
+    detail = message or str(exc)
+    return f"openai error: {detail}" if detail else "openai error"
 
 
 async def transcribe_voice(
@@ -74,13 +129,14 @@ async def transcribe_voice(
                 model=OPENAI_TRANSCRIPTION_MODEL,
                 file=audio_file,
             )
-        except Exception as exc:
+        except OpenAIError as exc:
             logger.error(
                 "openai.transcribe.error",
                 error=str(exc),
                 error_type=exc.__class__.__name__,
+                status_code=getattr(exc, "status_code", None),
             )
-            await reply(text="voice transcription failed")
+            await reply(text=format_openai_error(exc))
             return None
     finally:
         await client.close()
