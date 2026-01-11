@@ -1331,6 +1331,7 @@ async def _dispatch_command(
     args_text: str,
     running_tasks: RunningTasks,
     scheduler: ThreadScheduler,
+    ambient_context: RunContext | None = None,
 ) -> None:
     allowlist = cfg.runtime.allowlist
     chat_id = msg.chat_id
@@ -1374,6 +1375,8 @@ async def _dispatch_command(
         plugin_config=plugin_config,
         runtime=cfg.runtime,
         executor=executor,
+        context=ambient_context,
+        thread_id=msg.thread_id,
     )
     try:
         result = await backend.handle(ctx)

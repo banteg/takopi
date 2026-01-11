@@ -559,6 +559,7 @@ async def run_main_loop(
                             args_text,
                             running_tasks,
                             scheduler,
+                            ambient_context,
                         )
                         continue
 

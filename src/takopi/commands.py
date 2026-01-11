@@ -70,6 +70,8 @@ class CommandContext:
     plugin_config: dict[str, Any]
     runtime: TransportRuntime
     executor: CommandExecutor
+    context: RunContext | None = None
+    thread_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
