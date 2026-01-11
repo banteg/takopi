@@ -274,7 +274,6 @@ def _run_auto_router(
 ) -> None:
     if debug:
         os.environ.setdefault("TAKOPI_LOG_FILE", "debug.log")
-        os.environ.setdefault("TAKOPI_LOG_FORMAT", "json")
     setup_logging(debug=debug)
     lock_handle: LockHandle | None = None
     try:
