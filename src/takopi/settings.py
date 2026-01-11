@@ -104,9 +104,7 @@ class TelegramTransportSettings(BaseModel):
 
 
 class TransportsSettings(BaseModel):
-    telegram: TelegramTransportSettings = Field(
-        default_factory=TelegramTransportSettings
-    )
+    telegram: TelegramTransportSettings
 
     model_config = ConfigDict(extra="allow")
 
@@ -141,7 +139,7 @@ class TakopiSettings(BaseSettings):
     projects: dict[str, ProjectSettings] = Field(default_factory=dict)
 
     transport: NonEmptyStr = "telegram"
-    transports: TransportsSettings = Field(default_factory=TransportsSettings)
+    transports: TransportsSettings
 
     plugins: PluginsSettings = Field(default_factory=PluginsSettings)
 
