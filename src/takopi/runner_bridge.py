@@ -164,6 +164,7 @@ class ProgressEdits:
         resume_formatter: Callable[[ResumeToken], str] | None = None,
         label: str = "working",
         context_line: str | None = None,
+        header_suffix: str | None = None,
     ) -> None:
         self.transport = transport
         self.presenter = presenter
@@ -176,6 +177,7 @@ class ProgressEdits:
         self.resume_formatter = resume_formatter
         self.label = label
         self.context_line = context_line
+        self.header_suffix = header_suffix
         self.event_seq = 0
         self.rendered_seq = 0
         self.signal_send, self.signal_recv = anyio.create_memory_object_stream(1)
@@ -195,6 +197,7 @@ class ProgressEdits:
             state = self.tracker.snapshot(
                 resume_formatter=self.resume_formatter,
                 context_line=self.context_line,
+                header_suffix=self.header_suffix,
             )
             rendered = self.presenter.render_progress(
                 state, elapsed_s=now - self.started_at, label=self.label
@@ -246,6 +249,7 @@ async def send_initial_progress(
     resume_formatter: Callable[[ResumeToken], str] | None = None,
     context_line: str | None = None,
     thread_id: int | None = None,
+    header_suffix: str | None = None,
 ) -> ProgressMessageState:
     progress_ref: MessageRef | None = None
     last_rendered: RenderedMessage | None = None
@@ -253,6 +257,7 @@ async def send_initial_progress(
     state = tracker.snapshot(
         resume_formatter=resume_formatter,
         context_line=context_line,
+        header_suffix=header_suffix,
     )
     initial_rendered = cfg.presenter.render_progress(
         state,
@@ -654,19 +659,20 @@ async def handle_message_ralph(
         message_id=incoming.message_id,
     )
 
-    def make_loop_label(base: str) -> str:
+    def make_loop_suffix() -> str:
         iteration = ralph_state.current_iteration or 1  # Show 1 before first iteration starts
-        return f"{base} · loop {iteration}/{ralph_state.max_iterations}"
+        return f"loop {iteration}/{ralph_state.max_iterations}"
 
     progress_state = await send_initial_progress(
         cfg,
         channel_id=incoming.channel_id,
         reply_to=user_ref,
-        label=make_loop_label("starting"),
+        label="starting",
         tracker=progress_tracker,
         resume_formatter=runner.format_resume,
         context_line=context_line,
         thread_id=incoming.thread_id,
+        header_suffix=make_loop_suffix(),
     )
     progress_ref = progress_state.ref
 
@@ -710,8 +716,9 @@ async def handle_message_ralph(
                 clock=clock,
                 last_rendered=progress_state.last_rendered,
                 resume_formatter=runner.format_resume,
-                label=make_loop_label("working"),
+                label="working",
                 context_line=context_line,
+                header_suffix=make_loop_suffix(),
             )
 
             edits_scope = anyio.CancelScope()
@@ -824,11 +831,12 @@ async def handle_message_ralph(
         state = progress_tracker.snapshot(
             resume_formatter=runner.format_resume,
             context_line=context_line,
+            header_suffix=make_loop_suffix(),
         )
         final_rendered = cfg.presenter.render_progress(
             state,
             elapsed_s=elapsed,
-            label=make_loop_label("`cancelled`"),
+            label="`cancelled`",
         )
         await send_result_message(
             cfg,
@@ -866,11 +874,12 @@ async def handle_message_ralph(
     state = progress_tracker.snapshot(
         resume_formatter=runner.format_resume,
         context_line=context_line,
+        header_suffix=make_loop_suffix(),
     )
     final_rendered = cfg.presenter.render_final(
         state,
         elapsed_s=elapsed,
-        status=make_loop_label(status),
+        status=status,
         answer=final_answer,
     )
 
