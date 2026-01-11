@@ -45,6 +45,7 @@ class TransportRuntime:
         "_allowlist",
         "_config_path",
         "_plugin_configs",
+        "_watch_config",
     )
 
     def __init__(
@@ -55,12 +56,14 @@ class TransportRuntime:
         allowlist: Iterable[str] | None = None,
         config_path: Path | None = None,
         plugin_configs: Mapping[str, Any] | None = None,
+        watch_config: bool = False,
     ) -> None:
         self._router = router
         self._projects = projects
         self._allowlist = normalize_allowlist(allowlist)
         self._config_path = config_path
         self._plugin_configs = dict(plugin_configs or {})
+        self._watch_config = watch_config
 
     def update(
         self,
@@ -70,12 +73,14 @@ class TransportRuntime:
         allowlist: Iterable[str] | None = None,
         config_path: Path | None = None,
         plugin_configs: Mapping[str, Any] | None = None,
+        watch_config: bool = False,
     ) -> None:
         self._router = router
         self._projects = projects
         self._allowlist = normalize_allowlist(allowlist)
         self._config_path = config_path
         self._plugin_configs = dict(plugin_configs or {})
+        self._watch_config = watch_config
 
     @property
     def default_engine(self) -> EngineId:
@@ -118,6 +123,10 @@ class TransportRuntime:
     @property
     def config_path(self) -> Path | None:
         return self._config_path
+
+    @property
+    def watch_config(self) -> bool:
+        return self._watch_config
 
     def plugin_config(self, plugin_id: str) -> dict[str, Any]:
         if not self._plugin_configs:

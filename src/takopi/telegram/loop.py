@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from functools import partial
 
 import anyio
+from anyio.abc import TaskGroup
 
 from ..config import ConfigError
 from ..config_watch import ConfigReload, watch_config as watch_config_changes
@@ -93,7 +94,7 @@ def _dispatch_builtin_command(
     resolved_scope: str | None,
     scope_chat_ids: frozenset[int],
     reply: Callable[..., Awaitable[None]],
-    task_group: anyio.abc.TaskGroup,
+    task_group: TaskGroup,
 ) -> bool:
     handlers: dict[str, Callable[[], Awaitable[None]]] = {}
 
@@ -326,7 +327,7 @@ async def run_main_loop(
                 refresh_topics_scope()
                 await _set_command_menu(cfg)
                 if transport_snapshot is not None:
-                    new_snapshot = reload.settings.transports.telegram.model_dump()
+                    new_snapshot = reload.settings.telegram_transport_dict()
                     changed = _diff_keys(transport_snapshot, new_snapshot)
                     if changed:
                         logger.warning(

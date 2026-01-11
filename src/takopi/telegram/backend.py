@@ -2,21 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import cast
 
 import anyio
 
 from ..backends import EngineBackend
 from ..runner_bridge import ExecBridgeConfig
-from ..config import ConfigError
 from ..logging import get_logger
-from pydantic import ValidationError
 
-from ..settings import (
-    TelegramTransportSettings,
-    TelegramFilesSettings,
-    TelegramTopicsSettings,
-    load_settings,
-)
 from ..transports import SetupResult, TransportBackend
 from ..transport_runtime import TransportRuntime
 from .bridge import (
@@ -56,64 +49,32 @@ def _build_startup_message(
     )
 
 
-def _build_topics_config(
-    transport_config: dict[str, object],
-    *,
-    config_path: Path,
-) -> TelegramTopicsConfig:
-    raw = transport_config.get("topics") or {}
-    if not isinstance(raw, dict):
-        raise ConfigError(
-            f"Invalid `transports.telegram.topics` in {config_path}; expected a table."
-        )
-    try:
-        settings = TelegramTopicsSettings.model_validate(raw)
-    except ValidationError as exc:
-        raise ConfigError(f"Invalid topics config in {config_path}: {exc}") from exc
+def _build_topics_config(transport_config: dict[str, object]) -> TelegramTopicsConfig:
+    raw = cast(dict[str, object], transport_config.get("topics", {}))
     return TelegramTopicsConfig(
-        enabled=settings.enabled,
-        scope=settings.scope,
+        enabled=cast(bool, raw.get("enabled", False)),
+        scope=cast(str, raw.get("scope", "auto")),
     )
 
 
-def _build_files_config(
-    transport_config: dict[str, object],
-    *,
-    config_path: Path,
-) -> TelegramFilesConfig:
-    raw = transport_config.get("files") or {}
-    if not isinstance(raw, dict):
-        raise ConfigError(
-            f"Invalid `transports.telegram.files` in {config_path}; expected a table."
-        )
-    try:
-        settings = TelegramFilesSettings.model_validate(raw)
-    except ValidationError as exc:
-        raise ConfigError(f"Invalid files config in {config_path}: {exc}") from exc
+def _build_files_config(transport_config: dict[str, object]) -> TelegramFilesConfig:
+    defaults = TelegramFilesConfig()
+    raw = cast(dict[str, object], transport_config.get("files", {}))
     return TelegramFilesConfig(
-        enabled=settings.enabled,
-        auto_put=settings.auto_put,
-        uploads_dir=settings.uploads_dir,
-        allowed_user_ids=frozenset(settings.allowed_user_ids),
-        deny_globs=tuple(settings.deny_globs),
+        enabled=cast(bool, raw.get("enabled", defaults.enabled)),
+        auto_put=cast(bool, raw.get("auto_put", defaults.auto_put)),
+        uploads_dir=cast(str, raw.get("uploads_dir", defaults.uploads_dir)),
+        max_upload_bytes=defaults.max_upload_bytes,
+        max_download_bytes=defaults.max_download_bytes,
+        allowed_user_ids=frozenset(
+            cast(
+                list[int], raw.get("allowed_user_ids", list(defaults.allowed_user_ids))
+            )
+        ),
+        deny_globs=tuple(
+            cast(list[str], raw.get("deny_globs", list(defaults.deny_globs)))
+        ),
     )
-
-
-def _require_transport_config(
-    transport_config: dict[str, object],
-    *,
-    config_path: Path,
-) -> TelegramTransportSettings:
-    try:
-        settings = TelegramTransportSettings.model_validate(transport_config)
-    except ValidationError as exc:
-        raise ConfigError(
-            f"Invalid `transports.telegram` in {config_path}: {exc}"
-        ) from exc
-    token = settings.bot_token.get_secret_value().strip()
-    if not token:
-        raise ConfigError(f"Missing bot token in {config_path}.")
-    return settings
 
 
 class TelegramBackend(TransportBackend):
@@ -134,11 +95,8 @@ class TelegramBackend(TransportBackend):
     def lock_token(
         self, *, transport_config: dict[str, object], config_path: Path
     ) -> str | None:
-        settings = _require_transport_config(
-            transport_config,
-            config_path=config_path,
-        )
-        return settings.bot_token.get_secret_value().strip()
+        _ = config_path
+        return cast(str, transport_config.get("bot_token"))
 
     def build_and_run(
         self,
@@ -149,23 +107,8 @@ class TelegramBackend(TransportBackend):
         final_notify: bool,
         default_engine_override: str | None,
     ) -> None:
-        watch_enabled = False
-        try:
-            settings, _ = load_settings(config_path)
-        except ConfigError as exc:
-            logger.warning(
-                "config.watch.disabled",
-                error=str(exc),
-            )
-        else:
-            watch_enabled = settings.watch_config
-
-        transport_settings = _require_transport_config(
-            transport_config,
-            config_path=config_path,
-        )
-        token = transport_settings.bot_token.get_secret_value().strip()
-        chat_id = transport_settings.chat_id
+        token = cast(str, transport_config.get("bot_token"))
+        chat_id = cast(int, transport_config.get("chat_id"))
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),
@@ -178,15 +121,17 @@ class TelegramBackend(TransportBackend):
             presenter=presenter,
             final_notify=final_notify,
         )
-        topics = _build_topics_config(transport_config, config_path=config_path)
-        files = _build_files_config(transport_config, config_path=config_path)
+        topics = _build_topics_config(transport_config)
+        files = _build_files_config(transport_config)
         cfg = TelegramBridgeConfig(
             bot=bot,
             runtime=runtime,
             chat_id=chat_id,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
-            voice_transcription=transport_settings.voice_transcription,
+            voice_transcription=cast(
+                bool, transport_config.get("voice_transcription", False)
+            ),
             topics=topics,
             files=files,
         )
@@ -194,7 +139,7 @@ class TelegramBackend(TransportBackend):
         async def run_loop() -> None:
             await run_main_loop(
                 cfg,
-                watch_config=watch_enabled,
+                watch_config=runtime.watch_config,
                 default_engine_override=default_engine_override,
                 transport_id=self.id,
                 transport_config=transport_config,

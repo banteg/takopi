@@ -22,6 +22,7 @@ class RuntimeSpec:
     projects: ProjectsConfig
     allowlist: list[str] | None
     plugin_configs: Mapping[str, Any] | None
+    watch_config: bool = False
 
     def to_runtime(self, *, config_path: Path | None) -> TransportRuntime:
         return TransportRuntime(
@@ -30,6 +31,7 @@ class RuntimeSpec:
             allowlist=self.allowlist,
             config_path=config_path,
             plugin_configs=self.plugin_configs,
+            watch_config=self.watch_config,
         )
 
     def apply(self, runtime: TransportRuntime, *, config_path: Path | None) -> None:
@@ -39,6 +41,7 @@ class RuntimeSpec:
             allowlist=self.allowlist,
             config_path=config_path,
             plugin_configs=self.plugin_configs,
+            watch_config=self.watch_config,
         )
 
 
@@ -47,11 +50,7 @@ def resolve_plugins_allowlist(
 ) -> list[str] | None:
     if settings is None:
         return None
-    enabled = [
-        value.strip()
-        for value in settings.plugins.enabled
-        if isinstance(value, str) and value.strip()
-    ]
+    enabled = list(settings.plugins.enabled)
     return enabled or None
 
 
@@ -63,11 +62,6 @@ def resolve_default_engine(
     engine_ids: list[str],
 ) -> str:
     default_engine = override or settings.default_engine or "codex"
-    if not isinstance(default_engine, str) or not default_engine.strip():
-        raise ConfigError(
-            f"Invalid `default_engine` in {config_path}; expected a non-empty string."
-        )
-    default_engine = default_engine.strip()
     if default_engine not in engine_ids:
         available = ", ".join(sorted(engine_ids))
         raise ConfigError(
@@ -200,4 +194,5 @@ def build_runtime_spec(
         projects=projects,
         allowlist=allowlist,
         plugin_configs=settings.plugins.model_extra,
+        watch_config=settings.watch_config,
     )
