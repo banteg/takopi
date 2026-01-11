@@ -9,7 +9,7 @@ from .backends import EngineBackend
 from .config import ConfigError, ProjectsConfig
 from .engines import get_backend, list_backend_ids
 from .logging import get_logger
-from .router import AutoRouter, RunnerEntry
+from .router import AutoRouter, EngineStatus, RunnerEntry
 from .settings import TakopiSettings
 from .transport_runtime import TransportRuntime
 
@@ -83,6 +83,7 @@ def build_router(
     for backend in backends:
         engine_id = backend.id
         issue: str | None = None
+        status: EngineStatus = "ok"
         engine_cfg: dict
         try:
             engine_cfg = settings.engine_config(engine_id, config_path=config_path)
@@ -90,6 +91,7 @@ def build_router(
             if engine_id == default_engine:
                 raise
             issue = str(exc)
+            status = "bad_config"
             engine_cfg = {}
 
         try:
@@ -104,26 +106,31 @@ def build_router(
                 except Exception as fallback_exc:
                     warnings.append(f"{engine_id}: {issue or str(fallback_exc)}")
                     continue
+                status = "bad_config"
             else:
+                status = "load_error"
                 warnings.append(f"{engine_id}: {issue}")
                 continue
 
         cmd = backend.cli_cmd or backend.id
         if shutil.which(cmd) is None:
-            issue = issue or f"{cmd} not found on PATH"
+            status = "missing_cli"
+            if issue:
+                issue = f"{issue}; {cmd} not found on PATH"
+            else:
+                issue = f"{cmd} not found on PATH"
 
-        if issue and engine_id == default_engine:
+        if status != "ok" and engine_id == default_engine:
             raise ConfigError(f"Default engine {engine_id!r} unavailable: {issue}")
 
-        available = issue is None
-        if issue and engine_id != default_engine:
+        if status != "ok" and engine_id != default_engine:
             warnings.append(f"{engine_id}: {issue}")
 
         entries.append(
             RunnerEntry(
                 engine=engine_id,
                 runner=runner,
-                available=available,
+                status=status,
                 issue=issue,
             )
         )

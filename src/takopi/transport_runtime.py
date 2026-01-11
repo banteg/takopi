@@ -110,7 +110,9 @@ class TransportRuntime:
 
     def missing_engine_ids(self) -> tuple[EngineId, ...]:
         return tuple(
-            entry.engine for entry in self._router.entries if not entry.available
+            entry.engine
+            for entry in self._router.entries
+            if entry.status == "missing_cli"
         )
 
     def project_aliases(self) -> tuple[str, ...]:

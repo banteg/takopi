@@ -21,8 +21,13 @@ def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
     missing = ScriptRunner([Return(answer="ok")], engine=pi)
     router = AutoRouter(
         entries=[
-            RunnerEntry(engine=codex, runner=runner, available=True),
-            RunnerEntry(engine=pi, runner=missing, available=False, issue="missing"),
+            RunnerEntry(engine=codex, runner=runner),
+            RunnerEntry(
+                engine=pi,
+                runner=missing,
+                status="missing_cli",
+                issue="missing",
+            ),
         ],
         default_engine=codex,
     )
@@ -56,7 +61,7 @@ def test_telegram_backend_build_and_run_wires_config(
     codex = EngineId("codex")
     runner = ScriptRunner([Return(answer="ok")], engine=codex)
     router = AutoRouter(
-        entries=[RunnerEntry(engine=codex, runner=runner, available=True)],
+        entries=[RunnerEntry(engine=codex, runner=runner)],
         default_engine=codex,
     )
     runtime = TransportRuntime(
