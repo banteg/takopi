@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 from collections.abc import Callable
 from importlib.metadata import EntryPoint
@@ -10,7 +9,6 @@ from pathlib import Path
 import typer
 
 from . import __version__
-from .backends import EngineBackend
 from .config import ConfigError, load_or_init_config, write_config
 from .config_migrations import migrate_config
 from .commands import get_command
@@ -18,7 +16,7 @@ from .engines import get_backend, list_backend_ids
 from .ids import RESERVED_COMMAND_IDS, RESERVED_ENGINE_IDS
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
-from .router import AutoRouter, RunnerEntry
+from .runtime_loader import build_runtime_spec, resolve_plugins_allowlist
 from .settings import (
     TakopiSettings,
     load_settings,
@@ -36,7 +34,6 @@ from .plugins import (
     normalize_allowlist,
 )
 from .transports import SetupResult, get_transport
-from .transport_runtime import TransportRuntime
 from .utils.git import resolve_default_base, resolve_main_worktree_root
 from .telegram import onboarding
 
@@ -51,19 +48,6 @@ def _load_settings_optional() -> tuple[TakopiSettings | None, Path | None]:
     if loaded is None:
         return None, None
     return loaded
-
-
-def _resolve_plugins_allowlist(
-    settings: TakopiSettings | None,
-) -> list[str] | None:
-    if settings is None:
-        return None
-    enabled = [
-        value.strip()
-        for value in settings.plugins.enabled
-        if isinstance(value, str) and value.strip()
-    ]
-    return enabled or None
 
 
 def _print_version_and_exit() -> None:
@@ -128,115 +112,6 @@ def _default_engine_for_setup(
     return value.strip()
 
 
-def _resolve_default_engine(
-    *,
-    override: str | None,
-    settings: TakopiSettings,
-    config_path: Path,
-    engine_ids: list[str],
-) -> str:
-    default_engine = override or settings.default_engine or "codex"
-    if not isinstance(default_engine, str) or not default_engine.strip():
-        raise ConfigError(
-            f"Invalid `default_engine` in {config_path}; expected a non-empty string."
-        )
-    default_engine = default_engine.strip()
-    if default_engine not in engine_ids:
-        available = ", ".join(sorted(engine_ids))
-        raise ConfigError(
-            f"Unknown default engine {default_engine!r}. Available: {available}."
-        )
-    return default_engine
-
-
-def _build_router(
-    *,
-    settings: TakopiSettings,
-    config_path: Path,
-    backends: list[EngineBackend],
-    default_engine: str,
-) -> AutoRouter:
-    entries: list[RunnerEntry] = []
-    warnings: list[str] = []
-
-    for backend in backends:
-        engine_id = backend.id
-        issue: str | None = None
-        engine_cfg: dict
-        try:
-            engine_cfg = settings.engine_config(engine_id, config_path=config_path)
-        except ConfigError as exc:
-            if engine_id == default_engine:
-                raise
-            issue = str(exc)
-            engine_cfg = {}
-
-        try:
-            runner = backend.build_runner(engine_cfg, config_path)
-        except Exception as exc:
-            if engine_id == default_engine:
-                raise
-            issue = issue or str(exc)
-            if engine_cfg:
-                try:
-                    runner = backend.build_runner({}, config_path)
-                except Exception as fallback_exc:
-                    warnings.append(f"{engine_id}: {issue or str(fallback_exc)}")
-                    continue
-            else:
-                warnings.append(f"{engine_id}: {issue}")
-                continue
-
-        cmd = backend.cli_cmd or backend.id
-        if shutil.which(cmd) is None:
-            issue = issue or f"{cmd} not found on PATH"
-
-        if issue and engine_id == default_engine:
-            raise ConfigError(f"Default engine {engine_id!r} unavailable: {issue}")
-
-        available = issue is None
-        if issue and engine_id != default_engine:
-            warnings.append(f"{engine_id}: {issue}")
-
-        entries.append(
-            RunnerEntry(
-                engine=engine_id,
-                runner=runner,
-                available=available,
-                issue=issue,
-            )
-        )
-
-    for warning in warnings:
-        logger.warning("setup.warning", issue=warning)
-
-    return AutoRouter(entries=entries, default_engine=default_engine)
-
-
-def _load_backends(
-    *,
-    engine_ids: list[str],
-    allowlist: list[str] | None,
-    default_engine: str,
-) -> list[EngineBackend]:
-    backends: list[EngineBackend] = []
-    load_issues: list[str] = []
-    for engine_id in engine_ids:
-        try:
-            backend = get_backend(engine_id, allowlist=allowlist)
-        except ConfigError as exc:
-            if engine_id == default_engine:
-                raise
-            load_issues.append(f"{engine_id}: {exc}")
-            continue
-        backends.append(backend)
-    if not backends:
-        raise ConfigError("No engine backends are available.")
-    for issue in load_issues:
-        logger.warning("setup.warning", issue=issue)
-    return backends
-
-
 def _config_path_display(path: Path) -> str:
     home = Path.home()
     try:
@@ -278,7 +153,7 @@ def _run_auto_router(
     lock_handle: LockHandle | None = None
     try:
         settings_hint, config_hint = _load_settings_optional()
-        allowlist = _resolve_plugins_allowlist(settings_hint)
+        allowlist = resolve_plugins_allowlist(settings_hint)
         default_engine = _default_engine_for_setup(
             default_engine_override,
             settings=settings_hint,
@@ -297,7 +172,7 @@ def _run_auto_router(
         if not transport_backend.interactive_setup(force=True):
             raise typer.Exit(code=1)
         settings_hint, config_hint = _load_settings_optional()
-        allowlist = _resolve_plugins_allowlist(settings_hint)
+        allowlist = resolve_plugins_allowlist(settings_hint)
         default_engine = _default_engine_for_setup(
             default_engine_override,
             settings=settings_hint,
@@ -319,7 +194,7 @@ def _run_auto_router(
                 )
                 if run_onboard and transport_backend.interactive_setup(force=True):
                     settings_hint, config_hint = _load_settings_optional()
-                    allowlist = _resolve_plugins_allowlist(settings_hint)
+                    allowlist = resolve_plugins_allowlist(settings_hint)
                     default_engine = _default_engine_for_setup(
                         default_engine_override,
                         settings=settings_hint,
@@ -332,7 +207,7 @@ def _run_auto_router(
                     )
             elif transport_backend.interactive_setup(force=False):
                 settings_hint, config_hint = _load_settings_optional()
-                allowlist = _resolve_plugins_allowlist(settings_hint)
+                allowlist = resolve_plugins_allowlist(settings_hint)
                 default_engine = _default_engine_for_setup(
                     default_engine_override,
                     settings=settings_hint,
@@ -354,29 +229,11 @@ def _run_auto_router(
         settings, config_path = load_settings()
         if transport_override and transport_override != settings.transport:
             settings = settings.model_copy(update={"transport": transport_override})
-        allowlist = _resolve_plugins_allowlist(settings)
-        engine_ids = list_backend_ids(allowlist=allowlist)
-        projects = settings.to_projects_config(
+        spec = build_runtime_spec(
+            settings=settings,
             config_path=config_path,
-            engine_ids=engine_ids,
+            default_engine_override=default_engine_override,
             reserved=("cancel",),
-        )
-        default_engine = _resolve_default_engine(
-            override=default_engine_override,
-            settings=settings,
-            config_path=config_path,
-            engine_ids=engine_ids,
-        )
-        backends = _load_backends(
-            engine_ids=engine_ids,
-            allowlist=allowlist,
-            default_engine=default_engine,
-        )
-        router = _build_router(
-            settings=settings,
-            config_path=config_path,
-            backends=backends,
-            default_engine=default_engine,
         )
         transport_config = settings.transport_config(
             settings.transport, config_path=config_path
@@ -386,13 +243,7 @@ def _run_auto_router(
             config_path=config_path,
         )
         lock_handle = acquire_config_lock(config_path, lock_token)
-        runtime = TransportRuntime(
-            router=router,
-            projects=projects,
-            allowlist=allowlist,
-            config_path=config_path,
-            plugin_configs=settings.plugins.model_extra,
-        )
+        runtime = spec.to_runtime(config_path=config_path)
         transport_backend.build_and_run(
             final_notify=final_notify,
             default_engine_override=default_engine_override,
@@ -467,7 +318,7 @@ def init(
     alias = _prompt_alias(alias, default_alias=default_alias)
 
     settings = validate_settings_data(config, config_path=config_path)
-    allowlist = _resolve_plugins_allowlist(settings)
+    allowlist = resolve_plugins_allowlist(settings)
     engine_ids = list_backend_ids(allowlist=allowlist)
     projects_cfg = settings.to_projects_config(
         config_path=config_path,
@@ -601,7 +452,7 @@ def plugins_cmd(
 ) -> None:
     """List discovered plugins and optionally validate them."""
     settings_hint, _ = _load_settings_optional()
-    allowlist = _resolve_plugins_allowlist(settings_hint)
+    allowlist = resolve_plugins_allowlist(settings_hint)
 
     allowlist_set = normalize_allowlist(allowlist)
     engine_eps = list_entrypoints(
