@@ -29,7 +29,9 @@ class RunnerEntry:
 
     @property
     def available(self) -> bool:
-        return self.status == "ok"
+        # "bad_config" means we ignored user config and built the runner with defaults.
+        # The engine is still runnable, but a warning should be surfaced to the user.
+        return self.status in {"ok", "bad_config"}
 
 
 class AutoRouter:
