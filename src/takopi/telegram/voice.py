@@ -40,8 +40,7 @@ async def transcribe_voice(
     filename = "voice.ogg"
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = filename
-    client = AsyncOpenAI(timeout=120)
-    try:
+    async with AsyncOpenAI(timeout=120) as client:
         try:
             response = await client.audio.transcriptions.create(
                 model=OPENAI_TRANSCRIPTION_MODEL,
@@ -56,8 +55,6 @@ async def transcribe_voice(
             )
             await reply(text=str(exc).strip() or "voice transcription failed")
             return None
-    finally:
-        await client.close()
 
     text = response if isinstance(response, str) else getattr(response, "text", None)
     if not isinstance(text, str):
