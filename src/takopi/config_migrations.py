@@ -3,28 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .config import ConfigError, read_config, write_config
+from .config import ConfigError, ensure_table, read_config, write_config
 from .logging import get_logger
 
 logger = get_logger(__name__)
-
-
-def _ensure_table(
-    config: dict[str, Any],
-    key: str,
-    *,
-    config_path: Path,
-    label: str | None = None,
-) -> dict[str, Any]:
-    value = config.get(key)
-    if value is None:
-        table: dict[str, Any] = {}
-        config[key] = table
-        return table
-    if not isinstance(value, dict):
-        name = label or key
-        raise ConfigError(f"Invalid `{name}` in {config_path}; expected a table.")
-    return value
 
 
 def _ensure_subtable(
@@ -47,8 +29,8 @@ def _migrate_legacy_telegram(config: dict[str, Any], *, config_path: Path) -> bo
     if not has_legacy:
         return False
 
-    transports = _ensure_table(config, "transports", config_path=config_path)
-    telegram = _ensure_table(
+    transports = ensure_table(config, "transports", config_path=config_path)
+    telegram = ensure_table(
         transports,
         "telegram",
         config_path=config_path,

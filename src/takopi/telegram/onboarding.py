@@ -22,7 +22,13 @@ from rich.table import Table
 
 from ..backends import EngineBackend, SetupIssue
 from ..backends_helpers import install_issue
-from ..config import ConfigError, dump_toml, read_config, write_config
+from ..config import (
+    ConfigError,
+    dump_toml,
+    ensure_table,
+    read_config,
+    write_config,
+)
 from ..engines import list_backends
 from ..logging import suppress_logs
 from ..settings import HOME_CONFIG_PATH, load_settings, require_telegram
@@ -114,24 +120,6 @@ def _mask_token(token: str) -> str:
     if len(token) <= 12:
         return "*" * len(token)
     return f"{token[:9]}...{token[-5:]}"
-
-
-def _ensure_table(
-    config: dict[str, Any],
-    key: str,
-    *,
-    config_path: Path,
-    label: str | None = None,
-) -> dict[str, Any]:
-    value = config.get(key)
-    if value is None:
-        table: dict[str, Any] = {}
-        config[key] = table
-        return table
-    if not isinstance(value, dict):
-        name = label or key
-        raise ConfigError(f"Invalid `{name}` in {config_path}; expected a table.")
-    return value
 
 
 async def _get_bot_info(token: str) -> dict[str, Any] | None:
@@ -487,8 +475,8 @@ def interactive_setup(*, force: bool) -> bool:
         if default_engine is not None:
             merged["default_engine"] = default_engine
         merged["transport"] = "telegram"
-        transports = _ensure_table(merged, "transports", config_path=config_path)
-        telegram = _ensure_table(
+        transports = ensure_table(merged, "transports", config_path=config_path)
+        telegram = ensure_table(
             transports,
             "telegram",
             config_path=config_path,

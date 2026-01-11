@@ -12,6 +12,24 @@ class ConfigError(RuntimeError):
     pass
 
 
+def ensure_table(
+    config: dict[str, Any],
+    key: str,
+    *,
+    config_path: Path,
+    label: str | None = None,
+) -> dict[str, Any]:
+    value = config.get(key)
+    if value is None:
+        table: dict[str, Any] = {}
+        config[key] = table
+        return table
+    if not isinstance(value, dict):
+        name = label or key
+        raise ConfigError(f"Invalid `{name}` in {config_path}; expected a table.")
+    return value
+
+
 def read_config(cfg_path: Path) -> dict:
     try:
         raw = cfg_path.read_text(encoding="utf-8")
