@@ -170,7 +170,7 @@ async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int |
             if drained:
                 logger.info("startup.backlog.drained", count=drained)
             return offset
-        offset = updates[-1]["update_id"] + 1
+        offset = updates[-1].update_id + 1
         drained += len(updates)
 
 

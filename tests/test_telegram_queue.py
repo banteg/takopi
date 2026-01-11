@@ -3,7 +3,7 @@ from typing import Any
 import anyio
 import pytest
 
-from takopi.telegram.api_models import File, Message, User
+from takopi.telegram.api_models import File, Message, Update, User
 from takopi.telegram.client import BotClient, TelegramClient, TelegramRetryAfter
 
 
@@ -114,7 +114,7 @@ class _FakeBot(BotClient):
         offset: int | None,
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
-    ) -> list[dict[str, Any]] | None:
+    ) -> list[Update] | None:
         _ = offset
         _ = timeout_s
         _ = allowed_updates

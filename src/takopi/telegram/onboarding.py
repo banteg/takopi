@@ -154,7 +154,7 @@ async def wait_for_chat(token: str) -> ChatInfo:
             offset=None, timeout_s=0, allowed_updates=allowed_updates
         )
         if drained:
-            offset = drained[-1]["update_id"] + 1
+            offset = drained[-1].update_id + 1
         while True:
             updates = await bot.get_updates(
                 offset=offset, timeout_s=50, allowed_updates=allowed_updates
@@ -164,9 +164,9 @@ async def wait_for_chat(token: str) -> ChatInfo:
                 continue
             if not updates:
                 continue
-            offset = updates[-1]["update_id"] + 1
+            offset = updates[-1].update_id + 1
             update = updates[-1]
-            msg = update.get("message")
+            msg = update.message
             if not isinstance(msg, dict):
                 continue
             sender = msg.get("from")

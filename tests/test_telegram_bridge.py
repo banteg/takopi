@@ -16,6 +16,7 @@ from takopi.telegram.api_models import (
     File,
     ForumTopic,
     Message,
+    Update,
     User,
 )
 from takopi.settings import TelegramFilesSettings, TelegramTopicsSettings
@@ -129,7 +130,7 @@ class _FakeBot(BotClient):
         offset: int | None,
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
-    ) -> list[dict[str, Any]] | None:
+    ) -> list[Update] | None:
         _ = offset
         _ = timeout_s
         _ = allowed_updates
@@ -542,7 +543,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             offset: int | None,
             timeout_s: int = 50,
             allowed_updates: list[str] | None = None,
-        ) -> list[dict[str, Any]] | None:
+        ) -> list[Update] | None:
             return None
 
         async def get_file(self, file_id: str) -> File | None:

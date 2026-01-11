@@ -21,7 +21,7 @@ import httpx
 import anyio
 
 from ..logging import get_logger
-from .api_models import Chat, ChatMember, File, ForumTopic, Message, User
+from .api_models import Chat, ChatMember, File, ForumTopic, Message, Update, User
 from .types import (
     TelegramCallbackQuery,
     TelegramDocument,
@@ -56,15 +56,20 @@ def is_group_chat_id(chat_id: int) -> bool:
 
 
 def parse_incoming_update(
-    update: dict[str, Any],
+    update: Update | dict[str, Any],
     *,
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
 ) -> TelegramIncomingUpdate | None:
-    msg = update.get("message")
+    if isinstance(update, Update):
+        msg = update.message
+        callback_query = update.callback_query
+    else:
+        msg = update.get("message")
+        callback_query = update.get("callback_query")
+
     if isinstance(msg, dict):
         return _parse_incoming_message(msg, chat_id=chat_id, chat_ids=chat_ids)
-    callback_query = update.get("callback_query")
     if isinstance(callback_query, dict):
         return _parse_callback_query(
             callback_query,
@@ -308,7 +313,7 @@ async def poll_incoming(
         if allowed is None and chat_id is not None:
             allowed = {chat_id}
         for upd in updates:
-            offset = upd["update_id"] + 1
+            offset = upd.update_id + 1
             msg = parse_incoming_update(upd, chat_ids=allowed)
             if msg is not None:
                 yield msg
@@ -322,7 +327,7 @@ class BotClient(Protocol):
         offset: int | None,
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
-    ) -> list[dict] | None: ...
+    ) -> list[Update] | None: ...
 
     async def get_file(self, file_id: str) -> File | None: ...
 
@@ -845,21 +850,45 @@ class TelegramClient:
         offset: int | None,
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
-    ) -> list[dict] | None:
-        async def execute() -> list[dict] | None:
+    ) -> list[Update] | None:
+        async def execute() -> list[Update] | None:
             if self._client_override is not None:
-                return await self._client_override.get_updates(
+                raw = await self._client_override.get_updates(
                     offset=offset,
                     timeout_s=timeout_s,
                     allowed_updates=allowed_updates,
                 )
+                if raw is None:
+                    return None
+                try:
+                    return msgspec.convert(raw, type=list[Update])
+                except Exception as exc:
+                    logger.error(
+                        "telegram.decode_error",
+                        method="getUpdates",
+                        error=str(exc),
+                        error_type=exc.__class__.__name__,
+                    )
+                    return None
+
             params: dict[str, Any] = {"timeout": timeout_s}
             if offset is not None:
                 params["offset"] = offset
             if allowed_updates is not None:
                 params["allowed_updates"] = allowed_updates
             result = await self._post("getUpdates", params)
-            return result if isinstance(result, list) else None
+            if result is None or not isinstance(result, list):
+                return None
+            try:
+                return msgspec.convert(result, type=list[Update])
+            except Exception as exc:
+                logger.error(
+                    "telegram.decode_error",
+                    method="getUpdates",
+                    error=str(exc),
+                    error_type=exc.__class__.__name__,
+                )
+                return None
 
         return await self._call_with_retry_after(execute)
 

@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from takopi.telegram.api_models import Chat, ChatMember, File, ForumTopic, Message, User
+from takopi.telegram.api_models import (
+    Chat,
+    ChatMember,
+    File,
+    ForumTopic,
+    Message,
+    Update,
+    User,
+)
 from takopi.telegram.client import BotClient
 from takopi.telegram.types import TelegramIncomingMessage, TelegramVoice
 from takopi.telegram.voice import transcribe_voice
@@ -21,7 +29,7 @@ class _Bot(BotClient):
         offset: int | None,
         timeout_s: int = 50,
         allowed_updates: list[str] | None = None,
-    ) -> list[dict] | None:
+    ) -> list[Update] | None:
         _ = offset, timeout_s, allowed_updates
         return []
 

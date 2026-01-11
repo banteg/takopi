@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import msgspec
 
 __all__ = [
@@ -8,6 +10,7 @@ __all__ = [
     "File",
     "ForumTopic",
     "Message",
+    "Update",
     "User",
 ]
 
@@ -42,3 +45,9 @@ class File(msgspec.Struct, forbid_unknown_fields=False):
 
 class ForumTopic(msgspec.Struct, forbid_unknown_fields=False):
     message_thread_id: int
+
+
+class Update(msgspec.Struct, forbid_unknown_fields=False):
+    update_id: int
+    message: dict[str, Any] | None = None
+    callback_query: dict[str, Any] | None = None
