@@ -283,6 +283,6 @@ class TopicStateStore:
         entry = threads.get(key)
         if isinstance(entry, dict):
             return entry
-        entry = {"chat_id": chat_id, "thread_id": thread_id}
+        entry = {}
         threads[key] = entry
         return entry
