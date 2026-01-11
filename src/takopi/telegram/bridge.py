@@ -640,6 +640,25 @@ async def _reply(
     )
 
 
+async def _reply_exec(
+    exec_cfg: ExecBridgeConfig,
+    *,
+    chat_id: int,
+    user_msg_id: int,
+    text: str,
+    notify: bool = True,
+    thread_id: int | None = None,
+) -> None:
+    await _send_plain(
+        exec_cfg.transport,
+        chat_id=chat_id,
+        user_msg_id=user_msg_id,
+        text=text,
+        notify=notify,
+        thread_id=thread_id,
+    )
+
+
 async def _send_startup(cfg: TelegramBridgeConfig) -> None:
     logger.debug("startup.message", text=cfg.startup_msg)
     parts = MarkdownParts(header=cfg.startup_msg)
@@ -1704,8 +1723,8 @@ async def _send_with_resume(
 ) -> None:
     resume = await _wait_for_resume(running_task)
     if resume is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
+        await _reply_exec(
+            cfg.exec_cfg,
             chat_id=chat_id,
             user_msg_id=user_msg_id,
             text="resume token not ready yet; try replying to the final message.",
@@ -1773,8 +1792,8 @@ async def _run_engine(
                 engine_override=engine_override,
             )
         except RunnerUnavailableError as exc:
-            await _send_plain(
-                exec_cfg.transport,
+            await _reply_exec(
+                exec_cfg,
                 chat_id=chat_id,
                 user_msg_id=user_msg_id,
                 text=f"error:\n{exc}",
@@ -1796,8 +1815,8 @@ async def _run_engine(
         try:
             cwd = runtime.resolve_run_cwd(context)
         except ConfigError as exc:
-            await _send_plain(
-                exec_cfg.transport,
+            await _reply_exec(
+                exec_cfg,
                 chat_id=chat_id,
                 user_msg_id=user_msg_id,
                 text=f"error:\n{exc}",
