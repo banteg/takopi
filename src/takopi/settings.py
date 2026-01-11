@@ -318,8 +318,6 @@ def require_telegram(settings: TakopiSettings, config_path: Path) -> tuple[str, 
             "(telegram only for now)."
         )
     tg = settings.transports.telegram
-    if not tg.bot_token:
-        raise ConfigError(f"Missing bot token in {config_path}.")
     return tg.bot_token, tg.chat_id
 
 

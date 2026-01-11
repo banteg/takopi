@@ -105,11 +105,7 @@ def _default_engine_for_setup(
     if settings is None or config_path is None:
         return "codex"
     value = settings.default_engine
-    if not isinstance(value, str) or not value.strip():
-        raise ConfigError(
-            f"Invalid `default_engine` in {config_path}; expected a non-empty string."
-        )
-    return value.strip()
+    return value
 
 
 def _config_path_display(path: Path) -> str:
