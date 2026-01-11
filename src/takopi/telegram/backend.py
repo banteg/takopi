@@ -143,7 +143,9 @@ class TelegramBackend(TransportBackend):
             transport_config,
             config_path=config_path,
         )
-        return settings.bot_token.get_secret_value().strip() if settings.bot_token else ""
+        return (
+            settings.bot_token.get_secret_value().strip() if settings.bot_token else ""
+        )
 
     def build_and_run(
         self,
