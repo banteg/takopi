@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 
 import anyio
@@ -624,6 +623,23 @@ async def _send_plain(
     )
 
 
+async def _reply(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    text: str,
+    *,
+    notify: bool = True,
+) -> None:
+    await _send_plain(
+        cfg.exec_cfg.transport,
+        chat_id=msg.chat_id,
+        user_msg_id=msg.message_id,
+        text=text,
+        notify=notify,
+        thread_id=msg.thread_id,
+    )
+
+
 async def _send_startup(cfg: TelegramBridgeConfig) -> None:
     logger.debug("startup.message", text=cfg.startup_msg)
     parts = MarkdownParts(header=cfg.startup_msg)
@@ -754,71 +770,29 @@ async def _transcribe_voice(
         return msg.text
     settings = cfg.voice_transcription
     if settings is None or not settings.enabled:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="voice transcription is disabled.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "voice transcription is disabled.")
         return None
     api_key = _resolve_openai_api_key()
     if not api_key:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="voice transcription requires OPENAI_API_KEY.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "voice transcription requires OPENAI_API_KEY.")
         return None
     if voice.file_size is not None and voice.file_size > _OPENAI_AUDIO_MAX_BYTES:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="voice message is too large to transcribe.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "voice message is too large to transcribe.")
         return None
     file_info = await cfg.bot.get_file(voice.file_id)
     if not isinstance(file_info, dict):
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="failed to fetch voice file.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "failed to fetch voice file.")
         return None
     file_path = file_info.get("file_path")
     if not isinstance(file_path, str) or not file_path:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="failed to fetch voice file.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "failed to fetch voice file.")
         return None
     audio_bytes = await cfg.bot.download_file(file_path)
     if not audio_bytes:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="failed to download voice message.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "failed to download voice message.")
         return None
     if len(audio_bytes) > _OPENAI_AUDIO_MAX_BYTES:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="voice message is too large to transcribe.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "voice message is too large to transcribe.")
         return None
     filename = _normalize_voice_filename(file_path, voice.mime_type)
     transcript = await transcribe_audio(
@@ -830,23 +804,11 @@ async def _transcribe_voice(
         mime_type=voice.mime_type,
     )
     if transcript is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="voice transcription failed.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "voice transcription failed.")
         return None
     transcript = transcript.strip()
     if not transcript:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="voice transcription returned empty text.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "voice transcription returned empty text.")
         return None
     return transcript
 
@@ -878,23 +840,11 @@ async def _check_file_permissions(
 ) -> bool:
     sender_id = msg.sender_id
     if sender_id is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="cannot verify sender for file transfer.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "cannot verify sender for file transfer.")
         return False
     if cfg.files.allowed_user_ids:
         if sender_id not in cfg.files.allowed_user_ids:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text="file transfer is not allowed for this user.",
-                thread_id=msg.thread_id,
-            )
+            await _reply(cfg, msg, "file transfer is not allowed for this user.")
             return False
         return True
     is_private = msg.chat_type == "private"
@@ -904,24 +854,12 @@ async def _check_file_permissions(
         return True
     member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
     if not isinstance(member, dict):
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="failed to verify file transfer permissions.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "failed to verify file transfer permissions.")
         return False
     status = member.get("status")
     if status in {"creator", "administrator"}:
         return True
-    await _send_plain(
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        text="file transfer is restricted to group admins.",
-        thread_id=msg.thread_id,
-    )
+    await _reply(cfg, msg, "file transfer is restricted to group admins.")
     return False
 
 
@@ -942,13 +880,7 @@ async def _prepare_file_put_plan(
             chat_id=msg.chat_id,
         )
     except DirectiveError as exc:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=f"error:\n{exc}",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, f"error:\n{exc}")
         return None
     topic_key = _topic_key(msg, cfg) if topic_store is not None else None
     await _maybe_update_topic_context(
@@ -959,43 +891,19 @@ async def _prepare_file_put_plan(
         context_source=resolved.context_source,
     )
     if resolved.context is None or resolved.context.project is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="no project context available for file upload.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "no project context available for file upload.")
         return None
     try:
         run_root = cfg.runtime.resolve_run_cwd(resolved.context)
     except ConfigError as exc:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=f"error:\n{exc}",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, f"error:\n{exc}")
         return None
     if run_root is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="no project context available for file upload.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "no project context available for file upload.")
         return None
     path_value, force, error = parse_file_prompt(resolved.prompt, allow_empty=True)
     if error is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=error,
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, error)
         return None
     return _FilePutPlan(
         resolved=resolved,
@@ -1147,13 +1055,7 @@ async def _handle_file_command(
 ) -> None:
     command, rest, error = parse_file_command(args_text)
     if error is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=error,
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, error)
         return
     if command == "put":
         await _handle_file_put(cfg, msg, rest, ambient_context, topic_store)
@@ -1179,13 +1081,7 @@ async def _handle_file_put(
 ) -> None:
     document = msg.document
     if document is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=file_put_usage(),
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, file_put_usage())
         return
     plan = await _prepare_file_put_plan(
         cfg,
@@ -1202,53 +1098,23 @@ async def _handle_file_put(
         if plan.path_value.endswith("/"):
             base_dir = normalize_relative_path(plan.path_value)
             if base_dir is None:
-                await _send_plain(
-                    cfg.exec_cfg.transport,
-                    chat_id=msg.chat_id,
-                    user_msg_id=msg.message_id,
-                    text="invalid upload path.",
-                    thread_id=msg.thread_id,
-                )
+                await _reply(cfg, msg, "invalid upload path.")
                 return
             deny_rule = deny_reason(base_dir, cfg.files.deny_globs)
             if deny_rule is not None:
-                await _send_plain(
-                    cfg.exec_cfg.transport,
-                    chat_id=msg.chat_id,
-                    user_msg_id=msg.message_id,
-                    text=f"path denied by rule: {deny_rule}",
-                    thread_id=msg.thread_id,
-                )
+                await _reply(cfg, msg, f"path denied by rule: {deny_rule}")
                 return
             base_target = resolve_path_within_root(plan.run_root, base_dir)
             if base_target is None:
-                await _send_plain(
-                    cfg.exec_cfg.transport,
-                    chat_id=msg.chat_id,
-                    user_msg_id=msg.message_id,
-                    text="upload path escapes the repo root.",
-                    thread_id=msg.thread_id,
-                )
+                await _reply(cfg, msg, "upload path escapes the repo root.")
                 return
             if base_target.exists() and not base_target.is_dir():
-                await _send_plain(
-                    cfg.exec_cfg.transport,
-                    chat_id=msg.chat_id,
-                    user_msg_id=msg.message_id,
-                    text="upload path is a file.",
-                    thread_id=msg.thread_id,
-                )
+                await _reply(cfg, msg, "upload path is a file.")
                 return
         else:
             rel_path = normalize_relative_path(plan.path_value)
             if rel_path is None:
-                await _send_plain(
-                    cfg.exec_cfg.transport,
-                    chat_id=msg.chat_id,
-                    user_msg_id=msg.message_id,
-                    text="invalid upload path.",
-                    thread_id=msg.thread_id,
-                )
+                await _reply(cfg, msg, "invalid upload path.")
                 return
     result = await _save_document_payload(
         cfg,
@@ -1259,33 +1125,19 @@ async def _handle_file_put(
         force=plan.force,
     )
     if result.error is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=result.error,
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, result.error)
         return
     if result.rel_path is None or result.size is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="failed to save file.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "failed to save file.")
         return
     context_label = _format_context(cfg.runtime, plan.resolved.context)
-    await _send_plain(
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        text=(
+    await _reply(
+        cfg,
+        msg,
+        (
             f"saved `{result.rel_path.as_posix()}` "
             f"in `{context_label}` ({format_bytes(result.size)})"
         ),
-        thread_id=msg.thread_id,
     )
 
 
@@ -1299,13 +1151,7 @@ async def _handle_file_put_group(
 ) -> None:
     documents = [item.document for item in messages if item.document is not None]
     if not documents:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=file_put_usage(),
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, file_put_usage())
         return
     plan = await _prepare_file_put_plan(
         cfg,
@@ -1320,42 +1166,18 @@ async def _handle_file_put_group(
     if plan.path_value:
         base_dir = normalize_relative_path(plan.path_value)
         if base_dir is None:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text="invalid upload path.",
-                thread_id=msg.thread_id,
-            )
+            await _reply(cfg, msg, "invalid upload path.")
             return
         deny_rule = deny_reason(base_dir, cfg.files.deny_globs)
         if deny_rule is not None:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text=f"path denied by rule: {deny_rule}",
-                thread_id=msg.thread_id,
-            )
+            await _reply(cfg, msg, f"path denied by rule: {deny_rule}")
             return
         base_target = resolve_path_within_root(plan.run_root, base_dir)
         if base_target is None:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text="upload path escapes the repo root.",
-                thread_id=msg.thread_id,
-            )
+            await _reply(cfg, msg, "upload path escapes the repo root.")
             return
         if base_target.exists() and not base_target.is_dir():
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text="upload path is a file.",
-                thread_id=msg.thread_id,
-            )
+            await _reply(cfg, msg, "upload path is a file.")
             return
     saved: list[_FilePutResult] = []
     failed: list[_FilePutResult] = []
@@ -1402,13 +1224,7 @@ async def _handle_file_put_group(
         )
         if errors:
             text = f"{text}\n\nfailed: {errors}"
-    await _send_plain(
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        text=text,
-        thread_id=msg.thread_id,
-    )
+    await _reply(cfg, msg, text)
 
 
 async def _handle_media_group(
@@ -1439,23 +1255,15 @@ async def _handle_media_group(
     command_id, args_text = _parse_slash_command(command_msg.text)
     if command_id == "file":
         if not cfg.files.enabled:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=command_msg.chat_id,
-                user_msg_id=command_msg.message_id,
-                text=("file transfer disabled; enable `[transports.telegram.files]`."),
-                thread_id=command_msg.thread_id,
+            await _reply(
+                cfg,
+                command_msg,
+                "file transfer disabled; enable `[transports.telegram.files]`.",
             )
             return
         command, rest, error = parse_file_command(args_text)
         if error is not None:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=command_msg.chat_id,
-                user_msg_id=command_msg.message_id,
-                text=error,
-                thread_id=command_msg.thread_id,
-            )
+            await _reply(cfg, command_msg, error)
             return
         if command == "put":
             await _handle_file_put_group(
@@ -1467,13 +1275,7 @@ async def _handle_media_group(
                 topic_store,
             )
         else:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=command_msg.chat_id,
-                user_msg_id=command_msg.message_id,
-                text=file_put_usage(),
-                thread_id=command_msg.thread_id,
-            )
+            await _reply(cfg, command_msg, file_put_usage())
         return
     if cfg.files.enabled and cfg.files.auto_put and not command_msg.text.strip():
         await _handle_file_put_group(
@@ -1486,13 +1288,7 @@ async def _handle_media_group(
         )
         return
     if cfg.files.enabled:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=command_msg.chat_id,
-            user_msg_id=command_msg.message_id,
-            text=file_put_usage(),
-            thread_id=command_msg.thread_id,
-        )
+        await _reply(cfg, command_msg, file_put_usage())
 
 
 async def _handle_file_get(
@@ -1512,13 +1308,7 @@ async def _handle_file_get(
             chat_id=msg.chat_id,
         )
     except DirectiveError as exc:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=f"error:\n{exc}",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, f"error:\n{exc}")
         return
     topic_key = _topic_key(msg, cfg) if topic_store is not None else None
     await _maybe_update_topic_context(
@@ -1529,82 +1319,34 @@ async def _handle_file_get(
         context_source=resolved.context_source,
     )
     if resolved.context is None or resolved.context.project is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="no project context available for file fetch.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "no project context available for file fetch.")
         return
     try:
         run_root = cfg.runtime.resolve_run_cwd(resolved.context)
     except ConfigError as exc:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=f"error:\n{exc}",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, f"error:\n{exc}")
         return
     if run_root is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="no project context available for file fetch.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "no project context available for file fetch.")
         return
     path_value, _, error = parse_file_prompt(resolved.prompt, allow_empty=False)
     if error is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=file_get_usage(),
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, file_get_usage())
         return
     rel_path = normalize_relative_path(path_value or "")
     if rel_path is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="invalid file path.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "invalid file path.")
         return
     deny_rule = deny_reason(rel_path, cfg.files.deny_globs)
     if deny_rule is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=f"path denied by rule: {deny_rule}",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, f"path denied by rule: {deny_rule}")
         return
     target = resolve_path_within_root(run_root, rel_path)
     if target is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="requested path escapes the repo root.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "requested path escapes the repo root.")
         return
     if not target.exists():
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="file not found.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "file not found.")
         return
     payload: bytes
     filename: str
@@ -1617,55 +1359,25 @@ async def _handle_file_get(
                 max_bytes=cfg.files.max_download_bytes,
             )
         except ZipTooLargeError:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text="file is too large to send.",
-                thread_id=msg.thread_id,
-            )
+            await _reply(cfg, msg, "file is too large to send.")
             return
         except OSError as exc:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text=f"failed to read directory: {exc}",
-                thread_id=msg.thread_id,
-            )
+            await _reply(cfg, msg, f"failed to read directory: {exc}")
             return
         filename = f"{rel_path.name or 'archive'}.zip"
     else:
         try:
             size = target.stat().st_size
             if size > cfg.files.max_download_bytes:
-                await _send_plain(
-                    cfg.exec_cfg.transport,
-                    chat_id=msg.chat_id,
-                    user_msg_id=msg.message_id,
-                    text="file is too large to send.",
-                    thread_id=msg.thread_id,
-                )
+                await _reply(cfg, msg, "file is too large to send.")
                 return
             payload = target.read_bytes()
         except OSError as exc:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text=f"failed to read file: {exc}",
-                thread_id=msg.thread_id,
-            )
+            await _reply(cfg, msg, f"failed to read file: {exc}")
             return
         filename = target.name
     if len(payload) > cfg.files.max_download_bytes:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="file is too large to send.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "file is too large to send.")
         return
     sent = await cfg.bot.send_document(
         chat_id=msg.chat_id,
@@ -1675,13 +1387,7 @@ async def _handle_file_get(
         message_thread_id=msg.thread_id,
     )
     if sent is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="failed to send file.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "failed to send file.")
         return
 
 
@@ -1744,24 +1450,12 @@ async def _handle_ctx_command(
         scope_chat_ids=scope_chat_ids,
     )
     if error is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=error,
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, error)
         return
     chat_project = _topics_chat_project(cfg, msg.chat_id)
     tkey = _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
     if tkey is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="this command only works inside a topic.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "this command only works inside a topic.")
         return
     tokens = split_command_args(args_text)
     action = tokens[0].lower() if tokens else "show"
@@ -1784,13 +1478,7 @@ async def _handle_ctx_command(
             snapshot=snapshot,
             chat_project=chat_project,
         )
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=text,
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, text)
         return
     if action == "set":
         rest = " ".join(tokens[1:])
@@ -1801,21 +1489,17 @@ async def _handle_ctx_command(
             chat_project=chat_project,
         )
         if error is not None:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text=f"error:\n{error}\n{_usage_ctx_set(chat_project=chat_project)}",
-                thread_id=msg.thread_id,
+            await _reply(
+                cfg,
+                msg,
+                f"error:\n{error}\n{_usage_ctx_set(chat_project=chat_project)}",
             )
             return
         if context is None:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=msg.chat_id,
-                user_msg_id=msg.message_id,
-                text=f"error:\n{_usage_ctx_set(chat_project=chat_project)}",
-                thread_id=msg.thread_id,
+            await _reply(
+                cfg,
+                msg,
+                f"error:\n{_usage_ctx_set(chat_project=chat_project)}",
             )
             return
         await store.set_context(*tkey, context)
@@ -1826,30 +1510,20 @@ async def _handle_ctx_command(
             thread_id=tkey[1],
             context=context,
         )
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=f"topic bound to `{_format_context(cfg.runtime, context)}`",
-            thread_id=msg.thread_id,
+        await _reply(
+            cfg,
+            msg,
+            f"topic bound to `{_format_context(cfg.runtime, context)}`",
         )
         return
     if action == "clear":
         await store.clear_context(*tkey)
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="topic binding cleared.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "topic binding cleared.")
         return
-    await _send_plain(
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        text="unknown `/ctx` command. use `/ctx`, `/ctx set`, or `/ctx clear`.",
-        thread_id=msg.thread_id,
+    await _reply(
+        cfg,
+        msg,
+        "unknown `/ctx` command. use `/ctx`, `/ctx set`, or `/ctx clear`.",
     )
 
 
@@ -1868,32 +1542,14 @@ async def _handle_new_command(
         scope_chat_ids=scope_chat_ids,
     )
     if error is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=error,
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, error)
         return
     tkey = _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
     if tkey is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="this command only works inside a topic.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "this command only works inside a topic.")
         return
     await store.clear_sessions(*tkey)
-    await _send_plain(
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        text="cleared stored sessions for this topic.",
-        thread_id=msg.thread_id,
-    )
+    await _reply(cfg, msg, "cleared stored sessions for this topic.")
 
 
 async def _handle_topic_command(
@@ -1912,13 +1568,7 @@ async def _handle_topic_command(
         scope_chat_ids=scope_chat_ids,
     )
     if error is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=error,
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, error)
         return
     chat_project = _topics_chat_project(cfg, msg.chat_id)
     context, error = _parse_project_branch_args(
@@ -1930,36 +1580,22 @@ async def _handle_topic_command(
     if error is not None or context is None:
         usage = _usage_topic(chat_project=chat_project)
         text = f"error:\n{error}\n{usage}" if error else usage
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=text,
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, text)
         return
     existing = await store.find_thread_for_context(msg.chat_id, context)
     if existing is not None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text=f"topic already exists for {_format_context(cfg.runtime, context)} "
+        await _reply(
+            cfg,
+            msg,
+            f"topic already exists for {_format_context(cfg.runtime, context)} "
             "in this chat.",
-            thread_id=msg.thread_id,
         )
         return
     title = _topic_title(runtime=cfg.runtime, context=context)
     created = await cfg.bot.create_forum_topic(msg.chat_id, title)
     thread_id = created.get("message_thread_id") if isinstance(created, dict) else None
     if isinstance(thread_id, bool) or not isinstance(thread_id, int):
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=msg.chat_id,
-            user_msg_id=msg.message_id,
-            text="failed to create topic.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "failed to create topic.")
         return
     await store.set_context(
         msg.chat_id,
@@ -1968,13 +1604,7 @@ async def _handle_topic_command(
         topic_title=title,
         created_by_bot=True,
     )
-    await _send_plain(
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        text=f"created topic `{title}`.",
-        thread_id=msg.thread_id,
-    )
+    await _reply(cfg, msg, f"created topic `{title}`.")
     await cfg.exec_cfg.transport.send(
         channel_id=msg.chat_id,
         message=RenderedMessage(
@@ -1995,33 +1625,15 @@ async def _handle_cancel(
 
     if reply_id is None:
         if msg.reply_to_text:
-            await _send_plain(
-                cfg.exec_cfg.transport,
-                chat_id=chat_id,
-                user_msg_id=user_msg_id,
-                text="nothing is currently running for that message.",
-                thread_id=msg.thread_id,
-            )
+            await _reply(cfg, msg, "nothing is currently running for that message.")
             return
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=chat_id,
-            user_msg_id=user_msg_id,
-            text="reply to the progress message to cancel.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "reply to the progress message to cancel.")
         return
 
     progress_ref = MessageRef(channel_id=chat_id, message_id=reply_id)
     running_task = running_tasks.get(progress_ref)
     if running_task is None:
-        await _send_plain(
-            cfg.exec_cfg.transport,
-            chat_id=chat_id,
-            user_msg_id=user_msg_id,
-            text="nothing is currently running for that message.",
-            thread_id=msg.thread_id,
-        )
+        await _reply(cfg, msg, "nothing is currently running for that message.")
         return
 
     logger.info(
@@ -2712,17 +2324,11 @@ async def run_main_loop(
                 if command_id == "file":
                     if not cfg.files.enabled:
                         tg.start_soon(
-                            partial(
-                                _send_plain,
-                                cfg.exec_cfg.transport,
-                                chat_id=chat_id,
-                                user_msg_id=user_msg_id,
-                                text=(
-                                    "file transfer disabled; enable "
-                                    "`[transports.telegram.files]`."
-                                ),
-                                thread_id=msg.thread_id,
-                            )
+                            _reply,
+                            cfg,
+                            msg,
+                            "file transfer disabled; enable "
+                            "`[transports.telegram.files]`.",
                         )
                     else:
                         tg.start_soon(
@@ -2745,14 +2351,10 @@ async def run_main_loop(
                         )
                     elif cfg.files.enabled:
                         tg.start_soon(
-                            partial(
-                                _send_plain,
-                                cfg.exec_cfg.transport,
-                                chat_id=chat_id,
-                                user_msg_id=user_msg_id,
-                                text=file_put_usage(),
-                                thread_id=msg.thread_id,
-                            )
+                            _reply,
+                            cfg,
+                            msg,
+                            file_put_usage(),
                         )
                     continue
                 if (
@@ -2818,13 +2420,7 @@ async def run_main_loop(
                         chat_id=chat_id,
                     )
                 except DirectiveError as exc:
-                    await _send_plain(
-                        cfg.exec_cfg.transport,
-                        chat_id=chat_id,
-                        user_msg_id=user_msg_id,
-                        text=f"error:\n{exc}",
-                        thread_id=msg.thread_id,
-                    )
+                    await _reply(cfg, msg, f"error:\n{exc}")
                     continue
 
                 text = resolved.prompt
@@ -2852,16 +2448,12 @@ async def run_main_loop(
                     and ambient_context is None
                     and resolved.context_source not in {"directives", "reply_ctx"}
                 ):
-                    await _send_plain(
-                        cfg.exec_cfg.transport,
-                        chat_id=chat_id,
-                        user_msg_id=user_msg_id,
-                        text=(
-                            "this topic isn't bound to a project yet.\n"
-                            f"{_usage_ctx_set(chat_project=chat_project)} or "
-                            f"{_usage_topic(chat_project=chat_project)}"
-                        ),
-                        thread_id=msg.thread_id,
+                    await _reply(
+                        cfg,
+                        msg,
+                        "this topic isn't bound to a project yet.\n"
+                        f"{_usage_ctx_set(chat_project=chat_project)} or "
+                        f"{_usage_topic(chat_project=chat_project)}",
                     )
                     continue
                 if resume_token is None and reply_id is not None:
