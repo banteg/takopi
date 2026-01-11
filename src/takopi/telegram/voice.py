@@ -35,14 +35,10 @@ async def transcribe_voice(
             )
         )
         return None
-    file_info = await bot.get_file(voice.file_id)
-    if not isinstance(file_info, dict):
-        await reply(text="failed to fetch voice file")
-        return None
+    file_info = await bot.get_file(voice.file_id) or {}
     file_path = file_info.get("file_path")
-    if not isinstance(file_path, str) or not file_path:
-        await reply(text="failed to fetch voice file")
-        return None
+    if not isinstance(file_path, str):
+        file_path = ""
     audio_bytes = await bot.download_file(file_path)
     if not audio_bytes:
         await reply(text="failed to download voice message")
