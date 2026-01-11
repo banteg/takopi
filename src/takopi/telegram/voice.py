@@ -28,12 +28,7 @@ class TelegramVoiceTranscriptionConfig:
 
 
 def resolve_openai_api_key() -> str | None:
-    env_key = os.environ.get("OPENAI_API_KEY")
-    if isinstance(env_key, str):
-        env_key = env_key.strip()
-        if env_key:
-            return env_key
-    return None
+    return os.environ.get("OPENAI_API_KEY")
 
 
 def normalize_voice_filename(file_path: str | None, mime_type: str | None) -> str:
