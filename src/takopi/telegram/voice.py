@@ -34,8 +34,8 @@ async def transcribe_voice(
     if not enabled:
         await reply(text=VOICE_TRANSCRIPTION_DISABLED_HINT)
         return None
-    file_path = (await bot.get_file(voice.file_id) or {}).get("file_path", "")
-    audio_bytes = await bot.download_file(file_path) or b""
+    file_path = (await bot.get_file(voice.file_id))["file_path"]
+    audio_bytes = await bot.download_file(file_path)
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = "voice.ogg"
     async with AsyncOpenAI(timeout=120) as client:
