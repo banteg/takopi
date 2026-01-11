@@ -21,6 +21,11 @@ logger = get_logger(__name__)
 ENGINE: EngineId = EngineId("claude")
 DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Edit", "Write"]
 
+# The --chrome flag loads the claude-in-chrome MCP server. This wildcard must be
+# included in --allowedTools for non-interactive runs, otherwise Claude will
+# block waiting for permission prompts that takopi can't answer.
+CHROME_MCP_TOOLS_PATTERN = "mcp__claude-in-chrome__*"
+
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?claude\s+(?:--resume|-r)\s+(?P<token>[^`\s]+)`?\s*$"
 )
@@ -334,6 +339,7 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     allowed_tools: list[str] | None = None
     dangerously_skip_permissions: bool = False
     use_api_billing: bool = False
+    chrome: bool = False
     session_title: str = "claude"
     logger = logger
 
@@ -348,11 +354,17 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             args.extend(["--resume", resume.value])
         if self.model is not None:
             args.extend(["--model", str(self.model)])
-        allowed_tools = _coerce_comma_list(self.allowed_tools)
+        # Build allowed tools list, auto-including chrome MCP tools if chrome is enabled
+        tools_list = list(self.allowed_tools) if self.allowed_tools else []
+        if self.chrome is True:
+            tools_list.append(CHROME_MCP_TOOLS_PATTERN)
+        allowed_tools = _coerce_comma_list(tools_list) if tools_list else None
         if allowed_tools is not None:
             args.extend(["--allowedTools", allowed_tools])
         if self.dangerously_skip_permissions is True:
             args.append("--dangerously-skip-permissions")
+        if self.chrome is True:
+            args.append("--chrome")
         args.append("--")
         args.append(prompt)
         return args
@@ -513,6 +525,7 @@ def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
         allowed_tools = DEFAULT_ALLOWED_TOOLS
     dangerously_skip_permissions = config.get("dangerously_skip_permissions") is True
     use_api_billing = config.get("use_api_billing") is True
+    chrome = config.get("chrome") is True
     title = str(model) if model is not None else "claude"
 
     return ClaudeRunner(
@@ -521,6 +534,7 @@ def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
         allowed_tools=allowed_tools,
         dangerously_skip_permissions=dangerously_skip_permissions,
         use_api_billing=use_api_billing,
+        chrome=chrome,
         session_title=title,
     )
 
