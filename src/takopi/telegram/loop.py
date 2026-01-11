@@ -389,6 +389,7 @@ async def run_main_loop(
                 on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
                 | None = None,
                 engine_override: EngineId | None = None,
+                iterations: int | None = None,
             ) -> None:
                 topic_key = (
                     (chat_id, thread_id)
@@ -412,6 +413,7 @@ async def run_main_loop(
                     on_thread_known=wrap_on_thread_known(on_thread_known, topic_key),
                     engine_override=engine_override,
                     thread_id=thread_id,
+                    iterations=iterations,
                 )
 
             async def run_thread_job(job: ThreadJob) -> None:
@@ -576,6 +578,7 @@ async def run_main_loop(
                 resume_token = resolved.resume_token
                 engine_override = resolved.engine_override
                 context = resolved.context
+                iterations = resolved.iterations
                 if (
                     topic_store is not None
                     and topic_key is not None
@@ -623,6 +626,7 @@ async def run_main_loop(
                     resume_token is None
                     and topic_store is not None
                     and topic_key is not None
+                    and iterations is None  # Don't use stored session for ralph loop
                 ):
                     engine_for_session = cfg.runtime.resolve_engine(
                         engine_override=engine_override,
@@ -634,18 +638,20 @@ async def run_main_loop(
                     if stored is not None:
                         resume_token = stored
 
-                if resume_token is None:
+                if resume_token is None or iterations is not None:
+                    # For ralph loop (!N), always start fresh - ignore stored session
                     tg.start_soon(
                         run_job,
                         chat_id,
                         user_msg_id,
                         text,
-                        None,
+                        None if iterations is not None else resume_token,
                         context,
                         msg.thread_id,
                         reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
+                        iterations,
                     )
                 else:
                     await scheduler.enqueue_resume(

@@ -11,6 +11,12 @@ from .logging import bind_run_context, get_logger
 from .model import CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
 from .presenter import Presenter
 from .markdown import render_event_cli
+from .ralph import (
+    RALPH_ITERATION_PROMPT,
+    RalphLoopState,
+    check_ralph_complete,
+    strip_ralph_complete,
+)
 from .runner import Runner
 from .progress import ProgressTracker
 from .transport import (
@@ -592,6 +598,279 @@ async def handle_message(
         "handle.final.rendered",
         rendered=final_rendered.text,
         status=status,
+    )
+
+    can_edit_final = progress_ref is not None
+    edit_ref = None if cfg.final_notify or not can_edit_final else progress_ref
+
+    await send_result_message(
+        cfg,
+        channel_id=incoming.channel_id,
+        reply_to=user_ref,
+        progress_ref=progress_ref,
+        message=final_rendered,
+        notify=cfg.final_notify,
+        edit_ref=edit_ref,
+        replace_ref=progress_ref,
+        delete_tag="final",
+        thread_id=incoming.thread_id,
+    )
+
+
+async def handle_message_ralph(
+    cfg: ExecBridgeConfig,
+    *,
+    runner: Runner,
+    incoming: IncomingMessage,
+    resume_token: ResumeToken | None,
+    max_iterations: int,
+    context: RunContext | None = None,
+    context_line: str | None = None,
+    strip_resume_line: Callable[[str], bool] | None = None,
+    running_tasks: RunningTasks | None = None,
+    on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
+    | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Handle a message with ralph loop (iterative self-review)."""
+    logger.info(
+        "handle.incoming.ralph",
+        channel_id=incoming.channel_id,
+        user_msg_id=incoming.message_id,
+        resume=resume_token.value if resume_token else None,
+        text=incoming.text,
+        max_iterations=max_iterations,
+    )
+    started_at = clock()
+    is_resume_line = runner.is_resume_line
+    resume_strip = strip_resume_line or is_resume_line
+    original_prompt = _strip_resume_lines(incoming.text, is_resume_line=resume_strip)
+
+    ralph_state = RalphLoopState(max_iterations=max_iterations)
+    progress_tracker = ProgressTracker(engine=runner.engine)
+
+    user_ref = MessageRef(
+        channel_id=incoming.channel_id,
+        message_id=incoming.message_id,
+    )
+
+    def make_loop_label(base: str) -> str:
+        return f"{base} · loop {ralph_state.current_iteration}/{ralph_state.max_iterations}"
+
+    progress_state = await send_initial_progress(
+        cfg,
+        channel_id=incoming.channel_id,
+        reply_to=user_ref,
+        label=make_loop_label("starting"),
+        tracker=progress_tracker,
+        resume_formatter=runner.format_resume,
+        context_line=context_line,
+        thread_id=incoming.thread_id,
+    )
+    progress_ref = progress_state.ref
+
+    running_task: RunningTask | None = None
+    if running_tasks is not None and progress_ref is not None:
+        running_task = RunningTask(context=context)
+        running_tasks[progress_ref] = running_task
+
+    cancel_exc_type = anyio.get_cancelled_exc_class()
+    final_answer: str = ""
+    error: Exception | None = None
+    outcome = RunOutcome()
+
+    try:
+        while ralph_state.current_iteration < ralph_state.max_iterations:
+            ralph_state.current_iteration += 1
+
+            # Build prompt: original for first iteration, review prompt for rest
+            # Each iteration starts fresh (no resume token) - state lives in files
+            if ralph_state.current_iteration == 1:
+                prompt = original_prompt
+            else:
+                prompt = f"{original_prompt}\n\n{RALPH_ITERATION_PROMPT}"
+
+            logger.info(
+                "ralph.iteration.start",
+                iteration=ralph_state.current_iteration,
+                max_iterations=ralph_state.max_iterations,
+            )
+
+            # Reset tracker for this iteration but keep engine
+            progress_tracker = ProgressTracker(engine=runner.engine)
+
+            edits = ProgressEdits(
+                transport=cfg.transport,
+                presenter=cfg.presenter,
+                channel_id=incoming.channel_id,
+                progress_ref=progress_ref,
+                tracker=progress_tracker,
+                started_at=started_at,
+                clock=clock,
+                last_rendered=progress_state.last_rendered,
+                resume_formatter=runner.format_resume,
+                label=make_loop_label("working"),
+                context_line=context_line,
+            )
+
+            edits_scope = anyio.CancelScope()
+
+            async def run_edits() -> None:
+                try:
+                    with edits_scope:
+                        await edits.run()
+                except cancel_exc_type:
+                    return
+
+            async with anyio.create_task_group() as tg:
+                if progress_ref is not None:
+                    tg.start_soon(run_edits)
+
+                try:
+                    # Fresh session each iteration - no resume token passed
+                    # Model re-reads files to understand state (true ralph)
+                    outcome = await run_runner_with_cancel(
+                        runner,
+                        prompt=prompt,
+                        resume_token=None,
+                        edits=edits,
+                        running_task=running_task,
+                        on_thread_known=on_thread_known if ralph_state.current_iteration == 1 else None,
+                    )
+                except Exception as exc:
+                    error = exc
+                    logger.exception(
+                        "ralph.iteration.failed",
+                        iteration=ralph_state.current_iteration,
+                        error=str(exc),
+                    )
+                finally:
+                    if not outcome.cancelled and error is None:
+                        await anyio.sleep(0)
+                    edits_scope.cancel()
+
+            if error is not None:
+                break
+
+            if outcome.cancelled:
+                break
+
+            if outcome.completed is None:
+                raise RuntimeError("runner finished without a completed event")
+
+            # Check for completion signal
+            answer = outcome.completed.answer or ""
+            if check_ralph_complete(answer):
+                ralph_state.completed = True
+                final_answer = strip_ralph_complete(answer)
+                logger.info(
+                    "ralph.completed",
+                    iteration=ralph_state.current_iteration,
+                )
+                break
+
+            final_answer = answer
+
+            logger.info(
+                "ralph.iteration.done",
+                iteration=ralph_state.current_iteration,
+                completed=ralph_state.completed,
+            )
+
+    finally:
+        if running_task is not None and running_tasks is not None:
+            running_task.done.set()
+            if progress_ref is not None:
+                running_tasks.pop(progress_ref, None)
+
+    elapsed = clock() - started_at
+
+    if error is not None:
+        sync_resume_token(progress_tracker, outcome.resume)
+        err_body = _format_error(error)
+        state = progress_tracker.snapshot(
+            resume_formatter=runner.format_resume,
+            context_line=context_line,
+        )
+        final_rendered = cfg.presenter.render_final(
+            state,
+            elapsed_s=elapsed,
+            status="error",
+            answer=err_body,
+        )
+        await send_result_message(
+            cfg,
+            channel_id=incoming.channel_id,
+            reply_to=user_ref,
+            progress_ref=progress_ref,
+            message=final_rendered,
+            notify=False,
+            edit_ref=progress_ref,
+            replace_ref=progress_ref,
+            delete_tag="error",
+            thread_id=incoming.thread_id,
+        )
+        return
+
+    if outcome.cancelled:
+        resume = sync_resume_token(progress_tracker, outcome.resume)
+        logger.info(
+            "ralph.cancelled",
+            iteration=ralph_state.current_iteration,
+            resume=resume.value if resume else None,
+            elapsed_s=elapsed,
+        )
+        state = progress_tracker.snapshot(
+            resume_formatter=runner.format_resume,
+            context_line=context_line,
+        )
+        final_rendered = cfg.presenter.render_progress(
+            state,
+            elapsed_s=elapsed,
+            label=make_loop_label("`cancelled`"),
+        )
+        await send_result_message(
+            cfg,
+            channel_id=incoming.channel_id,
+            reply_to=user_ref,
+            progress_ref=progress_ref,
+            message=final_rendered,
+            notify=False,
+            edit_ref=progress_ref,
+            replace_ref=progress_ref,
+            delete_tag="cancel",
+            thread_id=incoming.thread_id,
+        )
+        return
+
+    # Add note if max iterations reached without completion
+    if not ralph_state.completed:
+        final_answer = f"{final_answer}\n\n_max iterations reached_"
+
+    run_ok = outcome.completed.ok if outcome.completed else True
+    run_error = outcome.completed.error if outcome.completed else None
+
+    if run_ok is False and run_error:
+        if final_answer.strip():
+            final_answer = f"{final_answer}\n\n{run_error}"
+        else:
+            final_answer = str(run_error)
+
+    status = (
+        "error" if run_ok is False else ("done" if final_answer.strip() else "error")
+    )
+
+    # Use last iteration's resume token for the footer
+    sync_resume_token(progress_tracker, outcome.completed.resume if outcome.completed else None)
+    state = progress_tracker.snapshot(
+        resume_formatter=runner.format_resume,
+        context_line=context_line,
+    )
+    final_rendered = cfg.presenter.render_final(
+        state,
+        elapsed_s=elapsed,
+        status=make_loop_label(status),
+        answer=final_answer,
     )
 
     can_edit_final = progress_ref is not None

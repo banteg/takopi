@@ -13,6 +13,7 @@ class ParsedDirectives:
     engine: EngineId | None
     project: str | None
     branch: str | None
+    iterations: int | None
 
 
 class DirectiveError(RuntimeError):
@@ -26,17 +27,17 @@ def parse_directives(
     projects: ProjectsConfig,
 ) -> ParsedDirectives:
     if not text:
-        return ParsedDirectives(prompt="", engine=None, project=None, branch=None)
+        return ParsedDirectives(prompt="", engine=None, project=None, branch=None, iterations=None)
 
     lines = text.splitlines()
     idx = next((i for i, line in enumerate(lines) if line.strip()), None)
     if idx is None:
-        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None)
+        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None, iterations=None)
 
     line = lines[idx].lstrip()
     tokens = line.split()
     if not tokens:
-        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None)
+        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None, iterations=None)
 
     engine_map = {engine.lower(): engine for engine in engine_ids}
     project_map = {alias.lower(): alias for alias in projects.projects}
@@ -44,6 +45,7 @@ def parse_directives(
     engine: EngineId | None = None
     project: str | None = None
     branch: str | None = None
+    iterations: int | None = None
     consumed = 0
 
     for token in tokens:
@@ -78,10 +80,24 @@ def parse_directives(
             branch = value
             consumed += 1
             continue
+        if token.startswith("!"):
+            value = token[1:]
+            if not value:
+                break
+            if iterations is not None:
+                raise DirectiveError("multiple !iterations directives")
+            try:
+                iterations = int(value)
+            except ValueError:
+                break
+            if iterations < 1:
+                raise DirectiveError("iterations must be at least 1")
+            consumed += 1
+            continue
         break
 
     if consumed == 0:
-        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None)
+        return ParsedDirectives(prompt=text, engine=None, project=None, branch=None, iterations=None)
 
     if consumed < len(tokens):
         remainder = " ".join(tokens[consumed:])
@@ -91,7 +107,7 @@ def parse_directives(
 
     prompt = "\n".join(lines).strip()
     return ParsedDirectives(
-        prompt=prompt, engine=engine, project=project, branch=branch
+        prompt=prompt, engine=engine, project=project, branch=branch, iterations=iterations
     )
 
 
