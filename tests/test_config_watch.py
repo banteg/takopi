@@ -4,7 +4,7 @@ import anyio
 import pytest
 
 import takopi.config_watch as config_watch
-from takopi.config_watch import ConfigReload, _config_status, watch_config
+from takopi.config_watch import ConfigReload, config_status, watch_config
 from takopi.config import ProjectsConfig
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runtime_loader import RuntimeSpec
@@ -15,19 +15,19 @@ from takopi.transport_runtime import TransportRuntime
 
 def test_config_status_variants(tmp_path: Path) -> None:
     missing = tmp_path / "missing.toml"
-    status, signature = _config_status(missing)
+    status, signature = config_status(missing)
     assert status == "missing"
     assert signature is None
 
     directory = tmp_path / "config.d"
     directory.mkdir()
-    status, signature = _config_status(directory)
+    status, signature = config_status(directory)
     assert status == "invalid"
     assert signature is None
 
     config_file = tmp_path / "takopi.toml"
     config_file.write_text('transport = "telegram"\n', encoding="utf-8")
-    status, signature = _config_status(config_file)
+    status, signature = config_status(config_file)
     assert status == "ok"
     assert signature is not None
 

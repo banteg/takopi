@@ -13,11 +13,11 @@ from takopi.telegram.bridge import (
     TelegramFilesConfig,
     TelegramPresenter,
     TelegramTransport,
-    _build_bot_commands,
-    _handle_callback_cancel,
-    _handle_cancel,
-    _is_cancel_command,
-    _send_with_resume,
+    build_bot_commands,
+    handle_callback_cancel,
+    handle_cancel,
+    is_cancel_command,
+    send_with_resume,
     run_main_loop,
 )
 from takopi.telegram.client import BotClient
@@ -361,7 +361,7 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
         router=_make_router(runner),
         projects=_empty_projects(),
     )
-    commands = _build_bot_commands(runtime)
+    commands = build_bot_commands(runtime)
 
     assert {"command": "cancel", "description": "cancel run"} in commands
     assert {"command": "file", "description": "upload or fetch files"} in commands
@@ -390,7 +390,7 @@ def test_build_bot_commands_includes_projects() -> None:
     )
 
     runtime = TransportRuntime(router=router, projects=projects)
-    commands = _build_bot_commands(runtime)
+    commands = build_bot_commands(runtime)
 
     assert any(cmd["command"] == "good" for cmd in commands)
     assert not any(cmd["command"] == "bad-name" for cmd in commands)
@@ -420,7 +420,7 @@ def test_build_bot_commands_includes_command_plugins(monkeypatch) -> None:
         projects=_empty_projects(),
     )
 
-    commands_list = _build_bot_commands(runtime)
+    commands_list = build_bot_commands(runtime)
 
     assert {"command": "pingcmd", "description": "ping command"} in commands_list
 
@@ -443,7 +443,7 @@ def test_build_bot_commands_caps_total() -> None:
     )
 
     runtime = TransportRuntime(router=router, projects=projects)
-    commands = _build_bot_commands(runtime)
+    commands = build_bot_commands(runtime)
 
     assert len(commands) == 100
     assert any(cmd["command"] == "codex" for cmd in commands)
@@ -671,7 +671,7 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
     )
     running_tasks: dict = {}
 
-    await _handle_cancel(cfg, msg, running_tasks)
+    await handle_cancel(cfg, msg, running_tasks)
 
     assert len(transport.send_calls) == 1
     assert "reply to the progress message" in transport.send_calls[0]["message"].text
@@ -692,7 +692,7 @@ async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> 
     )
     running_tasks: dict = {}
 
-    await _handle_cancel(cfg, msg, running_tasks)
+    await handle_cancel(cfg, msg, running_tasks)
 
     assert len(transport.send_calls) == 1
     assert "nothing is currently running" in transport.send_calls[0]["message"].text
@@ -714,7 +714,7 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
     )
     running_tasks: dict = {}
 
-    await _handle_cancel(cfg, msg, running_tasks)
+    await handle_cancel(cfg, msg, running_tasks)
 
     assert len(transport.send_calls) == 1
     assert "nothing is currently running" in transport.send_calls[0]["message"].text
@@ -737,7 +737,7 @@ async def test_handle_cancel_cancels_running_task() -> None:
 
     running_task = RunningTask()
     running_tasks = {MessageRef(channel_id=123, message_id=progress_id): running_task}
-    await _handle_cancel(cfg, msg, running_tasks)
+    await handle_cancel(cfg, msg, running_tasks)
 
     assert running_task.cancel_requested.is_set() is True
     assert len(transport.send_calls) == 0  # No error message sent
@@ -763,7 +763,7 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
         MessageRef(channel_id=123, message_id=2): task_second,
     }
 
-    await _handle_cancel(cfg, msg, running_tasks)
+    await handle_cancel(cfg, msg, running_tasks)
 
     assert task_first.cancel_requested.is_set() is True
     assert task_second.cancel_requested.is_set() is False
@@ -910,7 +910,7 @@ async def test_handle_callback_cancel_cancels_running_task() -> None:
         sender_id=123,
     )
 
-    await _handle_callback_cancel(cfg, query, running_tasks)
+    await handle_callback_cancel(cfg, query, running_tasks)
 
     assert running_task.cancel_requested.is_set() is True
     assert len(transport.send_calls) == 0
@@ -932,7 +932,7 @@ async def test_handle_callback_cancel_without_task_acknowledges() -> None:
         sender_id=123,
     )
 
-    await _handle_callback_cancel(cfg, query, {})
+    await handle_callback_cancel(cfg, query, {})
 
     assert len(transport.send_calls) == 0
     bot = cast(_FakeBot, cfg.bot)
@@ -941,9 +941,9 @@ async def test_handle_callback_cancel_without_task_acknowledges() -> None:
 
 
 def test_cancel_command_accepts_extra_text() -> None:
-    assert _is_cancel_command("/cancel now") is True
-    assert _is_cancel_command("/cancel@takopi please") is True
-    assert _is_cancel_command("/cancelled") is False
+    assert is_cancel_command("/cancel now") is True
+    assert is_cancel_command("/cancel@takopi please") is True
+    assert is_cancel_command("/cancelled") is False
 
 
 def test_resolve_message_accepts_backticked_ctx_line() -> None:
@@ -1096,7 +1096,7 @@ async def test_send_with_resume_waits_for_token() -> None:
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(trigger_resume)
-        await _send_with_resume(
+        await send_with_resume(
             cfg,
             enqueue,
             running_task,
@@ -1138,7 +1138,7 @@ async def test_send_with_resume_reports_when_missing() -> None:
     running_task = RunningTask()
     running_task.done.set()
 
-    await _send_with_resume(
+    await send_with_resume(
         cfg,
         enqueue,
         running_task,

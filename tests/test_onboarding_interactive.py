@@ -6,12 +6,12 @@ from takopi.backends import EngineBackend
 
 
 def test_mask_token_short() -> None:
-    assert onboarding._mask_token("short") == "*****"
+    assert onboarding.mask_token("short") == "*****"
 
 
 def test_mask_token_long() -> None:
     token = "123456789:ABCdefGH"
-    masked = onboarding._mask_token(token)
+    masked = onboarding.mask_token(token)
     assert masked.startswith("123456789")
     assert masked.endswith("defGH")
     assert "..." in masked
@@ -90,9 +90,9 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(onboarding.questionary, "select", _queue(["codex"]))
 
     def _fake_run(func, *args, **kwargs):
-        if func is onboarding._get_bot_info:
+        if func is onboarding.get_bot_info:
             return {"username": "my_bot"}
-        if func is onboarding._wait_for_chat:
+        if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=123,
                 username="alice",
@@ -135,9 +135,9 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(onboarding.questionary, "select", _queue(["codex"]))
 
     def _fake_run(func, *args, **kwargs):
-        if func is onboarding._get_bot_info:
+        if func is onboarding.get_bot_info:
             return {"username": "my_bot"}
-        if func is onboarding._wait_for_chat:
+        if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=123,
                 username="alice",
@@ -172,9 +172,9 @@ def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
     )
 
     def _fake_run(func, *args, **kwargs):
-        if func is onboarding._get_bot_info:
+        if func is onboarding.get_bot_info:
             return {"username": "my_bot"}
-        if func is onboarding._wait_for_chat:
+        if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=123,
                 username="alice",
@@ -210,9 +210,9 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
     monkeypatch.setattr(onboarding.questionary, "select", _queue(["codex"]))
 
     def _fake_run(func, *args, **kwargs):
-        if func is onboarding._get_bot_info:
+        if func is onboarding.get_bot_info:
             return {"username": "my_bot"}
-        if func is onboarding._wait_for_chat:
+        if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=123,
                 username="alice",
@@ -238,9 +238,9 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
 
 def test_capture_chat_id_with_token(monkeypatch) -> None:
     def _fake_run(func, *args, **kwargs):
-        if func is onboarding._get_bot_info:
+        if func is onboarding.get_bot_info:
             return {"username": "my_bot"}
-        if func is onboarding._wait_for_chat:
+        if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=456,
                 username=None,
@@ -265,7 +265,7 @@ def test_capture_chat_id_prompts_for_token(monkeypatch) -> None:
     )
 
     def _fake_run(func, *args, **kwargs):
-        if func is onboarding._wait_for_chat:
+        if func is onboarding.wait_for_chat:
             return onboarding.ChatInfo(
                 chat_id=789,
                 username="alice",

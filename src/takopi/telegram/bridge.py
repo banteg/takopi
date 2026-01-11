@@ -69,6 +69,21 @@ from .transcribe import transcribe_audio
 
 logger = get_logger(__name__)
 
+__all__ = [
+    "TelegramBridgeConfig",
+    "TelegramFilesConfig",
+    "TelegramTopicsConfig",
+    "TelegramVoiceTranscriptionConfig",
+    "TelegramPresenter",
+    "TelegramTransport",
+    "build_bot_commands",
+    "handle_callback_cancel",
+    "handle_cancel",
+    "is_cancel_command",
+    "run_main_loop",
+    "send_with_resume",
+]
+
 _MAX_BOT_COMMANDS = 100
 _OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
 _OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
@@ -81,7 +96,7 @@ CANCEL_MARKUP = {
 CLEAR_MARKUP = {"inline_keyboard": []}
 
 
-def _is_cancel_command(text: str) -> bool:
+def is_cancel_command(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
@@ -313,7 +328,7 @@ def _format_ctx_status(
     return "\n".join(lines)
 
 
-def _build_bot_commands(
+def build_bot_commands(
     runtime: TransportRuntime, *, include_file: bool = True
 ) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
@@ -394,7 +409,7 @@ def _diff_keys(old: dict[str, object], new: dict[str, object]) -> list[str]:
 
 
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
-    commands = _build_bot_commands(cfg.runtime, include_file=cfg.files.enabled)
+    commands = build_bot_commands(cfg.runtime, include_file=cfg.files.enabled)
     if not commands:
         return
     try:
@@ -1633,7 +1648,7 @@ async def _handle_topic_command(
     )
 
 
-async def _handle_cancel(
+async def handle_cancel(
     cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     running_tasks: RunningTasks,
@@ -1662,7 +1677,7 @@ async def _handle_cancel(
     running_task.cancel_requested.set()
 
 
-async def _handle_callback_cancel(
+async def handle_callback_cancel(
     cfg: TelegramBridgeConfig,
     query: TelegramCallbackQuery,
     running_tasks: RunningTasks,
@@ -1710,7 +1725,7 @@ async def _wait_for_resume(running_task: RunningTask) -> ResumeToken | None:
     return resume
 
 
-async def _send_with_resume(
+async def send_with_resume(
     cfg: TelegramBridgeConfig,
     enqueue: Callable[
         [int, int, str, ResumeToken, RunContext | None, int | None], Awaitable[None]
@@ -2282,7 +2297,7 @@ async def run_main_loop(
             async for msg in poller(cfg):
                 if isinstance(msg, TelegramCallbackQuery):
                     if msg.data == CANCEL_CALLBACK_DATA:
-                        tg.start_soon(_handle_callback_cancel, cfg, msg, running_tasks)
+                        tg.start_soon(handle_callback_cancel, cfg, msg, running_tasks)
                     else:
                         tg.start_soon(
                             cfg.bot.answer_callback_query,
@@ -2334,8 +2349,8 @@ async def run_main_loop(
                     state.token += 1
                     continue
 
-                if _is_cancel_command(text):
-                    tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
+                if is_cancel_command(text):
+                    tg.start_soon(handle_cancel, cfg, msg, running_tasks)
                     continue
 
                 command_id, args_text = _parse_slash_command(text)
@@ -2483,7 +2498,7 @@ async def run_main_loop(
                     )
                     if running_task is not None:
                         tg.start_soon(
-                            _send_with_resume,
+                            send_with_resume,
                             cfg,
                             scheduler.enqueue_resume,
                             running_task,

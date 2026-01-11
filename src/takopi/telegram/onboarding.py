@@ -35,6 +35,15 @@ from ..settings import HOME_CONFIG_PATH, load_settings, require_telegram
 from ..transports import SetupResult
 from .client import TelegramClient, TelegramRetryAfter
 
+__all__ = [
+    "ChatInfo",
+    "check_setup",
+    "interactive_setup",
+    "mask_token",
+    "get_bot_info",
+    "wait_for_chat",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class ChatInfo:
@@ -115,14 +124,14 @@ def check_setup(
     return SetupResult(issues=issues, config_path=config_path)
 
 
-def _mask_token(token: str) -> str:
+def mask_token(token: str) -> str:
     token = token.strip()
     if len(token) <= 12:
         return "*" * len(token)
     return f"{token[:9]}...{token[-5:]}"
 
 
-async def _get_bot_info(token: str) -> dict[str, Any] | None:
+async def get_bot_info(token: str) -> dict[str, Any] | None:
     bot = TelegramClient(token)
     try:
         for _ in range(3):
@@ -135,7 +144,7 @@ async def _get_bot_info(token: str) -> dict[str, Any] | None:
         await bot.close()
 
 
-async def _wait_for_chat(token: str) -> ChatInfo:
+async def wait_for_chat(token: str) -> ChatInfo:
     bot = TelegramClient(token)
     try:
         offset: int | None = None
@@ -299,7 +308,7 @@ def _prompt_token(console: Console) -> tuple[str, dict[str, Any]] | None:
             console.print("  token cannot be empty")
             continue
         console.print("  validating...")
-        info = anyio.run(_get_bot_info, token)
+        info = anyio.run(get_bot_info, token)
         if info:
             username = info.get("username")
             if isinstance(username, str) and username:
@@ -323,7 +332,7 @@ def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
                 console.print("  token cannot be empty")
                 return None
             console.print("  validating...")
-            info = anyio.run(_get_bot_info, token)
+            info = anyio.run(get_bot_info, token)
             if not info:
                 console.print("  failed to connect, check the token and try again")
                 return None
@@ -338,7 +347,7 @@ def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
         console.print(f"  send /start to {bot_ref} (works in groups too)")
         console.print("  waiting...")
         try:
-            chat = anyio.run(_wait_for_chat, token)
+            chat = anyio.run(wait_for_chat, token)
         except KeyboardInterrupt:
             console.print("  cancelled")
             return None
@@ -398,7 +407,7 @@ def interactive_setup(*, force: bool) -> bool:
         console.print(f"  send /start to {bot_ref} (works in groups too)")
         console.print("  waiting...")
         try:
-            chat = anyio.run(_wait_for_chat, token)
+            chat = anyio.run(wait_for_chat, token)
         except KeyboardInterrupt:
             console.print("  cancelled")
             return False
@@ -437,7 +446,7 @@ def interactive_setup(*, force: bool) -> bool:
         preview_config["transport"] = "telegram"
         preview_config["transports"] = {
             "telegram": {
-                "bot_token": _mask_token(token),
+                "bot_token": mask_token(token),
                 "chat_id": chat.chat_id,
             }
         }

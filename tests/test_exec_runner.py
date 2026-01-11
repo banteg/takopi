@@ -12,7 +12,7 @@ from takopi.model import (
     StartedEvent,
     TakopiEvent,
 )
-from takopi.runners.codex import CodexRunner, _find_exec_only_flag
+from takopi.runners.codex import CodexRunner, find_exec_only_flag
 
 CODEX_ENGINE = EngineId("codex")
 
@@ -159,7 +159,7 @@ def test_codex_exec_flags_after_exec() -> None:
     ],
 )
 def test_find_exec_only_flag(extra_args: list[str], expected: str | None) -> None:
-    assert _find_exec_only_flag(extra_args) == expected
+    assert find_exec_only_flag(extra_args) == expected
 
 
 @pytest.mark.anyio

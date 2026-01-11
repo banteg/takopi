@@ -14,6 +14,12 @@ from .transport_runtime import TransportRuntime
 
 logger = get_logger(__name__)
 
+__all__ = [
+    "ConfigReload",
+    "config_status",
+    "watch_config",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class ConfigReload:
@@ -22,7 +28,7 @@ class ConfigReload:
     config_path: Path
 
 
-def _config_status(path: Path) -> tuple[str, tuple[int, int] | None]:
+def config_status(path: Path) -> tuple[str, tuple[int, int] | None]:
     try:
         stat = path.stat()
     except FileNotFoundError:
@@ -64,7 +70,7 @@ async def watch_config(
     reserved_tuple = tuple(reserved)
     config_path = config_path.expanduser().resolve()
     watch_root = config_path.parent
-    status, signature = _config_status(config_path)
+    status, signature = config_status(config_path)
     last_status = status
     if status != "ok":
         logger.warning("config.watch.unavailable", path=str(config_path), status=status)
@@ -73,7 +79,7 @@ async def watch_config(
         if not any(Path(path) == config_path for _, path in changes):
             continue
 
-        status, current = _config_status(config_path)
+        status, current = config_status(config_path)
         if status != "ok":
             if status != last_status:
                 logger.warning(
@@ -123,6 +129,6 @@ async def watch_config(
                     error_type=exc.__class__.__name__,
                 )
 
-        _, signature = _config_status(config_path)
+        _, signature = config_status(config_path)
         if signature is None:
             signature = current

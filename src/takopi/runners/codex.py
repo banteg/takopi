@@ -20,6 +20,13 @@ logger = get_logger(__name__)
 
 ENGINE: EngineId = EngineId("codex")
 
+__all__ = [
+    "ENGINE",
+    "CodexRunner",
+    "find_exec_only_flag",
+    "translate_codex_event",
+]
+
 _RESUME_RE = re.compile(r"(?im)^\s*`?codex\s+resume\s+(?P<token>[^`\s]+)`?\s*$")
 _RECONNECTING_RE = re.compile(
     r"^Reconnecting\.{3}\s*(?P<attempt>\d+)/(?P<max>\d+)\s*$",
@@ -40,7 +47,7 @@ _EXEC_ONLY_PREFIXES = (
 )
 
 
-def _find_exec_only_flag(extra_args: list[str]) -> str | None:
+def find_exec_only_flag(extra_args: list[str]) -> str | None:
     for arg in extra_args:
         if arg in _EXEC_ONLY_FLAGS:
             return arg
@@ -611,7 +618,7 @@ def build_runner(config: EngineConfig, config_path: Path) -> Runner:
             f"Invalid `codex.extra_args` in {config_path}; expected a list of strings."
         )
 
-    exec_only_flag = _find_exec_only_flag(extra_args)
+    exec_only_flag = find_exec_only_flag(extra_args)
     if exec_only_flag:
         raise ConfigError(
             f"Invalid `codex.extra_args` in {config_path}; exec-only flag "
