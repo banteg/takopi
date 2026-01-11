@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,7 +62,7 @@ from .types import (
 )
 from .render import prepare_telegram
 from .topic_state import TopicStateStore, TopicThreadSnapshot, resolve_state_path
-from .transcribe import transcribe_audio
+from .voice import TelegramVoiceTranscriptionConfig, transcribe_voice
 
 logger = get_logger(__name__)
 
@@ -83,9 +82,6 @@ __all__ = [
 ]
 
 _MAX_BOT_COMMANDS = 100
-_OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
-_OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
-_OPENAI_TRANSCRIPTION_CHUNKING = "auto"
 _MEDIA_GROUP_DEBOUNCE_S = 1.0
 CANCEL_CALLBACK_DATA = "takopi:cancel"
 CANCEL_MARKUP = {
@@ -477,11 +473,6 @@ def _is_cancelled_label(label: str) -> bool:
 
 
 @dataclass(frozen=True)
-class TelegramVoiceTranscriptionConfig:
-    enabled: bool = False
-
-
-@dataclass(frozen=True)
 class TelegramFilesConfig:
     enabled: bool = False
     auto_put: bool = True
@@ -738,85 +729,6 @@ async def poll_updates(
         offset=offset,
     ):
         yield msg
-
-
-def _resolve_openai_api_key() -> str | None:
-    env_key = os.environ.get("OPENAI_API_KEY")
-    if isinstance(env_key, str):
-        env_key = env_key.strip()
-        if env_key:
-            return env_key
-    return None
-
-
-def _normalize_voice_filename(file_path: str | None, mime_type: str | None) -> str:
-    name = Path(file_path).name if file_path else ""
-    if not name:
-        if mime_type == "audio/ogg":
-            return "voice.ogg"
-        return "voice.dat"
-    if name.endswith(".oga"):
-        return f"{name[:-4]}.ogg"
-    return name
-
-
-async def _transcribe_voice(
-    cfg: TelegramBridgeConfig,
-    msg: TelegramIncomingMessage,
-) -> str | None:
-    voice = msg.voice
-    if voice is None:
-        return msg.text
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
-    settings = cfg.voice_transcription
-    if settings is None or not settings.enabled:
-        await reply(text="voice transcription is disabled.")
-        return None
-    api_key = _resolve_openai_api_key()
-    if not api_key:
-        await reply(text="voice transcription requires OPENAI_API_KEY.")
-        return None
-    if voice.file_size is not None and voice.file_size > _OPENAI_AUDIO_MAX_BYTES:
-        await reply(text="voice message is too large to transcribe.")
-        return None
-    file_info = await cfg.bot.get_file(voice.file_id)
-    if not isinstance(file_info, dict):
-        await reply(text="failed to fetch voice file.")
-        return None
-    file_path = file_info.get("file_path")
-    if not isinstance(file_path, str) or not file_path:
-        await reply(text="failed to fetch voice file.")
-        return None
-    audio_bytes = await cfg.bot.download_file(file_path)
-    if not audio_bytes:
-        await reply(text="failed to download voice message.")
-        return None
-    if len(audio_bytes) > _OPENAI_AUDIO_MAX_BYTES:
-        await reply(text="voice message is too large to transcribe.")
-        return None
-    filename = _normalize_voice_filename(file_path, voice.mime_type)
-    transcript = await transcribe_audio(
-        audio_bytes,
-        filename=filename,
-        api_key=api_key,
-        model=_OPENAI_TRANSCRIPTION_MODEL,
-        chunking_strategy=_OPENAI_TRANSCRIPTION_CHUNKING,
-        mime_type=voice.mime_type,
-    )
-    if transcript is None:
-        await reply(text="voice transcription failed.")
-        return None
-    transcript = transcript.strip()
-    if not transcript:
-        await reply(text="voice transcription returned empty text.")
-        return None
-    return transcript
 
 
 @dataclass(slots=True)
@@ -2339,11 +2251,6 @@ async def run_main_loop(
                             msg.callback_query_id,
                         )
                     continue
-                text = msg.text
-                if msg.voice is not None:
-                    text = await _transcribe_voice(cfg, msg)
-                    if text is None:
-                        continue
                 user_msg_id = msg.message_id
                 chat_id = msg.chat_id
                 reply_id = msg.reply_to_message_id
@@ -2359,6 +2266,16 @@ async def run_main_loop(
                     user_msg_id=user_msg_id,
                     thread_id=msg.thread_id,
                 )
+                text = msg.text
+                if msg.voice is not None:
+                    text = await transcribe_voice(
+                        bot=cfg.bot,
+                        msg=msg,
+                        settings=cfg.voice_transcription,
+                        reply=reply,
+                    )
+                    if text is None:
+                        continue
                 topic_key = (
                     _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
                     if topic_store is not None

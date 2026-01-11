@@ -25,11 +25,11 @@ from .bridge import (
     TelegramTransport,
     TelegramFilesConfig,
     TelegramTopicsConfig,
-    TelegramVoiceTranscriptionConfig,
     run_main_loop,
 )
 from .client import TelegramClient
 from .onboarding import check_setup, interactive_setup
+from .voice import TelegramVoiceTranscriptionConfig
 
 logger = get_logger(__name__)
 
