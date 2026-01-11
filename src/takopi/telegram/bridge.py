@@ -121,12 +121,6 @@ class TelegramBridgeConfig:
     topics: TelegramTopicsConfig = TelegramTopicsConfig()
 
 
-def _as_int(value: int | str, *, label: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise TypeError(f"Telegram {label} must be int")
-    return value
-
-
 class TelegramTransport:
     def __init__(self, bot: BotClient) -> None:
         self._bot = bot
@@ -141,19 +135,19 @@ class TelegramTransport:
         message: RenderedMessage,
         options: SendOptions | None = None,
     ) -> MessageRef | None:
-        chat_id = _as_int(channel_id, label="chat_id")
+        chat_id = cast(int, channel_id)
         reply_to_message_id: int | None = None
         replace_message_id: int | None = None
         message_thread_id: int | None = None
         notify = True
         if options is not None:
             reply_to_message_id = (
-                _as_int(options.reply_to.message_id, label="message_id")
+                cast(int, options.reply_to.message_id)
                 if options.reply_to is not None
                 else None
             )
             replace_message_id = (
-                _as_int(options.replace.message_id, label="message_id")
+                cast(int, options.replace.message_id)
                 if options.replace is not None
                 else None
             )
@@ -172,18 +166,18 @@ class TelegramTransport:
         )
         if sent is None:
             return None
-        message_id = sent.get("message_id")
+        message_id = cast(int, sent["message_id"])
         return MessageRef(
             channel_id=chat_id,
-            message_id=_as_int(cast(int, message_id), label="message_id"),
+            message_id=message_id,
             raw=sent,
         )
 
     async def edit(
         self, *, ref: MessageRef, message: RenderedMessage, wait: bool = True
     ) -> MessageRef | None:
-        chat_id = _as_int(ref.channel_id, label="chat_id")
-        message_id = _as_int(ref.message_id, label="message_id")
+        chat_id = cast(int, ref.channel_id)
+        message_id = cast(int, ref.message_id)
         entities = message.extra.get("entities")
         parse_mode = message.extra.get("parse_mode")
         reply_markup = message.extra.get("reply_markup")
@@ -198,17 +192,17 @@ class TelegramTransport:
         )
         if edited is None:
             return ref if not wait else None
-        message_id = edited.get("message_id", message_id)
+        message_id = cast(int, edited.get("message_id", message_id))
         return MessageRef(
             channel_id=chat_id,
-            message_id=_as_int(message_id, label="message_id"),
+            message_id=message_id,
             raw=edited,
         )
 
     async def delete(self, *, ref: MessageRef) -> bool:
         return await self._bot.delete_message(
-            chat_id=_as_int(ref.channel_id, label="chat_id"),
-            message_id=_as_int(ref.message_id, label="message_id"),
+            chat_id=cast(int, ref.channel_id),
+            message_id=cast(int, ref.message_id),
         )
 
 
