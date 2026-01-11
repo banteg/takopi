@@ -12,6 +12,13 @@ logger = get_logger(__name__)
 __all__ = ["transcribe_voice"]
 
 OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
+VOICE_TRANSCRIPTION_DISABLED_HINT = (
+    "voice transcription is disabled. enable it in config:\n"
+    "```toml\n"
+    "[transports.telegram]\n"
+    "voice_transcription = true\n"
+    "```"
+)
 
 
 async def transcribe_voice(
@@ -25,15 +32,7 @@ async def transcribe_voice(
     if voice is None:
         return msg.text
     if not enabled:
-        await reply(
-            text=(
-                "voice transcription is disabled. enable it in config:\n"
-                "```toml\n"
-                "[transports.telegram]\n"
-                "voice_transcription = true\n"
-                "```"
-            )
-        )
+        await reply(text=VOICE_TRANSCRIPTION_DISABLED_HINT)
         return None
     file_path = (await bot.get_file(voice.file_id) or {}).get("file_path", "")
     audio_bytes = await bot.download_file(file_path) or b""
