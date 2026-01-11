@@ -38,7 +38,7 @@ def normalize_voice_filename(file_path: str | None, mime_type: str | None) -> st
             return "voice.ogg"
         return "voice.dat"
     if name.endswith(".oga"):
-        return f"{name[:-4]}.ogg"
+        return str(Path(name).with_suffix(".ogg"))
     return name
 
 
