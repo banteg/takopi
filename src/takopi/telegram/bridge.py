@@ -39,7 +39,7 @@ from ..scheduler import ThreadJob, ThreadScheduler
 from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
 from ..plugins import COMMAND_GROUP, list_entrypoints
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
-from ..transport_runtime import TransportRuntime
+from ..transport_runtime import ResolvedMessage, TransportRuntime
 from .client import BotClient, poll_incoming
 from .files import (
     default_upload_name,
@@ -58,6 +58,7 @@ from .files import (
 )
 from .types import (
     TelegramCallbackQuery,
+    TelegramDocument,
     TelegramIncomingMessage,
     TelegramIncomingUpdate,
 )
@@ -852,7 +853,6 @@ async def _transcribe_voice(
     return transcript
 
 
-
 @dataclass(slots=True)
 class _FilePutPlan:
     resolved: ResolvedMessage
@@ -1358,9 +1358,7 @@ async def _handle_file_put_group(
         text = "failed to upload files."
     if failed:
         errors = ", ".join(
-            f"`{item.name}` ({item.error})"
-            for item in failed
-            if item.error is not None
+            f"`{item.name}` ({item.error})" for item in failed if item.error is not None
         )
         if errors:
             text = f"{text}\n\nfailed: {errors}"
@@ -1387,9 +1385,7 @@ async def _handle_media_group(
     )
     topic_key = _topic_key(command_msg, cfg) if topic_store is not None else None
     chat_project = (
-        _topics_chat_project(cfg, command_msg.chat_id)
-        if cfg.topics.enabled
-        else None
+        _topics_chat_project(cfg, command_msg.chat_id) if cfg.topics.enabled else None
     )
     bound_context = (
         await topic_store.get_context(*topic_key)
@@ -1407,10 +1403,7 @@ async def _handle_media_group(
                 cfg.exec_cfg.transport,
                 chat_id=command_msg.chat_id,
                 user_msg_id=command_msg.message_id,
-                text=(
-                    "file transfer disabled; enable "
-                    "`[transports.telegram.files]`."
-                ),
+                text=("file transfer disabled; enable `[transports.telegram.files]`."),
                 thread_id=command_msg.thread_id,
             )
             return
