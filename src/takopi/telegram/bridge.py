@@ -62,7 +62,7 @@ from .types import (
 )
 from .render import prepare_telegram
 from .topic_state import TopicStateStore, TopicThreadSnapshot, resolve_state_path
-from .voice import TelegramVoiceTranscriptionConfig, transcribe_voice
+from .voice import transcribe_voice
 
 logger = get_logger(__name__)
 
@@ -70,7 +70,6 @@ __all__ = [
     "TelegramBridgeConfig",
     "TelegramFilesConfig",
     "TelegramTopicsConfig",
-    "TelegramVoiceTranscriptionConfig",
     "TelegramPresenter",
     "TelegramTransport",
     "build_bot_commands",
@@ -599,7 +598,7 @@ class TelegramBridgeConfig:
     chat_id: int
     startup_msg: str
     exec_cfg: ExecBridgeConfig
-    voice_transcription: TelegramVoiceTranscriptionConfig | None = None
+    voice_transcription: bool = False
     files: TelegramFilesConfig = TelegramFilesConfig()
     chat_ids: tuple[int, ...] | None = None
     topics: TelegramTopicsConfig = TelegramTopicsConfig()
@@ -2271,7 +2270,7 @@ async def run_main_loop(
                     text = await transcribe_voice(
                         bot=cfg.bot,
                         msg=msg,
-                        settings=cfg.voice_transcription,
+                        enabled=cfg.voice_transcription,
                         reply=reply,
                     )
                     if text is None:

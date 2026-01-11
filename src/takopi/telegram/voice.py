@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import io
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-
 from ..logging import get_logger
 from openai import AsyncOpenAI, OpenAIError
 from .client import BotClient
@@ -11,31 +9,23 @@ from .types import TelegramIncomingMessage
 
 logger = get_logger(__name__)
 
-__all__ = [
-    "TelegramVoiceTranscriptionConfig",
-    "transcribe_voice",
-]
+__all__ = ["transcribe_voice"]
 
 OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
 OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
-
-
-@dataclass(frozen=True)
-class TelegramVoiceTranscriptionConfig:
-    enabled: bool = False
 
 
 async def transcribe_voice(
     *,
     bot: BotClient,
     msg: TelegramIncomingMessage,
-    settings: TelegramVoiceTranscriptionConfig | None,
+    enabled: bool,
     reply: Callable[..., Awaitable[None]],
 ) -> str | None:
     voice = msg.voice
     if voice is None:
         return msg.text
-    if settings is None or not settings.enabled:
+    if not enabled:
         await reply(
             text=(
                 "voice transcription is disabled. enable it in config:\n"

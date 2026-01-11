@@ -29,7 +29,6 @@ from .bridge import (
 )
 from .client import TelegramClient
 from .onboarding import check_setup, interactive_setup
-from .voice import TelegramVoiceTranscriptionConfig
 
 logger = get_logger(__name__)
 
@@ -54,14 +53,6 @@ def _build_startup_message(
         f"agents: `{engine_list}`  \n"
         f"projects: `{project_list}`  \n"
         f"working in: `{startup_pwd}`"
-    )
-
-
-def _build_voice_transcription_config(
-    transport_config: dict[str, object],
-) -> TelegramVoiceTranscriptionConfig:
-    return TelegramVoiceTranscriptionConfig(
-        enabled=bool(transport_config.get("voice_transcription", False)),
     )
 
 
@@ -112,7 +103,7 @@ def _require_transport_config(
     transport_config: dict[str, object],
     *,
     config_path: Path,
-) -> tuple[str, int]:
+) -> TelegramTransportSettings:
     try:
         settings = TelegramTransportSettings.model_validate(transport_config)
     except ValidationError as exc:
@@ -127,7 +118,7 @@ def _require_transport_config(
         raise ConfigError(f"Missing chat_id in {config_path}.")
     if isinstance(chat_id, bool) or not isinstance(chat_id, int):
         raise ConfigError(f"Invalid `chat_id` in {config_path}; expected an integer.")
-    return token, chat_id
+    return settings
 
 
 class TelegramBackend(TransportBackend):
@@ -148,11 +139,11 @@ class TelegramBackend(TransportBackend):
     def lock_token(
         self, *, transport_config: dict[str, object], config_path: Path
     ) -> str | None:
-        token, _ = _require_transport_config(
+        settings = _require_transport_config(
             transport_config,
             config_path=config_path,
         )
-        return token
+        return settings.bot_token.get_secret_value().strip() if settings.bot_token else ""
 
     def build_and_run(
         self,
@@ -174,10 +165,16 @@ class TelegramBackend(TransportBackend):
         else:
             watch_enabled = settings.watch_config
 
-        token, chat_id = _require_transport_config(
+        transport_settings = _require_transport_config(
             transport_config,
             config_path=config_path,
         )
+        token = (
+            transport_settings.bot_token.get_secret_value().strip()
+            if transport_settings.bot_token
+            else ""
+        )
+        chat_id = transport_settings.chat_id
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),
@@ -190,7 +187,6 @@ class TelegramBackend(TransportBackend):
             presenter=presenter,
             final_notify=final_notify,
         )
-        voice_transcription = _build_voice_transcription_config(transport_config)
         topics = _build_topics_config(transport_config, config_path=config_path)
         files = _build_files_config(transport_config, config_path=config_path)
         cfg = TelegramBridgeConfig(
@@ -199,7 +195,7 @@ class TelegramBackend(TransportBackend):
             chat_id=chat_id,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
-            voice_transcription=voice_transcription,
+            voice_transcription=transport_settings.voice_transcription,
             topics=topics,
             files=files,
         )
