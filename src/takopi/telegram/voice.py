@@ -39,10 +39,7 @@ async def transcribe_voice(
     file_path = file_info.get("file_path")
     if not isinstance(file_path, str):
         file_path = ""
-    audio_bytes = await bot.download_file(file_path)
-    if not audio_bytes:
-        await reply(text="failed to download voice message")
-        return None
+    audio_bytes = await bot.download_file(file_path) or b""
     filename = "voice.ogg"
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = filename
