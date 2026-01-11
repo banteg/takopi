@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+import io
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import httpx
-
 from ..logging import get_logger
+from openai import AsyncOpenAI
 from .client import BotClient
 from .types import TelegramIncomingMessage
 
@@ -19,10 +18,8 @@ __all__ = [
     "transcribe_voice",
 ]
 
-OPENAI_TRANSCRIBE_URL = "https://api.openai.com/v1/audio/transcriptions"
 OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
 OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
-OPENAI_TRANSCRIPTION_CHUNKING = "auto"
 
 
 @dataclass(frozen=True)
@@ -58,82 +55,45 @@ async def transcribe_audio(
     model: str,
     language: str | None = None,
     prompt: str | None = None,
-    chunking_strategy: str | None = "auto",
-    mime_type: str | None = None,
     timeout_s: float = 120,
-    http_client: httpx.AsyncClient | None = None,
+    client: AsyncOpenAI | None = None,
 ) -> str | None:
-    data: dict[str, Any] = {"model": model}
-    if language:
-        data["language"] = language
-    if prompt:
-        data["prompt"] = prompt
-    if chunking_strategy:
-        data["chunking_strategy"] = chunking_strategy
-
-    files = {
-        "file": (
-            filename,
-            audio_bytes,
-            mime_type or "application/octet-stream",
-        )
-    }
-
-    headers = {"Authorization": f"Bearer {api_key}"}
-    close_client = False
-    client = http_client
+    close_client = client is None
     if client is None:
-        client = httpx.AsyncClient(timeout=timeout_s)
-        close_client = True
+        client = AsyncOpenAI(api_key=api_key, timeout=timeout_s)
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = filename
+    request: dict[str, object] = {
+        "model": model,
+        "file": audio_file,
+    }
+    if language:
+        request["language"] = language
+    if prompt:
+        request["prompt"] = prompt
     try:
         try:
-            resp = await client.post(
-                OPENAI_TRANSCRIBE_URL,
-                data=data,
-                files=files,
-                headers=headers,
-            )
-        except httpx.HTTPError as exc:
-            request_url = getattr(exc.request, "url", None)
-            logger.error(
-                "openai.transcribe.network_error",
-                url=str(request_url) if request_url is not None else None,
-                error=str(exc),
-                error_type=exc.__class__.__name__,
-            )
-            return None
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "openai.transcribe.http_error",
-                status=resp.status_code,
-                url=str(resp.request.url),
-                error=str(exc),
-                body=resp.text,
-            )
-            return None
-        try:
-            payload = resp.json()
+            response = await client.audio.transcriptions.create(**request)
         except Exception as exc:
             logger.error(
-                "openai.transcribe.bad_response",
-                status=resp.status_code,
-                url=str(resp.request.url),
+                "openai.transcribe.error",
                 error=str(exc),
                 error_type=exc.__class__.__name__,
-                body=resp.text,
             )
             return None
     finally:
         if close_client:
-            await client.aclose()
+            await client.close()
 
-    text = payload.get("text")
+    text: str | None
+    if isinstance(response, str):
+        text = response
+    else:
+        text = getattr(response, "text", None)
     if not isinstance(text, str):
         logger.error(
             "openai.transcribe.invalid_payload",
-            payload=payload,
+            response_type=type(response).__name__,
         )
         return None
     return text
@@ -188,8 +148,6 @@ async def transcribe_voice(
         filename=filename,
         api_key=api_key,
         model=OPENAI_TRANSCRIPTION_MODEL,
-        chunking_strategy=OPENAI_TRANSCRIPTION_CHUNKING,
-        mime_type=voice.mime_type,
     )
     if transcript is None:
         await reply(text="voice transcription failed")
