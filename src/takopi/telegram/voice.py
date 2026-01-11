@@ -56,14 +56,7 @@ async def transcribe_voice(
             await reply(text=str(exc).strip() or "voice transcription failed")
             return None
 
-    text = response if isinstance(response, str) else getattr(response, "text", None)
-    if not isinstance(text, str):
-        logger.error(
-            "openai.transcribe.invalid_payload",
-            response_type=type(response).__name__,
-        )
-        await reply(text="voice transcription failed")
-        return None
+    text = response if isinstance(response, str) else response.text
     text = text.strip()
     if not text:
         await reply(text="voice transcription returned empty text")
