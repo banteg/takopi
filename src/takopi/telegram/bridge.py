@@ -139,25 +139,38 @@ def _topics_chat_project(cfg: TelegramBridgeConfig, chat_id: int) -> str | None:
     return context.project if context is not None else None
 
 
-def _topics_chat_allowed(cfg: TelegramBridgeConfig, chat_id: int) -> bool:
+def _topics_chat_allowed(
+    cfg: TelegramBridgeConfig,
+    chat_id: int,
+    *,
+    scope_chat_ids: frozenset[int] | None = None,
+) -> bool:
     if not cfg.topics.enabled:
         return False
-    _, scope_chat_ids = _resolve_topics_scope(cfg)
+    if scope_chat_ids is None:
+        _, scope_chat_ids = _resolve_topics_scope(cfg)
     return chat_id in scope_chat_ids
 
 
-def _topics_command_error(cfg: TelegramBridgeConfig, chat_id: int) -> str | None:
-    if _topics_chat_allowed(cfg, chat_id):
+def _topics_command_error(
+    cfg: TelegramBridgeConfig,
+    chat_id: int,
+    *,
+    resolved_scope: str | None = None,
+    scope_chat_ids: frozenset[int] | None = None,
+) -> str | None:
+    if resolved_scope is None or scope_chat_ids is None:
+        resolved_scope, scope_chat_ids = _resolve_topics_scope(cfg)
+    if cfg.topics.enabled and chat_id in scope_chat_ids:
         return None
-    resolved, _ = _resolve_topics_scope(cfg)
-    if resolved == "main":
+    if resolved_scope == "main":
         if cfg.topics.scope == "auto":
             return (
                 "topics commands are only available in the main chat (auto scope). "
                 'to use topics in project chats, set `topics.scope = "projects"`.'
             )
         return "topics commands are only available in the main chat."
-    if resolved == "projects":
+    if resolved_scope == "projects":
         if cfg.topics.scope == "auto":
             return (
                 "topics commands are only available in project chats (auto scope). "
@@ -180,11 +193,14 @@ def _merge_topic_context(
 
 
 def _topic_key(
-    msg: TelegramIncomingMessage, cfg: TelegramBridgeConfig
+    msg: TelegramIncomingMessage,
+    cfg: TelegramBridgeConfig,
+    *,
+    scope_chat_ids: frozenset[int] | None = None,
 ) -> tuple[int, int] | None:
     if not cfg.topics.enabled:
         return None
-    if not _topics_chat_allowed(cfg, msg.chat_id):
+    if not _topics_chat_allowed(cfg, msg.chat_id, scope_chat_ids=scope_chat_ids):
         return None
     if msg.thread_id is None:
         return None
@@ -1741,8 +1757,16 @@ async def _handle_ctx_command(
     msg: TelegramIncomingMessage,
     args_text: str,
     store: TopicStateStore,
+    *,
+    resolved_scope: str | None = None,
+    scope_chat_ids: frozenset[int] | None = None,
 ) -> None:
-    error = _topics_command_error(cfg, msg.chat_id)
+    error = _topics_command_error(
+        cfg,
+        msg.chat_id,
+        resolved_scope=resolved_scope,
+        scope_chat_ids=scope_chat_ids,
+    )
     if error is not None:
         await _send_plain(
             cfg.exec_cfg.transport,
@@ -1753,7 +1777,7 @@ async def _handle_ctx_command(
         )
         return
     chat_project = _topics_chat_project(cfg, msg.chat_id)
-    tkey = _topic_key(msg, cfg)
+    tkey = _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
     if tkey is None:
         await _send_plain(
             cfg.exec_cfg.transport,
@@ -1857,8 +1881,16 @@ async def _handle_new_command(
     cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     store: TopicStateStore,
+    *,
+    resolved_scope: str | None = None,
+    scope_chat_ids: frozenset[int] | None = None,
 ) -> None:
-    error = _topics_command_error(cfg, msg.chat_id)
+    error = _topics_command_error(
+        cfg,
+        msg.chat_id,
+        resolved_scope=resolved_scope,
+        scope_chat_ids=scope_chat_ids,
+    )
     if error is not None:
         await _send_plain(
             cfg.exec_cfg.transport,
@@ -1868,7 +1900,7 @@ async def _handle_new_command(
             thread_id=msg.thread_id,
         )
         return
-    tkey = _topic_key(msg, cfg)
+    tkey = _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
     if tkey is None:
         await _send_plain(
             cfg.exec_cfg.transport,
@@ -1893,8 +1925,16 @@ async def _handle_topic_command(
     msg: TelegramIncomingMessage,
     args_text: str,
     store: TopicStateStore,
+    *,
+    resolved_scope: str | None = None,
+    scope_chat_ids: frozenset[int] | None = None,
 ) -> None:
-    error = _topics_command_error(cfg, msg.chat_id)
+    error = _topics_command_error(
+        cfg,
+        msg.chat_id,
+        resolved_scope=resolved_scope,
+        scope_chat_ids=scope_chat_ids,
+    )
     if error is not None:
         await _send_plain(
             cfg.exec_cfg.transport,
@@ -2465,6 +2505,16 @@ async def run_main_loop(
     )
     topic_store: TopicStateStore | None = None
     media_groups: dict[tuple[int, str], _MediaGroupState] = {}
+    resolved_topics_scope: str | None = None
+    topics_chat_ids: frozenset[int] = frozenset()
+
+    def refresh_topics_scope() -> None:
+        nonlocal resolved_topics_scope, topics_chat_ids
+        if cfg.topics.enabled:
+            resolved_topics_scope, topics_chat_ids = _resolve_topics_scope(cfg)
+        else:
+            resolved_topics_scope = None
+            topics_chat_ids = frozenset()
 
     try:
         if cfg.topics.enabled:
@@ -2475,11 +2525,11 @@ async def run_main_loop(
                 )
             topic_store = TopicStateStore(resolve_state_path(config_path))
             await _validate_topics_setup(cfg)
-            resolved_scope, _ = _resolve_topics_scope(cfg)
+            refresh_topics_scope()
             logger.info(
                 "topics.enabled",
                 scope=cfg.topics.scope,
-                resolved_scope=resolved_scope,
+                resolved_scope=resolved_topics_scope,
                 state_path=str(resolve_state_path(config_path)),
             )
         await _set_command_menu(cfg)
@@ -2490,6 +2540,7 @@ async def run_main_loop(
             async def handle_reload(reload: ConfigReload) -> None:
                 nonlocal transport_snapshot, transport_id
                 command_cache.refresh(cfg.runtime)
+                refresh_topics_scope()
                 await _set_command_menu(cfg)
                 if transport_snapshot is not None:
                     new_snapshot = reload.settings.transports.telegram.model_dump()
@@ -2559,7 +2610,9 @@ async def run_main_loop(
                     (chat_id, thread_id)
                     if topic_store is not None
                     and thread_id is not None
-                    and _topics_chat_allowed(cfg, chat_id)
+                    and _topics_chat_allowed(
+                        cfg, chat_id, scope_chat_ids=topics_chat_ids
+                    )
                     else None
                 )
                 await _run_engine(
@@ -2631,7 +2684,11 @@ async def run_main_loop(
                     if reply_id is not None
                     else None
                 )
-                topic_key = _topic_key(msg, cfg) if topic_store is not None else None
+                topic_key = (
+                    _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
+                    if topic_store is not None
+                    else None
+                )
                 chat_project = (
                     _topics_chat_project(cfg, chat_id) if cfg.topics.enabled else None
                 )
@@ -2717,13 +2774,32 @@ async def run_main_loop(
                 ):
                     if command_id == "ctx":
                         tg.start_soon(
-                            _handle_ctx_command, cfg, msg, args_text, topic_store
+                            _handle_ctx_command,
+                            cfg,
+                            msg,
+                            args_text,
+                            topic_store,
+                            resolved_scope=resolved_topics_scope,
+                            scope_chat_ids=topics_chat_ids,
                         )
                     elif command_id == "new":
-                        tg.start_soon(_handle_new_command, cfg, msg, topic_store)
+                        tg.start_soon(
+                            _handle_new_command,
+                            cfg,
+                            msg,
+                            topic_store,
+                            resolved_scope=resolved_topics_scope,
+                            scope_chat_ids=topics_chat_ids,
+                        )
                     else:
                         tg.start_soon(
-                            _handle_topic_command, cfg, msg, args_text, topic_store
+                            _handle_topic_command,
+                            cfg,
+                            msg,
+                            args_text,
+                            topic_store,
+                            resolved_scope=resolved_topics_scope,
+                            scope_chat_ids=topics_chat_ids,
                         )
                     continue
                 if (
