@@ -49,7 +49,7 @@ def test_check_setup_marks_missing_config(monkeypatch, tmp_path: Path) -> None:
     assert result.config_path == onboarding.HOME_CONFIG_PATH
 
 
-def test_check_setup_marks_invalid_chat_id(monkeypatch, tmp_path: Path) -> None:
+def test_check_setup_marks_invalid_bot_token(monkeypatch, tmp_path: Path) -> None:
     backend = engines.get_backend("codex")
     monkeypatch.setattr(onboarding.shutil, "which", lambda _name: "/usr/bin/codex")
     monkeypatch.setattr(
@@ -59,7 +59,7 @@ def test_check_setup_marks_invalid_chat_id(monkeypatch, tmp_path: Path) -> None:
             TakopiSettings.model_validate(
                 {
                     "transport": "telegram",
-                    "transports": {"telegram": {"bot_token": "token", "chat_id": None}},
+                    "transports": {"telegram": {"bot_token": "   ", "chat_id": 123}},
                 }
             ),
             tmp_path / "takopi.toml",

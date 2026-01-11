@@ -26,7 +26,11 @@ def test_config_status_variants(tmp_path: Path) -> None:
     assert signature is None
 
     config_file = tmp_path / "takopi.toml"
-    config_file.write_text('transport = "telegram"\n', encoding="utf-8")
+    config_file.write_text(
+        'transport = "telegram"\n\n[transports.telegram]\n'
+        'bot_token = "token"\nchat_id = 123\n',
+        encoding="utf-8",
+    )
     status, signature = config_status(config_file)
     assert status == "ok"
     assert signature is not None
@@ -63,7 +67,12 @@ async def test_watch_config_applies_runtime(
         plugin_configs=None,
     )
     reload = ConfigReload(
-        settings=TakopiSettings.model_validate({"transport": "telegram"}),
+        settings=TakopiSettings.model_validate(
+            {
+                "transport": "telegram",
+                "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
+            }
+        ),
         runtime_spec=new_spec,
         config_path=resolved_path,
     )

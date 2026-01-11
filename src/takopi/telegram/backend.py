@@ -110,14 +110,9 @@ def _require_transport_config(
         raise ConfigError(
             f"Invalid `transports.telegram` in {config_path}: {exc}"
         ) from exc
-    token = settings.bot_token.get_secret_value().strip() if settings.bot_token else ""
+    token = settings.bot_token.get_secret_value().strip()
     if not token:
         raise ConfigError(f"Missing bot token in {config_path}.")
-    chat_id = settings.chat_id
-    if chat_id is None:
-        raise ConfigError(f"Missing chat_id in {config_path}.")
-    if isinstance(chat_id, bool) or not isinstance(chat_id, int):
-        raise ConfigError(f"Invalid `chat_id` in {config_path}; expected an integer.")
     return settings
 
 
@@ -143,9 +138,7 @@ class TelegramBackend(TransportBackend):
             transport_config,
             config_path=config_path,
         )
-        return (
-            settings.bot_token.get_secret_value().strip() if settings.bot_token else ""
-        )
+        return settings.bot_token.get_secret_value().strip()
 
     def build_and_run(
         self,
@@ -171,13 +164,8 @@ class TelegramBackend(TransportBackend):
             transport_config,
             config_path=config_path,
         )
-        token = (
-            transport_settings.bot_token.get_secret_value().strip()
-            if transport_settings.bot_token
-            else ""
-        )
+        token = transport_settings.bot_token.get_secret_value().strip()
         chat_id = transport_settings.chat_id
-        assert chat_id is not None
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),

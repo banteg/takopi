@@ -135,8 +135,8 @@ class TelegramFilesSettings(BaseModel):
 class TelegramTransportSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    bot_token: SecretStr | None = None
-    chat_id: int | None = None
+    bot_token: SecretStr
+    chat_id: int
     voice_transcription: bool = False
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
     files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
@@ -144,8 +144,6 @@ class TelegramTransportSettings(BaseModel):
     @field_validator("bot_token", mode="before")
     @classmethod
     def _validate_bot_token(cls, value: Any) -> Any:
-        if value is None:
-            return None
         if not isinstance(value, str):
             raise ValueError("bot_token must be a string")
         return value
@@ -153,15 +151,13 @@ class TelegramTransportSettings(BaseModel):
     @field_validator("chat_id", mode="before")
     @classmethod
     def _validate_chat_id(cls, value: Any) -> Any:
-        if value is None:
-            return None
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError("chat_id must be an integer")
         return value
 
     @field_serializer("bot_token")
-    def _dump_token(self, value: SecretStr | None) -> str | None:
-        return value.get_secret_value() if value else None
+    def _dump_token(self, value: SecretStr) -> str:
+        return value.get_secret_value()
 
 
 class TransportsSettings(BaseModel):
@@ -391,7 +387,7 @@ class TakopiSettings(BaseSettings):
                         f"Invalid `projects.{alias}.chat_id` in {config_path}; "
                         "expected an integer."
                     )
-                if default_chat_id is not None and chat_id == default_chat_id:
+                if chat_id == default_chat_id:
                     raise ConfigError(
                         f"Invalid `projects.{alias}.chat_id` in {config_path}; "
                         "must not match transports.telegram.chat_id."
@@ -466,12 +462,8 @@ def require_telegram(settings: TakopiSettings, config_path: Path) -> tuple[str, 
             "(telegram only for now)."
         )
     tg = settings.transports.telegram
-    if tg.bot_token is None or not tg.bot_token.get_secret_value().strip():
+    if not tg.bot_token.get_secret_value().strip():
         raise ConfigError(f"Missing bot token in {config_path}.")
-    if tg.chat_id is None:
-        raise ConfigError(f"Missing chat_id in {config_path}.")
-    if isinstance(tg.chat_id, bool) or not isinstance(tg.chat_id, int):
-        raise ConfigError(f"Invalid `chat_id` in {config_path}; expected an integer.")
     return tg.bot_token.get_secret_value().strip(), tg.chat_id
 
 

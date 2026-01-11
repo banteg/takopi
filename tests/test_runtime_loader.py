@@ -11,9 +11,18 @@ def test_build_runtime_spec_minimal(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(runtime_loader.shutil, "which", lambda _cmd: "/bin/echo")
-    settings = TakopiSettings.model_validate({"transport": "telegram"})
+    settings = TakopiSettings.model_validate(
+        {
+            "transport": "telegram",
+            "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
+        }
+    )
     config_path = tmp_path / "takopi.toml"
-    config_path.write_text('transport = "telegram"\n', encoding="utf-8")
+    config_path.write_text(
+        'transport = "telegram"\n\n[transports.telegram]\n'
+        'bot_token = "token"\nchat_id = 123\n',
+        encoding="utf-8",
+    )
 
     spec = runtime_loader.build_runtime_spec(
         settings=settings,
@@ -26,7 +35,12 @@ def test_build_runtime_spec_minimal(
 
 
 def test_resolve_default_engine_unknown(tmp_path: Path) -> None:
-    settings = TakopiSettings.model_validate({"transport": "telegram"})
+    settings = TakopiSettings.model_validate(
+        {
+            "transport": "telegram",
+            "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
+        }
+    )
     with pytest.raises(ConfigError, match="Unknown default engine"):
         runtime_loader.resolve_default_engine(
             override="unknown",

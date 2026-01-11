@@ -45,7 +45,7 @@ def test_chat_id_command_uses_config_token(monkeypatch) -> None:
     settings = TakopiSettings.model_validate(
         {
             "transport": "telegram",
-            "transports": {"telegram": {"bot_token": "config-token"}},
+            "transports": {"telegram": {"bot_token": "config-token", "chat_id": 123}},
         }
     )
     monkeypatch.setattr(cli, "_load_settings_optional", lambda: (settings, Path("x")))

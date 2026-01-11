@@ -8,8 +8,12 @@ from takopi.config import ConfigError, read_config
 from takopi.settings import TakopiSettings
 
 
+def _base_config() -> dict:
+    return {"transports": {"telegram": {"bot_token": "token", "chat_id": 123}}}
+
+
 def test_parse_projects_rejects_engine_alias() -> None:
-    config = {"projects": {"codex": {"path": "/tmp/repo"}}}
+    config = {**_base_config(), "projects": {"codex": {"path": "/tmp/repo"}}}
     with pytest.raises(ConfigError, match="aliases must not match engine ids"):
         settings = TakopiSettings.model_validate(config)
         settings.to_projects_config(
@@ -20,7 +24,7 @@ def test_parse_projects_rejects_engine_alias() -> None:
 
 
 def test_parse_projects_default_project_must_exist() -> None:
-    config = {"default_project": "z80", "projects": {}}
+    config = {**_base_config(), "default_project": "z80", "projects": {}}
     with pytest.raises(ConfigError, match="default_project"):
         settings = TakopiSettings.model_validate(config)
         settings.to_projects_config(
@@ -32,6 +36,11 @@ def test_parse_projects_default_project_must_exist() -> None:
 
 def test_init_writes_project(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "takopi.toml"
+    config_path.write_text(
+        'transport = "telegram"\n\n[transports.telegram]\n'
+        'bot_token = "token"\nchat_id = 123\n',
+        encoding="utf-8",
+    )
     monkeypatch.setattr("takopi.config.HOME_CONFIG_PATH", config_path)
     monkeypatch.setattr(cli, "resolve_default_base", lambda _: "main")
     monkeypatch.setattr(cli, "_load_settings_optional", lambda: (None, None))
@@ -76,7 +85,10 @@ def test_init_migrates_legacy_config(monkeypatch, tmp_path) -> None:
 
 
 def test_projects_default_engine_unknown() -> None:
-    config = {"projects": {"z80": {"path": "/tmp/repo", "default_engine": "nope"}}}
+    config = {
+        **_base_config(),
+        "projects": {"z80": {"path": "/tmp/repo", "default_engine": "nope"}},
+    }
     settings = TakopiSettings.model_validate(config)
     with pytest.raises(ConfigError, match="projects.z80.default_engine"):
         settings.to_projects_config(
@@ -119,7 +131,9 @@ def test_projects_chat_id_must_be_unique() -> None:
 
 def test_projects_relative_path_resolves(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
-    settings = TakopiSettings.model_validate({"projects": {"z80": {"path": "repo"}}})
+    settings = TakopiSettings.model_validate(
+        {**_base_config(), "projects": {"z80": {"path": "repo"}}}
+    )
     projects = settings.to_projects_config(
         config_path=config_path,
         engine_ids=["codex"],
