@@ -776,29 +776,29 @@ async def _transcribe_voice(
     )
     settings = cfg.voice_transcription
     if settings is None or not settings.enabled:
-        await reply("voice transcription is disabled.")
+        await reply(text="voice transcription is disabled.")
         return None
     api_key = _resolve_openai_api_key()
     if not api_key:
-        await reply("voice transcription requires OPENAI_API_KEY.")
+        await reply(text="voice transcription requires OPENAI_API_KEY.")
         return None
     if voice.file_size is not None and voice.file_size > _OPENAI_AUDIO_MAX_BYTES:
-        await reply("voice message is too large to transcribe.")
+        await reply(text="voice message is too large to transcribe.")
         return None
     file_info = await cfg.bot.get_file(voice.file_id)
     if not isinstance(file_info, dict):
-        await reply("failed to fetch voice file.")
+        await reply(text="failed to fetch voice file.")
         return None
     file_path = file_info.get("file_path")
     if not isinstance(file_path, str) or not file_path:
-        await reply("failed to fetch voice file.")
+        await reply(text="failed to fetch voice file.")
         return None
     audio_bytes = await cfg.bot.download_file(file_path)
     if not audio_bytes:
-        await reply("failed to download voice message.")
+        await reply(text="failed to download voice message.")
         return None
     if len(audio_bytes) > _OPENAI_AUDIO_MAX_BYTES:
-        await reply("voice message is too large to transcribe.")
+        await reply(text="voice message is too large to transcribe.")
         return None
     filename = _normalize_voice_filename(file_path, voice.mime_type)
     transcript = await transcribe_audio(
@@ -810,11 +810,11 @@ async def _transcribe_voice(
         mime_type=voice.mime_type,
     )
     if transcript is None:
-        await reply("voice transcription failed.")
+        await reply(text="voice transcription failed.")
         return None
     transcript = transcript.strip()
     if not transcript:
-        await reply("voice transcription returned empty text.")
+        await reply(text="voice transcription returned empty text.")
         return None
     return transcript
 
@@ -881,11 +881,11 @@ async def _check_file_permissions(
     )
     sender_id = msg.sender_id
     if sender_id is None:
-        await reply("cannot verify sender for file transfer.")
+        await reply(text="cannot verify sender for file transfer.")
         return False
     if cfg.files.allowed_user_ids:
         if sender_id not in cfg.files.allowed_user_ids:
-            await reply("file transfer is not allowed for this user.")
+            await reply(text="file transfer is not allowed for this user.")
             return False
         return True
     is_private = msg.chat_type == "private"
@@ -895,12 +895,12 @@ async def _check_file_permissions(
         return True
     member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
     if not isinstance(member, dict):
-        await reply("failed to verify file transfer permissions.")
+        await reply(text="failed to verify file transfer permissions.")
         return False
     status = member.get("status")
     if status in {"creator", "administrator"}:
         return True
-    await reply("file transfer is restricted to group admins.")
+    await reply(text="file transfer is restricted to group admins.")
     return False
 
 
@@ -928,7 +928,7 @@ async def _prepare_file_put_plan(
             chat_id=msg.chat_id,
         )
     except DirectiveError as exc:
-        await reply(f"error:\n{exc}")
+        await reply(text=f"error:\n{exc}")
         return None
     topic_key = _topic_key(msg, cfg) if topic_store is not None else None
     await _maybe_update_topic_context(
@@ -939,19 +939,19 @@ async def _prepare_file_put_plan(
         context_source=resolved.context_source,
     )
     if resolved.context is None or resolved.context.project is None:
-        await reply("no project context available for file upload.")
+        await reply(text="no project context available for file upload.")
         return None
     try:
         run_root = cfg.runtime.resolve_run_cwd(resolved.context)
     except ConfigError as exc:
-        await reply(f"error:\n{exc}")
+        await reply(text=f"error:\n{exc}")
         return None
     if run_root is None:
-        await reply("no project context available for file upload.")
+        await reply(text="no project context available for file upload.")
         return None
     path_value, force, error = parse_file_prompt(resolved.prompt, allow_empty=True)
     if error is not None:
-        await reply(error)
+        await reply(text=error)
         return None
     return _FilePutPlan(
         resolved=resolved,
@@ -1110,7 +1110,7 @@ async def _handle_file_command(
     )
     command, rest, error = parse_file_command(args_text)
     if error is not None:
-        await reply(error)
+        await reply(text=error)
         return
     if command == "put":
         await _handle_file_put(cfg, msg, rest, ambient_context, topic_store)
@@ -1143,7 +1143,7 @@ async def _handle_file_put(
     )
     document = msg.document
     if document is None:
-        await reply(FILE_PUT_USAGE)
+        await reply(text=FILE_PUT_USAGE)
         return
     plan = await _prepare_file_put_plan(
         cfg,
@@ -1160,7 +1160,7 @@ async def _handle_file_put(
         require_dir=False,
     )
     if error is not None:
-        await reply(error)
+        await reply(text=error)
         return
     result = await _save_document_payload(
         cfg,
@@ -1171,14 +1171,14 @@ async def _handle_file_put(
         force=plan.force,
     )
     if result.error is not None:
-        await reply(result.error)
+        await reply(text=result.error)
         return
     if result.rel_path is None or result.size is None:
-        await reply("failed to save file.")
+        await reply(text="failed to save file.")
         return
     context_label = _format_context(cfg.runtime, plan.resolved.context)
     await reply(
-        (
+        text=(
             f"saved `{result.rel_path.as_posix()}` "
             f"in `{context_label}` ({format_bytes(result.size)})"
         ),
@@ -1202,7 +1202,7 @@ async def _handle_file_put_group(
     )
     documents = [item.document for item in messages if item.document is not None]
     if not documents:
-        await reply(FILE_PUT_USAGE)
+        await reply(text=FILE_PUT_USAGE)
         return
     plan = await _prepare_file_put_plan(
         cfg,
@@ -1219,7 +1219,7 @@ async def _handle_file_put_group(
         require_dir=True,
     )
     if error is not None:
-        await reply(error)
+        await reply(text=error)
         return
     saved: list[_FilePutResult] = []
     failed: list[_FilePutResult] = []
@@ -1266,7 +1266,7 @@ async def _handle_file_put_group(
         )
         if errors:
             text = f"{text}\n\nfailed: {errors}"
-    await reply(text)
+    await reply(text=text)
 
 
 async def _handle_media_group(
@@ -1305,12 +1305,12 @@ async def _handle_media_group(
     if command_id == "file":
         if not cfg.files.enabled:
             await reply(
-                "file transfer disabled; enable `[transports.telegram.files]`.",
+                text="file transfer disabled; enable `[transports.telegram.files]`.",
             )
             return
         command, rest, error = parse_file_command(args_text)
         if error is not None:
-            await reply(error)
+            await reply(text=error)
             return
         if command == "put":
             await _handle_file_put_group(
@@ -1322,7 +1322,7 @@ async def _handle_media_group(
                 topic_store,
             )
         else:
-            await reply(FILE_PUT_USAGE)
+            await reply(text=FILE_PUT_USAGE)
         return
     if cfg.files.enabled and cfg.files.auto_put and not command_msg.text.strip():
         await _handle_file_put_group(
@@ -1335,7 +1335,7 @@ async def _handle_media_group(
         )
         return
     if cfg.files.enabled:
-        await reply(FILE_PUT_USAGE)
+        await reply(text=FILE_PUT_USAGE)
 
 
 async def _handle_file_get(
@@ -1362,7 +1362,7 @@ async def _handle_file_get(
             chat_id=msg.chat_id,
         )
     except DirectiveError as exc:
-        await reply(f"error:\n{exc}")
+        await reply(text=f"error:\n{exc}")
         return
     topic_key = _topic_key(msg, cfg) if topic_store is not None else None
     await _maybe_update_topic_context(
@@ -1373,34 +1373,34 @@ async def _handle_file_get(
         context_source=resolved.context_source,
     )
     if resolved.context is None or resolved.context.project is None:
-        await reply("no project context available for file fetch.")
+        await reply(text="no project context available for file fetch.")
         return
     try:
         run_root = cfg.runtime.resolve_run_cwd(resolved.context)
     except ConfigError as exc:
-        await reply(f"error:\n{exc}")
+        await reply(text=f"error:\n{exc}")
         return
     if run_root is None:
-        await reply("no project context available for file fetch.")
+        await reply(text="no project context available for file fetch.")
         return
     path_value, _, error = parse_file_prompt(resolved.prompt, allow_empty=False)
     if error is not None:
-        await reply(FILE_GET_USAGE)
+        await reply(text=FILE_GET_USAGE)
         return
     rel_path = normalize_relative_path(path_value or "")
     if rel_path is None:
-        await reply("invalid file path.")
+        await reply(text="invalid file path.")
         return
     deny_rule = deny_reason(rel_path, cfg.files.deny_globs)
     if deny_rule is not None:
-        await reply(f"path denied by rule: {deny_rule}")
+        await reply(text=f"path denied by rule: {deny_rule}")
         return
     target = resolve_path_within_root(run_root, rel_path)
     if target is None:
-        await reply("requested path escapes the repo root.")
+        await reply(text="requested path escapes the repo root.")
         return
     if not target.exists():
-        await reply("file not found.")
+        await reply(text="file not found.")
         return
     payload: bytes
     filename: str
@@ -1413,25 +1413,25 @@ async def _handle_file_get(
                 max_bytes=cfg.files.max_download_bytes,
             )
         except ZipTooLargeError:
-            await reply("file is too large to send.")
+            await reply(text="file is too large to send.")
             return
         except OSError as exc:
-            await reply(f"failed to read directory: {exc}")
+            await reply(text=f"failed to read directory: {exc}")
             return
         filename = f"{rel_path.name or 'archive'}.zip"
     else:
         try:
             size = target.stat().st_size
             if size > cfg.files.max_download_bytes:
-                await reply("file is too large to send.")
+                await reply(text="file is too large to send.")
                 return
             payload = target.read_bytes()
         except OSError as exc:
-            await reply(f"failed to read file: {exc}")
+            await reply(text=f"failed to read file: {exc}")
             return
         filename = target.name
     if len(payload) > cfg.files.max_download_bytes:
-        await reply("file is too large to send.")
+        await reply(text="file is too large to send.")
         return
     sent = await cfg.bot.send_document(
         chat_id=msg.chat_id,
@@ -1441,7 +1441,7 @@ async def _handle_file_get(
         message_thread_id=msg.thread_id,
     )
     if sent is None:
-        await reply("failed to send file.")
+        await reply(text="failed to send file.")
         return
 
 
@@ -1511,12 +1511,12 @@ async def _handle_ctx_command(
         scope_chat_ids=scope_chat_ids,
     )
     if error is not None:
-        await reply(error)
+        await reply(text=error)
         return
     chat_project = _topics_chat_project(cfg, msg.chat_id)
     tkey = _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
     if tkey is None:
-        await reply("this command only works inside a topic.")
+        await reply(text="this command only works inside a topic.")
         return
     tokens = split_command_args(args_text)
     action = tokens[0].lower() if tokens else "show"
@@ -1539,7 +1539,7 @@ async def _handle_ctx_command(
             snapshot=snapshot,
             chat_project=chat_project,
         )
-        await reply(text)
+        await reply(text=text)
         return
     if action == "set":
         rest = " ".join(tokens[1:])
@@ -1551,12 +1551,12 @@ async def _handle_ctx_command(
         )
         if error is not None:
             await reply(
-                f"error:\n{error}\n{_usage_ctx_set(chat_project=chat_project)}",
+                text=f"error:\n{error}\n{_usage_ctx_set(chat_project=chat_project)}",
             )
             return
         if context is None:
             await reply(
-                f"error:\n{_usage_ctx_set(chat_project=chat_project)}",
+                text=f"error:\n{_usage_ctx_set(chat_project=chat_project)}",
             )
             return
         await store.set_context(*tkey, context)
@@ -1568,15 +1568,15 @@ async def _handle_ctx_command(
             context=context,
         )
         await reply(
-            f"topic bound to `{_format_context(cfg.runtime, context)}`",
+            text=f"topic bound to `{_format_context(cfg.runtime, context)}`",
         )
         return
     if action == "clear":
         await store.clear_context(*tkey)
-        await reply("topic binding cleared.")
+        await reply(text="topic binding cleared.")
         return
     await reply(
-        "unknown `/ctx` command. use `/ctx`, `/ctx set`, or `/ctx clear`.",
+        text="unknown `/ctx` command. use `/ctx`, `/ctx set`, or `/ctx clear`.",
     )
 
 
@@ -1602,14 +1602,14 @@ async def _handle_new_command(
         scope_chat_ids=scope_chat_ids,
     )
     if error is not None:
-        await reply(error)
+        await reply(text=error)
         return
     tkey = _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
     if tkey is None:
-        await reply("this command only works inside a topic.")
+        await reply(text="this command only works inside a topic.")
         return
     await store.clear_sessions(*tkey)
-    await reply("cleared stored sessions for this topic.")
+    await reply(text="cleared stored sessions for this topic.")
 
 
 async def _handle_topic_command(
@@ -1635,7 +1635,7 @@ async def _handle_topic_command(
         scope_chat_ids=scope_chat_ids,
     )
     if error is not None:
-        await reply(error)
+        await reply(text=error)
         return
     chat_project = _topics_chat_project(cfg, msg.chat_id)
     context, error = _parse_project_branch_args(
@@ -1647,12 +1647,12 @@ async def _handle_topic_command(
     if error is not None or context is None:
         usage = _usage_topic(chat_project=chat_project)
         text = f"error:\n{error}\n{usage}" if error else usage
-        await reply(text)
+        await reply(text=text)
         return
     existing = await store.find_thread_for_context(msg.chat_id, context)
     if existing is not None:
         await reply(
-            f"topic already exists for {_format_context(cfg.runtime, context)} "
+            text=f"topic already exists for {_format_context(cfg.runtime, context)} "
             "in this chat.",
         )
         return
@@ -1660,7 +1660,7 @@ async def _handle_topic_command(
     created = await cfg.bot.create_forum_topic(msg.chat_id, title)
     thread_id = created.get("message_thread_id") if isinstance(created, dict) else None
     if isinstance(thread_id, bool) or not isinstance(thread_id, int):
-        await reply("failed to create topic.")
+        await reply(text="failed to create topic.")
         return
     await store.set_context(
         msg.chat_id,
@@ -1668,7 +1668,7 @@ async def _handle_topic_command(
         context,
         topic_title=title,
     )
-    await reply(f"created topic `{title}`.")
+    await reply(text=f"created topic `{title}`.")
     bound_text = f"topic bound to `{_format_context(cfg.runtime, context)}`"
     rendered_text, entities = prepare_telegram(MarkdownParts(header=bound_text))
     await cfg.exec_cfg.transport.send(
@@ -1695,15 +1695,15 @@ async def handle_cancel(
 
     if reply_id is None:
         if msg.reply_to_text:
-            await reply("nothing is currently running for that message.")
+            await reply(text="nothing is currently running for that message.")
             return
-        await reply("reply to the progress message to cancel.")
+        await reply(text="reply to the progress message to cancel.")
         return
 
     progress_ref = MessageRef(channel_id=chat_id, message_id=reply_id)
     running_task = running_tasks.get(progress_ref)
     if running_task is None:
-        await reply("nothing is currently running for that message.")
+        await reply(text="nothing is currently running for that message.")
         return
 
     logger.info(
@@ -1783,7 +1783,7 @@ async def send_with_resume(
     resume = await _wait_for_resume(running_task)
     if resume is None:
         await reply(
-            "resume token not ready yet; try replying to the final message.",
+            text="resume token not ready yet; try replying to the final message.",
             notify=False,
         )
         return
@@ -1854,7 +1854,7 @@ async def _run_engine(
                 engine_override=engine_override,
             )
         except RunnerUnavailableError as exc:
-            await reply(f"error:\n{exc}")
+            await reply(text=f"error:\n{exc}")
             return
         if not entry.available:
             reason = entry.issue or "engine unavailable"
@@ -1871,7 +1871,7 @@ async def _run_engine(
         try:
             cwd = runtime.resolve_run_cwd(context)
         except ConfigError as exc:
-            await reply(f"error:\n{exc}")
+            await reply(text=f"error:\n{exc}")
             return
         run_base_token = set_run_base_dir(cwd)
         try:
@@ -2399,9 +2399,11 @@ async def run_main_loop(
                 if command_id == "file":
                     if not cfg.files.enabled:
                         tg.start_soon(
-                            reply,
-                            "file transfer disabled; enable "
-                            "`[transports.telegram.files]`.",
+                            partial(
+                                reply,
+                                text="file transfer disabled; enable "
+                                "`[transports.telegram.files]`.",
+                            )
                         )
                     else:
                         tg.start_soon(
@@ -2424,8 +2426,7 @@ async def run_main_loop(
                         )
                     elif cfg.files.enabled:
                         tg.start_soon(
-                            reply,
-                            FILE_PUT_USAGE,
+                            partial(reply, text=FILE_PUT_USAGE),
                         )
                     continue
                 if (
@@ -2494,7 +2495,7 @@ async def run_main_loop(
                         chat_id=chat_id,
                     )
                 except DirectiveError as exc:
-                    await reply(f"error:\n{exc}")
+                    await reply(text=f"error:\n{exc}")
                     continue
 
                 text = resolved.prompt
@@ -2523,7 +2524,7 @@ async def run_main_loop(
                     and resolved.context_source not in {"directives", "reply_ctx"}
                 ):
                     await reply(
-                        "this topic isn't bound to a project yet.\n"
+                        text="this topic isn't bound to a project yet.\n"
                         f"{_usage_ctx_set(chat_project=chat_project)} or "
                         f"{_usage_topic(chat_project=chat_project)}",
                     )
