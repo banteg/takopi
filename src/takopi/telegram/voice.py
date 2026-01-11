@@ -25,57 +25,6 @@ class TelegramVoiceTranscriptionConfig:
     enabled: bool = False
 
 
-async def transcribe_audio(
-    audio_bytes: bytes,
-    *,
-    filename: str,
-    model: str,
-    language: str | None = None,
-    prompt: str | None = None,
-    timeout_s: float = 120,
-    client: AsyncOpenAI | None = None,
-) -> str | None:
-    close_client = client is None
-    if client is None:
-        client = AsyncOpenAI(timeout=timeout_s)
-    audio_file = io.BytesIO(audio_bytes)
-    audio_file.name = filename
-    request: dict[str, object] = {
-        "model": model,
-        "file": audio_file,
-    }
-    if language:
-        request["language"] = language
-    if prompt:
-        request["prompt"] = prompt
-    try:
-        try:
-            response = await client.audio.transcriptions.create(**request)
-        except Exception as exc:
-            logger.error(
-                "openai.transcribe.error",
-                error=str(exc),
-                error_type=exc.__class__.__name__,
-            )
-            return None
-    finally:
-        if close_client:
-            await client.close()
-
-    text: str | None
-    if isinstance(response, str):
-        text = response
-    else:
-        text = getattr(response, "text", None)
-    if not isinstance(text, str):
-        logger.error(
-            "openai.transcribe.invalid_payload",
-            response_type=type(response).__name__,
-        )
-        return None
-    return text
-
-
 async def transcribe_voice(
     *,
     bot: BotClient,
@@ -116,16 +65,36 @@ async def transcribe_voice(
         await reply(text="voice message is too large to transcribe")
         return None
     filename = "voice.ogg"
-    transcript = await transcribe_audio(
-        audio_bytes,
-        filename=filename,
-        model=OPENAI_TRANSCRIPTION_MODEL,
-    )
-    if transcript is None:
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = filename
+    client = AsyncOpenAI(timeout=120)
+    try:
+        try:
+            response = await client.audio.transcriptions.create(
+                model=OPENAI_TRANSCRIPTION_MODEL,
+                file=audio_file,
+            )
+        except Exception as exc:
+            logger.error(
+                "openai.transcribe.error",
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            await reply(text="voice transcription failed")
+            return None
+    finally:
+        await client.close()
+
+    text = response if isinstance(response, str) else getattr(response, "text", None)
+    if not isinstance(text, str):
+        logger.error(
+            "openai.transcribe.invalid_payload",
+            response_type=type(response).__name__,
+        )
         await reply(text="voice transcription failed")
         return None
-    transcript = transcript.strip()
-    if not transcript:
+    text = text.strip()
+    if not text:
         await reply(text="voice transcription returned empty text")
         return None
-    return transcript
+    return text
