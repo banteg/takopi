@@ -873,34 +873,57 @@ class TelegramClient:
         return await self._call_with_retry_after(execute)
 
     async def download_file(self, file_path: str) -> bytes | None:
-        if self._client_override is not None:
-            return await self._client_override.download_file(file_path)
-        if self._http_client is None or self._file_base is None:
-            raise RuntimeError("TelegramClient is configured without an HTTP client.")
-        url = f"{self._file_base}/{file_path}"
-        try:
-            resp = await self._http_client.get(url)
-        except httpx.HTTPError as exc:
-            request_url = getattr(exc.request, "url", None)
-            logger.error(
-                "telegram.file_network_error",
-                url=str(request_url) if request_url is not None else None,
-                error=str(exc),
-                error_type=exc.__class__.__name__,
-            )
-            return None
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "telegram.file_http_error",
-                status=resp.status_code,
-                url=str(resp.request.url),
-                error=str(exc),
-                body=resp.text,
-            )
-            return None
-        return resp.content
+        async def execute() -> bytes | None:
+            if self._client_override is not None:
+                return await self._client_override.download_file(file_path)
+            if self._http_client is None or self._file_base is None:
+                raise RuntimeError(
+                    "TelegramClient is configured without an HTTP client."
+                )
+            url = f"{self._file_base}/{file_path}"
+            try:
+                resp = await self._http_client.get(url)
+            except httpx.HTTPError as exc:
+                request_url = getattr(exc.request, "url", None)
+                logger.error(
+                    "telegram.file_network_error",
+                    url=str(request_url) if request_url is not None else None,
+                    error=str(exc),
+                    error_type=exc.__class__.__name__,
+                )
+                return None
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                if resp.status_code == 429:
+                    retry_after: float | None = None
+                    try:
+                        response_payload = resp.json()
+                    except Exception:
+                        response_payload = None
+                    if isinstance(response_payload, dict):
+                        retry_after = retry_after_from_payload(response_payload)
+                    retry_after = 5.0 if retry_after is None else retry_after
+                    logger.warning(
+                        "telegram.rate_limited",
+                        method="download_file",
+                        status=resp.status_code,
+                        url=str(resp.request.url),
+                        retry_after=retry_after,
+                    )
+                    raise TelegramRetryAfter(retry_after) from exc
+
+                logger.error(
+                    "telegram.file_http_error",
+                    status=resp.status_code,
+                    url=str(resp.request.url),
+                    error=str(exc),
+                    body=resp.text,
+                )
+                return None
+            return resp.content
+
+        return await self._call_with_retry_after(execute)
 
     async def send_message(
         self,
