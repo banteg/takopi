@@ -28,20 +28,33 @@ def _ensure_table(
     return value
 
 
+def _ensure_subtable(
+    parent: dict[str, Any],
+    key: str,
+    *,
+    config_path: Path,
+    label: str,
+) -> dict[str, Any] | None:
+    value = parent.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ConfigError(f"Invalid `{label}` in {config_path}; expected a table.")
+    return value
+
+
 def _migrate_legacy_telegram(config: dict[str, Any], *, config_path: Path) -> bool:
     has_legacy = "bot_token" in config or "chat_id" in config
     if not has_legacy:
         return False
 
     transports = _ensure_table(config, "transports", config_path=config_path)
-    telegram = transports.get("telegram")
-    if telegram is None:
-        telegram = {}
-        transports["telegram"] = telegram
-    if not isinstance(telegram, dict):
-        raise ConfigError(
-            f"Invalid `transports.telegram` in {config_path}; expected a table."
-        )
+    telegram = _ensure_table(
+        transports,
+        "telegram",
+        config_path=config_path,
+        label="transports.telegram",
+    )
 
     if "bot_token" in config and "bot_token" not in telegram:
         telegram["bot_token"] = config["bot_token"]
@@ -55,27 +68,32 @@ def _migrate_legacy_telegram(config: dict[str, Any], *, config_path: Path) -> bo
 
 
 def _migrate_topics_scope(config: dict[str, Any], *, config_path: Path) -> bool:
-    transports = config.get("transports")
+    transports = _ensure_subtable(
+        config,
+        "transports",
+        config_path=config_path,
+        label="transports",
+    )
     if transports is None:
         return False
-    if not isinstance(transports, dict):
-        raise ConfigError(f"Invalid `transports` in {config_path}; expected a table.")
 
-    telegram = transports.get("telegram")
+    telegram = _ensure_subtable(
+        transports,
+        "telegram",
+        config_path=config_path,
+        label="transports.telegram",
+    )
     if telegram is None:
         return False
-    if not isinstance(telegram, dict):
-        raise ConfigError(
-            f"Invalid `transports.telegram` in {config_path}; expected a table."
-        )
 
-    topics = telegram.get("topics")
+    topics = _ensure_subtable(
+        telegram,
+        "topics",
+        config_path=config_path,
+        label="transports.telegram.topics",
+    )
     if topics is None:
         return False
-    if not isinstance(topics, dict):
-        raise ConfigError(
-            f"Invalid `transports.telegram.topics` in {config_path}; expected a table."
-        )
     if "mode" not in topics:
         return False
 
