@@ -41,8 +41,7 @@ class PluginNotFound(LookupError):
         super().__init__(message)
 
 
-_LOAD_ERRORS: list[PluginLoadError] = []
-_LOAD_ERROR_KEYS: set[tuple[str, str, str, str | None, str]] = set()
+_LOAD_ERRORS: dict[tuple[str, str, str, str | None, str], PluginLoadError] = {}
 _LOADED: dict[tuple[str, str], Any] = {}
 
 
@@ -52,33 +51,27 @@ def _error_key(error: PluginLoadError) -> tuple[str, str, str, str | None, str]:
 
 def _record_error(error: PluginLoadError) -> None:
     key = _error_key(error)
-    if key in _LOAD_ERROR_KEYS:
-        return
-    _LOAD_ERROR_KEYS.add(key)
-    _LOAD_ERRORS.append(error)
+    _LOAD_ERRORS.setdefault(key, error)
 
 
 def get_load_errors() -> tuple[PluginLoadError, ...]:
-    return tuple(_LOAD_ERRORS)
+    return tuple(_LOAD_ERRORS.values())
 
 
 def clear_load_errors(*, group: str | None = None, name: str | None = None) -> None:
     if group is None and name is None:
         _LOAD_ERRORS.clear()
-        _LOAD_ERROR_KEYS.clear()
         return
-    remaining: list[PluginLoadError] = []
-    _LOAD_ERROR_KEYS.clear()
-    for error in _LOAD_ERRORS:
+    remaining: dict[tuple[str, str, str, str | None, str], PluginLoadError] = {}
+    for key, error in _LOAD_ERRORS.items():
         if group is not None and error.group != group:
-            remaining.append(error)
-            _LOAD_ERROR_KEYS.add(_error_key(error))
+            remaining[key] = error
             continue
         if name is not None and error.name != name:
-            remaining.append(error)
-            _LOAD_ERROR_KEYS.add(_error_key(error))
+            remaining[key] = error
             continue
-    _LOAD_ERRORS[:] = remaining
+    _LOAD_ERRORS.clear()
+    _LOAD_ERRORS.update(remaining)
 
 
 def reset_plugin_state() -> None:
