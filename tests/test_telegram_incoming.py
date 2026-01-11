@@ -52,7 +52,11 @@ def test_parse_incoming_update_filters_non_matching_chat() -> None:
 def test_parse_incoming_update_filters_non_text_and_non_voice() -> None:
     update = {
         "update_id": 1,
-        "message": {"message_id": 10, "chat": {"id": 123}, "sticker": {}},
+        "message": {
+            "message_id": 10,
+            "chat": {"id": 123},
+            "location": {"latitude": 1.0, "longitude": 2.0},
+        },
     }
 
     assert parse_incoming_update(update, chat_id=123) is None
@@ -147,6 +151,84 @@ def test_parse_incoming_update_photo_message() -> None:
     assert msg.document.file_id == "large"
     assert msg.document.file_name is None
     assert msg.document.file_size == 1000
+
+
+def test_parse_incoming_update_media_group_id() -> None:
+    update = {
+        "update_id": 1,
+        "message": {
+            "message_id": 10,
+            "chat": {"id": 123},
+            "media_group_id": "group-1",
+            "photo": [
+                {
+                    "file_id": "large",
+                    "file_unique_id": "uniq-large",
+                    "file_size": 1000,
+                    "width": 800,
+                    "height": 600,
+                }
+            ],
+        },
+    }
+
+    msg = parse_incoming_update(update, chat_id=123)
+    assert msg is not None
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.media_group_id == "group-1"
+
+
+def test_parse_incoming_update_video_message() -> None:
+    update = {
+        "update_id": 1,
+        "message": {
+            "message_id": 10,
+            "caption": "/file put incoming/video.mp4",
+            "chat": {"id": 123},
+            "video": {
+                "file_id": "video-id",
+                "file_unique_id": "uniq",
+                "file_name": "video.mp4",
+                "mime_type": "video/mp4",
+                "file_size": 4242,
+            },
+        },
+    }
+
+    msg = parse_incoming_update(update, chat_id=123)
+    assert msg is not None
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.text == "/file put incoming/video.mp4"
+    assert msg.document is not None
+    assert msg.document.file_id == "video-id"
+    assert msg.document.file_name == "video.mp4"
+    assert msg.document.mime_type == "video/mp4"
+    assert msg.document.file_size == 4242
+
+
+def test_parse_incoming_update_sticker_message() -> None:
+    update = {
+        "update_id": 1,
+        "message": {
+            "message_id": 10,
+            "chat": {"id": 123},
+            "sticker": {
+                "file_id": "sticker-id",
+                "file_unique_id": "uniq",
+                "file_size": 2468,
+            },
+        },
+    }
+
+    msg = parse_incoming_update(update, chat_id=123)
+    assert msg is not None
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.text == ""
+    assert msg.document is not None
+    assert msg.document.file_id == "sticker-id"
+    assert msg.document.file_name is None
+    assert msg.document.mime_type is None
+    assert msg.document.file_size == 2468
 
 
 def test_parse_incoming_update_callback_query() -> None:

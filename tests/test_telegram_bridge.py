@@ -831,7 +831,7 @@ async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
     assert transport.send_calls
     text = transport.send_calls[-1]["message"].text
     assert "saved uploads/hello.txt" in text
-    assert "(5 B)" in text
+    assert "(5 b)" in text
 
 
 @pytest.mark.anyio
@@ -1342,6 +1342,122 @@ async def test_run_main_loop_replies_in_same_thread() -> None:
     ]
     assert reply_calls
     assert all(call["options"].thread_id == 77 for call in reply_calls)
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_batches_media_group_upload(
+    tmp_path: Path,
+) -> None:
+    payloads = {
+        "photos/file_1.jpg": b"one",
+        "photos/file_2.jpg": b"two",
+    }
+    file_map = {
+        "doc-1": "photos/file_1.jpg",
+        "doc-2": "photos/file_2.jpg",
+    }
+
+    class _MediaBot(_FakeBot):
+        async def get_file(self, file_id: str) -> dict[str, Any] | None:
+            file_path = file_map.get(file_id)
+            if file_path is None:
+                return None
+            return {"file_path": file_path}
+
+        async def download_file(self, file_path: str) -> bytes | None:
+            return payloads.get(file_path)
+
+    transport = _FakeTransport()
+    bot = _MediaBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    projects = ProjectsConfig(
+        projects={
+            "proj": ProjectConfig(
+                alias="proj",
+                path=tmp_path,
+                worktrees_dir=Path(".worktrees"),
+            )
+        },
+        default_project=None,
+    )
+    runtime = TransportRuntime(router=_make_router(runner), projects=projects)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        files=TelegramFilesConfig(enabled=True, auto_put=True),
+    )
+    msg1 = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=1,
+        text="/file put /proj incoming/test1",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=321,
+        chat_type="private",
+        media_group_id="grp-1",
+        document=TelegramDocument(
+            file_id="doc-1",
+            file_name=None,
+            mime_type="image/jpeg",
+            file_size=len(payloads["photos/file_1.jpg"]),
+            raw={"file_id": "doc-1"},
+        ),
+    )
+    msg2 = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=2,
+        text="",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=321,
+        chat_type="private",
+        media_group_id="grp-1",
+        document=TelegramDocument(
+            file_id="doc-2",
+            file_name=None,
+            mime_type="image/jpeg",
+            file_size=len(payloads["photos/file_2.jpg"]),
+            raw={"file_id": "doc-2"},
+        ),
+    )
+
+    stop_polling = anyio.Event()
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield msg1
+        yield msg2
+        await stop_polling.wait()
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_main_loop, cfg, poller)
+        try:
+            with anyio.fail_after(3):
+                while len(transport.send_calls) < 1:
+                    await anyio.sleep(0.05)
+            assert len(transport.send_calls) == 1
+            text = transport.send_calls[0]["message"].text
+            assert "saved file_1.jpg, file_2.jpg" in text
+            assert "to incoming/test1/" in text
+            target_dir = tmp_path / "incoming" / "test1"
+            assert (target_dir / "file_1.jpg").read_bytes() == payloads[
+                "photos/file_1.jpg"
+            ]
+            assert (target_dir / "file_2.jpg").read_bytes() == payloads[
+                "photos/file_2.jpg"
+            ]
+        finally:
+            stop_polling.set()
+            tg.cancel_scope.cancel()
 
 
 @pytest.mark.anyio

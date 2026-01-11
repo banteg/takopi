@@ -75,6 +75,25 @@ def _parse_incoming_message(
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
 ) -> TelegramIncomingMessage | None:
+    def _parse_document_payload(payload: dict[str, Any]) -> TelegramDocument | None:
+        file_id = payload.get("file_id")
+        if not isinstance(file_id, str) or not file_id:
+            return None
+        return TelegramDocument(
+            file_id=file_id,
+            file_name=payload.get("file_name")
+            if isinstance(payload.get("file_name"), str)
+            else None,
+            mime_type=payload.get("mime_type")
+            if isinstance(payload.get("mime_type"), str)
+            else None,
+            file_size=payload.get("file_size")
+            if isinstance(payload.get("file_size"), int)
+            and not isinstance(payload.get("file_size"), bool)
+            else None,
+            raw=payload,
+        )
+
     raw_text = msg.get("text")
     text = raw_text if isinstance(raw_text, str) else None
     caption = msg.get("caption")
@@ -109,22 +128,11 @@ def _parse_incoming_message(
     document_payload: TelegramDocument | None = None
     document = msg.get("document")
     if isinstance(document, dict):
-        file_id = document.get("file_id")
-        if isinstance(file_id, str) and file_id:
-            document_payload = TelegramDocument(
-                file_id=file_id,
-                file_name=document.get("file_name")
-                if isinstance(document.get("file_name"), str)
-                else None,
-                mime_type=document.get("mime_type")
-                if isinstance(document.get("mime_type"), str)
-                else None,
-                file_size=document.get("file_size")
-                if isinstance(document.get("file_size"), int)
-                and not isinstance(document.get("file_size"), bool)
-                else None,
-                raw=document,
-            )
+        document_payload = _parse_document_payload(document)
+    if document_payload is None:
+        video = msg.get("video")
+        if isinstance(video, dict):
+            document_payload = _parse_document_payload(video)
     if document_payload is None:
         photo = msg.get("photo")
         if isinstance(photo, list):
@@ -150,18 +158,11 @@ def _parse_incoming_message(
                     best_score = score
                     best = item
             if best is not None:
-                file_id = best.get("file_id")
-                if isinstance(file_id, str) and file_id:
-                    document_payload = TelegramDocument(
-                        file_id=file_id,
-                        file_name=None,
-                        mime_type=None,
-                        file_size=best.get("file_size")
-                        if isinstance(best.get("file_size"), int)
-                        and not isinstance(best.get("file_size"), bool)
-                        else None,
-                        raw=best,
-                    )
+                document_payload = _parse_document_payload(best)
+    if document_payload is None:
+        sticker = msg.get("sticker")
+        if isinstance(sticker, dict):
+            document_payload = _parse_document_payload(sticker)
     has_text = isinstance(raw_text, str) or isinstance(caption, str)
     if not has_text and voice_payload is None and document_payload is None:
         return None
@@ -201,6 +202,9 @@ def _parse_incoming_message(
         if isinstance(sender, dict) and isinstance(sender.get("id"), int)
         else None
     )
+    media_group_id = msg.get("media_group_id")
+    if not isinstance(media_group_id, str):
+        media_group_id = None
     thread_id = msg.get("message_thread_id")
     if isinstance(thread_id, bool) or not isinstance(thread_id, int):
         thread_id = None
@@ -215,6 +219,7 @@ def _parse_incoming_message(
         reply_to_message_id=reply_to_message_id,
         reply_to_text=reply_to_text,
         sender_id=sender_id,
+        media_group_id=media_group_id,
         thread_id=thread_id,
         is_topic_message=is_topic_message,
         chat_type=chat_type,
