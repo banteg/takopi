@@ -388,30 +388,6 @@ def _reserved_commands(runtime: TransportRuntime) -> set[str]:
     }
 
 
-@dataclass(slots=True)
-class RuntimeCommandCache:
-    command_ids: set[str]
-    reserved_commands: set[str]
-
-    @classmethod
-    def from_runtime(cls, runtime: TransportRuntime) -> "RuntimeCommandCache":
-        allowlist = runtime.allowlist
-        return cls(
-            command_ids={
-                command_id.lower()
-                for command_id in list_command_ids(allowlist=allowlist)
-            },
-            reserved_commands=_reserved_commands(runtime),
-        )
-
-    def refresh(self, runtime: TransportRuntime) -> None:
-        allowlist = runtime.allowlist
-        self.command_ids = {
-            command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
-        }
-        self.reserved_commands = _reserved_commands(runtime)
-
-
 def _diff_keys(old: dict[str, object], new: dict[str, object]) -> list[str]:
     keys = set(old) | set(new)
     return sorted(key for key in keys if old.get(key) != new.get(key))
@@ -2499,7 +2475,11 @@ async def run_main_loop(
     transport_config: dict[str, object] | None = None,
 ) -> None:
     running_tasks: RunningTasks = {}
-    command_cache = RuntimeCommandCache.from_runtime(cfg.runtime)
+    command_ids = {
+        command_id.lower()
+        for command_id in list_command_ids(allowlist=cfg.runtime.allowlist)
+    }
+    reserved_commands = _reserved_commands(cfg.runtime)
     transport_snapshot = (
         dict(transport_config) if transport_config is not None else None
     )
@@ -2515,6 +2495,14 @@ async def run_main_loop(
         else:
             resolved_topics_scope = None
             topics_chat_ids = frozenset()
+
+    def refresh_commands() -> None:
+        nonlocal command_ids, reserved_commands
+        allowlist = cfg.runtime.allowlist
+        command_ids = {
+            command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
+        }
+        reserved_commands = _reserved_commands(cfg.runtime)
 
     try:
         if cfg.topics.enabled:
@@ -2539,7 +2527,7 @@ async def run_main_loop(
 
             async def handle_reload(reload: ConfigReload) -> None:
                 nonlocal transport_snapshot, transport_id
-                command_cache.refresh(cfg.runtime)
+                refresh_commands()
                 refresh_topics_scope()
                 await _set_command_menu(cfg)
                 if transport_snapshot is not None:
@@ -2804,11 +2792,11 @@ async def run_main_loop(
                     continue
                 if (
                     command_id is not None
-                    and command_id not in command_cache.reserved_commands
+                    and command_id not in reserved_commands
                 ):
-                    if command_id not in command_cache.command_ids:
-                        command_cache.refresh(cfg.runtime)
-                    if command_id in command_cache.command_ids:
+                    if command_id not in command_ids:
+                        refresh_commands()
+                    if command_id in command_ids:
                         tg.start_soon(
                             _dispatch_command,
                             cfg,
