@@ -17,7 +17,7 @@ subject to change. The API version is tracked by `TAKOPI_PLUGIN_API_VERSION`.
 - Plugins should pin to a compatible Takopi range, e.g.:
 
 ```toml
-dependencies = ["takopi>=0.11,<0.12"]
+dependencies = ["takopi>=0.14,<0.15"]
 ```
 
 ---

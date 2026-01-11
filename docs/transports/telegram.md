@@ -10,7 +10,7 @@ This document captures current behavior so transport changes stay intentional.
 
 ## Flow
 
-1. CLI emits JSON events.
+1. Engine CLI emits JSONL events.
 2. We render progress on every step and diff against the last output.
 3. Only deltas enqueue a Telegram edit.
 4. High-value messages enqueue a send.
@@ -91,7 +91,6 @@ Scheduling:
 - Ordered by `(priority, queued_at)`.
 - Priorities: send=0, delete=1, edit=2.
 - Within a priority tier, the oldest pending op runs first.
-- `updated_at` is kept for debugging only.
 
 ## Rate limiting + backoff
 

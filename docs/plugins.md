@@ -17,7 +17,7 @@ See `public-api.md` for the stable API surface you should depend on.
 
 ## Entrypoint groups
 
-Takopi uses two Python entrypoint groups:
+Takopi uses three Python entrypoint groups:
 
 ```toml
 [project.entry-points."takopi.engine_backends"]
@@ -36,6 +36,7 @@ mycommand = "mycommand.backend:BACKEND"
 - The entrypoint value must resolve to a **backend object**:
   - Engine backend -> `EngineBackend`
   - Transport backend -> `TransportBackend`
+  - Command backend -> `CommandBackend`
 - The backend object **must** have `id == entrypoint name`.
 
 Takopi validates this at load time and will report errors via `takopi plugins --load`.
@@ -76,15 +77,12 @@ Takopi supports a simple enabled list to control which plugins are visible.
 ```toml
 [plugins]
 enabled = ["takopi-transport-slack", "takopi-engine-acme"]
-auto_install = false
 ```
 
 - `enabled = []` (default) -> load all installed plugins.
 - If `enabled` is non-empty, **only distributions with matching names** are visible.
 - Distribution names are taken from package metadata (case-insensitive).
 - If a plugin has no resolvable distribution name and an enabled list is set, it is hidden.
-- `auto_install` is **reserved** and not implemented yet.
-
 This enabled list affects:
 
 - Engine subcommands registered in the CLI
@@ -289,7 +287,7 @@ Takopi exposes a **stable plugin API** via `takopi.api`.
 - Depend on a compatible Takopi version range, for example:
 
 ```toml
-dependencies = ["takopi>=0.11,<0.12"]
+dependencies = ["takopi>=0.14,<0.15"]
 ```
 
 When the plugin API changes, Takopi will bump the API version and document
