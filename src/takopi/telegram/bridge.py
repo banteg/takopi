@@ -4,6 +4,7 @@ import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from functools import partial
 
 import anyio
 
@@ -2381,32 +2382,38 @@ async def run_main_loop(
                 ):
                     if command_id == "ctx":
                         tg.start_soon(
-                            _handle_ctx_command,
-                            cfg,
-                            msg,
-                            args_text,
-                            topic_store,
-                            resolved_scope=resolved_topics_scope,
-                            scope_chat_ids=topics_chat_ids,
+                            partial(
+                                _handle_ctx_command,
+                                cfg,
+                                msg,
+                                args_text,
+                                topic_store,
+                                resolved_scope=resolved_topics_scope,
+                                scope_chat_ids=topics_chat_ids,
+                            )
                         )
                     elif command_id == "new":
                         tg.start_soon(
-                            _handle_new_command,
-                            cfg,
-                            msg,
-                            topic_store,
-                            resolved_scope=resolved_topics_scope,
-                            scope_chat_ids=topics_chat_ids,
+                            partial(
+                                _handle_new_command,
+                                cfg,
+                                msg,
+                                topic_store,
+                                resolved_scope=resolved_topics_scope,
+                                scope_chat_ids=topics_chat_ids,
+                            )
                         )
                     else:
                         tg.start_soon(
-                            _handle_topic_command,
-                            cfg,
-                            msg,
-                            args_text,
-                            topic_store,
-                            resolved_scope=resolved_topics_scope,
-                            scope_chat_ids=topics_chat_ids,
+                            partial(
+                                _handle_topic_command,
+                                cfg,
+                                msg,
+                                args_text,
+                                topic_store,
+                                resolved_scope=resolved_topics_scope,
+                                scope_chat_ids=topics_chat_ids,
+                            )
                         )
                     continue
                 if command_id is not None and command_id not in reserved_commands:

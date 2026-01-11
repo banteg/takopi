@@ -21,10 +21,35 @@ from .config import (
     HOME_CONFIG_PATH,
     ProjectConfig,
     ProjectsConfig,
-    _normalize_engine_id,
-    _normalize_project_path,
 )
 from .config_migrations import migrate_config_file
+
+
+def _normalize_engine_id(
+    value: str,
+    *,
+    engine_ids: Iterable[str],
+    config_path: Path,
+    label: str,
+) -> str:
+    engine_map = {engine.lower(): engine for engine in engine_ids}
+    cleaned = value.strip()
+    if not cleaned:
+        raise ConfigError(f"Invalid `{label}` in {config_path}; expected a string.")
+    engine = engine_map.get(cleaned.lower())
+    if engine is None:
+        available = ", ".join(sorted(engine_map.values()))
+        raise ConfigError(
+            f"Unknown `{label}` {cleaned!r} in {config_path}. Available: {available}."
+        )
+    return engine
+
+
+def _normalize_project_path(value: str, *, config_path: Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = config_path.parent / path
+    return path
 
 
 class TelegramTopicsSettings(BaseModel):
