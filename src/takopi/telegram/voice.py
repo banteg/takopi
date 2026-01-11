@@ -56,9 +56,4 @@ async def transcribe_voice(
             await reply(text=str(exc).strip() or "voice transcription failed")
             return None
 
-    text = response.text
-    text = text.strip()
-    if not text:
-        await reply(text="voice transcription returned empty text")
-        return None
-    return text
+    return response.text
