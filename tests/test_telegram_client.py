@@ -57,3 +57,93 @@ async def test_no_token_in_logs_on_http_error(
     out = capsys.readouterr().out
     assert token not in out
     assert "bot[REDACTED]" in out
+
+
+@pytest.mark.anyio
+async def test_telegram_429_no_retry_post_form() -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(
+            429,
+            json={
+                "ok": False,
+                "description": "retry",
+                "parameters": {"retry_after": 2},
+            },
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+
+    client = httpx.AsyncClient(transport=transport)
+    try:
+        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
+        with pytest.raises(TelegramRetryAfter) as exc:
+            await tg._post_form(
+                "sendDocument",
+                {"chat_id": 1},
+                files={"document": ("note.txt", b"hi")},
+            )
+    finally:
+        await client.aclose()
+
+    assert exc.value.retry_after == 2
+    assert len(calls) == 1
+
+
+@pytest.mark.anyio
+async def test_telegram_429_defaults_retry_after_on_bad_body() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, text="nope", request=request)
+
+    transport = httpx.MockTransport(handler)
+
+    client = httpx.AsyncClient(transport=transport)
+    try:
+        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
+        with pytest.raises(TelegramRetryAfter) as exc:
+            await tg._post("sendMessage", {"chat_id": 1, "text": "hi"})
+    finally:
+        await client.aclose()
+
+    assert exc.value.retry_after == 5.0
+
+
+@pytest.mark.anyio
+async def test_telegram_ok_false_returns_none() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"ok": False, "error_code": 400, "description": "bad"},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+
+    client = httpx.AsyncClient(transport=transport)
+    try:
+        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
+        result = await tg._post("getUpdates", {"timeout": 1})
+    finally:
+        await client.aclose()
+
+    assert result is None
+
+
+@pytest.mark.anyio
+async def test_telegram_invalid_payload_returns_none() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=["not", "a", "dict"], request=request)
+
+    transport = httpx.MockTransport(handler)
+
+    client = httpx.AsyncClient(transport=transport)
+    try:
+        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
+        result = await tg._post("getUpdates", {"timeout": 1})
+    finally:
+        await client.aclose()
+
+    assert result is None

@@ -155,13 +155,9 @@ async def wait_for_chat(token: str) -> ChatInfo:
         if drained:
             offset = drained[-1]["update_id"] + 1
         while True:
-            try:
-                updates = await bot.get_updates(
-                    offset=offset, timeout_s=50, allowed_updates=allowed_updates
-                )
-            except TelegramRetryAfter as exc:
-                await anyio.sleep(exc.retry_after)
-                continue
+            updates = await bot.get_updates(
+                offset=offset, timeout_s=50, allowed_updates=allowed_updates
+            )
             if updates is None:
                 await anyio.sleep(1)
                 continue
