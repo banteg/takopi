@@ -1624,11 +1624,11 @@ async def _handle_topic_command(
         topic_title=title,
     )
     await _reply(cfg, msg, f"created topic `{title}`.")
+    bound_text = f"topic bound to `{_format_context(cfg.runtime, context)}`"
+    rendered_text, entities = prepare_telegram(MarkdownParts(header=bound_text))
     await cfg.exec_cfg.transport.send(
         channel_id=msg.chat_id,
-        message=RenderedMessage(
-            text=f"topic bound to `{_format_context(cfg.runtime, context)}`"
-        ),
+        message=RenderedMessage(text=rendered_text, extra={"entities": entities}),
         options=SendOptions(thread_id=thread_id),
     )
 
