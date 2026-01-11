@@ -50,6 +50,44 @@ def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
     assert "projects: `none`" in message
 
 
+def test_build_startup_message_surfaces_unavailable_engine_reasons(
+    tmp_path: Path,
+) -> None:
+    codex = EngineId("codex")
+    pi = EngineId("pi")
+    claude = EngineId("claude")
+    runner = ScriptRunner([Return(answer="ok")], engine=codex)
+    bad_cfg = ScriptRunner([Return(answer="ok")], engine=pi)
+    load_err = ScriptRunner([Return(answer="ok")], engine=claude)
+
+    router = AutoRouter(
+        entries=[
+            RunnerEntry(engine=codex, runner=runner),
+            RunnerEntry(engine=pi, runner=bad_cfg, status="bad_config", issue="bad"),
+            RunnerEntry(
+                engine=claude,
+                runner=load_err,
+                status="load_error",
+                issue="failed",
+            ),
+        ],
+        default_engine=codex,
+    )
+    runtime = TransportRuntime(
+        router=router,
+        projects=ProjectsConfig(projects={}, default_project=None),
+        watch_config=True,
+    )
+
+    message = telegram_backend._build_startup_message(
+        runtime, startup_pwd=str(tmp_path)
+    )
+
+    assert "agents: `codex" in message
+    assert "misconfigured: pi" in message
+    assert "failed to load: claude" in message
+
+
 def test_telegram_backend_build_and_run_wires_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

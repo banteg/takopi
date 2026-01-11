@@ -10,7 +10,7 @@ from .context import RunContext
 from .directives import format_context_line, parse_context_line, parse_directives
 from .model import EngineId, ResumeToken
 from .plugins import normalize_allowlist
-from .router import AutoRouter
+from .router import AutoRouter, EngineStatus
 from .runner import Runner
 from .worktrees import WorktreeError, resolve_run_cwd
 
@@ -108,12 +108,13 @@ class TransportRuntime:
     def available_engine_ids(self) -> tuple[EngineId, ...]:
         return tuple(entry.engine for entry in self._router.available_entries)
 
-    def missing_engine_ids(self) -> tuple[EngineId, ...]:
+    def engine_ids_with_status(self, status: EngineStatus) -> tuple[EngineId, ...]:
         return tuple(
-            entry.engine
-            for entry in self._router.entries
-            if entry.status == "missing_cli"
+            entry.engine for entry in self._router.entries if entry.status == status
         )
+
+    def missing_engine_ids(self) -> tuple[EngineId, ...]:
+        return self.engine_ids_with_status("missing_cli")
 
     def project_aliases(self) -> tuple[str, ...]:
         return tuple(project.alias for project in self._projects.projects.values())
