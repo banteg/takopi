@@ -95,8 +95,7 @@ def test_telegram_backend_build_and_run_wires_config(
     cfg = captured["cfg"]
     kwargs = captured["kwargs"]
     assert cfg.chat_id == 321
-    assert cfg.voice_transcription is not None
-    assert cfg.voice_transcription.enabled is True
+    assert cfg.voice_transcription is True
     assert cfg.files.enabled is True
     assert cfg.files.allowed_user_ids == frozenset({1, 2})
     assert cfg.topics.enabled is True

@@ -176,7 +176,8 @@ class TelegramBackend(TransportBackend):
             if transport_settings.bot_token
             else ""
         )
-        chat_id = transport_settings.chat_id or 0
+        chat_id = transport_settings.chat_id
+        assert chat_id is not None
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),
