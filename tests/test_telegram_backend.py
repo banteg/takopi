@@ -9,6 +9,7 @@ from takopi.config import ProjectsConfig
 from takopi.model import EngineId
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
+from takopi.settings import TelegramFilesSettings, TelegramTransportSettings
 from takopi.telegram import backend as telegram_backend
 from takopi.transport_runtime import TransportRuntime
 
@@ -80,13 +81,13 @@ def test_telegram_backend_build_and_run_wires_config(
     monkeypatch.setattr(telegram_backend, "run_main_loop", fake_run_main_loop)
     monkeypatch.setattr(telegram_backend, "TelegramClient", _FakeClient)
 
-    transport_config = {
-        "bot_token": "token",
-        "chat_id": 321,
-        "voice_transcription": True,
-        "files": {"enabled": True, "allowed_user_ids": [1, 2]},
-        "topics": {"enabled": True, "scope": "main"},
-    }
+    transport_config = TelegramTransportSettings(
+        bot_token="token",
+        chat_id=321,
+        voice_transcription=True,
+        files={"enabled": True, "allowed_user_ids": [1, 2]},
+        topics={"enabled": True, "scope": "main"},
+    )
 
     telegram_backend.TelegramBackend().build_and_run(
         transport_config=transport_config,
@@ -101,17 +102,17 @@ def test_telegram_backend_build_and_run_wires_config(
     assert cfg.chat_id == 321
     assert cfg.voice_transcription is True
     assert cfg.files.enabled is True
-    assert cfg.files.allowed_user_ids == frozenset({1, 2})
+    assert cfg.files.allowed_user_ids == [1, 2]
     assert cfg.topics.enabled is True
     assert cfg.bot.token == "token"
     assert kwargs["watch_config"] is True
     assert kwargs["transport_id"] == "telegram"
 
 
-def test_build_files_config_defaults() -> None:
-    cfg = telegram_backend._build_files_config({})
+def test_telegram_files_settings_defaults() -> None:
+    cfg = TelegramFilesSettings()
 
     assert cfg.enabled is False
     assert cfg.auto_put is True
     assert cfg.uploads_dir == "incoming"
-    assert cfg.allowed_user_ids == frozenset()
+    assert cfg.allowed_user_ids == []

@@ -235,9 +235,12 @@ def _run_auto_router(
             default_engine_override=default_engine_override,
             reserved=("cancel",),
         )
-        transport_config = settings.transport_config(
-            settings.transport, config_path=config_path
-        )
+        if settings.transport == "telegram":
+            transport_config = settings.transports.telegram
+        else:
+            transport_config = settings.transport_config(
+                settings.transport, config_path=config_path
+            )
         lock_token = transport_backend.lock_token(
             transport_config=transport_config,
             config_path=config_path,

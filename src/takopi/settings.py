@@ -83,6 +83,14 @@ class TelegramFilesSettings(BaseModel):
             raise ValueError("files.uploads_dir must be a relative path")
         return value
 
+    @property
+    def max_upload_bytes(self) -> int:
+        return 20 * 1024 * 1024
+
+    @property
+    def max_download_bytes(self) -> int:
+        return 50 * 1024 * 1024
+
 
 class TelegramTransportSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)

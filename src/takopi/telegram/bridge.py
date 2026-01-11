@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import cast
 
 from ..logging import get_logger
@@ -12,6 +12,7 @@ from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
 from ..transport_runtime import TransportRuntime
 from ..context import RunContext
 from ..model import ResumeToken
+from ..settings import TelegramFilesSettings, TelegramTopicsSettings
 from .client import BotClient
 from .render import prepare_telegram
 from .types import TelegramCallbackQuery, TelegramIncomingMessage
@@ -20,8 +21,6 @@ logger = get_logger(__name__)
 
 __all__ = [
     "TelegramBridgeConfig",
-    "TelegramFilesConfig",
-    "TelegramTopicsConfig",
     "TelegramPresenter",
     "TelegramTransport",
     "build_bot_commands",
@@ -86,29 +85,6 @@ def _is_cancelled_label(label: str) -> bool:
 
 
 @dataclass(frozen=True)
-class TelegramFilesConfig:
-    enabled: bool = False
-    auto_put: bool = True
-    uploads_dir: str = "incoming"
-    max_upload_bytes: int = 20 * 1024 * 1024
-    max_download_bytes: int = 50 * 1024 * 1024
-    allowed_user_ids: frozenset[int] = frozenset()
-    deny_globs: tuple[str, ...] = (
-        ".git/**",
-        ".env",
-        ".envrc",
-        "**/*.pem",
-        "**/.ssh/**",
-    )
-
-
-@dataclass(frozen=True)
-class TelegramTopicsConfig:
-    enabled: bool = False
-    scope: str = "auto"
-
-
-@dataclass(frozen=True)
 class TelegramBridgeConfig:
     bot: BotClient
     runtime: TransportRuntime
@@ -116,9 +92,9 @@ class TelegramBridgeConfig:
     startup_msg: str
     exec_cfg: ExecBridgeConfig
     voice_transcription: bool = False
-    files: TelegramFilesConfig = TelegramFilesConfig()
+    files: TelegramFilesSettings = field(default_factory=TelegramFilesSettings)
     chat_ids: tuple[int, ...] | None = None
-    topics: TelegramTopicsConfig = TelegramTopicsConfig()
+    topics: TelegramTopicsSettings = field(default_factory=TelegramTopicsSettings)
 
 
 class TelegramTransport:

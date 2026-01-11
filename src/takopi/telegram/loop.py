@@ -14,6 +14,7 @@ from ..directives import DirectiveError
 from ..logging import get_logger
 from ..model import EngineId, ResumeToken
 from ..scheduler import ThreadJob, ThreadScheduler
+from ..settings import TelegramTransportSettings
 from ..transport import MessageRef
 from ..context import RunContext
 from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
@@ -266,7 +267,7 @@ async def run_main_loop(
     watch_config: bool | None = None,
     default_engine_override: str | None = None,
     transport_id: str | None = None,
-    transport_config: dict[str, object] | None = None,
+    transport_config: TelegramTransportSettings | None = None,
 ) -> None:
     from ..runner_bridge import RunningTasks
 
@@ -277,7 +278,7 @@ async def run_main_loop(
     }
     reserved_commands = _reserved_commands(cfg.runtime)
     transport_snapshot = (
-        dict(transport_config) if transport_config is not None else None
+        transport_config.model_dump() if transport_config is not None else None
     )
     topic_store: TopicStateStore | None = None
     media_groups: dict[tuple[int, str], _MediaGroupState] = {}

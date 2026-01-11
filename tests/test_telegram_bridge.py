@@ -6,7 +6,6 @@ import anyio
 import pytest
 
 from takopi import commands, plugins
-import takopi.telegram.bridge as bridge
 import takopi.telegram.loop as telegram_loop
 import takopi.telegram.commands as telegram_commands
 import takopi.telegram.topics as telegram_topics
@@ -19,17 +18,17 @@ from takopi.telegram.api_models import (
     Message,
     User,
 )
+from takopi.settings import TelegramFilesSettings, TelegramTopicsSettings
 from takopi.telegram.bridge import (
     TelegramBridgeConfig,
-    TelegramFilesConfig,
     TelegramPresenter,
     TelegramTransport,
     build_bot_commands,
     handle_callback_cancel,
     handle_cancel,
     is_cancel_command,
-    send_with_resume,
     run_main_loop,
+    send_with_resume,
 )
 from takopi.telegram.client import BotClient
 from takopi.telegram.topic_state import TopicStateStore, resolve_state_path
@@ -815,7 +814,7 @@ async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
-        files=TelegramFilesConfig(enabled=True),
+        files=TelegramFilesSettings(enabled=True),
     )
     msg = TelegramIncomingMessage(
         transport="telegram",
@@ -880,9 +879,9 @@ async def test_handle_file_get_sends_document_for_allowed_user(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
-        files=TelegramFilesConfig(
+        files=TelegramFilesSettings(
             enabled=True,
-            allowed_user_ids=frozenset({42}),
+            allowed_user_ids=[42],
         ),
     )
     msg = TelegramIncomingMessage(
@@ -1010,7 +1009,7 @@ def test_topic_title_projects_scope_includes_project() -> None:
     transport = _FakeTransport()
     cfg = replace(
         _make_cfg(transport),
-        topics=bridge.TelegramTopicsConfig(
+        topics=TelegramTopicsSettings(
             enabled=True,
             scope="projects",
         ),
@@ -1281,7 +1280,7 @@ async def test_run_main_loop_persists_topic_sessions_in_project_scope(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
-        topics=bridge.TelegramTopicsConfig(
+        topics=TelegramTopicsSettings(
             enabled=True,
             scope="projects",
         ),
@@ -1401,7 +1400,7 @@ async def test_run_main_loop_batches_media_group_upload(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
-        files=TelegramFilesConfig(enabled=True, auto_put=True),
+        files=TelegramFilesSettings(enabled=True, auto_put=True),
     )
     msg1 = TelegramIncomingMessage(
         transport="telegram",

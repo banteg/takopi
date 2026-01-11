@@ -41,13 +41,13 @@ class TransportBackend(Protocol):
     def interactive_setup(self, *, force: bool) -> bool: ...
 
     def lock_token(
-        self, *, transport_config: dict[str, object], config_path: Path
+        self, *, transport_config: object, config_path: Path
     ) -> str | None: ...
 
     def build_and_run(
         self,
         *,
-        transport_config: dict[str, object],
+        transport_config: object,
         config_path: Path,
         runtime: TransportRuntime,
         final_notify: bool,

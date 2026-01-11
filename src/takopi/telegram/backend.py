@@ -2,22 +2,19 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import cast
 
 import anyio
 
 from ..backends import EngineBackend
-from ..runner_bridge import ExecBridgeConfig
 from ..logging import get_logger
-
-from ..transports import SetupResult, TransportBackend
+from ..runner_bridge import ExecBridgeConfig
+from ..settings import TelegramTransportSettings
 from ..transport_runtime import TransportRuntime
+from ..transports import SetupResult, TransportBackend
 from .bridge import (
     TelegramBridgeConfig,
     TelegramPresenter,
     TelegramTransport,
-    TelegramFilesConfig,
-    TelegramTopicsConfig,
     run_main_loop,
 )
 from .client import TelegramClient
@@ -49,34 +46,6 @@ def _build_startup_message(
     )
 
 
-def _build_topics_config(transport_config: dict[str, object]) -> TelegramTopicsConfig:
-    raw = cast(dict[str, object], transport_config.get("topics", {}))
-    return TelegramTopicsConfig(
-        enabled=cast(bool, raw.get("enabled", False)),
-        scope=cast(str, raw.get("scope", "auto")),
-    )
-
-
-def _build_files_config(transport_config: dict[str, object]) -> TelegramFilesConfig:
-    defaults = TelegramFilesConfig()
-    raw = cast(dict[str, object], transport_config.get("files", {}))
-    return TelegramFilesConfig(
-        enabled=cast(bool, raw.get("enabled", defaults.enabled)),
-        auto_put=cast(bool, raw.get("auto_put", defaults.auto_put)),
-        uploads_dir=cast(str, raw.get("uploads_dir", defaults.uploads_dir)),
-        max_upload_bytes=defaults.max_upload_bytes,
-        max_download_bytes=defaults.max_download_bytes,
-        allowed_user_ids=frozenset(
-            cast(
-                list[int], raw.get("allowed_user_ids", list(defaults.allowed_user_ids))
-            )
-        ),
-        deny_globs=tuple(
-            cast(list[str], raw.get("deny_globs", list(defaults.deny_globs)))
-        ),
-    )
-
-
 class TelegramBackend(TransportBackend):
     id = "telegram"
     description = "Telegram bot"
@@ -93,22 +62,22 @@ class TelegramBackend(TransportBackend):
         return interactive_setup(force=force)
 
     def lock_token(
-        self, *, transport_config: dict[str, object], config_path: Path
+        self, *, transport_config: TelegramTransportSettings, config_path: Path
     ) -> str | None:
         _ = config_path
-        return cast(str, transport_config.get("bot_token"))
+        return transport_config.bot_token
 
     def build_and_run(
         self,
         *,
-        transport_config: dict[str, object],
+        transport_config: TelegramTransportSettings,
         config_path: Path,
         runtime: TransportRuntime,
         final_notify: bool,
         default_engine_override: str | None,
     ) -> None:
-        token = cast(str, transport_config.get("bot_token"))
-        chat_id = cast(int, transport_config.get("chat_id"))
+        token = transport_config.bot_token
+        chat_id = transport_config.chat_id
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),
@@ -121,19 +90,15 @@ class TelegramBackend(TransportBackend):
             presenter=presenter,
             final_notify=final_notify,
         )
-        topics = _build_topics_config(transport_config)
-        files = _build_files_config(transport_config)
         cfg = TelegramBridgeConfig(
             bot=bot,
             runtime=runtime,
             chat_id=chat_id,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
-            voice_transcription=cast(
-                bool, transport_config.get("voice_transcription", False)
-            ),
-            topics=topics,
-            files=files,
+            voice_transcription=transport_config.voice_transcription,
+            topics=transport_config.topics,
+            files=transport_config.files,
         )
 
         async def run_loop() -> None:
