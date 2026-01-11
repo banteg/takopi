@@ -31,12 +31,6 @@ def resolve_openai_api_key() -> str | None:
     return os.environ.get("OPENAI_API_KEY")
 
 
-def normalize_voice_filename(mime_type: str | None) -> str:
-    if mime_type == "audio/ogg":
-        return "voice.ogg"
-    return "voice.dat"
-
-
 async def transcribe_audio(
     audio_bytes: bytes,
     *,
@@ -132,7 +126,7 @@ async def transcribe_voice(
     if len(audio_bytes) > OPENAI_AUDIO_MAX_BYTES:
         await reply(text="voice message is too large to transcribe")
         return None
-    filename = normalize_voice_filename(voice.mime_type)
+    filename = "voice.ogg"
     transcript = await transcribe_audio(
         audio_bytes,
         filename=filename,
