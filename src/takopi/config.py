@@ -31,6 +31,8 @@ def ensure_table(
 
 
 def read_config(cfg_path: Path) -> dict:
+    if cfg_path.exists() and not cfg_path.is_file():
+        raise ConfigError(f"Config path {cfg_path} exists but is not a file.") from None
     try:
         raw = cfg_path.read_text(encoding="utf-8")
     except FileNotFoundError:
