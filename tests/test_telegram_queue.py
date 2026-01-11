@@ -3,6 +3,7 @@ from typing import Any
 import anyio
 import pytest
 
+from takopi.telegram.api_models import File, Message, User
 from takopi.telegram.client import BotClient, TelegramClient, TelegramRetryAfter
 
 
@@ -38,7 +39,7 @@ class _FakeBot(BotClient):
         _ = reply_markup
         _ = replace_message_id
         self.calls.append("send_message")
-        return {"message_id": 1}
+        return Message(message_id=1)
 
     async def send_document(
         self,
@@ -60,7 +61,7 @@ class _FakeBot(BotClient):
             caption,
         )
         self.calls.append("send_document")
-        return {"message_id": 1}
+        return Message(message_id=1)
 
     async def edit_message_text(
         self,
@@ -85,7 +86,7 @@ class _FakeBot(BotClient):
             self._edit_attempts += 1
             raise TelegramRetryAfter(self.retry_after)
         self._edit_attempts += 1
-        return {"message_id": message_id}
+        return Message(message_id=message_id)
 
     async def delete_message(
         self,
@@ -123,7 +124,7 @@ class _FakeBot(BotClient):
         self._updates_attempts += 1
         return []
 
-    async def get_file(self, file_id: str) -> dict[str, Any] | None:
+    async def get_file(self, file_id: str) -> File | None:
         _ = file_id
         return None
 
@@ -134,8 +135,8 @@ class _FakeBot(BotClient):
     async def close(self) -> None:
         return None
 
-    async def get_me(self) -> dict[str, Any] | None:
-        return {"id": 1}
+    async def get_me(self) -> User | None:
+        return User(id=1)
 
     async def answer_callback_query(
         self,

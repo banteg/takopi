@@ -147,3 +147,24 @@ async def test_telegram_invalid_payload_returns_none() -> None:
         await client.aclose()
 
     assert result is None
+
+
+@pytest.mark.anyio
+async def test_telegram_decode_failure_returns_none() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"ok": True, "result": {"username": "bot-only"}},
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+
+    client = httpx.AsyncClient(transport=transport)
+    try:
+        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
+        result = await tg.get_me()
+    finally:
+        await client.aclose()
+
+    assert result is None

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 from collections.abc import Awaitable, Callable
-from typing import cast
 
 from ..logging import get_logger
 from openai import AsyncOpenAI, OpenAIError
@@ -37,9 +36,14 @@ async def transcribe_voice(
     if not enabled:
         await reply(text=VOICE_TRANSCRIPTION_DISABLED_HINT)
         return None
-    file_info = cast(dict[str, object], await bot.get_file(voice.file_id))
-    file_path = cast(str, file_info["file_path"])
-    audio_bytes = cast(bytes, await bot.download_file(file_path))
+    file_info = await bot.get_file(voice.file_id)
+    if file_info is None:
+        await reply(text="failed to fetch voice file.")
+        return None
+    audio_bytes = await bot.download_file(file_info.file_path)
+    if audio_bytes is None:
+        await reply(text="failed to download voice file.")
+        return None
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = "voice.ogg"
     async with AsyncOpenAI(timeout=120) as client:

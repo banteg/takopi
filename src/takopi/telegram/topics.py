@@ -185,9 +185,9 @@ async def _validate_topics_setup(cfg: TelegramBridgeConfig) -> None:
     if not cfg.topics.enabled:
         return
     me = await cfg.bot.get_me()
-    bot_id = me.get("id") if isinstance(me, dict) else None
-    if not isinstance(bot_id, int):
+    if me is None:
         raise ConfigError("failed to fetch bot id for topics validation.")
+    bot_id = me.id
     scope, chat_ids = _resolve_topics_scope(cfg)
     if scope == "projects" and not chat_ids:
         raise ConfigError(
@@ -197,37 +197,34 @@ async def _validate_topics_setup(cfg: TelegramBridgeConfig) -> None:
 
     for chat_id in chat_ids:
         chat = await cfg.bot.get_chat(chat_id)
-        if not isinstance(chat, dict):
+        if chat is None:
             raise ConfigError(
                 f"failed to fetch chat info for topics validation ({chat_id})."
             )
-        chat_type = chat.get("type")
-        is_forum = chat.get("is_forum")
-        if chat_type != "supergroup":
+        if chat.type != "supergroup":
             raise ConfigError(
                 "topics enabled but chat is not a supergroup "
                 f"(chat_id={chat_id}); convert the group and enable topics."
             )
-        if is_forum is not True:
+        if chat.is_forum is not True:
             raise ConfigError(
                 "topics enabled but chat does not have topics enabled "
                 f"(chat_id={chat_id}); turn on topics in group settings."
             )
         member = await cfg.bot.get_chat_member(chat_id, bot_id)
-        if not isinstance(member, dict):
+        if member is None:
             raise ConfigError(
                 "failed to fetch bot permissions "
                 f"(chat_id={chat_id}); promote the bot to admin with manage topics."
             )
-        status = member.get("status")
-        if status == "creator":
+        if member.status == "creator":
             continue
-        if status != "administrator":
+        if member.status != "administrator":
             raise ConfigError(
                 "topics enabled but bot is not an admin "
                 f"(chat_id={chat_id}); promote it and grant manage topics."
             )
-        if member.get("can_manage_topics") is not True:
+        if member.can_manage_topics is not True:
             raise ConfigError(
                 "topics enabled but bot lacks manage topics permission "
                 f"(chat_id={chat_id}); grant can_manage_topics."

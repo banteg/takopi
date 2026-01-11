@@ -289,11 +289,10 @@ async def _check_file_permissions(cfg, msg: TelegramIncomingMessage) -> bool:
     if is_private:
         return True
     member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
-    if not isinstance(member, dict):
+    if member is None:
         await reply(text="failed to verify file transfer permissions.")
         return False
-    status = member.get("status")
-    if status in {"creator", "administrator"}:
+    if member.status in {"creator", "administrator"}:
         return True
     await reply(text="file transfer is restricted to group admins.")
     return False
@@ -377,21 +376,14 @@ async def _save_document_payload(
             error="file is too large to upload.",
         )
     file_info = await cfg.bot.get_file(document.file_id)
-    if not isinstance(file_info, dict):
+    if file_info is None:
         return _FilePutResult(
             name=name,
             rel_path=None,
             size=None,
             error="failed to fetch file metadata.",
         )
-    file_path = file_info.get("file_path")
-    if not isinstance(file_path, str) or not file_path:
-        return _FilePutResult(
-            name=name,
-            rel_path=None,
-            size=None,
-            error="failed to fetch file metadata.",
-        )
+    file_path = file_info.file_path
     name = default_upload_name(document.file_name, file_path)
     resolved_path = rel_path
     if resolved_path is None:
@@ -972,10 +964,10 @@ async def _handle_topic_command(
         return
     title = _topic_title(runtime=cfg.runtime, context=context)
     created = await cfg.bot.create_forum_topic(msg.chat_id, title)
-    thread_id = created.get("message_thread_id") if isinstance(created, dict) else None
-    if isinstance(thread_id, bool) or not isinstance(thread_id, int):
+    if created is None:
         await reply(text="failed to create topic.")
         return
+    thread_id = created.message_thread_id
     await store.set_context(
         msg.chat_id,
         thread_id,

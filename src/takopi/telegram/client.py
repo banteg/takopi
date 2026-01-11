@@ -15,11 +15,13 @@ from typing import (
     TypeVar,
 )
 
+import msgspec
 import httpx
 
 import anyio
 
 from ..logging import get_logger
+from .api_models import Chat, ChatMember, File, ForumTopic, Message, User
 from .types import (
     TelegramCallbackQuery,
     TelegramDocument,
@@ -322,7 +324,7 @@ class BotClient(Protocol):
         allowed_updates: list[str] | None = None,
     ) -> list[dict] | None: ...
 
-    async def get_file(self, file_id: str) -> dict | None: ...
+    async def get_file(self, file_id: str) -> File | None: ...
 
     async def download_file(self, file_path: str) -> bytes | None: ...
 
@@ -338,7 +340,7 @@ class BotClient(Protocol):
         reply_markup: dict[str, Any] | None = None,
         *,
         replace_message_id: int | None = None,
-    ) -> dict | None: ...
+    ) -> Message | None: ...
 
     async def send_document(
         self,
@@ -349,7 +351,7 @@ class BotClient(Protocol):
         message_thread_id: int | None = None,
         disable_notification: bool | None = False,
         caption: str | None = None,
-    ) -> dict | None: ...
+    ) -> Message | None: ...
 
     async def edit_message_text(
         self,
@@ -361,7 +363,7 @@ class BotClient(Protocol):
         reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
-    ) -> dict | None: ...
+    ) -> Message | None: ...
 
     async def delete_message(
         self,
@@ -377,7 +379,7 @@ class BotClient(Protocol):
         language_code: str | None = None,
     ) -> bool: ...
 
-    async def get_me(self) -> dict | None: ...
+    async def get_me(self) -> User | None: ...
 
     async def answer_callback_query(
         self,
@@ -386,15 +388,17 @@ class BotClient(Protocol):
         show_alert: bool | None = None,
     ) -> bool: ...
 
-    async def get_chat(self, chat_id: int) -> dict | None: ...
+    async def get_chat(self, chat_id: int) -> Chat | None: ...
 
-    async def get_chat_member(self, chat_id: int, user_id: int) -> dict | None: ...
+    async def get_chat_member(
+        self, chat_id: int, user_id: int
+    ) -> ChatMember | None: ...
 
     async def create_forum_topic(
         self,
         chat_id: int,
         name: str,
-    ) -> dict | None: ...
+    ) -> ForumTopic | None: ...
 
     async def edit_forum_topic(
         self,
@@ -795,6 +799,26 @@ class TelegramClient:
             payload=response_payload,
         )
 
+    def _decode_result(
+        self,
+        *,
+        method: str,
+        payload: Any,
+        model: type[T],
+    ) -> T | None:
+        if payload is None:
+            return None
+        try:
+            return msgspec.convert(payload, type=model)
+        except Exception as exc:
+            logger.error(
+                "telegram.decode_error",
+                method=method,
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            return None
+
     async def _call_with_retry_after(
         self,
         fn: Callable[[], Awaitable[T]],
@@ -839,12 +863,12 @@ class TelegramClient:
 
         return await self._call_with_retry_after(execute)
 
-    async def get_file(self, file_id: str) -> dict | None:
-        async def execute() -> dict | None:
+    async def get_file(self, file_id: str) -> File | None:
+        async def execute() -> File | None:
             if self._client_override is not None:
                 return await self._client_override.get_file(file_id)
             result = await self._post("getFile", {"file_id": file_id})
-            return result if isinstance(result, dict) else None
+            return self._decode_result(method="getFile", payload=result, model=File)
 
         return await self._call_with_retry_after(execute)
 
@@ -890,8 +914,8 @@ class TelegramClient:
         reply_markup: dict[str, Any] | None = None,
         *,
         replace_message_id: int | None = None,
-    ) -> dict | None:
-        async def execute() -> dict | None:
+    ) -> Message | None:
+        async def execute() -> Message | None:
             if self._client_override is not None:
                 return await self._client_override.send_message(
                     chat_id=chat_id,
@@ -918,7 +942,11 @@ class TelegramClient:
             if reply_markup is not None:
                 params["reply_markup"] = reply_markup
             result = await self._post("sendMessage", params)
-            return result if isinstance(result, dict) else None
+            return self._decode_result(
+                method="sendMessage",
+                payload=result,
+                model=Message,
+            )
 
         if replace_message_id is not None:
             await self._outbox.drop_pending(key=("edit", chat_id, replace_message_id))
@@ -946,8 +974,8 @@ class TelegramClient:
         message_thread_id: int | None = None,
         disable_notification: bool | None = False,
         caption: str | None = None,
-    ) -> dict | None:
-        async def execute() -> dict | None:
+    ) -> Message | None:
+        async def execute() -> Message | None:
             if self._client_override is not None:
                 return await self._client_override.send_document(
                     chat_id=chat_id,
@@ -972,7 +1000,11 @@ class TelegramClient:
                 params,
                 files={"document": (filename, content)},
             )
-            return result if isinstance(result, dict) else None
+            return self._decode_result(
+                method="sendDocument",
+                payload=result,
+                model=Message,
+            )
 
         return await self.enqueue_op(
             key=self.unique_key("send_document"),
@@ -992,8 +1024,8 @@ class TelegramClient:
         reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
-    ) -> dict | None:
-        async def execute() -> dict | None:
+    ) -> Message | None:
+        async def execute() -> Message | None:
             if self._client_override is not None:
                 return await self._client_override.edit_message_text(
                     chat_id=chat_id,
@@ -1016,7 +1048,11 @@ class TelegramClient:
             if reply_markup is not None:
                 params["reply_markup"] = reply_markup
             result = await self._post("editMessageText", params)
-            return result if isinstance(result, dict) else None
+            return self._decode_result(
+                method="editMessageText",
+                payload=result,
+                model=Message,
+            )
 
         return await self.enqueue_op(
             key=("edit", chat_id, message_id),
@@ -1088,12 +1124,12 @@ class TelegramClient:
             )
         )
 
-    async def get_me(self) -> dict | None:
-        async def execute() -> dict | None:
+    async def get_me(self) -> User | None:
+        async def execute() -> User | None:
             if self._client_override is not None:
                 return await self._client_override.get_me()
             result = await self._post("getMe", {})
-            return result if isinstance(result, dict) else None
+            return self._decode_result(method="getMe", payload=result, model=User)
 
         return await self.enqueue_op(
             key=self.unique_key("get_me"),
@@ -1134,12 +1170,12 @@ class TelegramClient:
             )
         )
 
-    async def get_chat(self, chat_id: int) -> dict | None:
-        async def execute() -> dict | None:
+    async def get_chat(self, chat_id: int) -> Chat | None:
+        async def execute() -> Chat | None:
             if self._client_override is not None:
                 return await self._client_override.get_chat(chat_id)
             result = await self._post("getChat", {"chat_id": chat_id})
-            return result if isinstance(result, dict) else None
+            return self._decode_result(method="getChat", payload=result, model=Chat)
 
         return await self.enqueue_op(
             key=self.unique_key("get_chat"),
@@ -1149,14 +1185,18 @@ class TelegramClient:
             chat_id=chat_id,
         )
 
-    async def get_chat_member(self, chat_id: int, user_id: int) -> dict | None:
-        async def execute() -> dict | None:
+    async def get_chat_member(self, chat_id: int, user_id: int) -> ChatMember | None:
+        async def execute() -> ChatMember | None:
             if self._client_override is not None:
                 return await self._client_override.get_chat_member(chat_id, user_id)
             result = await self._post(
                 "getChatMember", {"chat_id": chat_id, "user_id": user_id}
             )
-            return result if isinstance(result, dict) else None
+            return self._decode_result(
+                method="getChatMember",
+                payload=result,
+                model=ChatMember,
+            )
 
         return await self.enqueue_op(
             key=self.unique_key("get_chat_member"),
@@ -1166,14 +1206,18 @@ class TelegramClient:
             chat_id=chat_id,
         )
 
-    async def create_forum_topic(self, chat_id: int, name: str) -> dict | None:
-        async def execute() -> dict | None:
+    async def create_forum_topic(self, chat_id: int, name: str) -> ForumTopic | None:
+        async def execute() -> ForumTopic | None:
             if self._client_override is not None:
                 return await self._client_override.create_forum_topic(chat_id, name)
             result = await self._post(
                 "createForumTopic", {"chat_id": chat_id, "name": name}
             )
-            return result if isinstance(result, dict) else None
+            return self._decode_result(
+                method="createForumTopic",
+                payload=result,
+                model=ForumTopic,
+            )
 
         return await self.enqueue_op(
             key=self.unique_key("create_forum_topic"),

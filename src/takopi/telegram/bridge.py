@@ -166,7 +166,7 @@ class TelegramTransport:
         )
         if sent is None:
             return None
-        message_id = cast(int, sent["message_id"])
+        message_id = sent.message_id
         return MessageRef(
             channel_id=chat_id,
             message_id=message_id,
@@ -192,7 +192,7 @@ class TelegramTransport:
         )
         if edited is None:
             return ref if not wait else None
-        message_id = cast(int, edited.get("message_id", message_id))
+        message_id = edited.message_id
         return MessageRef(
             channel_id=chat_id,
             message_id=message_id,
