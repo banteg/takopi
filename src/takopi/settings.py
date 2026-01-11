@@ -7,7 +7,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    SecretStr,
     ValidationError,
     StringConstraints,
     field_validator,
@@ -88,7 +87,7 @@ class TelegramFilesSettings(BaseModel):
 class TelegramTransportSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    bot_token: SecretStr
+    bot_token: NonEmptyStr
     chat_id: StrictInt
     voice_transcription: bool = False
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
@@ -179,7 +178,7 @@ class TakopiSettings(BaseSettings):
         self, transport_id: str, *, config_path: Path
     ) -> dict[str, Any]:
         if transport_id == "telegram":
-            return self.telegram_transport_dict()
+            return self.transports.telegram.model_dump()
         extra = self.transports.model_extra or {}
         raw = extra.get(transport_id)
         if raw is None:
@@ -190,16 +189,6 @@ class TakopiSettings(BaseSettings):
                 "expected a table."
             )
         return raw
-
-    def telegram_transport_dict(self) -> dict[str, object]:
-        tg = self.transports.telegram
-        return {
-            "bot_token": tg.bot_token.get_secret_value(),
-            "chat_id": tg.chat_id,
-            "voice_transcription": tg.voice_transcription,
-            "topics": tg.topics.model_dump(),
-            "files": tg.files.model_dump(),
-        }
 
     def to_projects_config(
         self,
@@ -321,9 +310,9 @@ def require_telegram(settings: TakopiSettings, config_path: Path) -> tuple[str, 
             "(telegram only for now)."
         )
     tg = settings.transports.telegram
-    if not tg.bot_token.get_secret_value():
+    if not tg.bot_token:
         raise ConfigError(f"Missing bot token in {config_path}.")
-    return tg.bot_token.get_secret_value(), tg.chat_id
+    return tg.bot_token, tg.chat_id
 
 
 def _resolve_config_path(path: str | Path | None) -> Path:

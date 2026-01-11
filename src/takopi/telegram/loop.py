@@ -327,7 +327,7 @@ async def run_main_loop(
                 refresh_topics_scope()
                 await _set_command_menu(cfg)
                 if transport_snapshot is not None:
-                    new_snapshot = reload.settings.telegram_transport_dict()
+                    new_snapshot = reload.settings.transports.telegram.model_dump()
                     changed = _diff_keys(transport_snapshot, new_snapshot)
                     if changed:
                         logger.warning(

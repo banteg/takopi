@@ -386,7 +386,7 @@ def chat_id(
         settings, _ = _load_settings_optional()
         if settings is not None:
             tg = settings.transports.telegram
-            token = tg.bot_token.get_secret_value() or None
+            token = tg.bot_token or None
     chat = onboarding.capture_chat_id(token=token)
     if chat is None:
         raise typer.Exit(code=1)
