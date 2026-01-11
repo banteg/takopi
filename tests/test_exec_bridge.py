@@ -87,7 +87,7 @@ def test_require_telegram_rejects_empty_token(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="bot token"):
+    with pytest.raises(ConfigError, match="bot_token"):
         settings, _ = load_settings(config_path)
         require_telegram(settings, config_path)
 

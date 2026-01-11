@@ -52,6 +52,10 @@ def test_check_setup_marks_missing_config(monkeypatch, tmp_path: Path) -> None:
 def test_check_setup_marks_invalid_bot_token(monkeypatch, tmp_path: Path) -> None:
     backend = engines.get_backend("codex")
     monkeypatch.setattr(onboarding.shutil, "which", lambda _name: "/usr/bin/codex")
+
+    def _fail_require(*_args, **_kwargs):
+        raise onboarding.ConfigError("Missing bot token")
+
     monkeypatch.setattr(
         onboarding,
         "load_settings",
@@ -59,12 +63,13 @@ def test_check_setup_marks_invalid_bot_token(monkeypatch, tmp_path: Path) -> Non
             TakopiSettings.model_validate(
                 {
                     "transport": "telegram",
-                    "transports": {"telegram": {"bot_token": "   ", "chat_id": 123}},
+                    "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
                 }
             ),
             tmp_path / "takopi.toml",
         ),
     )
+    monkeypatch.setattr(onboarding, "require_telegram", _fail_require)
 
     result = onboarding.check_setup(backend)
 
