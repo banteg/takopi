@@ -841,6 +841,34 @@ class _MediaGroupState:
     token: int = 0
 
 
+def resolve_file_put_paths(
+    plan: _FilePutPlan,
+    *,
+    cfg: TelegramBridgeConfig,
+    require_dir: bool,
+) -> tuple[Path | None, Path | None, str | None]:
+    path_value = plan.path_value
+    if not path_value:
+        return None, None, None
+    if require_dir or path_value.endswith("/"):
+        base_dir = normalize_relative_path(path_value)
+        if base_dir is None:
+            return None, None, "invalid upload path."
+        deny_rule = deny_reason(base_dir, cfg.files.deny_globs)
+        if deny_rule is not None:
+            return None, None, f"path denied by rule: {deny_rule}"
+        base_target = resolve_path_within_root(plan.run_root, base_dir)
+        if base_target is None:
+            return None, None, "upload path escapes the repo root."
+        if base_target.exists() and not base_target.is_dir():
+            return None, None, "upload path is a file."
+        return base_dir, None, None
+    rel_path = normalize_relative_path(path_value)
+    if rel_path is None:
+        return None, None, "invalid upload path."
+    return None, rel_path, None
+
+
 async def _check_file_permissions(
     cfg: TelegramBridgeConfig, msg: TelegramIncomingMessage
 ) -> bool:
@@ -1126,30 +1154,14 @@ async def _handle_file_put(
     )
     if plan is None:
         return
-    rel_path: Path | None = None
-    base_dir: Path | None = None
-    if plan.path_value:
-        if plan.path_value.endswith("/"):
-            base_dir = normalize_relative_path(plan.path_value)
-            if base_dir is None:
-                await reply("invalid upload path.")
-                return
-            deny_rule = deny_reason(base_dir, cfg.files.deny_globs)
-            if deny_rule is not None:
-                await reply(f"path denied by rule: {deny_rule}")
-                return
-            base_target = resolve_path_within_root(plan.run_root, base_dir)
-            if base_target is None:
-                await reply("upload path escapes the repo root.")
-                return
-            if base_target.exists() and not base_target.is_dir():
-                await reply("upload path is a file.")
-                return
-        else:
-            rel_path = normalize_relative_path(plan.path_value)
-            if rel_path is None:
-                await reply("invalid upload path.")
-                return
+    base_dir, rel_path, error = resolve_file_put_paths(
+        plan,
+        cfg=cfg,
+        require_dir=False,
+    )
+    if error is not None:
+        await reply(error)
+        return
     result = await _save_document_payload(
         cfg,
         document=document,
@@ -1201,23 +1213,14 @@ async def _handle_file_put_group(
     )
     if plan is None:
         return
-    base_dir: Path | None = None
-    if plan.path_value:
-        base_dir = normalize_relative_path(plan.path_value)
-        if base_dir is None:
-            await reply("invalid upload path.")
-            return
-        deny_rule = deny_reason(base_dir, cfg.files.deny_globs)
-        if deny_rule is not None:
-            await reply(f"path denied by rule: {deny_rule}")
-            return
-        base_target = resolve_path_within_root(plan.run_root, base_dir)
-        if base_target is None:
-            await reply("upload path escapes the repo root.")
-            return
-        if base_target.exists() and not base_target.is_dir():
-            await reply("upload path is a file.")
-            return
+    base_dir, _, error = resolve_file_put_paths(
+        plan,
+        cfg=cfg,
+        require_dir=True,
+    )
+    if error is not None:
+        await reply(error)
+        return
     saved: list[_FilePutResult] = []
     failed: list[_FilePutResult] = []
     for document in documents:
