@@ -480,7 +480,13 @@ class TelegramFilesConfig:
     max_upload_bytes: int = 20 * 1024 * 1024
     max_download_bytes: int = 50 * 1024 * 1024
     allowed_user_ids: frozenset[int] = frozenset()
-    deny_globs: tuple[str, ...] = (".git/**", ".env", "**/*.pem", "**/.ssh/**")
+    deny_globs: tuple[str, ...] = (
+        ".git/**",
+        ".env",
+        ".envrc",
+        "**/*.pem",
+        "**/.ssh/**",
+    )
 
 
 @dataclass(frozen=True)

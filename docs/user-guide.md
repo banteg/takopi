@@ -383,10 +383,8 @@ Directories are zipped automatically.
 enabled = true
 auto_put = true
 uploads_dir = "incoming"
-max_upload_mb = 20
-max_download_mb = 50
 allowed_user_ids = [123456789]
-deny_globs = [".git/**", ".env", "**/*.pem", "**/.ssh/**"]
+deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
 ```
 
 Notes:
@@ -415,10 +413,8 @@ voice_transcription = true
 enabled = true
 auto_put = true
 uploads_dir = "incoming"
-max_upload_mb = 20
-max_download_mb = 50
 allowed_user_ids = [123456789]
-deny_globs = [".git/**", ".env", "**/*.pem", "**/.ssh/**"]
+deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
 
 [transports.telegram.topics]
 enabled = true

@@ -103,8 +103,6 @@ def _build_files_config(
         enabled=settings.enabled,
         auto_put=settings.auto_put,
         uploads_dir=settings.uploads_dir,
-        max_upload_bytes=settings.max_upload_mb * 1024 * 1024,
-        max_download_bytes=settings.max_download_mb * 1024 * 1024,
         allowed_user_ids=frozenset(settings.allowed_user_ids),
         deny_globs=tuple(settings.deny_globs),
     )

@@ -52,11 +52,15 @@ class TelegramFilesSettings(BaseModel):
     enabled: bool = False
     auto_put: bool = True
     uploads_dir: str = "incoming"
-    max_upload_mb: int = 20
-    max_download_mb: int = 50
     allowed_user_ids: list[int] = Field(default_factory=list)
     deny_globs: list[str] = Field(
-        default_factory=lambda: [".git/**", ".env", "**/*.pem", "**/.ssh/**"]
+        default_factory=lambda: [
+            ".git/**",
+            ".env",
+            ".envrc",
+            "**/*.pem",
+            "**/.ssh/**",
+        ]
     )
 
     @field_validator("uploads_dir", mode="before")
@@ -72,15 +76,6 @@ class TelegramFilesSettings(BaseModel):
         if Path(cleaned).is_absolute():
             raise ValueError("files.uploads_dir must be a relative path")
         return cleaned
-
-    @field_validator("max_upload_mb", "max_download_mb", mode="before")
-    @classmethod
-    def _validate_mb(cls, value: Any, info) -> Any:
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ValueError(f"files.{info.field_name} must be an integer")
-        if value <= 0:
-            raise ValueError(f"files.{info.field_name} must be positive")
-        return value
 
     @field_validator("allowed_user_ids", mode="before")
     @classmethod
