@@ -10,7 +10,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-RALPH_ITERATION_PROMPT = "review your previous work and continue"
+RALPH_ITERATION_PROMPT = """review your previous work and continue.
+
+if the task is complete, respond with exactly:
+RALPH_COMPLETE: <brief summary of what was accomplished>"""
 
 RALPH_COMPLETE_PATTERN = re.compile(r"RALPH_COMPLETE:\s*(.+)", re.MULTILINE)
 
