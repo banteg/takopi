@@ -49,7 +49,7 @@ async def transcribe_voice(
                 "openai.transcribe.error",
                 error=str(exc),
                 error_type=exc.__class__.__name__,
-                status_code=getattr(exc, "status_code", None),
+                status_code=exc.status_code,
             )
             await reply(text=str(exc).strip() or "voice transcription failed")
             return None
