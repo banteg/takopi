@@ -360,6 +360,7 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
     commands = _build_bot_commands(runtime)
 
     assert {"command": "cancel", "description": "cancel run"} in commands
+    assert {"command": "file", "description": "upload or fetch files"} in commands
     assert any(cmd["command"] == "codex" for cmd in commands)
 
 
@@ -828,7 +829,7 @@ async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
     target = tmp_path / "uploads" / "hello.txt"
     assert target.read_bytes() == payload
     assert transport.send_calls
-    assert "saved `uploads/hello.txt`" in transport.send_calls[-1]["message"].text
+    assert "saved uploads/hello.txt" in transport.send_calls[-1]["message"].text
 
 
 @pytest.mark.anyio

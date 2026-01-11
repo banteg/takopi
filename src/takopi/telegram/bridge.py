@@ -332,6 +332,9 @@ def _build_bot_commands(runtime: TransportRuntime) -> list[dict[str, str]]:
         description = backend.description or f"command: {cmd}"
         commands.append({"command": cmd, "description": description})
         seen.add(cmd)
+    if "file" not in seen:
+        commands.append({"command": "file", "description": "upload or fetch files"})
+        seen.add("file")
     if "cancel" not in seen:
         commands.append({"command": "cancel", "description": "cancel run"})
     if len(commands) > _MAX_BOT_COMMANDS:
@@ -600,9 +603,10 @@ async def _send_plain(
     thread_id: int | None = None,
 ) -> None:
     reply_to = MessageRef(channel_id=chat_id, message_id=user_msg_id)
+    rendered_text, entities = prepare_telegram(MarkdownParts(header=text))
     await transport.send(
         channel_id=chat_id,
-        message=RenderedMessage(text=text),
+        message=RenderedMessage(text=rendered_text, extra={"entities": entities}),
         options=SendOptions(reply_to=reply_to, notify=notify, thread_id=thread_id),
     )
 
