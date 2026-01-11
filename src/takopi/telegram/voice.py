@@ -55,7 +55,15 @@ async def transcribe_voice(
     if voice is None:
         return msg.text
     if settings is None or not settings.enabled:
-        await reply(text="voice transcription is disabled.")
+        await reply(
+            text=(
+                "voice transcription is disabled. enable it in config:\n"
+                "```toml\n"
+                "[transports.telegram]\n"
+                "voice_transcription = true\n"
+                "```"
+            )
+        )
         return None
     api_key = resolve_openai_api_key()
     if not api_key:
