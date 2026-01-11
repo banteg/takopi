@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -21,45 +21,47 @@ async def wait_for_process(proc: Process, timeout: float) -> bool:
 
 
 def terminate_process(proc: Process) -> None:
-    if proc.returncode is not None:
-        return
-    if os.name == "posix" and proc.pid is not None:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-            return
-        except ProcessLookupError:
-            return
-        except Exception as e:
-            logger.debug(
-                "subprocess.terminate.failed",
-                error=str(e),
-                error_type=e.__class__.__name__,
-                pid=proc.pid,
-            )
-    try:
-        proc.terminate()
-    except ProcessLookupError:
-        return
+    _signal_process(
+        proc,
+        signal.SIGTERM,
+        fallback=proc.terminate,
+        log_event="subprocess.terminate.failed",
+    )
 
 
 def kill_process(proc: Process) -> None:
+    _signal_process(
+        proc,
+        signal.SIGKILL,
+        fallback=proc.kill,
+        log_event="subprocess.kill.failed",
+    )
+
+
+def _signal_process(
+    proc: Process,
+    sig: signal.Signals,
+    *,
+    fallback: Callable[[], None],
+    log_event: str,
+) -> None:
     if proc.returncode is not None:
         return
     if os.name == "posix" and proc.pid is not None:
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            os.killpg(proc.pid, sig)
             return
         except ProcessLookupError:
             return
-        except Exception as e:
+        except Exception as exc:
             logger.debug(
-                "subprocess.kill.failed",
-                error=str(e),
-                error_type=e.__class__.__name__,
+                log_event,
+                error=str(exc),
+                error_type=exc.__class__.__name__,
                 pid=proc.pid,
             )
     try:
-        proc.kill()
+        fallback()
     except ProcessLookupError:
         return
 
