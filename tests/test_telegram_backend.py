@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from takopi.config import ConfigError, empty_projects_config
+from takopi.config import ConfigError, ProjectsConfig
 from takopi.model import EngineId
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
@@ -25,7 +25,9 @@ def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
         ],
         default_engine=codex,
     )
-    runtime = TransportRuntime(router=router, projects=empty_projects_config())
+    runtime = TransportRuntime(
+        router=router, projects=ProjectsConfig(projects={}, default_project=None)
+    )
 
     message = telegram_backend._build_startup_message(
         runtime, startup_pwd=str(tmp_path)
@@ -54,7 +56,9 @@ def test_telegram_backend_build_and_run_wires_config(
         entries=[RunnerEntry(engine=codex, runner=runner, available=True)],
         default_engine=codex,
     )
-    runtime = TransportRuntime(router=router, projects=empty_projects_config())
+    runtime = TransportRuntime(
+        router=router, projects=ProjectsConfig(projects={}, default_project=None)
+    )
 
     captured: dict[str, Any] = {}
 

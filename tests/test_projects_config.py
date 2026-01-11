@@ -4,8 +4,7 @@ import pytest
 from typer.testing import CliRunner
 
 from takopi import cli
-from takopi.config import ConfigError
-from takopi.config_store import read_raw_toml
+from takopi.config import ConfigError, read_config
 from takopi.settings import TakopiSettings
 
 
@@ -67,7 +66,7 @@ def test_init_migrates_legacy_config(monkeypatch, tmp_path) -> None:
     result = runner.invoke(cli.create_app(), ["init", "z80"])
     assert result.exit_code == 0
 
-    raw = read_raw_toml(config_path)
+    raw = read_config(config_path)
     assert "bot_token" not in raw
     assert "chat_id" not in raw
     assert raw["transport"] == "telegram"

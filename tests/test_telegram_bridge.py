@@ -23,7 +23,7 @@ from takopi.telegram.bridge import (
 from takopi.telegram.client import BotClient
 from takopi.telegram.topic_state import TopicStateStore, resolve_state_path
 from takopi.context import RunContext
-from takopi.config import ProjectConfig, ProjectsConfig, empty_projects_config
+from takopi.config import ProjectConfig, ProjectsConfig
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
 from takopi.markdown import MarkdownPresenter
 from takopi.model import EngineId, ResumeToken
@@ -40,6 +40,10 @@ from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from tests.plugin_fixtures import FakeEntryPoint, install_entrypoints
 
 CODEX_ENGINE = EngineId("codex")
+
+
+def _empty_projects() -> ProjectsConfig:
+    return ProjectsConfig(projects={}, default_project=None)
 
 
 def _make_router(runner) -> AutoRouter:
@@ -288,7 +292,7 @@ def _make_cfg(
     )
     runtime = TransportRuntime(
         router=_make_router(runner),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     return TelegramBridgeConfig(
         bot=_FakeBot(),
@@ -303,7 +307,7 @@ def test_parse_directives_inline_engine() -> None:
     directives = parse_directives(
         "/claude do it",
         engine_ids=("codex", "claude"),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     assert directives.engine == "claude"
     assert directives.prompt == "do it"
@@ -313,7 +317,7 @@ def test_parse_directives_newline() -> None:
     directives = parse_directives(
         "/codex\nhello",
         engine_ids=("codex", "claude"),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     assert directives.engine == "codex"
     assert directives.prompt == "hello"
@@ -323,7 +327,7 @@ def test_parse_directives_ignores_unknown() -> None:
     directives = parse_directives(
         "/unknown hi",
         engine_ids=("codex", "claude"),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     assert directives.engine is None
     assert directives.prompt == "/unknown hi"
@@ -333,7 +337,7 @@ def test_parse_directives_bot_suffix() -> None:
     directives = parse_directives(
         "/claude@bunny_agent_bot hi",
         engine_ids=("claude",),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     assert directives.engine == "claude"
     assert directives.prompt == "hi"
@@ -343,7 +347,7 @@ def test_parse_directives_only_first_non_empty_line() -> None:
     directives = parse_directives(
         "hello\n/claude hi",
         engine_ids=("codex", "claude"),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     assert directives.engine is None
     assert directives.prompt == "hello\n/claude hi"
@@ -355,7 +359,7 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
     )
     runtime = TransportRuntime(
         router=_make_router(runner),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     commands = _build_bot_commands(runtime)
 
@@ -413,7 +417,7 @@ def test_build_bot_commands_includes_command_plugins(monkeypatch) -> None:
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     runtime = TransportRuntime(
         router=_make_router(runner),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
 
     commands_list = _build_bot_commands(runtime)
@@ -972,7 +976,6 @@ def test_topic_title_matches_command_syntax() -> None:
     cfg = _make_cfg(transport)
 
     title = bridge._topic_title(
-        cfg=cfg,
         runtime=cfg.runtime,
         context=RunContext(project="takopi", branch="master"),
     )
@@ -980,7 +983,6 @@ def test_topic_title_matches_command_syntax() -> None:
     assert title == "takopi @master"
 
     title = bridge._topic_title(
-        cfg=cfg,
         runtime=cfg.runtime,
         context=RunContext(project="takopi", branch=None),
     )
@@ -988,7 +990,6 @@ def test_topic_title_matches_command_syntax() -> None:
     assert title == "takopi"
 
     title = bridge._topic_title(
-        cfg=cfg,
         runtime=cfg.runtime,
         context=RunContext(project=None, branch="main"),
     )
@@ -1007,7 +1008,6 @@ def test_topic_title_projects_scope_includes_project() -> None:
     )
 
     title = bridge._topic_title(
-        cfg=cfg,
         runtime=cfg.runtime,
         context=RunContext(project="takopi", branch="master"),
     )
@@ -1175,7 +1175,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
     )
     runtime = TransportRuntime(
         router=_make_router(runner),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     cfg = TelegramBridgeConfig(
         bot=bot,
@@ -1311,7 +1311,7 @@ async def test_run_main_loop_replies_in_same_thread() -> None:
     )
     runtime = TransportRuntime(
         router=_make_router(runner),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     cfg = TelegramBridgeConfig(
         bot=bot,
@@ -1489,7 +1489,7 @@ async def test_run_main_loop_handles_command_plugins(monkeypatch) -> None:
     )
     runtime = TransportRuntime(
         router=_make_router(runner),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     cfg = TelegramBridgeConfig(
         bot=bot,
@@ -1726,7 +1726,7 @@ async def test_run_main_loop_refreshes_command_ids(monkeypatch) -> None:
     )
     runtime = TransportRuntime(
         router=_make_router(runner),
-        projects=empty_projects_config(),
+        projects=_empty_projects(),
     )
     cfg = TelegramBridgeConfig(
         bot=bot,

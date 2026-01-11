@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from takopi.config import ConfigError
-from takopi.config_store import read_raw_toml
+from takopi.config import ConfigError, read_config
 from takopi.settings import (
     TakopiSettings,
     load_settings,
@@ -67,7 +66,7 @@ def test_legacy_keys_migrated(tmp_path: Path) -> None:
 
     assert loaded_path == config_path
     assert settings.transports.telegram.chat_id == 123
-    raw = read_raw_toml(config_path)
+    raw = read_config(config_path)
     assert "bot_token" not in raw
     assert "chat_id" not in raw
     assert raw["transports"]["telegram"]["bot_token"] == "token"

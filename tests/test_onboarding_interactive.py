@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from takopi.config import dump_toml
 from takopi.telegram import onboarding
 from takopi.backends import EngineBackend
 
@@ -17,10 +18,17 @@ def test_mask_token_long() -> None:
 
 
 def test_render_config_escapes() -> None:
-    config = onboarding._render_config(
-        'token"with\\quote',
-        123,
-        "codex",
+    config = dump_toml(
+        {
+            "default_engine": "codex",
+            "transport": "telegram",
+            "transports": {
+                "telegram": {
+                    "bot_token": 'token"with\\quote',
+                    "chat_id": 123,
+                }
+            },
+        }
     )
     assert 'default_engine = "codex"' in config
     assert 'transport = "telegram"' in config

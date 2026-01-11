@@ -5,7 +5,7 @@ import pytest
 
 import takopi.config_watch as config_watch
 from takopi.config_watch import ConfigReload, _config_status, watch_config
-from takopi.config import empty_projects_config
+from takopi.config import ProjectsConfig
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runtime_loader import RuntimeSpec
 from takopi.runners.mock import Return, ScriptRunner
@@ -47,7 +47,7 @@ async def test_watch_config_applies_runtime(
     )
     runtime = TransportRuntime(
         router=router,
-        projects=empty_projects_config(),
+        projects=ProjectsConfig(projects={}, default_project=None),
         config_path=resolved_path,
     )
 
@@ -58,7 +58,7 @@ async def test_watch_config_applies_runtime(
     )
     new_spec = RuntimeSpec(
         router=new_router,
-        projects=empty_projects_config(),
+        projects=ProjectsConfig(projects={}, default_project=None),
         allowlist=None,
         plugin_configs=None,
     )
