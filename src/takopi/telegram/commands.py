@@ -203,6 +203,18 @@ def _reserved_commands(runtime: TransportRuntime) -> set[str]:
     }
 
 
+def _reply_sender(
+    cfg: TelegramBridgeConfig, msg: TelegramIncomingMessage
+) -> Callable[..., Awaitable[None]]:
+    return partial(
+        send_plain,
+        cfg.exec_cfg.transport,
+        chat_id=msg.chat_id,
+        user_msg_id=msg.message_id,
+        thread_id=msg.thread_id,
+    )
+
+
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
     commands = build_bot_commands(cfg.runtime, include_file=cfg.files.enabled)
     if not commands:
@@ -325,13 +337,7 @@ def resolve_file_put_paths(
 async def _check_file_permissions(
     cfg: TelegramBridgeConfig, msg: TelegramIncomingMessage
 ) -> bool:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     sender_id = msg.sender_id
     if sender_id is None:
         await reply(text="cannot verify sender for file transfer.")
@@ -363,13 +369,7 @@ async def _prepare_file_put_plan(
     ambient_context: RunContext | None,
     topic_store: TopicStateStore | None,
 ) -> _FilePutPlan | None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     if not await _check_file_permissions(cfg, msg):
         return None
     try:
@@ -532,13 +532,7 @@ async def _handle_file_command(
     ambient_context: RunContext | None,
     topic_store: TopicStateStore | None,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     command, rest, error = parse_file_command(args_text)
     if error is not None:
         await reply(text=error)
@@ -565,13 +559,7 @@ async def _save_file_put(
     ambient_context: RunContext | None,
     topic_store: TopicStateStore | None,
 ) -> _SavedFilePut | None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     document = msg.document
     if document is None:
         await reply(text=FILE_PUT_USAGE)
@@ -621,13 +609,7 @@ async def _handle_file_put(
     ambient_context: RunContext | None,
     topic_store: TopicStateStore | None,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     saved = await _save_file_put(
         cfg,
         msg,
@@ -654,13 +636,7 @@ async def _handle_file_put_group(
     ambient_context: RunContext | None,
     topic_store: TopicStateStore | None,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     saved_group = await _save_file_put_group(
         cfg,
         msg,
@@ -709,13 +685,7 @@ async def _save_file_put_group(
     ambient_context: RunContext | None,
     topic_store: TopicStateStore | None,
 ) -> _SavedFilePutGroup | None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     documents = [item.document for item in messages if item.document is not None]
     if not documents:
         await reply(text=FILE_PUT_USAGE)
@@ -781,13 +751,7 @@ async def _handle_media_group(
         (item for item in ordered if item.text.strip()),
         ordered[0],
     )
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=command_msg.chat_id,
-        user_msg_id=command_msg.message_id,
-        thread_id=command_msg.thread_id,
-    )
+    reply = _reply_sender(cfg, command_msg)
     topic_key = _topic_key(command_msg, cfg) if topic_store is not None else None
     chat_project = _topics_chat_project(cfg, command_msg.chat_id)
     bound_context = (
@@ -892,13 +856,7 @@ async def _handle_file_get(
     ambient_context: RunContext | None,
     topic_store: TopicStateStore | None,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     if not await _check_file_permissions(cfg, msg):
         return
     try:
@@ -999,13 +957,7 @@ async def _handle_ctx_command(
     resolved_scope: str | None = None,
     scope_chat_ids: frozenset[int] | None = None,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     error = _topics_command_error(
         cfg,
         msg.chat_id,
@@ -1090,13 +1042,7 @@ async def _handle_new_command(
     resolved_scope: str | None = None,
     scope_chat_ids: frozenset[int] | None = None,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     error = _topics_command_error(
         cfg,
         msg.chat_id,
@@ -1120,13 +1066,7 @@ async def _handle_chat_new_command(
     store: ChatSessionStore,
     session_key: tuple[int, int | None] | None,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     if session_key is None:
         await reply(text="no stored sessions to clear for this chat.")
         return
@@ -1147,13 +1087,7 @@ async def _handle_topic_command(
     resolved_scope: str | None = None,
     scope_chat_ids: frozenset[int] | None = None,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     error = _topics_command_error(
         cfg,
         msg.chat_id,
@@ -1209,13 +1143,7 @@ async def handle_cancel(
     msg: TelegramIncomingMessage,
     running_tasks: RunningTasks,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=msg.chat_id,
-        user_msg_id=msg.message_id,
-        thread_id=msg.thread_id,
-    )
+    reply = _reply_sender(cfg, msg)
     chat_id = msg.chat_id
     reply_id = msg.reply_to_message_id
 
