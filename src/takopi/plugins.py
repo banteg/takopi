@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib.metadata import EntryPoint, entry_points
 import re
@@ -80,12 +80,7 @@ def reset_plugin_state() -> None:
 
 
 def _select_entrypoints(group: str) -> list[EntryPoint]:
-    eps = entry_points()
-    if hasattr(eps, "select"):
-        return list(eps.select(group=group))
-    if isinstance(eps, Mapping):
-        return list(eps.get(group, []))
-    return []
+    return list(entry_points().select(group=group))
 
 
 def entrypoint_distribution_name(ep: EntryPoint) -> str | None:
