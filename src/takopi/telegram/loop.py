@@ -22,6 +22,7 @@ from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
 from .commands import (
     FILE_PUT_USAGE,
     _dispatch_command,
+    _handle_chat_new_command,
     _handle_ctx_command,
     _handle_file_command,
     _handle_file_put_default,
@@ -47,6 +48,7 @@ from .topics import (
     _validate_topics_setup,
 )
 from .client import poll_incoming
+from .chat_sessions import ChatSessionStore, resolve_sessions_path
 from .topic_state import TopicStateStore, resolve_state_path
 from .types import (
     TelegramCallbackQuery,
@@ -60,6 +62,18 @@ logger = get_logger(__name__)
 __all__ = ["poll_updates", "run_main_loop", "send_with_resume"]
 
 _MEDIA_GROUP_DEBOUNCE_S = 1.0
+
+
+def _chat_session_key(
+    msg: TelegramIncomingMessage, *, store: ChatSessionStore | None
+) -> tuple[int, int | None] | None:
+    if store is None or msg.thread_id is not None:
+        return None
+    if msg.chat_type == "private":
+        return (msg.chat_id, None)
+    if msg.sender_id is None:
+        return None
+    return (msg.chat_id, msg.sender_id)
 
 
 def _allowed_chat_ids(cfg: TelegramBridgeConfig) -> set[int]:
@@ -228,12 +242,22 @@ async def _wait_for_resume(running_task) -> ResumeToken | None:
 async def send_with_resume(
     cfg: TelegramBridgeConfig,
     enqueue: Callable[
-        [int, int, str, ResumeToken, RunContext | None, int | None], Awaitable[None]
+        [
+            int,
+            int,
+            str,
+            ResumeToken,
+            RunContext | None,
+            int | None,
+            tuple[int, int | None] | None,
+        ],
+        Awaitable[None],
     ],
     running_task,
     chat_id: int,
     user_msg_id: int,
     thread_id: int | None,
+    session_key: tuple[int, int | None] | None,
     text: str,
 ) -> None:
     reply = partial(
@@ -257,6 +281,7 @@ async def send_with_resume(
         resume,
         running_task.context,
         thread_id,
+        session_key,
     )
 
 
@@ -283,6 +308,7 @@ async def run_main_loop(
         transport_config.model_dump() if transport_config is not None else None
     )
     topic_store: TopicStateStore | None = None
+    chat_session_store: ChatSessionStore | None = None
     media_groups: dict[tuple[int, str], _MediaGroupState] = {}
     resolved_topics_scope: str | None = None
     topics_chat_ids: frozenset[int] = frozenset()
@@ -304,8 +330,18 @@ async def run_main_loop(
         reserved_commands = _reserved_commands(cfg.runtime)
 
     try:
+        config_path = cfg.runtime.config_path
+        if cfg.session_mode == "chat":
+            if config_path is None:
+                raise ConfigError(
+                    "session_mode=chat but config path is not set; cannot locate state file."
+                )
+            chat_session_store = ChatSessionStore(resolve_sessions_path(config_path))
+            logger.info(
+                "chat_sessions.enabled",
+                state_path=str(resolve_sessions_path(config_path)),
+            )
         if cfg.topics.enabled:
-            config_path = cfg.runtime.config_path
             if config_path is None:
                 raise ConfigError(
                     "topics enabled but config path is not set; cannot locate state file."
@@ -367,8 +403,9 @@ async def run_main_loop(
             def wrap_on_thread_known(
                 base_cb: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
                 topic_key: tuple[int, int] | None,
+                chat_session_key: tuple[int, int | None] | None,
             ) -> Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None:
-                if base_cb is None and topic_key is None:
+                if base_cb is None and topic_key is None and chat_session_key is None:
                     return None
 
                 async def _wrapped(token: ResumeToken, done: anyio.Event) -> None:
@@ -377,6 +414,10 @@ async def run_main_loop(
                     if topic_store is not None and topic_key is not None:
                         await topic_store.set_session_resume(
                             topic_key[0], topic_key[1], token
+                        )
+                    if chat_session_store is not None and chat_session_key is not None:
+                        await chat_session_store.set_session_resume(
+                            chat_session_key[0], chat_session_key[1], token
                         )
 
                 return _wrapped
@@ -388,6 +429,7 @@ async def run_main_loop(
                 resume_token: ResumeToken | None,
                 context: RunContext | None,
                 thread_id: int | None = None,
+                chat_session_key: tuple[int, int | None] | None = None,
                 reply_ref: MessageRef | None = None,
                 on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
                 | None = None,
@@ -412,7 +454,9 @@ async def run_main_loop(
                     resume_token=resume_token,
                     context=context,
                     reply_ref=reply_ref,
-                    on_thread_known=wrap_on_thread_known(on_thread_known, topic_key),
+                    on_thread_known=wrap_on_thread_known(
+                        on_thread_known, topic_key, chat_session_key
+                    ),
                     engine_override=engine_override,
                     thread_id=thread_id,
                 )
@@ -425,6 +469,7 @@ async def run_main_loop(
                     job.resume_token,
                     job.context,
                     cast(int | None, job.thread_id),
+                    job.session_key,
                     None,
                     scheduler.note_thread_known,
                 )
@@ -539,6 +584,9 @@ async def run_main_loop(
                     if topic_store is not None
                     else None
                 )
+                chat_session_key = _chat_session_key(
+                    msg, store=chat_session_store
+                )
                 chat_project = (
                     _topics_chat_project(cfg, chat_id) if cfg.topics.enabled else None
                 )
@@ -571,6 +619,36 @@ async def run_main_loop(
                     continue
 
                 command_id, args_text = _parse_slash_command(text)
+                if command_id == "new":
+                    if topic_store is not None and topic_key is not None:
+                        tg.start_soon(
+                            _handle_new_command,
+                            cfg,
+                            msg,
+                            topic_store,
+                            resolved_scope=resolved_topics_scope,
+                            scope_chat_ids=topics_chat_ids,
+                        )
+                        continue
+                    if chat_session_store is not None:
+                        tg.start_soon(
+                            _handle_chat_new_command,
+                            cfg,
+                            msg,
+                            chat_session_store,
+                            chat_session_key,
+                        )
+                        continue
+                    if topic_store is not None:
+                        tg.start_soon(
+                            _handle_new_command,
+                            cfg,
+                            msg,
+                            topic_store,
+                            resolved_scope=resolved_topics_scope,
+                            scope_chat_ids=topics_chat_ids,
+                        )
+                        continue
                 if command_id is not None and _dispatch_builtin_command(
                     cfg=cfg,
                     msg=msg,
@@ -684,6 +762,7 @@ async def run_main_loop(
                             chat_id,
                             user_msg_id,
                             msg.thread_id,
+                            chat_session_key,
                             text,
                         )
                         continue
@@ -701,6 +780,20 @@ async def run_main_loop(
                     )
                     if stored is not None:
                         resume_token = stored
+                if (
+                    resume_token is None
+                    and chat_session_store is not None
+                    and chat_session_key is not None
+                ):
+                    engine_for_session = cfg.runtime.resolve_engine(
+                        engine_override=engine_override,
+                        context=context,
+                    )
+                    stored = await chat_session_store.get_session_resume(
+                        chat_session_key[0], chat_session_key[1], engine_for_session
+                    )
+                    if stored is not None:
+                        resume_token = stored
 
                 if resume_token is None:
                     tg.start_soon(
@@ -711,6 +804,7 @@ async def run_main_loop(
                         None,
                         context,
                         msg.thread_id,
+                        chat_session_key,
                         reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
@@ -723,6 +817,7 @@ async def run_main_loop(
                         resume_token,
                         context,
                         msg.thread_id,
+                        chat_session_key,
                     )
     finally:
         await cfg.exec_cfg.transport.close()

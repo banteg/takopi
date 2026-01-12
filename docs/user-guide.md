@@ -20,10 +20,27 @@ A few terms you'll see throughout:
 | Term | Meaning |
 |------|---------|
 | **Engine** | A coding agent backend (Codex, Claude, opencode, pi) |
-| **Project** | A registered git repository with an alias |
+| **Project** | A repo/workdir alias used for routing (can set default engine, worktrees, chat ID) |
 | **Worktree** | A git feature that lets you check out multiple branches simultaneously in separate directories |
-| **Topic** | A Telegram forum thread bound to a specific project/branch context |
+| **Topic** | A Telegram forum thread bound to a project/branch; stores per-topic resume tokens |
 | **Resume token** | State that allows an engine to continue from where it left off |
+
+---
+
+## How conversations work
+
+Takopi is **stateless by default**. Each message starts a new engine session unless a resume token is present.
+
+To continue a session:
+
+- **Reply** to a bot message. Takopi reads the resume token from the footer and resumes that session.
+- **Forum topics** (optional) store resume tokens per topic and auto-resume for new messages in that topic.
+  Reset with `/new`.
+- **Chat sessions** (optional) store one resume token per chat (per sender in groups) so new messages
+  auto-resume without replying. Enable with `session_mode = "chat"` and reset with `/new`.
+  State is stored in `telegram_chat_sessions_state.json`.
+
+Reply-to-continue always works, even if chat sessions or topics are enabled.
 
 ---
 
@@ -85,7 +102,7 @@ Takopi streams progress in the chat and sends a final response when the agent fi
 
 ### Basic controls
 
-- **Reply** to a bot message with more instructions to continue the conversation
+- **Reply** to a bot message to continue the session (takopi reads the resume token in the footer)
 - **Cancel** a run by clicking the cancel button or replying to the progress message with `/cancel`
 
 ---
@@ -331,15 +348,10 @@ Dictate tasks instead of typing:
 ```toml
 [transports.telegram]
 voice_transcription = true
-voice_transcription_model = "gpt-4o-mini-transcribe" # optional
 ```
 
 Set `OPENAI_API_KEY` in your environment (uses OpenAI's transcription API with the
-`gpt-4o-mini-transcribe` model by default). To use a local OpenAI-compatible
-Whisper server, also set `OPENAI_BASE_URL` (for example,
-`http://localhost:8000/v1`) and a dummy `OPENAI_API_KEY` if your server ignores it.
-If your server requires a specific model name, set `voice_transcription_model`
-accordingly (for example, `whisper-1`).
+`gpt-4o-mini-transcribe` model).
 
 When you send a voice note, takopi transcribes it and runs the result as a normal text message. If transcription fails, you'll get an error message and the run is skipped.
 
@@ -424,7 +436,7 @@ watch_config = true   # hot-reload on config changes (except transport)
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 voice_transcription = true
-# voice_transcription_model = "gpt-4o-mini-transcribe"
+session_mode = "stateless" # or "chat" for auto-resume per chat
 
 [transports.telegram.files]
 enabled = true
@@ -477,7 +489,7 @@ worktree_base = "develop"
 | `/ctx` | Show current context |
 | `/ctx set <project> @branch` | Update context binding |
 | `/ctx clear` | Remove context binding |
-| `/new` | Clear resume tokens |
+| `/new` | Clear stored resume tokens (topic or chat session) |
 
 ### CLI commands
 

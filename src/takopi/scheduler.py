@@ -19,6 +19,7 @@ class ThreadJob:
     resume_token: ResumeToken
     context: RunContext | None = None
     thread_id: ThreadId | None = None
+    session_key: tuple[int, int | None] | None = None
 
 
 RunJob = Callable[[ThreadJob], Awaitable[None]]
@@ -72,6 +73,7 @@ class ThreadScheduler:
         resume_token: ResumeToken,
         context: RunContext | None = None,
         thread_id: ThreadId | None = None,
+        session_key: tuple[int, int | None] | None = None,
     ) -> None:
         await self.enqueue(
             ThreadJob(
@@ -81,6 +83,7 @@ class ThreadScheduler:
                 resume_token=resume_token,
                 context=context,
                 thread_id=thread_id,
+                session_key=session_key,
             )
         )
 

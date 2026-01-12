@@ -37,6 +37,7 @@ from ..transport import MessageRef, RenderedMessage, SendOptions
 from ..transport_runtime import ResolvedMessage, TransportRuntime
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
 from .bridge import send_plain
+from .chat_sessions import ChatSessionStore
 from .context import (
     _format_context,
     _format_ctx_status,
@@ -77,6 +78,7 @@ __all__ = [
     "FILE_GET_USAGE",
     "FILE_PUT_USAGE",
     "_dispatch_command",
+    "_handle_chat_new_command",
     "_handle_file_command",
     "_handle_file_get",
     "_handle_file_put",
@@ -1042,6 +1044,30 @@ async def _handle_new_command(
         return
     await store.clear_sessions(*tkey)
     await reply(text="cleared stored sessions for this topic.")
+
+
+async def _handle_chat_new_command(
+    cfg,
+    msg: TelegramIncomingMessage,
+    store: ChatSessionStore,
+    session_key: tuple[int, int | None] | None,
+) -> None:
+    reply = partial(
+        send_plain,
+        cfg.exec_cfg.transport,
+        chat_id=msg.chat_id,
+        user_msg_id=msg.message_id,
+        thread_id=msg.thread_id,
+    )
+    if session_key is None:
+        await reply(text="no stored sessions to clear for this chat.")
+        return
+    await store.clear_sessions(session_key[0], session_key[1])
+    if msg.chat_type == "private":
+        text = "cleared stored sessions for this chat."
+    else:
+        text = "cleared stored sessions for you in this chat."
+    await reply(text=text)
 
 
 async def _handle_topic_command(

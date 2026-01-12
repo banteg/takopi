@@ -28,17 +28,30 @@ Configuration (under `[transports.telegram]`):
 
 ```toml
 voice_transcription = true
-voice_transcription_model = "gpt-4o-mini-transcribe" # optional
 ```
 
 Set `OPENAI_API_KEY` in the environment. If transcription is enabled but the API key
 is missing or the audio download fails, takopi replies with a short error and skips
 the run.
 
-To use a local OpenAI-compatible Whisper server, also set `OPENAI_BASE_URL` (for
-example, `http://localhost:8000/v1`) and a dummy `OPENAI_API_KEY` if your server
-ignores it. If your server requires a specific model name, set
-`voice_transcription_model` (for example, `whisper-1`).
+## Chat sessions (optional)
+
+Takopi is stateless by default unless you reply to a bot message containing a resume
+line. If you want auto-resume without replies, enable chat sessions.
+
+Configuration (under `[transports.telegram]`):
+
+```toml
+session_mode = "chat" # or "stateless"
+```
+
+Behavior:
+
+- Stores one resume token per chat (per sender in group chats).
+- Auto-resumes when no explicit resume token is present.
+- Reset with `/new`.
+
+State is stored in `telegram_chat_sessions_state.json` alongside the config file.
 
 ## Message overflow
 

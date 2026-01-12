@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Literal, cast
 
 from ..logging import get_logger
 from ..markdown import MarkdownFormatter, MarkdownParts
@@ -118,6 +118,7 @@ class TelegramBridgeConfig:
     chat_id: int
     startup_msg: str
     exec_cfg: ExecBridgeConfig
+    session_mode: Literal["stateless", "chat"] = "stateless"
     voice_transcription: bool = False
     voice_max_bytes: int = 10 * 1024 * 1024
     voice_transcription_model: str = "gpt-4o-mini-transcribe"
@@ -343,12 +344,22 @@ async def handle_callback_cancel(
 async def send_with_resume(
     cfg: TelegramBridgeConfig,
     enqueue: Callable[
-        [int, int, str, ResumeToken, RunContext | None, int | None], Awaitable[None]
+        [
+            int,
+            int,
+            str,
+            ResumeToken,
+            RunContext | None,
+            int | None,
+            tuple[int, int | None] | None,
+        ],
+        Awaitable[None],
     ],
     running_task: RunningTask,
     chat_id: int,
     user_msg_id: int,
     thread_id: int | None,
+    session_key: tuple[int, int | None] | None,
     text: str,
 ) -> None:
     from .loop import send_with_resume as _send_with_resume
@@ -360,6 +371,7 @@ async def send_with_resume(
         chat_id,
         user_msg_id,
         thread_id,
+        session_key,
         text,
     )
 
