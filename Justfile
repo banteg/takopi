@@ -1,7 +1,7 @@
 check:
-    uv run ruff format --check
-    uv run ruff check .
-    uv run ty check .
+    uv run ruff format --check src tests
+    uv run ruff check src tests
+    uv run ty check src tests
     uv run pytest
 
 bundle:

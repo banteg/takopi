@@ -20,15 +20,15 @@ jobs:
         include:
           - task: format
             do_sync: true
-            command: uv run --no-sync ruff format --check --diff
+            command: uv run --no-sync ruff format --check --diff src tests
             sync_args: --no-install-project
           - task: ruff
             do_sync: true
-            command: uv run --no-sync ruff check . --output-format=github
+            command: uv run --no-sync ruff check src tests --output-format=github
             sync_args: --no-install-project
           - task: ty
             do_sync: true
-            command: uv run --no-sync ty check .
+            command: uv run --no-sync ty check src tests
             sync_args: --no-install-project
           - task: pytest
             do_sync: true
