@@ -185,7 +185,11 @@ class TelegramTransport:
                 else None
             )
             notify = options.notify
-            message_thread_id = options.thread_id
+            message_thread_id = (
+                cast(int | None, options.thread_id)
+                if options.thread_id is not None
+                else None
+            )
         else:
             reply_to_message_id = cast(
                 int | None,
@@ -219,10 +223,16 @@ class TelegramTransport:
                 notify=notify,
             )
         message_id = sent.message_id
+        thread_id = (
+            sent.message_thread_id
+            if sent.message_thread_id is not None
+            else message_thread_id
+        )
         return MessageRef(
             channel_id=chat_id,
             message_id=message_id,
             raw=sent,
+            thread_id=thread_id,
         )
 
     async def edit(
@@ -261,10 +271,16 @@ class TelegramTransport:
                 notify=notify,
             )
         message_id = edited.message_id
+        thread_id = (
+            edited.message_thread_id
+            if edited.message_thread_id is not None
+            else ref.thread_id
+        )
         return MessageRef(
             channel_id=chat_id,
             message_id=message_id,
             raw=edited,
+            thread_id=thread_id,
         )
 
     async def delete(self, *, ref: MessageRef) -> bool:

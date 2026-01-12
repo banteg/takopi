@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from functools import partial
+from typing import cast
 
 import anyio
 from anyio.abc import TaskGroup
@@ -417,12 +418,12 @@ async def run_main_loop(
 
             async def run_thread_job(job: ThreadJob) -> None:
                 await run_job(
-                    job.chat_id,
-                    job.user_msg_id,
+                    cast(int, job.chat_id),
+                    cast(int, job.user_msg_id),
                     job.text,
                     job.resume_token,
                     job.context,
-                    job.thread_id,
+                    cast(int | None, job.thread_id),
                     None,
                     scheduler.note_thread_known,
                 )

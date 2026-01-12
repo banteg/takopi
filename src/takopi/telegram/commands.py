@@ -1178,11 +1178,15 @@ class _CaptureTransport:
         message: RenderedMessage,
         options: SendOptions | None = None,
     ) -> MessageRef:
-        _ = options
+        thread_id = options.thread_id if options is not None else None
         ref = MessageRef(channel_id=channel_id, message_id=self._next_id)
         self._next_id += 1
         self.last_message = message
-        return ref
+        return MessageRef(
+            channel_id=ref.channel_id,
+            message_id=ref.message_id,
+            thread_id=thread_id,
+        )
 
     async def edit(
         self, *, ref: MessageRef, message: RenderedMessage, wait: bool = True
@@ -1218,7 +1222,11 @@ class _TelegramCommandExecutor(CommandExecutor):
         self._chat_id = chat_id
         self._user_msg_id = user_msg_id
         self._thread_id = thread_id
-        self._reply_ref = MessageRef(channel_id=chat_id, message_id=user_msg_id)
+        self._reply_ref = MessageRef(
+            channel_id=chat_id,
+            message_id=user_msg_id,
+            thread_id=thread_id,
+        )
 
     def _apply_default_context(self, request: RunRequest) -> RunRequest:
         if request.context is not None:
@@ -1336,7 +1344,11 @@ async def _dispatch_command(
     chat_id = msg.chat_id
     user_msg_id = msg.message_id
     reply_ref = (
-        MessageRef(channel_id=chat_id, message_id=msg.reply_to_message_id)
+        MessageRef(
+            channel_id=chat_id,
+            message_id=msg.reply_to_message_id,
+            thread_id=msg.thread_id,
+        )
         if msg.reply_to_message_id is not None
         else None
     )
@@ -1349,7 +1361,9 @@ async def _dispatch_command(
         user_msg_id=user_msg_id,
         thread_id=msg.thread_id,
     )
-    message_ref = MessageRef(channel_id=chat_id, message_id=user_msg_id)
+    message_ref = MessageRef(
+        channel_id=chat_id, message_id=user_msg_id, thread_id=msg.thread_id
+    )
     try:
         backend = get_command(command_id, allowlist=allowlist, required=False)
     except ConfigError as exc:
