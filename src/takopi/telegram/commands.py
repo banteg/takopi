@@ -1433,6 +1433,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         runtime: TransportRuntime,
         running_tasks: RunningTasks,
         scheduler: ThreadScheduler,
+        on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
         chat_id: int,
         user_msg_id: int,
         thread_id: int | None,
@@ -1443,6 +1444,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         self._runtime = runtime
         self._running_tasks = running_tasks
         self._scheduler = scheduler
+        self._on_thread_known = on_thread_known
         self._chat_id = chat_id
         self._user_msg_id = user_msg_id
         self._thread_id = thread_id
@@ -1502,6 +1504,11 @@ class _TelegramCommandExecutor(CommandExecutor):
             engine_override=request.engine,
             context=request.context,
         )
+        on_thread_known = (
+            self._scheduler.note_thread_known
+            if self._on_thread_known is None
+            else self._on_thread_known
+        )
         if mode == "capture":
             capture = _CaptureTransport()
             exec_cfg = ExecBridgeConfig(
@@ -1519,7 +1526,7 @@ class _TelegramCommandExecutor(CommandExecutor):
                 resume_token=None,
                 context=request.context,
                 reply_ref=self._reply_ref,
-                on_thread_known=None,
+                on_thread_known=on_thread_known,
                 engine_override=engine,
                 thread_id=self._thread_id,
                 show_resume_line=effective_show_resume_line,
@@ -1535,7 +1542,7 @@ class _TelegramCommandExecutor(CommandExecutor):
             resume_token=None,
             context=request.context,
             reply_ref=self._reply_ref,
-            on_thread_known=self._scheduler.note_thread_known,
+            on_thread_known=on_thread_known,
             engine_override=engine,
             thread_id=self._thread_id,
             show_resume_line=effective_show_resume_line,
@@ -1572,6 +1579,7 @@ async def _dispatch_command(
     args_text: str,
     running_tasks: RunningTasks,
     scheduler: ThreadScheduler,
+    on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
     stateful_mode: bool,
 ) -> None:
     allowlist = cfg.runtime.allowlist
@@ -1591,6 +1599,7 @@ async def _dispatch_command(
         runtime=cfg.runtime,
         running_tasks=running_tasks,
         scheduler=scheduler,
+        on_thread_known=on_thread_known,
         chat_id=chat_id,
         user_msg_id=user_msg_id,
         thread_id=msg.thread_id,

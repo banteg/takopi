@@ -1762,6 +1762,119 @@ async def test_run_main_loop_prompt_upload_auto_resumes_chat_sessions(
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_command_updates_chat_session_resume(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class _Command:
+        id = "run_cmd"
+        description = "run command"
+
+        async def handle(self, ctx):
+            await ctx.executor.run_one(commands.RunRequest(prompt="hello"))
+            return commands.CommandResult(text="done")
+
+    entrypoints = [
+        FakeEntryPoint(
+            "run_cmd",
+            "takopi.commands.run_cmd:BACKEND",
+            plugins.COMMAND_GROUP,
+            loader=_Command,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    resume_value = "resume-123"
+    state_path = tmp_path / "takopi.toml"
+
+    transport = _FakeTransport()
+    bot = _FakeBot()
+    runner = ScriptRunner(
+        [Return(answer="ok")],
+        engine=CODEX_ENGINE,
+        resume_value=resume_value,
+    )
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+        config_path=state_path,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        session_mode="chat",
+        show_resume_line=False,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="/run_cmd",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+        )
+
+    await run_main_loop(cfg, poller)
+
+    store = ChatSessionStore(resolve_sessions_path(state_path))
+    stored = await store.get_session_resume(123, None, CODEX_ENGINE)
+    assert stored == ResumeToken(engine=CODEX_ENGINE, value=resume_value)
+
+    transport2 = _FakeTransport()
+    runner2 = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg2 = ExecBridgeConfig(
+        transport=transport2,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime2 = TransportRuntime(
+        router=_make_router(runner2),
+        projects=_empty_projects(),
+        config_path=state_path,
+    )
+    cfg2 = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime2,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg2,
+        session_mode="chat",
+        show_resume_line=False,
+    )
+
+    async def poller2(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=2,
+            text="followup",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+        )
+
+    await run_main_loop(cfg2, poller2)
+
+    assert runner2.calls[0][1] == ResumeToken(
+        engine=CODEX_ENGINE,
+        value=resume_value,
+    )
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_hides_resume_line_when_disabled(
     tmp_path: Path,
 ) -> None:

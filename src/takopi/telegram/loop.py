@@ -858,6 +858,11 @@ async def run_main_loop(
                             args_text,
                             running_tasks,
                             scheduler,
+                            wrap_on_thread_known(
+                                scheduler.note_thread_known,
+                                topic_key,
+                                chat_session_key,
+                            ),
                             stateful_mode,
                         )
                         continue
