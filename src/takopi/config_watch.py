@@ -40,6 +40,13 @@ def config_status(path: Path) -> tuple[str, tuple[int, int] | None]:
     return "ok", (stat.st_mtime_ns, stat.st_size)
 
 
+def _matches_config_path(candidate: str, config_path: Path) -> bool:
+    try:
+        return Path(candidate).resolve(strict=False) == config_path
+    except OSError:
+        return False
+
+
 def _reload_config(
     config_path: Path,
     default_engine_override: str | None,
@@ -76,7 +83,7 @@ async def watch_config(
         logger.warning("config.watch.unavailable", path=str(config_path), status=status)
 
     async for changes in awatch(watch_root):
-        if not any(Path(path) == config_path for _, path in changes):
+        if not any(_matches_config_path(path, config_path) for _, path in changes):
             continue
 
         status, current = config_status(config_path)
