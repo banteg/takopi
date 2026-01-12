@@ -12,6 +12,7 @@ class MessageRef:
     channel_id: ChannelId
     message_id: MessageId
     raw: Any | None = field(default=None, compare=False, hash=False)
+    thread_id: int | None = field(default=None, compare=False, hash=False)
 
 
 @dataclass(frozen=True, slots=True)
