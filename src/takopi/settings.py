@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, Iterable, Literal
+from typing import Annotated, Any, ClassVar, Iterable, Literal
 
 from pydantic import (
     BaseModel,
@@ -62,6 +62,9 @@ class TelegramTopicsSettings(BaseModel):
 class TelegramFilesSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    max_upload_bytes: ClassVar[int] = 20 * 1024 * 1024
+    max_download_bytes: ClassVar[int] = 50 * 1024 * 1024
+
     enabled: bool = False
     auto_put: bool = True
     auto_put_mode: Literal["upload", "prompt"] = "upload"
@@ -83,14 +86,6 @@ class TelegramFilesSettings(BaseModel):
         if Path(value).is_absolute():
             raise ValueError("files.uploads_dir must be a relative path")
         return value
-
-    @property
-    def max_upload_bytes(self) -> int:
-        return 20 * 1024 * 1024
-
-    @property
-    def max_download_bytes(self) -> int:
-        return 50 * 1024 * 1024
 
 
 class TelegramTransportSettings(BaseModel):
