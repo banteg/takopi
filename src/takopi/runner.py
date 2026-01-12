@@ -427,7 +427,7 @@ class JsonlSubprocessRunner(BaseRunner):
                     line_text = line.decode("utf-8", errors="replace")
                     try:
                         decoded = self.decode_jsonl(line=line)
-                    except Exception as exc:
+                    except Exception as exc:  # noqa: BLE001
                         log_pipeline(
                             logger,
                             "jsonl.parse.error",
@@ -470,7 +470,7 @@ class JsonlSubprocessRunner(BaseRunner):
                                     resume=resume,
                                     found_session=found_session,
                                 )
-                            except Exception as exc:
+                            except Exception as exc:  # noqa: BLE001
                                 log_pipeline(
                                     logger,
                                     "runner.translate.error",

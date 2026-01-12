@@ -63,3 +63,6 @@ dev = [
 [tool.pytest.ini_options]
 addopts = ["--cov=takopi", "--cov-report=term-missing", "--cov-fail-under=70"]
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+extend-select = ["B904", "BLE001", "S110", "RUF043"]

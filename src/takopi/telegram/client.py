@@ -515,7 +515,7 @@ class TelegramOutbox:
     async def execute_op(self, op: OutboxOp) -> Any:
         try:
             return await op.execute()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             if isinstance(exc, RetryAfter):
                 raise
             if self._on_error is not None:
@@ -566,7 +566,7 @@ class TelegramOutbox:
                 op.set_result(result)
         except cancel_exc:
             return
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             async with self._cond:
                 self._closed = True
                 self.fail_pending()
@@ -759,7 +759,7 @@ class TelegramClient:
                 retry_after: float | None = None
                 try:
                     response_payload = resp.json()
-                except Exception:
+                except Exception:  # noqa: BLE001
                     response_payload = None
                 if isinstance(response_payload, dict):
                     retry_after = retry_after_from_payload(response_payload)
@@ -785,7 +785,7 @@ class TelegramClient:
 
         try:
             response_payload = resp.json()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             body = resp.text
             logger.error(
                 "telegram.bad_response",
@@ -815,7 +815,7 @@ class TelegramClient:
             return None
         try:
             return msgspec.convert(payload, type=model)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.error(
                 "telegram.decode_error",
                 method=method,
@@ -862,7 +862,7 @@ class TelegramClient:
                     return None
                 try:
                     return msgspec.convert(raw, type=list[Update])
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     logger.error(
                         "telegram.decode_error",
                         method="getUpdates",
@@ -881,7 +881,7 @@ class TelegramClient:
                 return None
             try:
                 return msgspec.convert(result, type=list[Update])
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 logger.error(
                     "telegram.decode_error",
                     method="getUpdates",
@@ -928,7 +928,7 @@ class TelegramClient:
                     retry_after: float | None = None
                     try:
                         response_payload = resp.json()
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         response_payload = None
                     if isinstance(response_payload, dict):
                         retry_after = retry_after_from_payload(response_payload)

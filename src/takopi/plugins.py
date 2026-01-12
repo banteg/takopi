@@ -100,7 +100,7 @@ def entrypoint_distribution_name(ep: EntryPoint) -> str | None:
         return None
     try:
         return metadata["Name"]
-    except Exception:
+    except (KeyError, TypeError):
         return None
 
 

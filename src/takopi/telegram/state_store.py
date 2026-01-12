@@ -63,7 +63,7 @@ class JsonStateStore(Generic[T]):
             payload = msgspec.json.decode(
                 self._path.read_bytes(), type=self._state_type
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             self._logger.warning(
                 f"{self._log_prefix}.load_failed",
                 path=str(self._path),

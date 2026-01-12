@@ -180,7 +180,7 @@ def _run_auto_router(
         transport_backend = get_transport(transport_id, allowlist=allowlist)
     except ConfigError as e:
         typer.echo(f"error: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     if onboard:
         if not _should_run_interactive():
             typer.echo("error: --onboard requires a TTY", err=True)
@@ -269,10 +269,10 @@ def _run_auto_router(
         )
     except ConfigError as e:
         typer.echo(f"error: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
     except KeyboardInterrupt:
         logger.info("shutdown.interrupted")
-        raise typer.Exit(code=130)
+        raise typer.Exit(code=130) from None
     finally:
         if lock_handle is not None:
             lock_handle.release()

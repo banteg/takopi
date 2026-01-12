@@ -103,7 +103,7 @@ def build_router(
             if engine_cfg:
                 try:
                     runner = backend.build_runner({}, config_path)
-                except Exception as fallback_exc:
+                except Exception as fallback_exc:  # noqa: BLE001
                     warnings.append(f"{engine_id}: {issue or str(fallback_exc)}")
                     continue
                 status = "bad_config"

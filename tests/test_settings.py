@@ -172,7 +172,7 @@ def test_transport_config_telegram_and_extra(tmp_path: Path) -> None:
             },
         }
     )
-    with pytest.raises(ConfigError, match="transports.discord"):
+    with pytest.raises(ConfigError, match=r"transports\.discord"):
         settings.transport_config("discord", config_path=config_path)
 
 

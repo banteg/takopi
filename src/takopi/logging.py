@@ -126,8 +126,8 @@ def _file_sink(
             payload = payload.decode("utf-8", errors="replace")
         _log_file_handle.write(payload + "\n")
         _log_file_handle.flush()
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001
+        return event_dict
     return event_dict
 
 
@@ -202,8 +202,8 @@ class SafeWriter(io.TextIOBase):
         self._closed = True
         try:
             self._stream.close()
-        except Exception:
-            pass
+        except Exception:  # noqa: BLE001
+            return
 
 
 def setup_logging(
@@ -236,13 +236,14 @@ def setup_logging(
     if _log_file_handle is not None:
         try:
             _log_file_handle.close()
-        except Exception:
-            pass
-        _log_file_handle = None
+        except Exception:  # noqa: BLE001
+            _log_file_handle = None
+        else:
+            _log_file_handle = None
     if log_file:
         try:
             _log_file_handle = open(log_file, "a", encoding="utf-8")
-        except Exception:
+        except OSError:
             _log_file_handle = None
 
     processors = cast(

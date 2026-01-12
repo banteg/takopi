@@ -221,7 +221,7 @@ async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
         return
     try:
         ok = await cfg.bot.set_my_commands(commands)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logger.info(
             "startup.command_menu.failed",
             error=str(exc),

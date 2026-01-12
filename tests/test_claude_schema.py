@@ -20,7 +20,7 @@ def _decode_fixture(name: str) -> list[str]:
             continue
         try:
             decoded = claude_schema.decode_stream_json_line(line)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             errors.append(f"line {lineno}: {exc.__class__.__name__}: {exc}")
             continue
 

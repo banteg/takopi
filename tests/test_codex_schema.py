@@ -21,12 +21,12 @@ def _decode_fixture(name: str) -> list[str]:
             continue
         try:
             json.loads(line)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             errors.append(f"line {lineno}: invalid JSON ({exc})")
             continue
         try:
             codex_schema.decode_event(line)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             errors.append(f"line {lineno}: {exc.__class__.__name__}: {exc}")
 
     return errors

@@ -53,7 +53,7 @@ def _signal_process(
             return
         except ProcessLookupError:
             return
-        except Exception as exc:
+        except OSError as exc:
             logger.debug(
                 log_event,
                 error=str(exc),

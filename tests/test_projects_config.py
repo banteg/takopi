@@ -90,7 +90,7 @@ def test_projects_default_engine_unknown() -> None:
         "projects": {"z80": {"path": "/tmp/repo", "default_engine": "nope"}},
     }
     settings = TakopiSettings.model_validate(config)
-    with pytest.raises(ConfigError, match="projects.z80.default_engine"):
+    with pytest.raises(ConfigError, match=r"projects\.z80\.default_engine"):
         settings.to_projects_config(
             config_path=Path("takopi.toml"),
             engine_ids=["codex"],

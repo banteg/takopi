@@ -35,7 +35,7 @@ async def drain_stderr(
                 tag=tag,
                 line=text,
             )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         log_pipeline(
             logger,
             "subprocess.stderr.error",
