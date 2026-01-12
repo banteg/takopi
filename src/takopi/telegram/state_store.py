@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Callable, Generic, Protocol, TypeVar
+from typing import Any, Callable, Generic, Protocol, TypeVar
 
 import anyio
 import msgspec
 
 T = TypeVar("T", bound="_VersionedState")
+
+
+class _Logger(Protocol):
+    def warning(self, event: str, **fields: Any) -> None: ...
 
 
 class _VersionedState(Protocol):
@@ -24,7 +28,7 @@ class JsonStateStore(Generic[T]):
         state_type: type[T],
         state_factory: Callable[[], T],
         log_prefix: str,
-        logger: object,
+        logger: _Logger,
     ) -> None:
         self._path = path
         self._lock = anyio.Lock()
