@@ -185,7 +185,11 @@ class TelegramTransport:
                 else None
             )
             notify = options.notify
-            message_thread_id = options.thread_id
+            message_thread_id = (
+                cast(int | None, options.thread_id)
+                if options.thread_id is not None
+                else None
+            )
         else:
             reply_to_message_id = cast(
                 int | None,
