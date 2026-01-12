@@ -470,8 +470,7 @@ async def run_main_loop(
                 if saved is None:
                     return
                 prompt = (
-                    f"{caption_text}\n\n"
-                    f"[uploaded file: {saved.rel_path.as_posix()}]"
+                    f"{caption_text}\n\n[uploaded file: {saved.rel_path.as_posix()}]"
                 )
                 await run_prompt_from_upload(msg, prompt, saved.context)
 
