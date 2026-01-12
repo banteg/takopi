@@ -27,7 +27,8 @@ from ..model import (
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import pi as pi_schema
-from ..utils.paths import get_run_base_dir, relativize_command, relativize_path
+from ..utils.paths import get_run_base_dir
+from .tool_actions import tool_kind_and_title
 
 logger = get_logger(__name__)
 
@@ -96,32 +97,7 @@ def _tool_kind_and_title(
     name: str,
     args: dict[str, Any],
 ) -> tuple[ActionKind, str]:
-    tool = name.lower()
-    if tool == "bash":
-        command = args.get("command")
-        return "command", relativize_command(str(command or "bash"))
-    if tool in {"edit", "write"}:
-        path = args.get("path")
-        if path:
-            return "file_change", relativize_path(str(path))
-        return "file_change", tool
-    if tool == "read":
-        path = args.get("path")
-        if path:
-            return "tool", f"read: `{relativize_path(str(path))}`"
-        return "tool", "read"
-    if tool == "grep":
-        pattern = args.get("pattern")
-        return "tool", f"grep: {pattern}" if pattern else "grep"
-    if tool == "find":
-        pattern = args.get("pattern")
-        return "tool", f"find: {pattern}" if pattern else "find"
-    if tool == "ls":
-        path = args.get("path")
-        if path:
-            return "tool", f"ls: `{relativize_path(str(path))}`"
-        return "tool", "ls"
-    return "tool", name
+    return tool_kind_and_title(name, args, path_keys=("path",))
 
 
 def _last_assistant_message(messages: Any) -> dict[str, Any] | None:

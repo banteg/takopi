@@ -14,7 +14,7 @@ from ..logging import get_logger
 from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from ..schemas import claude as claude_schema
-from ..utils.paths import relativize_command, relativize_path
+from .tool_actions import tool_input_path, tool_kind_and_title
 
 logger = get_logger(__name__)
 
@@ -67,55 +67,10 @@ def _coerce_comma_list(value: Any) -> str | None:
     return text or None
 
 
-def _tool_input_path(tool_input: dict[str, Any]) -> str | None:
-    for key in ("file_path", "path"):
-        value = tool_input.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return None
-
-
 def _tool_kind_and_title(
     name: str, tool_input: dict[str, Any]
 ) -> tuple[ActionKind, str]:
-    if name in {"Bash", "Shell", "KillShell"}:
-        command = tool_input.get("command")
-        display = relativize_command(str(command or name))
-        return "command", display
-    if name in {"Edit", "Write", "NotebookEdit", "MultiEdit"}:
-        path = _tool_input_path(tool_input)
-        if path:
-            return "file_change", relativize_path(str(path))
-        return "file_change", str(name)
-    if name == "Read":
-        path = _tool_input_path(tool_input)
-        if path:
-            return "tool", f"read: `{relativize_path(str(path))}`"
-        return "tool", "read"
-    if name == "Glob":
-        pattern = tool_input.get("pattern")
-        if pattern:
-            return "tool", f"glob: `{pattern}`"
-        return "tool", "glob"
-    if name == "Grep":
-        pattern = tool_input.get("pattern")
-        if pattern:
-            return "tool", f"grep: {pattern}"
-        return "tool", "grep"
-    if name == "WebSearch":
-        query = tool_input.get("query")
-        return "web_search", str(query or "search")
-    if name == "WebFetch":
-        url = tool_input.get("url")
-        return "web_search", str(url or "fetch")
-    if name in {"TodoWrite", "TodoRead"}:
-        return "note", "update todos" if name == "TodoWrite" else "read todos"
-    if name == "AskUserQuestion":
-        return "note", "ask user"
-    if name in {"Task", "Agent"}:
-        desc = tool_input.get("description") or tool_input.get("prompt")
-        return "subagent", str(desc or name)
-    return "tool", name
+    return tool_kind_and_title(name, tool_input, path_keys=("file_path", "path"))
 
 
 def _tool_action(
@@ -137,7 +92,7 @@ def _tool_action(
         detail["parent_tool_use_id"] = parent_tool_use_id
 
     if kind == "file_change":
-        path = _tool_input_path(tool_input)
+        path = tool_input_path(tool_input, path_keys=("file_path", "path"))
         if path:
             detail["changes"] = [{"path": path, "kind": "update"}]
 
