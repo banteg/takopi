@@ -14,6 +14,7 @@ class MessageRef:
     message_id: MessageId
     raw: Any | None = field(default=None, compare=False, hash=False)
     thread_id: ThreadId | None = field(default=None, compare=False, hash=False)
+    sender_id: int | None = field(default=None, compare=False, hash=False)
 
 
 @dataclass(frozen=True, slots=True)

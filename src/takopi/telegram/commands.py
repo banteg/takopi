@@ -1537,7 +1537,11 @@ async def _dispatch_command(
         stateful_mode=stateful_mode,
     )
     message_ref = MessageRef(
-        channel_id=chat_id, message_id=user_msg_id, thread_id=msg.thread_id
+        channel_id=chat_id,
+        message_id=user_msg_id,
+        thread_id=msg.thread_id,
+        sender_id=msg.sender_id,
+        raw=msg.raw,
     )
     try:
         backend = get_command(command_id, allowlist=allowlist, required=False)
