@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import tomli_w
+
 HOME_CONFIG_PATH = Path.home() / ".takopi" / "takopi.toml"
 
 
@@ -92,68 +94,32 @@ class ProjectsConfig:
         return tuple(self.chat_map.keys())
 
 
-def _toml_escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def _format_toml_value(value: Any) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, float):
-        return repr(value)
+def _normalize_toml_value(value: Any) -> Any:
     if isinstance(value, Path):
-        return f'"{_toml_escape(str(value))}"'
-    if isinstance(value, str):
-        return f'"{_toml_escape(value)}"'
+        return str(value)
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ConfigError(f"Unsupported config key {key!r}")
+            normalized[key] = _normalize_toml_value(item)
+        return normalized
     if isinstance(value, (list, tuple)):
-        inner = ", ".join(_format_toml_value(item) for item in value)
-        return f"[{inner}]"
+        return [_normalize_toml_value(item) for item in value]
     raise ConfigError(f"Unsupported config value {value!r}")
 
 
-def _table_has_scalars(table: dict[str, Any]) -> bool:
-    return any(not isinstance(value, dict) for value in table.values())
-
-
 def dump_toml(config: dict[str, Any]) -> str:
-    lines: list[str] = []
-
-    def write_kv(key: str, value: Any) -> None:
-        lines.append(f"{key} = {_format_toml_value(value)}")
-
-    def write_table(name: str, table: dict[str, Any]) -> None:
-        if lines and lines[-1] != "":
-            lines.append("")
-        lines.append(f"[{name}]")
-        for key, value in table.items():
-            if isinstance(value, dict):
-                continue
-            write_kv(key, value)
-        for key, value in table.items():
-            if isinstance(value, dict):
-                write_table(f"{name}.{key}", value)
-
-    for key, value in config.items():
-        if isinstance(value, dict):
-            continue
-        write_kv(key, value)
-
-    for key, value in config.items():
-        if not isinstance(value, dict):
-            continue
-        if _table_has_scalars(value):
-            write_table(key, value)
-            continue
-        for subkey, subvalue in value.items():
-            if isinstance(subvalue, dict):
-                write_table(f"{key}.{subkey}", subvalue)
-            else:
-                write_table(key, value)
-                break
-
-    return "\n".join(lines) + "\n"
+    normalized = _normalize_toml_value(config)
+    try:
+        dumped = tomli_w.dumps(normalized)
+    except (TypeError, ValueError) as e:
+        raise ConfigError(f"Unsupported config value: {e}") from None
+    if not dumped.endswith("\n"):
+        dumped += "\n"
+    return dumped
 
 
 def write_config(config: dict[str, Any], path: Path) -> None:
