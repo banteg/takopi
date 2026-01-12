@@ -67,6 +67,7 @@ from .topics import (
     _maybe_update_topic_context,
     _topic_key,
     _topic_title,
+    _topics_chat_allowed,
     _topics_chat_project,
     _topics_command_error,
 )
@@ -253,6 +254,27 @@ class _SavedFilePutGroup:
     base_dir: Path | None
     saved: list[_FilePutResult]
     failed: list[_FilePutResult]
+
+
+@dataclass(slots=True)
+class _ResumeLineProxy:
+    runner: Runner
+
+    @property
+    def engine(self) -> str:
+        return self.runner.engine
+
+    def is_resume_line(self, line: str) -> bool:
+        return self.runner.is_resume_line(line)
+
+    def format_resume(self, _: ResumeToken) -> str:
+        return ""
+
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        return self.runner.extract_resume(text)
+
+    def run(self, prompt: str, resume: ResumeToken | None):
+        return self.runner.run(prompt, resume)
 
 
 def resolve_file_put_paths(
@@ -1239,6 +1261,7 @@ async def _run_engine(
     | None = None,
     engine_override: EngineId | None = None,
     thread_id: int | None = None,
+    show_resume_line: bool = True,
 ) -> None:
     reply = partial(
         send_plain,
@@ -1256,6 +1279,9 @@ async def _run_engine(
         except RunnerUnavailableError as exc:
             await reply(text=f"error:\n{exc}")
             return
+        runner: Runner = entry.runner
+        if thread_id is not None and not show_resume_line:
+            runner = _ResumeLineProxy(runner)
         if not entry.available:
             reason = entry.issue or "engine unavailable"
             await _send_runner_unavailable(
@@ -1263,7 +1289,7 @@ async def _run_engine(
                 chat_id=chat_id,
                 user_msg_id=user_msg_id,
                 resume_token=resume_token,
-                runner=entry.runner,
+                runner=runner,
                 reason=reason,
                 thread_id=thread_id,
             )
@@ -1278,7 +1304,7 @@ async def _run_engine(
             run_fields = {
                 "chat_id": chat_id,
                 "user_msg_id": user_msg_id,
-                "engine": entry.runner.engine,
+                "engine": runner.engine,
                 "resume": resume_token.value if resume_token else None,
             }
             if context is not None:
@@ -1297,7 +1323,7 @@ async def _run_engine(
             )
             await handle_message(
                 exec_cfg,
-                runner=entry.runner,
+                runner=runner,
                 incoming=incoming,
                 resume_token=resume_token,
                 context=context,
@@ -1366,6 +1392,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         chat_id: int,
         user_msg_id: int,
         thread_id: int | None,
+        show_resume_line: bool,
     ) -> None:
         self._exec_cfg = exec_cfg
         self._runtime = runtime
@@ -1374,6 +1401,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         self._chat_id = chat_id
         self._user_msg_id = user_msg_id
         self._thread_id = thread_id
+        self._show_resume_line = show_resume_line
         self._reply_ref = MessageRef(
             channel_id=chat_id,
             message_id=user_msg_id,
@@ -1443,6 +1471,7 @@ class _TelegramCommandExecutor(CommandExecutor):
                 on_thread_known=None,
                 engine_override=engine,
                 thread_id=self._thread_id,
+                show_resume_line=self._show_resume_line,
             )
             return RunResult(engine=engine, message=capture.last_message)
         await _run_engine(
@@ -1458,6 +1487,7 @@ class _TelegramCommandExecutor(CommandExecutor):
             on_thread_known=self._scheduler.note_thread_known,
             engine_override=engine,
             thread_id=self._thread_id,
+            show_resume_line=self._show_resume_line,
         )
         return RunResult(engine=engine, message=None)
 
@@ -1504,6 +1534,10 @@ async def _dispatch_command(
         if msg.reply_to_message_id is not None
         else None
     )
+    topic_thread = (
+        msg.thread_id is not None and _topics_chat_allowed(cfg, msg.chat_id)
+    )
+    show_resume_line = cfg.topics.show_resume_line if topic_thread else True
     executor = _TelegramCommandExecutor(
         exec_cfg=cfg.exec_cfg,
         runtime=cfg.runtime,
@@ -1512,6 +1546,7 @@ async def _dispatch_command(
         chat_id=chat_id,
         user_msg_id=user_msg_id,
         thread_id=msg.thread_id,
+        show_resume_line=show_resume_line,
     )
     message_ref = MessageRef(
         channel_id=chat_id, message_id=user_msg_id, thread_id=msg.thread_id

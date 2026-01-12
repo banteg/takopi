@@ -262,12 +262,15 @@ Topics bind Telegram forum threads to specific project/branch contexts. They als
 ```toml
 [transports.telegram.topics]
 enabled = true
+# show_resume_line = false
 ```
 
 Your bot needs **Manage Topics** permission in the group.
 
 If any `projects.<alias>.chat_id` are configured, topics are managed in those
 project chats; otherwise topics are managed in the main chat.
+
+Set `show_resume_line = false` to hide the resume command line in topic threads.
 
 ### Topic behavior
 
@@ -321,6 +324,7 @@ chat_id = -1001234567890
 
 [transports.telegram.topics]
 enabled = true
+# show_resume_line = false
 ```
 
 **Project chats:**
@@ -331,6 +335,7 @@ chat_id = 123456789   # main chat (private, for non-project messages)
 
 [transports.telegram.topics]
 enabled = true
+# show_resume_line = false
 
 [projects.takopi]
 path = "~/dev/takopi"
@@ -455,6 +460,7 @@ deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
 [transports.telegram.topics]
 enabled = true
 scope = "auto"
+show_resume_line = true
 
 # Project definitions
 [projects.takopi]

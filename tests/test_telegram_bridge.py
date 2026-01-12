@@ -1262,6 +1262,44 @@ async def test_send_with_resume_reports_when_missing() -> None:
 
 
 @pytest.mark.anyio
+async def test_run_engine_hides_resume_line_in_topics() -> None:
+    transport = telegram_commands._CaptureTransport()
+    runner = ScriptRunner(
+        [Return(answer="ok")],
+        engine=CODEX_ENGINE,
+        resume_value="resume-123",
+    )
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+    )
+
+    await telegram_commands._run_engine(
+        exec_cfg=exec_cfg,
+        runtime=runtime,
+        running_tasks={},
+        chat_id=123,
+        user_msg_id=1,
+        text="hello",
+        resume_token=None,
+        context=None,
+        reply_ref=None,
+        on_thread_known=None,
+        engine_override=None,
+        thread_id=77,
+        show_resume_line=False,
+    )
+
+    assert transport.last_message is not None
+    assert "resume-123" not in transport.last_message.text
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_routes_reply_to_running_resume() -> None:
     progress_ready = anyio.Event()
     stop_polling = anyio.Event()

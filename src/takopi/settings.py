@@ -57,6 +57,7 @@ class TelegramTopicsSettings(BaseModel):
 
     enabled: bool = False
     scope: Literal["auto", "main", "projects", "all"] = "auto"
+    show_resume_line: bool = True
 
 
 class TelegramFilesSettings(BaseModel):

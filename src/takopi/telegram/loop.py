@@ -444,6 +444,9 @@ async def run_main_loop(
                     )
                     else None
                 )
+                show_resume_line = (
+                    cfg.topics.show_resume_line if topic_key is not None else True
+                )
                 await _run_engine(
                     exec_cfg=cfg.exec_cfg,
                     runtime=cfg.runtime,
@@ -459,6 +462,7 @@ async def run_main_loop(
                     ),
                     engine_override=engine_override,
                     thread_id=thread_id,
+                    show_resume_line=show_resume_line,
                 )
 
             async def run_thread_job(job: ThreadJob) -> None:

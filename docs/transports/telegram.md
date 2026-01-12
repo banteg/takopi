@@ -84,6 +84,7 @@ Configuration (under `[transports.telegram]`):
 [transports.telegram.topics]
 enabled = true
 scope = "auto" # auto | main | projects | all
+show_resume_line = true
 ```
 
 Requirements:
@@ -94,6 +95,10 @@ Requirements:
 - `all`: both the main chat and each project chat must be forum-enabled.
 - `auto`: if any project chats are configured, uses `projects`; otherwise `main`.
 - The bot needs the **Manage Topics** permission in the relevant chat(s).
+
+Optional:
+
+- `show_resume_line`: set `false` to hide the resume command line in topic threads.
 
 Commands:
 
