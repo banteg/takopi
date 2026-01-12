@@ -58,12 +58,14 @@ class TransportRuntime:
         plugin_configs: Mapping[str, Any] | None = None,
         watch_config: bool = False,
     ) -> None:
-        self._router = router
-        self._projects = projects
-        self._allowlist = normalize_allowlist(allowlist)
-        self._config_path = config_path
-        self._plugin_configs = dict(plugin_configs or {})
-        self._watch_config = watch_config
+        self._apply(
+            router=router,
+            projects=projects,
+            allowlist=allowlist,
+            config_path=config_path,
+            plugin_configs=plugin_configs,
+            watch_config=watch_config,
+        )
 
     def update(
         self,
@@ -74,6 +76,25 @@ class TransportRuntime:
         config_path: Path | None = None,
         plugin_configs: Mapping[str, Any] | None = None,
         watch_config: bool = False,
+    ) -> None:
+        self._apply(
+            router=router,
+            projects=projects,
+            allowlist=allowlist,
+            config_path=config_path,
+            plugin_configs=plugin_configs,
+            watch_config=watch_config,
+        )
+
+    def _apply(
+        self,
+        *,
+        router: AutoRouter,
+        projects: ProjectsConfig,
+        allowlist: Iterable[str] | None,
+        config_path: Path | None,
+        plugin_configs: Mapping[str, Any] | None,
+        watch_config: bool,
     ) -> None:
         self._router = router
         self._projects = projects
