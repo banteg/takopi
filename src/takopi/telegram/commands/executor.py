@@ -218,12 +218,10 @@ class _CaptureTransport:
     async def edit(
         self, *, ref: MessageRef, message: RenderedMessage, wait: bool = True
     ) -> MessageRef:
-        _ = wait
         self.last_message = message
         return ref
 
     async def delete(self, *, ref: MessageRef) -> bool:
-        _ = ref
         return True
 
     async def close(self) -> None:

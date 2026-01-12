@@ -381,7 +381,6 @@ class HttpBotClient:
         *,
         replace_message_id: int | None = None,
     ) -> Message | None:
-        _ = replace_message_id
         params: dict[str, Any] = {"chat_id": chat_id, "text": text}
         if disable_notification is not None:
             params["disable_notification"] = disable_notification
@@ -435,7 +434,6 @@ class HttpBotClient:
         *,
         wait: bool = True,
     ) -> Message | None:
-        _ = wait
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,

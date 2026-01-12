@@ -79,7 +79,6 @@ class TelegramBackend(TransportBackend):
         return interactive_setup(force=force)
 
     def lock_token(self, *, transport_config: object, config_path: Path) -> str | None:
-        _ = config_path
         settings = _expect_transport_settings(transport_config)
         return settings.bot_token
 

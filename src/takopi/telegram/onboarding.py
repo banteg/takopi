@@ -286,8 +286,8 @@ def _confirm(message: str, *, default: bool = True) -> bool | None:
         exit_with_result(event)
 
     @bindings.add(Keys.Any)
-    def other(event):
-        _ = event
+    def other(_event):
+        return None
 
     question = Question(
         PromptSession(get_prompt_tokens, key_bindings=bindings, style=merged_style).app

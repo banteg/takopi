@@ -107,9 +107,8 @@ def _redact_value(value: Any, memo: dict[int, Any]) -> Any:
 
 
 def _redact_event_dict(
-    logger: Any, method_name: str, event_dict: dict[str, Any]
+    _logger: Any, _method_name: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
-    _ = logger, method_name
     return _redact_value(event_dict, memo={})
 
 
