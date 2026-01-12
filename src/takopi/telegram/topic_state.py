@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
-import anyio
 import msgspec
 
 from ..context import RunContext
 from ..logging import get_logger
 from ..model import ResumeToken
+from .state_store import JsonStateStore
 
 logger = get_logger(__name__)
 
@@ -82,13 +80,20 @@ def _context_to_state(context: RunContext | None) -> _ContextState | None:
     return _ContextState(project=project, branch=branch)
 
 
-class TopicStateStore:
+def _new_state() -> _TopicState:
+    return _TopicState(version=STATE_VERSION, threads={})
+
+
+class TopicStateStore(JsonStateStore[_TopicState]):
     def __init__(self, path: Path) -> None:
-        self._path = path
-        self._lock = anyio.Lock()
-        self._loaded = False
-        self._mtime_ns: int | None = None
-        self._state = _TopicState(version=STATE_VERSION, threads={})
+        super().__init__(
+            path,
+            version=STATE_VERSION,
+            state_type=_TopicState,
+            state_factory=_new_state,
+            log_prefix="telegram.topic_state",
+            logger=logger,
+        )
 
     async def get_thread(
         self, chat_id: int, thread_id: int
@@ -201,56 +206,6 @@ class TopicStateStore:
             sessions=sessions,
             topic_title=thread.topic_title,
         )
-
-    def _stat_mtime_ns(self) -> int | None:
-        try:
-            return self._path.stat().st_mtime_ns
-        except FileNotFoundError:
-            return None
-
-    def _reload_locked_if_needed(self) -> None:
-        current = self._stat_mtime_ns()
-        if self._loaded and current == self._mtime_ns:
-            return
-        self._load_locked()
-
-    def _load_locked(self) -> None:
-        self._loaded = True
-        self._mtime_ns = self._stat_mtime_ns()
-        if self._mtime_ns is None:
-            self._state = _TopicState(version=STATE_VERSION, threads={})
-            return
-        try:
-            payload = msgspec.json.decode(self._path.read_bytes(), type=_TopicState)
-        except Exception as exc:
-            logger.warning(
-                "telegram.topic_state.load_failed",
-                path=str(self._path),
-                error=str(exc),
-                error_type=exc.__class__.__name__,
-            )
-            self._state = _TopicState(version=STATE_VERSION, threads={})
-            return
-        if payload.version != STATE_VERSION:
-            logger.warning(
-                "telegram.topic_state.version_mismatch",
-                path=str(self._path),
-                version=payload.version,
-                expected=STATE_VERSION,
-            )
-            self._state = _TopicState(version=STATE_VERSION, threads={})
-            return
-        self._state = payload
-
-    def _save_locked(self) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = msgspec.to_builtins(self._state)
-        tmp_path = self._path.with_suffix(f"{self._path.suffix}.tmp")
-        with open(tmp_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-        os.replace(tmp_path, self._path)
-        self._mtime_ns = self._stat_mtime_ns()
 
     def _get_thread_locked(self, chat_id: int, thread_id: int) -> _ThreadState | None:
         return self._state.threads.get(_thread_key(chat_id, thread_id))
