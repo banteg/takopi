@@ -32,6 +32,7 @@ from .commands import (
     _parse_slash_command,
     _reserved_commands,
     _save_file_put,
+    _should_show_resume_line,
     _run_engine,
     _set_command_menu,
     handle_callback_cancel,
@@ -444,8 +445,11 @@ async def run_main_loop(
                     )
                     else None
                 )
-                show_resume_line = (
-                    cfg.topics.show_resume_line if topic_key is not None else True
+                stateful_mode = topic_key is not None or chat_session_key is not None
+                show_resume_line = _should_show_resume_line(
+                    show_resume_line=cfg.show_resume_line,
+                    stateful_mode=stateful_mode,
+                    context=context,
                 )
                 await _run_engine(
                     exec_cfg=cfg.exec_cfg,
@@ -590,6 +594,7 @@ async def run_main_loop(
                     else None
                 )
                 chat_session_key = _chat_session_key(msg, store=chat_session_store)
+                stateful_mode = topic_key is not None or chat_session_key is not None
                 chat_project = (
                     _topics_chat_project(cfg, chat_id) if cfg.topics.enabled else None
                 )
@@ -706,6 +711,7 @@ async def run_main_loop(
                             args_text,
                             running_tasks,
                             scheduler,
+                            stateful_mode,
                         )
                         continue
 

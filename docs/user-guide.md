@@ -39,6 +39,8 @@ To continue a session:
 - **Chat sessions** (optional) store one resume token per chat (per sender in groups) so new messages
   auto-resume without replying. Enable with `session_mode = "chat"` and reset with `/new`.
   State is stored in `telegram_chat_sessions_state.json`.
+  You can hide resume lines by setting `[transports.telegram].show_resume_line = false`
+  when auto-resume is available and a project context is resolved.
 
 Reply-to-continue always works, even if chat sessions or topics are enabled.
 
@@ -262,15 +264,12 @@ Topics bind Telegram forum threads to specific project/branch contexts. They als
 ```toml
 [transports.telegram.topics]
 enabled = true
-# show_resume_line = false
 ```
 
 Your bot needs **Manage Topics** permission in the group.
 
 If any `projects.<alias>.chat_id` are configured, topics are managed in those
 project chats; otherwise topics are managed in the main chat.
-
-Set `show_resume_line = false` to hide the resume command line in topic threads.
 
 ### Topic behavior
 
@@ -321,10 +320,10 @@ In project chats, omit the project: `/topic @branch` or `/ctx set @branch`.
 ```toml
 [transports.telegram]
 chat_id = -1001234567890
+# show_resume_line = false
 
 [transports.telegram.topics]
 enabled = true
-# show_resume_line = false
 ```
 
 **Project chats:**
@@ -332,10 +331,10 @@ enabled = true
 ```toml
 [transports.telegram]
 chat_id = 123456789   # main chat (private, for non-project messages)
+# show_resume_line = false
 
 [transports.telegram.topics]
 enabled = true
-# show_resume_line = false
 
 [projects.takopi]
 path = "~/dev/takopi"
@@ -448,6 +447,7 @@ chat_id = 123456789
 voice_transcription = true
 voice_transcription_model = "gpt-4o-mini-transcribe"
 session_mode = "stateless" # or "chat" for auto-resume per chat
+show_resume_line = true
 
 [transports.telegram.files]
 enabled = true
@@ -460,7 +460,6 @@ deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
 [transports.telegram.topics]
 enabled = true
 scope = "auto"
-show_resume_line = true
 
 # Project definitions
 [projects.takopi]

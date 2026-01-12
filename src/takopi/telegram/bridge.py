@@ -119,6 +119,7 @@ class TelegramBridgeConfig:
     startup_msg: str
     exec_cfg: ExecBridgeConfig
     session_mode: Literal["stateless", "chat"] = "stateless"
+    show_resume_line: bool = True
     voice_transcription: bool = False
     voice_max_bytes: int = 10 * 1024 * 1024
     voice_transcription_model: str = "gpt-4o-mini-transcribe"

@@ -68,7 +68,6 @@ from .topics import (
     _maybe_update_topic_context,
     _topic_key,
     _topic_title,
-    _topics_chat_allowed,
     _topics_chat_project,
     _topics_command_error,
 )
@@ -278,6 +277,21 @@ class _ResumeLineProxy:
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
         return self.runner.run(prompt, resume)
+
+
+def _should_show_resume_line(
+    *,
+    show_resume_line: bool,
+    stateful_mode: bool,
+    context: RunContext | None,
+) -> bool:
+    if show_resume_line:
+        return True
+    if not stateful_mode:
+        return True
+    if context is None or context.project is None:
+        return True
+    return False
 
 
 def resolve_file_put_paths(
@@ -1396,6 +1410,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         user_msg_id: int,
         thread_id: int | None,
         show_resume_line: bool,
+        stateful_mode: bool,
     ) -> None:
         self._exec_cfg = exec_cfg
         self._runtime = runtime
@@ -1405,6 +1420,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         self._user_msg_id = user_msg_id
         self._thread_id = thread_id
         self._show_resume_line = show_resume_line
+        self._stateful_mode = stateful_mode
         self._reply_ref = MessageRef(
             channel_id=chat_id,
             message_id=user_msg_id,
@@ -1450,6 +1466,11 @@ class _TelegramCommandExecutor(CommandExecutor):
         self, request: RunRequest, *, mode: RunMode = "emit"
     ) -> RunResult:
         request = self._apply_default_context(request)
+        effective_show_resume_line = _should_show_resume_line(
+            show_resume_line=self._show_resume_line,
+            stateful_mode=self._stateful_mode,
+            context=request.context,
+        )
         engine = self._runtime.resolve_engine(
             engine_override=request.engine,
             context=request.context,
@@ -1474,7 +1495,7 @@ class _TelegramCommandExecutor(CommandExecutor):
                 on_thread_known=None,
                 engine_override=engine,
                 thread_id=self._thread_id,
-                show_resume_line=self._show_resume_line,
+                show_resume_line=effective_show_resume_line,
             )
             return RunResult(engine=engine, message=capture.last_message)
         await _run_engine(
@@ -1490,7 +1511,7 @@ class _TelegramCommandExecutor(CommandExecutor):
             on_thread_known=self._scheduler.note_thread_known,
             engine_override=engine,
             thread_id=self._thread_id,
-            show_resume_line=self._show_resume_line,
+            show_resume_line=effective_show_resume_line,
         )
         return RunResult(engine=engine, message=None)
 

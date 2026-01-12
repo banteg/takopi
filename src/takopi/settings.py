@@ -57,7 +57,6 @@ class TelegramTopicsSettings(BaseModel):
 
     enabled: bool = False
     scope: Literal["auto", "main", "projects", "all"] = "auto"
-    show_resume_line: bool = True
 
 
 class TelegramFilesSettings(BaseModel):
@@ -104,6 +103,7 @@ class TelegramTransportSettings(BaseModel):
     voice_max_bytes: StrictInt = 10 * 1024 * 1024
     voice_transcription_model: NonEmptyStr = "gpt-4o-mini-transcribe"
     session_mode: Literal["stateless", "chat"] = "stateless"
+    show_resume_line: bool = True
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
     files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
 

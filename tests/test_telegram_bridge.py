@@ -1462,9 +1462,19 @@ async def test_run_main_loop_auto_resumes_chat_sessions(tmp_path: Path) -> None:
         presenter=MarkdownPresenter(),
         final_notify=True,
     )
+    projects = ProjectsConfig(
+        projects={
+            "proj": ProjectConfig(
+                alias="proj",
+                path=tmp_path,
+                worktrees_dir=Path(".worktrees"),
+            )
+        },
+        default_project="proj",
+    )
     runtime = TransportRuntime(
         router=_make_router(runner),
-        projects=_empty_projects(),
+        projects=projects,
         config_path=state_path,
     )
     cfg = TelegramBridgeConfig(
@@ -1524,6 +1534,59 @@ async def test_run_main_loop_auto_resumes_chat_sessions(tmp_path: Path) -> None:
     await run_main_loop(cfg2, poller2)
 
     assert runner2.calls[0][1] == ResumeToken(engine=CODEX_ENGINE, value=resume_value)
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_hides_resume_line_when_disabled(
+    tmp_path: Path,
+) -> None:
+    resume_value = "resume-123"
+    state_path = tmp_path / "takopi.toml"
+
+    transport = _FakeTransport()
+    bot = _FakeBot()
+    runner = ScriptRunner(
+        [Return(answer="ok")],
+        engine=CODEX_ENGINE,
+        resume_value=resume_value,
+    )
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+        config_path=state_path,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        session_mode="chat",
+        show_resume_line=False,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert transport.send_calls
+    final_text = transport.send_calls[-1]["message"].text
+    assert resume_value not in final_text
 
 
 @pytest.mark.anyio

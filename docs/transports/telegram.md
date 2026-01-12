@@ -48,6 +48,7 @@ line. If you want auto-resume without replies, enable chat sessions.
 Configuration (under `[transports.telegram]`):
 
 ```toml
+show_resume_line = true # set false to hide resume lines
 session_mode = "chat" # or "stateless"
 ```
 
@@ -58,6 +59,10 @@ Behavior:
 - Reset with `/new`.
 
 State is stored in `telegram_chat_sessions_state.json` alongside the config file.
+
+Set `show_resume_line = false` to hide resume lines when takopi can auto-resume
+(topics or chat sessions) and a project context is resolved. Otherwise the resume
+line stays visible so reply-to-continue still works.
 
 ## Message overflow
 
@@ -84,7 +89,6 @@ Configuration (under `[transports.telegram]`):
 [transports.telegram.topics]
 enabled = true
 scope = "auto" # auto | main | projects | all
-show_resume_line = true
 ```
 
 Requirements:
@@ -95,10 +99,6 @@ Requirements:
 - `all`: both the main chat and each project chat must be forum-enabled.
 - `auto`: if any project chats are configured, uses `projects`; otherwise `main`.
 - The bot needs the **Manage Topics** permission in the relevant chat(s).
-
-Optional:
-
-- `show_resume_line`: set `false` to hide the resume command line in topic threads.
 
 Commands:
 
