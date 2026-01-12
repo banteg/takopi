@@ -584,9 +584,7 @@ async def run_main_loop(
                     if topic_store is not None
                     else None
                 )
-                chat_session_key = _chat_session_key(
-                    msg, store=chat_session_store
-                )
+                chat_session_key = _chat_session_key(msg, store=chat_session_store)
                 chat_project = (
                     _topics_chat_project(cfg, chat_id) if cfg.topics.enabled else None
                 )
@@ -626,8 +624,8 @@ async def run_main_loop(
                             cfg,
                             msg,
                             topic_store,
-                            resolved_scope=resolved_topics_scope,
-                            scope_chat_ids=topics_chat_ids,
+                            resolved_topics_scope,
+                            topics_chat_ids,
                         )
                         continue
                     if chat_session_store is not None:
@@ -645,8 +643,8 @@ async def run_main_loop(
                             cfg,
                             msg,
                             topic_store,
-                            resolved_scope=resolved_topics_scope,
-                            scope_chat_ids=topics_chat_ids,
+                            resolved_topics_scope,
+                            topics_chat_ids,
                         )
                         continue
                 if command_id is not None and _dispatch_builtin_command(
