@@ -1283,7 +1283,7 @@ async def _run_engine(
             await reply(text=f"error:\n{exc}")
             return
         runner: Runner = entry.runner
-        if thread_id is not None and not show_resume_line:
+        if not show_resume_line:
             runner = cast(Runner, _ResumeLineProxy(runner))
         if not entry.available:
             reason = entry.issue or "engine unavailable"
@@ -1524,6 +1524,7 @@ async def _dispatch_command(
     args_text: str,
     running_tasks: RunningTasks,
     scheduler: ThreadScheduler,
+    stateful_mode: bool,
 ) -> None:
     allowlist = cfg.runtime.allowlist
     chat_id = msg.chat_id
@@ -1537,8 +1538,6 @@ async def _dispatch_command(
         if msg.reply_to_message_id is not None
         else None
     )
-    topic_thread = msg.thread_id is not None and _topics_chat_allowed(cfg, msg.chat_id)
-    show_resume_line = cfg.topics.show_resume_line if topic_thread else True
     executor = _TelegramCommandExecutor(
         exec_cfg=cfg.exec_cfg,
         runtime=cfg.runtime,
@@ -1547,7 +1546,8 @@ async def _dispatch_command(
         chat_id=chat_id,
         user_msg_id=user_msg_id,
         thread_id=msg.thread_id,
-        show_resume_line=show_resume_line,
+        show_resume_line=cfg.show_resume_line,
+        stateful_mode=stateful_mode,
     )
     message_ref = MessageRef(
         channel_id=chat_id, message_id=user_msg_id, thread_id=msg.thread_id
