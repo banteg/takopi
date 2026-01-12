@@ -276,7 +276,7 @@ def translate_claude_event(
             return []
 
 
-@dataclass
+@dataclass(slots=True)
 class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     engine: EngineId = ENGINE
     resume_re: re.Pattern[str] = _RESUME_RE

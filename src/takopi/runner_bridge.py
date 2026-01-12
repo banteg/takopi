@@ -80,14 +80,14 @@ class IncomingMessage:
     thread_id: ThreadId | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class ExecBridgeConfig:
     transport: Transport
     presenter: Presenter
     final_notify: bool
 
 
-@dataclass
+@dataclass(slots=True)
 class RunningTask:
     resume: ResumeToken | None = None
     resume_ready: anyio.Event = field(default_factory=anyio.Event)

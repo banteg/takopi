@@ -111,7 +111,7 @@ def _is_cancelled_label(label: str) -> bool:
     return stripped.lower() == "cancelled"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TelegramBridgeConfig:
     bot: BotClient
     runtime: TransportRuntime

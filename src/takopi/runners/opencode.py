@@ -299,7 +299,7 @@ def translate_opencode_event(
             return []
 
 
-@dataclass
+@dataclass(slots=True)
 class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     """Runner for OpenCode CLI."""
 
