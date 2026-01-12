@@ -21,8 +21,8 @@ This document captures current behavior so transport changes stay intentional.
 `parse_incoming_update` accepts text messages and voice notes.
 
 If voice transcription is enabled, takopi downloads the voice payload from Telegram,
-transcribes it with OpenAI, and routes the transcript through the same command and
-directive pipeline as typed text.
+transcribes it (OpenAI by default or any OpenAI-compatible endpoint), and routes the
+transcript through the same command and directive pipeline as typed text.
 
 Configuration (under `[transports.telegram]`):
 
@@ -30,9 +30,18 @@ Configuration (under `[transports.telegram]`):
 voice_transcription = true
 ```
 
-Set `OPENAI_API_KEY` in the environment. If transcription is enabled but the API key
-is missing or the audio download fails, takopi replies with a short error and skips
-the run.
+Optional local endpoint:
+
+```toml
+[transports.telegram.transcription]
+base_url = "http://localhost:8080/v1"
+model = "whisper-1"
+api_key = "local"
+```
+
+Set `OPENAI_API_KEY` in the environment (or provide `api_key` in the config). If
+transcription is enabled but the API key is missing or the audio download fails,
+takopi replies with a short error and skips the run.
 
 ## Forum topics (optional)
 
