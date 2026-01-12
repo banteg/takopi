@@ -113,6 +113,15 @@ async def _send_or_edit_message(
     thread_id: int | None = None,
 ) -> tuple[MessageRef | None, bool]:
     msg = message
+    followups = message.extra.get("followups")
+    if followups:
+        extra = dict(message.extra)
+        if reply_to is not None:
+            extra.setdefault("followup_reply_to_message_id", reply_to.message_id)
+        if thread_id is not None:
+            extra.setdefault("followup_thread_id", thread_id)
+        extra.setdefault("followup_notify", notify)
+        msg = RenderedMessage(text=message.text, extra=extra)
     if edit_ref is not None:
         logger.debug(
             "transport.edit_message",

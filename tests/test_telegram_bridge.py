@@ -32,6 +32,7 @@ from takopi.telegram.bridge import (
     send_with_resume,
 )
 from takopi.telegram.client import BotClient
+from takopi.telegram.render import MAX_BODY_CHARS
 from takopi.telegram.topic_state import TopicStateStore, resolve_state_path
 from takopi.context import RunContext
 from takopi.config import ProjectConfig, ProjectsConfig
@@ -486,6 +487,26 @@ def test_telegram_presenter_final_clears_button() -> None:
     assert rendered.extra["reply_markup"]["inline_keyboard"] == []
 
 
+def test_telegram_presenter_split_overflow_adds_followups() -> None:
+    presenter = TelegramPresenter(message_overflow="split")
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_final(
+        state,
+        elapsed_s=0.0,
+        status="done",
+        answer="x" * (MAX_BODY_CHARS + 10),
+    )
+
+    followups = rendered.extra.get("followups")
+    assert followups
+    assert all(isinstance(item, RenderedMessage) for item in followups)
+    assert rendered.extra["reply_markup"]["inline_keyboard"] == []
+    assert all(
+        item.extra["reply_markup"]["inline_keyboard"] == [] for item in followups
+    )
+
+
 @pytest.mark.anyio
 async def test_telegram_transport_passes_replace_and_wait() -> None:
     bot = _FakeBot()
@@ -530,6 +551,54 @@ async def test_telegram_transport_passes_reply_markup() -> None:
     )
     assert bot.edit_calls
     assert bot.edit_calls[0]["reply_markup"] == markup
+
+
+@pytest.mark.anyio
+async def test_telegram_transport_sends_followups() -> None:
+    bot = _FakeBot()
+    transport = TelegramTransport(bot)
+    reply = MessageRef(channel_id=123, message_id=10)
+    followup = RenderedMessage(text="part 2")
+
+    await transport.send(
+        channel_id=123,
+        message=RenderedMessage(text="part 1", extra={"followups": [followup]}),
+        options=SendOptions(reply_to=reply, notify=False, thread_id=7),
+    )
+
+    assert len(bot.send_calls) == 2
+    assert bot.send_calls[1]["text"] == "part 2"
+    assert bot.send_calls[1]["reply_to_message_id"] == 10
+    assert bot.send_calls[1]["message_thread_id"] == 7
+    assert bot.send_calls[1]["replace_message_id"] is None
+    assert bot.send_calls[1]["disable_notification"] is True
+
+
+@pytest.mark.anyio
+async def test_telegram_transport_edits_and_sends_followups() -> None:
+    bot = _FakeBot()
+    transport = TelegramTransport(bot)
+    followup = RenderedMessage(text="part 2")
+
+    await transport.edit(
+        ref=MessageRef(channel_id=123, message_id=42),
+        message=RenderedMessage(
+            text="part 1",
+            extra={
+                "followups": [followup],
+                "followup_reply_to_message_id": 10,
+                "followup_thread_id": 7,
+                "followup_notify": False,
+            },
+        ),
+    )
+
+    assert len(bot.edit_calls) == 1
+    assert len(bot.send_calls) == 1
+    assert bot.send_calls[0]["text"] == "part 2"
+    assert bot.send_calls[0]["reply_to_message_id"] == 10
+    assert bot.send_calls[0]["message_thread_id"] == 7
+    assert bot.send_calls[0]["disable_notification"] is True
 
 
 @pytest.mark.anyio

@@ -18,7 +18,7 @@ from ..settings import (
     TelegramTransportSettings,
 )
 from .client import BotClient
-from .render import prepare_telegram
+from .render import MAX_BODY_CHARS, prepare_telegram, prepare_telegram_multi
 from .types import TelegramCallbackQuery, TelegramIncomingMessage
 
 logger = get_logger(__name__)
@@ -43,8 +43,14 @@ CLEAR_MARKUP = {"inline_keyboard": []}
 
 
 class TelegramPresenter:
-    def __init__(self, *, formatter: MarkdownFormatter | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        formatter: MarkdownFormatter | None = None,
+        message_overflow: str = "trim",
+    ) -> None:
         self._formatter = formatter or MarkdownFormatter()
+        self._message_overflow = message_overflow
 
     def render_progress(
         self,
@@ -74,6 +80,23 @@ class TelegramPresenter:
         parts = self._formatter.render_final_parts(
             state, elapsed_s=elapsed_s, status=status, answer=answer
         )
+        if self._message_overflow == "split":
+            payloads = prepare_telegram_multi(parts, max_body_chars=MAX_BODY_CHARS)
+            text, entities = payloads[0]
+            extra = {"entities": entities, "reply_markup": CLEAR_MARKUP}
+            if len(payloads) > 1:
+                followups = [
+                    RenderedMessage(
+                        text=followup_text,
+                        extra={
+                            "entities": followup_entities,
+                            "reply_markup": CLEAR_MARKUP,
+                        },
+                    )
+                    for followup_text, followup_entities in payloads[1:]
+                ]
+                extra["followups"] = followups
+            return RenderedMessage(text=text, extra=extra)
         text, entities = prepare_telegram(parts)
         return RenderedMessage(
             text=text,
@@ -107,6 +130,34 @@ class TelegramTransport:
     def __init__(self, bot: BotClient) -> None:
         self._bot = bot
 
+    @staticmethod
+    def _extract_followups(message: RenderedMessage) -> list[RenderedMessage]:
+        followups = message.extra.get("followups")
+        if not isinstance(followups, list):
+            return []
+        return [item for item in followups if isinstance(item, RenderedMessage)]
+
+    async def _send_followups(
+        self,
+        *,
+        chat_id: int,
+        followups: list[RenderedMessage],
+        reply_to_message_id: int | None,
+        message_thread_id: int | None,
+        notify: bool,
+    ) -> None:
+        for followup in followups:
+            await self._bot.send_message(
+                chat_id=chat_id,
+                text=followup.text,
+                entities=followup.extra.get("entities"),
+                parse_mode=followup.extra.get("parse_mode"),
+                reply_markup=followup.extra.get("reply_markup"),
+                reply_to_message_id=reply_to_message_id,
+                message_thread_id=message_thread_id,
+                disable_notification=not notify,
+            )
+
     async def close(self) -> None:
         await self._bot.close()
 
@@ -135,6 +186,17 @@ class TelegramTransport:
             )
             notify = options.notify
             message_thread_id = options.thread_id
+        else:
+            reply_to_message_id = cast(
+                int | None,
+                message.extra.get("followup_reply_to_message_id"),
+            )
+            message_thread_id = cast(
+                int | None,
+                message.extra.get("followup_thread_id"),
+            )
+            notify = bool(message.extra.get("followup_notify", True))
+        followups = self._extract_followups(message)
         sent = await self._bot.send_message(
             chat_id=chat_id,
             text=message.text,
@@ -148,6 +210,14 @@ class TelegramTransport:
         )
         if sent is None:
             return None
+        if followups:
+            await self._send_followups(
+                chat_id=chat_id,
+                followups=followups,
+                reply_to_message_id=reply_to_message_id,
+                message_thread_id=message_thread_id,
+                notify=notify,
+            )
         message_id = sent.message_id
         return MessageRef(
             channel_id=chat_id,
@@ -163,6 +233,7 @@ class TelegramTransport:
         entities = message.extra.get("entities")
         parse_mode = message.extra.get("parse_mode")
         reply_markup = message.extra.get("reply_markup")
+        followups = self._extract_followups(message)
         edited = await self._bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
@@ -174,6 +245,21 @@ class TelegramTransport:
         )
         if edited is None:
             return ref if not wait else None
+        if followups:
+            reply_to_message_id = cast(
+                int | None, message.extra.get("followup_reply_to_message_id")
+            )
+            message_thread_id = cast(
+                int | None, message.extra.get("followup_thread_id")
+            )
+            notify = bool(message.extra.get("followup_notify", True))
+            await self._send_followups(
+                chat_id=chat_id,
+                followups=followups,
+                reply_to_message_id=reply_to_message_id,
+                message_thread_id=message_thread_id,
+                notify=notify,
+            )
         message_id = edited.message_id
         return MessageRef(
             channel_id=chat_id,

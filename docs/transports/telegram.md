@@ -40,6 +40,20 @@ example, `http://localhost:8000/v1`) and a dummy `OPENAI_API_KEY` if your server
 ignores it. If your server requires a specific model name, set
 `voice_transcription_model` (for example, `whisper-1`).
 
+## Message overflow
+
+By default, takopi trims long final responses to ~3500 characters to stay under
+Telegram's 4096 character limit after entity parsing. You can opt into splitting
+instead:
+
+```toml
+[transports.telegram]
+message_overflow = "split" # trim | split
+```
+
+Split mode sends multiple messages. Each chunk includes the footer; follow-up
+chunks add a "continued (N/M)" header.
+
 ## Forum topics (optional)
 
 Takopi can bind Telegram forum topics to a project/branch and persist resume tokens

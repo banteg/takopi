@@ -64,6 +64,13 @@ bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 ```
 
+Optional: split long final responses instead of trimming them:
+
+```toml
+[transports.telegram]
+message_overflow = "split" # trim | split
+```
+
 ---
 
 ## 2. Your first handoff
