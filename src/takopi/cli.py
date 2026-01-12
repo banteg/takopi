@@ -301,10 +301,7 @@ def _default_alias_from_path(path: Path) -> str | None:
 
 
 def _ensure_projects_table(config: dict, config_path: Path) -> dict:
-    projects = config.get("projects")
-    if projects is None:
-        projects = {}
-        config["projects"] = projects
+    projects = config.setdefault("projects", {})
     if not isinstance(projects, dict):
         raise ConfigError(f"Invalid `projects` in {config_path}; expected a table.")
     return projects
