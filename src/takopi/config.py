@@ -94,27 +94,9 @@ class ProjectsConfig:
         return tuple(self.chat_map.keys())
 
 
-def _normalize_toml_value(value: Any) -> Any:
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        normalized: dict[str, Any] = {}
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise ConfigError(f"Unsupported config key {key!r}")
-            normalized[key] = _normalize_toml_value(item)
-        return normalized
-    if isinstance(value, (list, tuple)):
-        return [_normalize_toml_value(item) for item in value]
-    raise ConfigError(f"Unsupported config value {value!r}")
-
-
 def dump_toml(config: dict[str, Any]) -> str:
-    normalized = _normalize_toml_value(config)
     try:
-        dumped = tomli_w.dumps(normalized)
+        dumped = tomli_w.dumps(config)
     except (TypeError, ValueError) as e:
         raise ConfigError(f"Unsupported config value: {e}") from None
     if not dumped.endswith("\n"):
