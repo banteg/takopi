@@ -10,11 +10,13 @@
 
 - simplify runtime, config, and telegram internals [#85](https://github.com/banteg/takopi/pull/85)
 - refactor telegram boundary types [#90](https://github.com/banteg/takopi/pull/90)
+- allow configuring the telegram voice transcription model for local whisper servers
 
 ### docs
 
 - add tips section to user guide
 - rework readme
+- document OPENAI_BASE_URL and model overrides for telegram voice transcription
 
 ## v0.15.0 (2026-01-11)
 

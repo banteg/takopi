@@ -477,6 +477,7 @@ async def run_main_loop(
                         bot=cfg.bot,
                         msg=msg,
                         enabled=cfg.voice_transcription,
+                        model=cfg.voice_transcription_model,
                         max_bytes=cfg.voice_max_bytes,
                         reply=reply,
                     )

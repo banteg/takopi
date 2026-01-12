@@ -324,10 +324,15 @@ Dictate tasks instead of typing:
 ```toml
 [transports.telegram]
 voice_transcription = true
+voice_transcription_model = "gpt-4o-mini-transcribe" # optional
 ```
 
 Set `OPENAI_API_KEY` in your environment (uses OpenAI's transcription API with the
-`gpt-4o-mini-transcribe` model).
+`gpt-4o-mini-transcribe` model by default). To use a local OpenAI-compatible
+Whisper server, also set `OPENAI_BASE_URL` (for example,
+`http://localhost:8000/v1`) and a dummy `OPENAI_API_KEY` if your server ignores it.
+If your server requires a specific model name, set `voice_transcription_model`
+accordingly (for example, `whisper-1`).
 
 When you send a voice note, takopi transcribes it and runs the result as a normal text message. If transcription fails, you'll get an error message and the run is skipped.
 
@@ -408,6 +413,7 @@ watch_config = true   # hot-reload on config changes (except transport)
 bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
 chat_id = 123456789
 voice_transcription = true
+# voice_transcription_model = "gpt-4o-mini-transcribe"
 
 [transports.telegram.files]
 enabled = true

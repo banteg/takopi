@@ -99,6 +99,7 @@ class TelegramTransportSettings(BaseModel):
     chat_id: StrictInt
     voice_transcription: bool = False
     voice_max_bytes: StrictInt = 10 * 1024 * 1024
+    voice_transcription_model: NonEmptyStr = "gpt-4o-mini-transcribe"
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
     files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
 

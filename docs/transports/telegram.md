@@ -28,11 +28,17 @@ Configuration (under `[transports.telegram]`):
 
 ```toml
 voice_transcription = true
+voice_transcription_model = "gpt-4o-mini-transcribe" # optional
 ```
 
 Set `OPENAI_API_KEY` in the environment. If transcription is enabled but the API key
 is missing or the audio download fails, takopi replies with a short error and skips
 the run.
+
+To use a local OpenAI-compatible Whisper server, also set `OPENAI_BASE_URL` (for
+example, `http://localhost:8000/v1`) and a dummy `OPENAI_API_KEY` if your server
+ignores it. If your server requires a specific model name, set
+`voice_transcription_model` (for example, `whisper-1`).
 
 ## Forum topics (optional)
 

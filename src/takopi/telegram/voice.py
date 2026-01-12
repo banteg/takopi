@@ -13,7 +13,6 @@ logger = get_logger(__name__)
 
 __all__ = ["transcribe_voice"]
 
-OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 VOICE_TRANSCRIPTION_DISABLED_HINT = (
     "voice transcription is disabled. enable it in config:\n"
     "```toml\n"
@@ -28,6 +27,7 @@ async def transcribe_voice(
     bot: BotClient,
     msg: TelegramIncomingMessage,
     enabled: bool,
+    model: str,
     max_bytes: int | None = None,
     reply: Callable[..., Awaitable[None]],
 ) -> str | None:
@@ -60,7 +60,7 @@ async def transcribe_voice(
     async with AsyncOpenAI(timeout=120) as client:
         try:
             response = await client.audio.transcriptions.create(
-                model=OPENAI_TRANSCRIPTION_MODEL,
+                model=model,
                 file=audio_file,
             )
         except OpenAIError as exc:
