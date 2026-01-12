@@ -7,8 +7,11 @@ from typing import Any, Awaitable, Callable, Protocol
 import anyio
 
 from .context import RunContext
+from .logging import get_logger
 from .model import ResumeToken
 from .transport import ChannelId, MessageId, ThreadId
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +111,18 @@ class ThreadScheduler:
                 if done is not None and not done.is_set():
                     await done.wait()
 
-                await self._run_job(job)
+                try:
+                    await self._run_job(job)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception(
+                        "scheduler.job_failed",
+                        key=key,
+                        tag=job.resume_token.engine,
+                        chat_id=job.chat_id,
+                        user_msg_id=job.user_msg_id,
+                        error=str(exc),
+                        error_type=exc.__class__.__name__,
+                    )
         finally:
             async with self._lock:
                 self._active_threads.discard(key)
