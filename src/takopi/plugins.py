@@ -281,3 +281,38 @@ def load_entrypoint(
     _LOADED[key] = loaded
     clear_load_errors(group=group, name=name)
     return loaded
+
+
+def load_plugin_backend(
+    group: str,
+    name: str,
+    *,
+    allowlist: Iterable[str] | None = None,
+    validator: Callable[[Any, EntryPoint], None] | None = None,
+    kind_label: str,
+    required: bool = True,
+) -> Any | None:
+    try:
+        return load_entrypoint(
+            group,
+            name,
+            allowlist=allowlist,
+            validator=validator,
+        )
+    except PluginNotFound as exc:
+        if not required:
+            return None
+        if exc.available:
+            available = ", ".join(exc.available)
+            message = f"Unknown {kind_label} {name!r}. Available: {available}."
+        else:
+            message = f"Unknown {kind_label} {name!r}."
+        from .config import ConfigError
+
+        raise ConfigError(message) from exc
+    except PluginLoadFailed as exc:
+        from .config import ConfigError
+
+        raise ConfigError(
+            f"Failed to load {kind_label} {name!r}: {exc}"
+        ) from exc

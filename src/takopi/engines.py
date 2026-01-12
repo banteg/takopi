@@ -4,13 +4,7 @@ from typing import Iterable
 
 from .backends import EngineBackend
 from .config import ConfigError
-from .plugins import (
-    ENGINE_GROUP,
-    PluginLoadFailed,
-    PluginNotFound,
-    load_entrypoint,
-    list_ids,
-)
+from .plugins import ENGINE_GROUP, list_ids, load_plugin_backend
 from .ids import RESERVED_ENGINE_IDS
 
 
@@ -28,22 +22,14 @@ def get_backend(
 ) -> EngineBackend:
     if engine_id.lower() in RESERVED_ENGINE_IDS:
         raise ConfigError(f"Engine id {engine_id!r} is reserved.")
-    try:
-        backend = load_entrypoint(
-            ENGINE_GROUP,
-            engine_id,
-            allowlist=allowlist,
-            validator=_validate_engine_backend,
-        )
-    except PluginNotFound as exc:
-        if exc.available:
-            available = ", ".join(exc.available)
-            message = f"Unknown engine {engine_id!r}. Available: {available}."
-        else:
-            message = f"Unknown engine {engine_id!r}."
-        raise ConfigError(message) from exc
-    except PluginLoadFailed as exc:
-        raise ConfigError(f"Failed to load engine {engine_id!r}: {exc}") from exc
+    backend = load_plugin_backend(
+        ENGINE_GROUP,
+        engine_id,
+        allowlist=allowlist,
+        validator=_validate_engine_backend,
+        kind_label="engine",
+    )
+    assert backend is not None
     return backend
 
 

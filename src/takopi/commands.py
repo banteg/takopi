@@ -9,13 +9,7 @@ from .config import ConfigError
 from .context import RunContext
 from .ids import RESERVED_COMMAND_IDS
 from .model import EngineId
-from .plugins import (
-    COMMAND_GROUP,
-    PluginLoadFailed,
-    PluginNotFound,
-    load_entrypoint,
-    list_ids,
-)
+from .plugins import COMMAND_GROUP, list_ids, load_plugin_backend
 from .transport import MessageRef, RenderedMessage
 from .transport_runtime import TransportRuntime
 
@@ -122,25 +116,14 @@ def get_command(
 ) -> CommandBackend | None:
     if command_id.lower() in RESERVED_COMMAND_IDS:
         raise ConfigError(f"Command id {command_id!r} is reserved.")
-    try:
-        backend = load_entrypoint(
-            COMMAND_GROUP,
-            command_id,
-            allowlist=allowlist,
-            validator=_validate_command_backend,
-        )
-    except PluginNotFound as exc:
-        if not required:
-            return None
-        if exc.available:
-            available = ", ".join(exc.available)
-            message = f"Unknown command {command_id!r}. Available: {available}."
-        else:
-            message = f"Unknown command {command_id!r}."
-        raise ConfigError(message) from exc
-    except PluginLoadFailed as exc:
-        raise ConfigError(f"Failed to load command {command_id!r}: {exc}") from exc
-    return backend
+    return load_plugin_backend(
+        COMMAND_GROUP,
+        command_id,
+        allowlist=allowlist,
+        validator=_validate_command_backend,
+        kind_label="command",
+        required=required,
+    )
 
 
 def list_command_ids(*, allowlist: Iterable[str] | None = None) -> list[str]:

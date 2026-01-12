@@ -6,13 +6,7 @@ from typing import Iterable, Protocol, runtime_checkable
 
 from .backends import EngineBackend, SetupIssue
 from .config import ConfigError
-from .plugins import (
-    PluginLoadFailed,
-    PluginNotFound,
-    TRANSPORT_GROUP,
-    load_entrypoint,
-    list_ids,
-)
+from .plugins import TRANSPORT_GROUP, list_ids, load_plugin_backend
 from .transport_runtime import TransportRuntime
 
 
@@ -67,22 +61,14 @@ def _validate_transport_backend(backend: object, ep) -> None:
 def get_transport(
     transport_id: str, *, allowlist: Iterable[str] | None = None
 ) -> TransportBackend:
-    try:
-        backend = load_entrypoint(
-            TRANSPORT_GROUP,
-            transport_id,
-            allowlist=allowlist,
-            validator=_validate_transport_backend,
-        )
-    except PluginNotFound as exc:
-        if exc.available:
-            available = ", ".join(exc.available)
-            message = f"Unknown transport {transport_id!r}. Available: {available}."
-        else:
-            message = f"Unknown transport {transport_id!r}."
-        raise ConfigError(message) from exc
-    except PluginLoadFailed as exc:
-        raise ConfigError(f"Failed to load transport {transport_id!r}: {exc}") from exc
+    backend = load_plugin_backend(
+        TRANSPORT_GROUP,
+        transport_id,
+        allowlist=allowlist,
+        validator=_validate_transport_backend,
+        kind_label="transport",
+    )
+    assert backend is not None
     return backend
 
 
