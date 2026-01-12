@@ -38,6 +38,7 @@ from ..transport import MessageRef, RenderedMessage, SendOptions
 from ..transport_runtime import ResolvedMessage, TransportRuntime
 from ..utils.paths import reset_run_base_dir, set_run_base_dir
 from .bridge import TelegramBridgeConfig, send_plain
+from .chat_prefs import ChatPrefsStore
 from .chat_sessions import ChatSessionStore
 from .context import (
     _format_context,
@@ -47,6 +48,7 @@ from .context import (
     _usage_ctx_set,
     _usage_topic,
 )
+from .engine_defaults import resolve_engine_for_message
 from .files import (
     default_upload_name,
     default_upload_path,
@@ -79,6 +81,7 @@ __all__ = [
     "FILE_GET_USAGE",
     "FILE_PUT_USAGE",
     "_dispatch_command",
+    "_handle_agent_command",
     "_handle_chat_new_command",
     "_handle_file_command",
     "_handle_file_get",
@@ -97,6 +100,7 @@ __all__ = [
 _MAX_BOT_COMMANDS = 100
 FILE_PUT_USAGE = "usage: `/file put <path>`"
 FILE_GET_USAGE = "usage: `/file get <path>`"
+AGENT_USAGE = "usage: `/agent`, `/agent set <engine>`, or `/agent clear`"
 
 
 def is_cancel_command(text: str) -> bool:
@@ -359,6 +363,29 @@ async def _check_file_permissions(
     if member.status in {"creator", "administrator"}:
         return True
     await reply(text="file transfer is restricted to group admins.")
+    return False
+
+
+async def _check_agent_permissions(
+    cfg: TelegramBridgeConfig, msg: TelegramIncomingMessage
+) -> bool:
+    reply = _reply_sender(cfg, msg)
+    sender_id = msg.sender_id
+    if sender_id is None:
+        await reply(text="cannot verify sender for agent defaults.")
+        return False
+    is_private = msg.chat_type == "private"
+    if msg.chat_type is None:
+        is_private = msg.chat_id > 0
+    if is_private:
+        return True
+    member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
+    if member is None:
+        await reply(text="failed to verify agent permissions.")
+        return False
+    if member.status in {"creator", "administrator"}:
+        return True
+    await reply(text="changing default agents is restricted to group admins.")
     return False
 
 
@@ -1034,6 +1061,123 @@ async def _handle_ctx_command(
     )
 
 
+async def _handle_agent_command(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    args_text: str,
+    ambient_context: RunContext | None,
+    topic_store: TopicStateStore | None,
+    chat_prefs: ChatPrefsStore | None,
+    *,
+    resolved_scope: str | None = None,
+    scope_chat_ids: frozenset[int] | None = None,
+) -> None:
+    reply = _reply_sender(cfg, msg)
+    tkey = (
+        _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
+        if topic_store is not None
+        else None
+    )
+    tokens = split_command_args(args_text)
+    action = tokens[0].lower() if tokens else "show"
+
+    if action in {"show", ""}:
+        try:
+            resolved = cfg.runtime.resolve_message(
+                text="",
+                reply_text=msg.reply_to_text,
+                ambient_context=ambient_context,
+                chat_id=msg.chat_id,
+            )
+        except DirectiveError as exc:
+            await reply(text=f"error:\n{exc}")
+            return
+        selection = await resolve_engine_for_message(
+            runtime=cfg.runtime,
+            context=resolved.context,
+            explicit_engine=None,
+            chat_id=msg.chat_id,
+            topic_key=tkey,
+            topic_store=topic_store,
+            chat_prefs=chat_prefs,
+        )
+        source_labels = {
+            "directive": "directive",
+            "topic_default": "topic default",
+            "chat_default": "chat default",
+            "project_default": "project default",
+            "global_default": "global default",
+        }
+        lines = [
+            f"default agent: `{selection.engine}` ({source_labels[selection.source]})",
+        ]
+        if tkey is not None:
+            topic_default = selection.topic_default or "none"
+            lines.append(f"topic default: `{topic_default}`")
+        if chat_prefs is None:
+            lines.append("chat default: unavailable (no config path)")
+        else:
+            chat_default = selection.chat_default or "none"
+            lines.append(f"chat default: `{chat_default}`")
+        project_default = selection.project_default
+        lines.append(
+            f"project default: `{project_default}`"
+            if project_default is not None
+            else "project default: none"
+        )
+        lines.append(f"global default: `{cfg.runtime.default_engine}`")
+        available = ", ".join(cfg.runtime.engine_ids)
+        lines.append(f"available agents: `{available}`")
+        await reply(text="\n".join(lines))
+        return
+
+    if action == "set":
+        if len(tokens) < 2:
+            await reply(text=AGENT_USAGE)
+            return
+        if not await _check_agent_permissions(cfg, msg):
+            return
+        engine = tokens[1].strip().lower()
+        if engine not in cfg.runtime.engine_ids:
+            available = ", ".join(cfg.runtime.engine_ids)
+            await reply(
+                text=f"unknown engine `{engine}`.\navailable agents: `{available}`",
+            )
+            return
+        if tkey is not None:
+            if topic_store is None:
+                await reply(text="topic defaults are unavailable.")
+                return
+            await topic_store.set_default_engine(tkey[0], tkey[1], engine)
+            await reply(text=f"topic default agent set to `{engine}`")
+            return
+        if chat_prefs is None:
+            await reply(text="chat defaults are unavailable (no config path).")
+            return
+        await chat_prefs.set_default_engine(msg.chat_id, engine)
+        await reply(text=f"chat default agent set to `{engine}`")
+        return
+
+    if action == "clear":
+        if not await _check_agent_permissions(cfg, msg):
+            return
+        if tkey is not None:
+            if topic_store is None:
+                await reply(text="topic defaults are unavailable.")
+                return
+            await topic_store.clear_default_engine(tkey[0], tkey[1])
+            await reply(text="topic default agent cleared.")
+            return
+        if chat_prefs is None:
+            await reply(text="chat defaults are unavailable (no config path).")
+            return
+        await chat_prefs.clear_default_engine(msg.chat_id)
+        await reply(text="chat default agent cleared.")
+        return
+
+    await reply(text=AGENT_USAGE)
+
+
 async def _handle_new_command(
     cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
@@ -1369,6 +1513,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         thread_id: int | None,
         show_resume_line: bool,
         stateful_mode: bool,
+        default_engine_override: EngineId | None,
     ) -> None:
         self._exec_cfg = exec_cfg
         self._runtime = runtime
@@ -1380,6 +1525,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         self._thread_id = thread_id
         self._show_resume_line = show_resume_line
         self._stateful_mode = stateful_mode
+        self._default_engine_override = default_engine_override
         self._reply_ref = MessageRef(
             channel_id=chat_id,
             message_id=user_msg_id,
@@ -1396,6 +1542,15 @@ class _TelegramCommandExecutor(CommandExecutor):
             prompt=request.prompt,
             engine=request.engine,
             context=context,
+        )
+
+    def _apply_default_engine(self, request: RunRequest) -> RunRequest:
+        if request.engine is not None or self._default_engine_override is None:
+            return request
+        return RunRequest(
+            prompt=request.prompt,
+            engine=self._default_engine_override,
+            context=request.context,
         )
 
     async def send(
@@ -1425,6 +1580,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         self, request: RunRequest, *, mode: RunMode = "emit"
     ) -> RunResult:
         request = self._apply_default_context(request)
+        request = self._apply_default_engine(request)
         effective_show_resume_line = _should_show_resume_line(
             show_resume_line=self._show_resume_line,
             stateful_mode=self._stateful_mode,
@@ -1511,6 +1667,7 @@ async def _dispatch_command(
     scheduler: ThreadScheduler,
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
     stateful_mode: bool,
+    default_engine_override: EngineId | None,
 ) -> None:
     allowlist = cfg.runtime.allowlist
     chat_id = msg.chat_id
@@ -1535,6 +1692,7 @@ async def _dispatch_command(
         thread_id=msg.thread_id,
         show_resume_line=cfg.show_resume_line,
         stateful_mode=stateful_mode,
+        default_engine_override=default_engine_override,
     )
     message_ref = MessageRef(
         channel_id=chat_id, message_id=user_msg_id, thread_id=msg.thread_id

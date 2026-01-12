@@ -198,7 +198,6 @@ class TransportRuntime:
         )
         engine_override = self._resolve_engine_override(
             directives_engine=directives.engine,
-            context=context,
         )
 
         return ResolvedMessage(
@@ -208,6 +207,14 @@ class TransportRuntime:
             context=context,
             context_source=context_source,
         )
+
+    def project_default_engine(self, context: RunContext | None) -> EngineId | None:
+        if context is None or context.project is None:
+            return None
+        project = self._projects.projects.get(context.project)
+        if project is None:
+            return None
+        return project.default_engine
 
     def _resolve_context(
         self,
@@ -253,19 +260,9 @@ class TransportRuntime:
         self,
         *,
         directives_engine: EngineId | None,
-        context: RunContext | None,
     ) -> EngineId | None:
         if directives_engine is not None:
             return directives_engine
-        if context is None:
-            return None
-        project = (
-            self._projects.projects.get(context.project)
-            if context.project is not None
-            else None
-        )
-        if project is not None and project.default_engine is not None:
-            return project.default_engine
         return None
 
     @property

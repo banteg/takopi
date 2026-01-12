@@ -353,6 +353,15 @@ Decision (v0.4.0):
 * Users MAY prefix the first non-empty line with `/{engine}` (e.g. `/claude`, `/codex`, or `/pi`) to select the engine for a **new** thread.
   * The bridge MUST strip that directive from the prompt before invoking the runner.
   * If a ResumeToken is resolved from the message or reply, it MUST take precedence and the `/{engine}` directive MUST be ignored.
+* Bridges MAY persist default engine overrides per Telegram scope:
+  * **Topic default**: forum topic (`chat_id + thread_id`)
+  * **Chat default**: chat (`chat_id`)
+* When no ResumeToken is resolved, engine selection MUST follow this precedence:
+  1) explicit `/{engine}` directive
+  2) topic default (if any)
+  3) chat default (if any)
+  4) project default engine (if configured for the resolved context)
+  5) global default engine
 
 ### 8.1 Command menu (Telegram)
 

@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import msgspec
+
+from ..logging import get_logger
+from .state_store import JsonStateStore
+
+logger = get_logger(__name__)
+
+STATE_VERSION = 1
+STATE_FILENAME = "telegram_chat_prefs_state.json"
+
+
+class _ChatPrefs(msgspec.Struct, forbid_unknown_fields=False):
+    default_engine: str | None = None
+
+
+class _ChatPrefsState(msgspec.Struct, forbid_unknown_fields=False):
+    version: int
+    chats: dict[str, _ChatPrefs] = msgspec.field(default_factory=dict)
+
+
+def resolve_prefs_path(config_path: Path) -> Path:
+    return config_path.with_name(STATE_FILENAME)
+
+
+def _chat_key(chat_id: int) -> str:
+    return str(chat_id)
+
+
+def _normalize_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _new_state() -> _ChatPrefsState:
+    return _ChatPrefsState(version=STATE_VERSION, chats={})
+
+
+class ChatPrefsStore(JsonStateStore[_ChatPrefsState]):
+    def __init__(self, path: Path) -> None:
+        super().__init__(
+            path,
+            version=STATE_VERSION,
+            state_type=_ChatPrefsState,
+            state_factory=_new_state,
+            log_prefix="telegram.chat_prefs",
+            logger=logger,
+        )
+
+    async def get_default_engine(self, chat_id: int) -> str | None:
+        async with self._lock:
+            self._reload_locked_if_needed()
+            chat = self._get_chat_locked(chat_id)
+            if chat is None:
+                return None
+            return _normalize_text(chat.default_engine)
+
+    async def set_default_engine(self, chat_id: int, engine: str | None) -> None:
+        normalized = _normalize_text(engine)
+        async with self._lock:
+            self._reload_locked_if_needed()
+            if normalized is None:
+                if self._remove_chat_locked(chat_id):
+                    self._save_locked()
+                return
+            chat = self._ensure_chat_locked(chat_id)
+            chat.default_engine = normalized
+            self._save_locked()
+
+    async def clear_default_engine(self, chat_id: int) -> None:
+        await self.set_default_engine(chat_id, None)
+
+    def _get_chat_locked(self, chat_id: int) -> _ChatPrefs | None:
+        return self._state.chats.get(_chat_key(chat_id))
+
+    def _ensure_chat_locked(self, chat_id: int) -> _ChatPrefs:
+        key = _chat_key(chat_id)
+        entry = self._state.chats.get(key)
+        if entry is not None:
+            return entry
+        entry = _ChatPrefs()
+        self._state.chats[key] = entry
+        return entry
+
+    def _remove_chat_locked(self, chat_id: int) -> bool:
+        key = _chat_key(chat_id)
+        if key not in self._state.chats:
+            return False
+        del self._state.chats[key]
+        return True

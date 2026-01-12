@@ -122,6 +122,22 @@ Prefix your message with an engine directive to override the default:
 
 Directives are only parsed at the start of the first non-empty line.
 
+### Default agent per chat or topic
+
+Use `/agent` to view or set a persistent default for the current scope:
+
+```
+/agent
+/agent set claude
+/agent clear
+```
+
+- Inside a forum topic, `/agent set` affects that topic.
+- In normal chats, it affects the whole chat.
+- In group chats, only admins can change defaults.
+
+Precedence (highest to lowest): resume token → `/engine` directive → topic default → chat default → project default → global default.
+
 ### Setting up engines
 
 Takopi shells out to the agent CLIs. Install them and make sure they're on your `PATH`
@@ -257,7 +273,7 @@ takopi chat-id
 
 ## 7. Topics
 
-Topics bind Telegram forum threads to specific project/branch contexts. They also preserve resume tokens, so agents can pick up where they left off.
+Topics bind Telegram forum threads to specific project/branch contexts. They also preserve resume tokens and can store a default agent per topic.
 
 ### Enabling topics
 
@@ -341,7 +357,7 @@ path = "~/dev/takopi"
 chat_id = -1001111111111   # forum-enabled group
 ```
 
-Topic state is stored in `telegram_topics_state.json` next to your config file.
+Topic state is stored in `telegram_topics_state.json` next to your config file. Chat defaults live in `telegram_chat_prefs_state.json`.
 
 ---
 
@@ -496,6 +512,7 @@ worktree_base = "develop"
 | `/cancel` | Reply to the progress message to stop the current run |
 | `/file put <path>` | Upload a document into the repo/worktree |
 | `/file get <path>` | Fetch a file (directories are zipped) |
+| `/agent` | Show/set the default agent for the current scope |
 | `/topic <project> @branch` | Create/bind a topic |
 | `/ctx` | Show current context |
 | `/ctx set <project> @branch` | Update context binding |

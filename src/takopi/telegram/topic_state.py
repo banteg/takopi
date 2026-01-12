@@ -23,6 +23,7 @@ class TopicThreadSnapshot:
     context: RunContext | None
     sessions: dict[str, str]
     topic_title: str | None
+    default_engine: str | None
 
 
 class _ContextState(msgspec.Struct, forbid_unknown_fields=False):
@@ -38,6 +39,7 @@ class _ThreadState(msgspec.Struct, forbid_unknown_fields=False):
     context: _ContextState | None = None
     sessions: dict[str, _SessionState] = msgspec.field(default_factory=dict)
     topic_title: str | None = None
+    default_engine: str | None = None
 
 
 class _TopicState(msgspec.Struct, forbid_unknown_fields=False):
@@ -151,6 +153,27 @@ class TopicStateStore(JsonStateStore[_TopicState]):
                 return None
             return ResumeToken(engine=engine, value=entry.resume)
 
+    async def get_default_engine(self, chat_id: int, thread_id: int) -> str | None:
+        async with self._lock:
+            self._reload_locked_if_needed()
+            thread = self._get_thread_locked(chat_id, thread_id)
+            if thread is None:
+                return None
+            return _normalize_text(thread.default_engine)
+
+    async def set_default_engine(
+        self, chat_id: int, thread_id: int, engine: str | None
+    ) -> None:
+        normalized = _normalize_text(engine)
+        async with self._lock:
+            self._reload_locked_if_needed()
+            thread = self._ensure_thread_locked(chat_id, thread_id)
+            thread.default_engine = normalized
+            self._save_locked()
+
+    async def clear_default_engine(self, chat_id: int, thread_id: int) -> None:
+        await self.set_default_engine(chat_id, thread_id, None)
+
     async def set_session_resume(
         self, chat_id: int, thread_id: int, token: ResumeToken
     ) -> None:
@@ -205,6 +228,7 @@ class TopicStateStore(JsonStateStore[_TopicState]):
             context=_context_from_state(thread.context),
             sessions=sessions,
             topic_title=thread.topic_title,
+            default_engine=_normalize_text(thread.default_engine),
         )
 
     def _get_thread_locked(self, chat_id: int, thread_id: int) -> _ThreadState | None:

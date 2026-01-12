@@ -1446,6 +1446,86 @@ async def test_run_main_loop_persists_topic_sessions_in_project_scope(
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_auto_resumes_topic_default_engine(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "takopi.toml"
+    topic_path = resolve_state_path(state_path)
+    store = TopicStateStore(topic_path)
+    await store.set_session_resume(
+        123, 77, ResumeToken(engine=CODEX_ENGINE, value="resume-codex")
+    )
+    await store.set_session_resume(
+        123, 77, ResumeToken(engine=EngineId("claude"), value="resume-claude")
+    )
+    await store.set_default_engine(123, 77, "claude")
+
+    transport = _FakeTransport()
+    bot = _FakeBot()
+    codex_runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    claude_runner = ScriptRunner([Return(answer="ok")], engine=EngineId("claude"))
+    router = AutoRouter(
+        entries=[
+            RunnerEntry(engine=codex_runner.engine, runner=codex_runner),
+            RunnerEntry(engine=claude_runner.engine, runner=claude_runner),
+        ],
+        default_engine=codex_runner.engine,
+    )
+    projects = ProjectsConfig(
+        projects={
+            "proj": ProjectConfig(
+                alias="proj",
+                path=tmp_path,
+                worktrees_dir=Path(".worktrees"),
+                chat_id=123,
+            )
+        },
+        default_project=None,
+        chat_map={123: "proj"},
+    )
+    runtime = TransportRuntime(
+        router=router,
+        projects=projects,
+        config_path=state_path,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=MarkdownPresenter(),
+            final_notify=True,
+        ),
+        topics=TelegramTopicsSettings(
+            enabled=True,
+            scope="main",
+        ),
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            thread_id=77,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert codex_runner.calls == []
+    assert len(claude_runner.calls) == 1
+    assert claude_runner.calls[0][1] == ResumeToken(
+        engine=EngineId("claude"), value="resume-claude"
+    )
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_auto_resumes_chat_sessions(tmp_path: Path) -> None:
     resume_value = "resume-123"
     state_path = tmp_path / "takopi.toml"

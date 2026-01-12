@@ -23,6 +23,7 @@ from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
 from .commands import (
     FILE_PUT_USAGE,
     _dispatch_command,
+    _handle_agent_command,
     _handle_chat_new_command,
     _handle_ctx_command,
     _handle_file_command,
@@ -50,7 +51,9 @@ from .topics import (
     _validate_topics_setup,
 )
 from .client import poll_incoming
+from .chat_prefs import ChatPrefsStore, resolve_prefs_path
 from .chat_sessions import ChatSessionStore, resolve_sessions_path
+from .engine_defaults import resolve_engine_for_message
 from .topic_state import TopicStateStore, resolve_state_path
 from .types import (
     TelegramCallbackQuery,
@@ -110,6 +113,7 @@ def _dispatch_builtin_command(
     args_text: str,
     ambient_context: RunContext | None,
     topic_store: TopicStateStore | None,
+    chat_prefs: ChatPrefsStore | None,
     resolved_scope: str | None,
     scope_chat_ids: frozenset[int],
     reply: Callable[..., Awaitable[None]],
@@ -163,6 +167,19 @@ def _dispatch_builtin_command(
                     scope_chat_ids=scope_chat_ids,
                 ),
             }
+        )
+
+    if command_id == "agent":
+        handlers["agent"] = partial(
+            _handle_agent_command,
+            cfg,
+            msg,
+            args_text,
+            ambient_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
         )
 
     handler = handlers.get(command_id)
@@ -311,6 +328,7 @@ async def run_main_loop(
     )
     topic_store: TopicStateStore | None = None
     chat_session_store: ChatSessionStore | None = None
+    chat_prefs: ChatPrefsStore | None = None
     media_groups: dict[tuple[int, str], _MediaGroupState] = {}
     resolved_topics_scope: str | None = None
     topics_chat_ids: frozenset[int] = frozenset()
@@ -333,6 +351,12 @@ async def run_main_loop(
 
     try:
         config_path = cfg.runtime.config_path
+        if config_path is not None:
+            chat_prefs = ChatPrefsStore(resolve_prefs_path(config_path))
+            logger.info(
+                "chat_prefs.enabled",
+                state_path=str(resolve_prefs_path(config_path)),
+            )
         if cfg.session_mode == "chat":
             if config_path is None:
                 raise ConfigError(
@@ -552,6 +576,23 @@ async def run_main_loop(
                     return None
                 return resolved
 
+            async def resolve_engine_defaults(
+                *,
+                explicit_engine: EngineId | None,
+                context: RunContext | None,
+                chat_id: int,
+                topic_key: tuple[int, int] | None,
+            ):
+                return await resolve_engine_for_message(
+                    runtime=cfg.runtime,
+                    context=context,
+                    explicit_engine=explicit_engine,
+                    chat_id=chat_id,
+                    topic_key=topic_key,
+                    topic_store=topic_store,
+                    chat_prefs=chat_prefs,
+                )
+
             async def run_prompt_from_upload(
                 msg: TelegramIncomingMessage,
                 prompt_text: str,
@@ -570,7 +611,6 @@ async def run_main_loop(
                     else None
                 )
                 resume_token = resolved.resume_token
-                engine_override = resolved.engine_override
                 context = resolved.context
                 chat_session_key = _chat_session_key(msg, store=chat_session_store)
                 topic_key = (
@@ -578,6 +618,13 @@ async def run_main_loop(
                     if topic_store is not None
                     else None
                 )
+                engine_resolution = await resolve_engine_defaults(
+                    explicit_engine=resolved.engine_override,
+                    context=context,
+                    chat_id=chat_id,
+                    topic_key=topic_key,
+                )
+                engine_override = engine_resolution.engine
                 if resume_token is None and reply_id is not None:
                     running_task = running_tasks.get(
                         MessageRef(channel_id=chat_id, message_id=reply_id)
@@ -600,10 +647,7 @@ async def run_main_loop(
                     and topic_store is not None
                     and topic_key is not None
                 ):
-                    engine_for_session = cfg.runtime.resolve_engine(
-                        engine_override=engine_override,
-                        context=context,
-                    )
+                    engine_for_session = engine_resolution.engine
                     stored = await topic_store.get_session_resume(
                         topic_key[0], topic_key[1], engine_for_session
                     )
@@ -614,10 +658,7 @@ async def run_main_loop(
                     and chat_session_store is not None
                     and chat_session_key is not None
                 ):
-                    engine_for_session = cfg.runtime.resolve_engine(
-                        engine_override=engine_override,
-                        context=context,
-                    )
+                    engine_for_session = engine_resolution.engine
                     stored = await chat_session_store.get_session_resume(
                         chat_session_key[0],
                         chat_session_key[1],
@@ -815,6 +856,7 @@ async def run_main_loop(
                     args_text=args_text,
                     ambient_context=ambient_context,
                     topic_store=topic_store,
+                    chat_prefs=chat_prefs,
                     resolved_scope=resolved_topics_scope,
                     scope_chat_ids=topics_chat_ids,
                     reply=reply,
@@ -853,6 +895,18 @@ async def run_main_loop(
                     if command_id not in command_ids:
                         refresh_commands()
                     if command_id in command_ids:
+                        engine_resolution = await resolve_engine_defaults(
+                            explicit_engine=None,
+                            context=ambient_context,
+                            chat_id=chat_id,
+                            topic_key=topic_key,
+                        )
+                        default_engine_override = (
+                            engine_resolution.engine
+                            if engine_resolution.source
+                            in {"directive", "topic_default", "chat_default"}
+                            else None
+                        )
                         tg.start_soon(
                             _dispatch_command,
                             cfg,
@@ -868,6 +922,7 @@ async def run_main_loop(
                                 chat_session_key,
                             ),
                             stateful_mode,
+                            default_engine_override,
                         )
                         continue
 
@@ -885,8 +940,14 @@ async def run_main_loop(
 
                 text = resolved.prompt
                 resume_token = resolved.resume_token
-                engine_override = resolved.engine_override
                 context = resolved.context
+                engine_resolution = await resolve_engine_defaults(
+                    explicit_engine=resolved.engine_override,
+                    context=context,
+                    chat_id=chat_id,
+                    topic_key=topic_key,
+                )
+                engine_override = engine_resolution.engine
                 if (
                     topic_store is not None
                     and topic_key is not None
@@ -936,10 +997,7 @@ async def run_main_loop(
                     and topic_store is not None
                     and topic_key is not None
                 ):
-                    engine_for_session = cfg.runtime.resolve_engine(
-                        engine_override=engine_override,
-                        context=context,
-                    )
+                    engine_for_session = engine_resolution.engine
                     stored = await topic_store.get_session_resume(
                         topic_key[0], topic_key[1], engine_for_session
                     )
@@ -950,10 +1008,7 @@ async def run_main_loop(
                     and chat_session_store is not None
                     and chat_session_key is not None
                 ):
-                    engine_for_session = cfg.runtime.resolve_engine(
-                        engine_override=engine_override,
-                        context=context,
-                    )
+                    engine_for_session = engine_resolution.engine
                     stored = await chat_session_store.get_session_resume(
                         chat_session_key[0], chat_session_key[1], engine_for_session
                     )
