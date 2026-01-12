@@ -175,11 +175,9 @@ def prepare_telegram_multi(
     body = parts.body
     if body is not None and not body.strip():
         body = None
-    body_chunks: list[str | None] = (
-        split_markdown_body(body, max_body_chars) if body is not None else []
-    )
+    body_chunks = split_markdown_body(body, max_body_chars) if body is not None else []
     if not body_chunks:
-        body_chunks = [None]
+        body_chunks = [""]
     total = len(body_chunks)
 
     payloads: list[tuple[str, list[dict[str, Any]]]] = []
