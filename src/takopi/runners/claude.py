@@ -155,15 +155,12 @@ def _tool_result_event(
     normalized = _normalize_tool_result(raw_result)
     preview = normalized
 
-    detail = dict(action.detail)
-    detail.update(
-        {
-            "tool_use_id": content.tool_use_id,
-            "result_preview": preview,
-            "result_len": len(normalized),
-            "is_error": is_error,
-        }
-    )
+    detail = action.detail | {
+        "tool_use_id": content.tool_use_id,
+        "result_preview": preview,
+        "result_len": len(normalized),
+        "is_error": is_error,
+    }
     return factory.action_completed(
         action_id=action.id,
         kind=action.kind,
