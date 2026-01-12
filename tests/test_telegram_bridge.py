@@ -1537,6 +1537,231 @@ async def test_run_main_loop_auto_resumes_chat_sessions(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_prompt_upload_uses_caption_directives(
+    tmp_path: Path,
+) -> None:
+    payload = b"hello"
+    proj_dir = tmp_path / "proj"
+    other_dir = tmp_path / "other"
+    proj_dir.mkdir()
+    other_dir.mkdir()
+
+    class _UploadBot(_FakeBot):
+        async def get_file(self, file_id: str) -> File | None:
+            _ = file_id
+            return File(file_path="files/hello.txt")
+
+        async def download_file(self, file_path: str) -> bytes | None:
+            _ = file_path
+            return payload
+
+    transport = _FakeTransport()
+    bot = _UploadBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    projects = ProjectsConfig(
+        projects={
+            "proj": ProjectConfig(
+                alias="proj",
+                path=proj_dir,
+                worktrees_dir=Path(".worktrees"),
+            ),
+            "other": ProjectConfig(
+                alias="other",
+                path=other_dir,
+                worktrees_dir=Path(".worktrees"),
+            ),
+        },
+        default_project="proj",
+    )
+    runtime = TransportRuntime(router=_make_router(runner), projects=projects)
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        files=TelegramFilesSettings(
+            enabled=True,
+            auto_put=True,
+            auto_put_mode="prompt",
+        ),
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="/other do thing",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            document=TelegramDocument(
+                file_id="doc-1",
+                file_name="hello.txt",
+                mime_type="text/plain",
+                file_size=len(payload),
+                raw={"file_id": "doc-1"},
+            ),
+        )
+
+    await run_main_loop(cfg, poller)
+
+    saved_path = other_dir / "incoming" / "hello.txt"
+    assert saved_path.read_bytes() == payload
+    assert runner.calls
+    prompt_text, _ = runner.calls[0]
+    assert prompt_text.startswith("do thing")
+    assert "/other" not in prompt_text
+    assert "[uploaded file: incoming/hello.txt]" in prompt_text
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_prompt_upload_auto_resumes_chat_sessions(
+    tmp_path: Path,
+) -> None:
+    payload = b"hello"
+    resume_value = "resume-123"
+    state_path = tmp_path / "takopi.toml"
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+
+    class _UploadBot(_FakeBot):
+        async def get_file(self, file_id: str) -> File | None:
+            _ = file_id
+            return File(file_path="files/hello.txt")
+
+        async def download_file(self, file_path: str) -> bytes | None:
+            _ = file_path
+            return payload
+
+    projects = ProjectsConfig(
+        projects={
+            "proj": ProjectConfig(
+                alias="proj",
+                path=project_dir,
+                worktrees_dir=Path(".worktrees"),
+            )
+        },
+        default_project="proj",
+    )
+    bot = _UploadBot()
+
+    transport = _FakeTransport()
+    runner = ScriptRunner(
+        [Return(answer="ok")],
+        engine=CODEX_ENGINE,
+        resume_value=resume_value,
+    )
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=projects,
+        config_path=state_path,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        session_mode="chat",
+        files=TelegramFilesSettings(
+            enabled=True,
+            auto_put=True,
+            auto_put_mode="prompt",
+        ),
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            document=TelegramDocument(
+                file_id="doc-1",
+                file_name="hello.txt",
+                mime_type="text/plain",
+                file_size=len(payload),
+                raw={"file_id": "doc-1"},
+            ),
+        )
+
+    await run_main_loop(cfg, poller)
+
+    store = ChatSessionStore(resolve_sessions_path(state_path))
+    stored = await store.get_session_resume(123, None, CODEX_ENGINE)
+    assert stored == ResumeToken(engine=CODEX_ENGINE, value=resume_value)
+
+    transport2 = _FakeTransport()
+    runner2 = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg2 = ExecBridgeConfig(
+        transport=transport2,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime2 = TransportRuntime(
+        router=_make_router(runner2),
+        projects=projects,
+        config_path=state_path,
+    )
+    cfg2 = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime2,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg2,
+        session_mode="chat",
+        files=TelegramFilesSettings(
+            enabled=True,
+            auto_put=True,
+            auto_put_mode="prompt",
+        ),
+    )
+
+    async def poller2(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=2,
+            text="followup",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            document=TelegramDocument(
+                file_id="doc-2",
+                file_name="hello2.txt",
+                mime_type="text/plain",
+                file_size=len(payload),
+                raw={"file_id": "doc-2"},
+            ),
+        )
+
+    await run_main_loop(cfg2, poller2)
+
+    assert runner2.calls[0][1] == ResumeToken(
+        engine=CODEX_ENGINE,
+        value=resume_value,
+    )
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_hides_resume_line_when_disabled(
     tmp_path: Path,
 ) -> None:
