@@ -40,6 +40,7 @@ from .commands import (
     handle_callback_cancel,
     handle_cancel,
     is_cancel_command,
+    make_reply,
 )
 from .context import _merge_topic_context, _usage_ctx_set, _usage_topic
 from .topics import (
@@ -519,13 +520,7 @@ async def run_main_loop(
                 text: str,
                 ambient_context: RunContext | None,
             ) -> ResolvedMessage | None:
-                reply = partial(
-                    send_plain,
-                    cfg.exec_cfg.transport,
-                    chat_id=msg.chat_id,
-                    user_msg_id=msg.message_id,
-                    thread_id=msg.thread_id,
-                )
+                reply = make_reply(cfg, msg)
                 try:
                     resolved = cfg.runtime.resolve_message(
                         text=text,
@@ -757,13 +752,7 @@ async def run_main_loop(
                     if reply_id is not None
                     else None
                 )
-                reply = partial(
-                    send_plain,
-                    cfg.exec_cfg.transport,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    thread_id=msg.thread_id,
-                )
+                reply = make_reply(cfg, msg)
                 text = msg.text
                 if msg.voice is not None:
                     text = await transcribe_voice(
