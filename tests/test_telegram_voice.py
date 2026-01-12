@@ -188,6 +188,7 @@ async def test_transcribe_voice_handles_missing_file() -> None:
         bot=bot,
         msg=_voice_message(),
         enabled=True,
+        model="whisper-1",
         reply=reply,
     )
 
@@ -207,6 +208,7 @@ async def test_transcribe_voice_handles_missing_download() -> None:
         bot=bot,
         msg=_voice_message(),
         enabled=True,
+        model="whisper-1",
         reply=reply,
     )
 
@@ -235,6 +237,7 @@ async def test_transcribe_voice_rejects_large_voice_without_downloading() -> Non
         bot=bot,
         msg=_voice_message(file_size=10_000),
         enabled=True,
+        model="whisper-1",
         max_bytes=100,
         reply=reply,
     )
