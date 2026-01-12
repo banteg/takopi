@@ -99,8 +99,6 @@ def dump_toml(config: dict[str, Any]) -> str:
         dumped = tomli_w.dumps(config)
     except (TypeError, ValueError) as e:
         raise ConfigError(f"Unsupported config value: {e}") from None
-    if not dumped.endswith("\n"):
-        dumped += "\n"
     return dumped
 
 
