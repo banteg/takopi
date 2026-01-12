@@ -496,6 +496,7 @@ async def run_main_loop(
                     None,
                     context,
                     msg.thread_id,
+                    None,
                     reply_ref,
                     scheduler.note_thread_known,
                 )
