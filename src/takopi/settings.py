@@ -92,6 +92,14 @@ class TelegramFilesSettings(BaseModel):
         return 50 * 1024 * 1024
 
 
+class TelegramTranscriptionSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    model: NonEmptyStr | None = None
+    base_url: NonEmptyStr | None = None
+    api_key: NonEmptyStr | None = None
+
+
 class TelegramTransportSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -99,6 +107,9 @@ class TelegramTransportSettings(BaseModel):
     chat_id: StrictInt
     voice_transcription: bool = False
     voice_max_bytes: StrictInt = 10 * 1024 * 1024
+    transcription: TelegramTranscriptionSettings = Field(
+        default_factory=TelegramTranscriptionSettings
+    )
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
     files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
 

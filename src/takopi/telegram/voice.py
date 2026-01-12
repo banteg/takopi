@@ -4,6 +4,7 @@ import io
 from collections.abc import Awaitable, Callable
 
 from ..logging import get_logger
+from ..settings import TelegramTranscriptionSettings
 from openai import AsyncOpenAI, OpenAIError
 
 from .client import BotClient
@@ -29,6 +30,7 @@ async def transcribe_voice(
     msg: TelegramIncomingMessage,
     enabled: bool,
     max_bytes: int | None = None,
+    transcription: TelegramTranscriptionSettings,
     reply: Callable[..., Awaitable[None]],
 ) -> str | None:
     voice = msg.voice
@@ -57,10 +59,16 @@ async def transcribe_voice(
         return None
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = "voice.ogg"
-    async with AsyncOpenAI(timeout=120) as client:
+    model = transcription.model or OPENAI_TRANSCRIPTION_MODEL
+    client_kwargs: dict[str, object] = {"timeout": 120}
+    if transcription.base_url is not None:
+        client_kwargs["base_url"] = transcription.base_url
+    if transcription.api_key is not None:
+        client_kwargs["api_key"] = transcription.api_key
+    async with AsyncOpenAI(**client_kwargs) as client:
         try:
             response = await client.audio.transcriptions.create(
-                model=OPENAI_TRANSCRIPTION_MODEL,
+                model=model,
                 file=audio_file,
             )
         except OpenAIError as exc:

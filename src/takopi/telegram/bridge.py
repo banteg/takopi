@@ -15,6 +15,7 @@ from ..model import ResumeToken
 from ..settings import (
     TelegramFilesSettings,
     TelegramTopicsSettings,
+    TelegramTranscriptionSettings,
     TelegramTransportSettings,
 )
 from .client import BotClient
@@ -97,6 +98,9 @@ class TelegramBridgeConfig:
     exec_cfg: ExecBridgeConfig
     voice_transcription: bool = False
     voice_max_bytes: int = 10 * 1024 * 1024
+    transcription: TelegramTranscriptionSettings = field(
+        default_factory=TelegramTranscriptionSettings
+    )
     files: TelegramFilesSettings = field(default_factory=TelegramFilesSettings)
     chat_ids: tuple[int, ...] | None = None
     topics: TelegramTopicsSettings = field(default_factory=TelegramTopicsSettings)

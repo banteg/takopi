@@ -478,6 +478,7 @@ async def run_main_loop(
                         msg=msg,
                         enabled=cfg.voice_transcription,
                         max_bytes=cfg.voice_max_bytes,
+                        transcription=cfg.transcription,
                         reply=reply,
                     )
                     if text is None:

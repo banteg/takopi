@@ -12,6 +12,7 @@ from takopi.runners.mock import Return, ScriptRunner
 from takopi.settings import (
     TelegramFilesSettings,
     TelegramTopicsSettings,
+    TelegramTranscriptionSettings,
     TelegramTransportSettings,
 )
 from takopi.telegram import backend as telegram_backend
@@ -133,6 +134,11 @@ def test_telegram_backend_build_and_run_wires_config(
         chat_id=321,
         voice_transcription=True,
         voice_max_bytes=1234,
+        transcription=TelegramTranscriptionSettings(
+            base_url="http://localhost:8080/v1",
+            model="whisper-1",
+            api_key="local",
+        ),
         files=TelegramFilesSettings(enabled=True, allowed_user_ids=[1, 2]),
         topics=TelegramTopicsSettings(enabled=True, scope="main"),
     )
@@ -150,6 +156,9 @@ def test_telegram_backend_build_and_run_wires_config(
     assert cfg.chat_id == 321
     assert cfg.voice_transcription is True
     assert cfg.voice_max_bytes == 1234
+    assert cfg.transcription.base_url == "http://localhost:8080/v1"
+    assert cfg.transcription.model == "whisper-1"
+    assert cfg.transcription.api_key == "local"
     assert cfg.files.enabled is True
     assert cfg.files.allowed_user_ids == [1, 2]
     assert cfg.topics.enabled is True
