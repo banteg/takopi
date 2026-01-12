@@ -394,6 +394,8 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: OpenCodeStreamState,
     ) -> None:
+        pass
+
     def invalid_json_events(
         self,
         *,

@@ -395,6 +395,8 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: ClaudeStreamState,
     ) -> None:
+        pass
+
     def decode_jsonl(
         self,
         *,

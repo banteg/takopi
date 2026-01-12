@@ -449,6 +449,8 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: CodexRunState,
     ) -> None:
+        pass
+
     def decode_jsonl(self, *, line: bytes) -> codex_schema.ThreadEvent:
         return codex_schema.decode_event(line)
 
