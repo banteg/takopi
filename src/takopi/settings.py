@@ -101,6 +101,7 @@ class TelegramTransportSettings(BaseModel):
     message_overflow: Literal["trim", "split"] = "trim"
     voice_transcription: bool = False
     voice_max_bytes: StrictInt = 10 * 1024 * 1024
+    voice_transcription_model: NonEmptyStr = "gpt-4o-mini-transcribe"
     session_mode: Literal["stateless", "chat"] = "stateless"
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
     files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
