@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Callable, Iterable
+from typing import Any
+from collections.abc import AsyncIterator, Callable, Iterable
 
 import anyio
 

@@ -44,7 +44,7 @@ class LockHandle:
                 error_type=exc.__class__.__name__,
             )
 
-    def __enter__(self) -> "LockHandle":
+    def __enter__(self) -> LockHandle:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

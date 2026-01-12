@@ -120,9 +120,12 @@ def format_file_change_title(action: Action, *, command_width: int | None) -> st
     was_relativized = relativized != fallback
     if was_relativized:
         fallback = relativized
-    if fallback and not (fallback.startswith("`") and fallback.endswith("`")):
-        if was_relativized or os.sep in fallback or "/" in fallback:
-            fallback = f"`{fallback}`"
+    if (
+        fallback
+        and not (fallback.startswith("`") and fallback.endswith("`"))
+        and (was_relativized or os.sep in fallback or "/" in fallback)
+    ):
+        fallback = f"`{fallback}`"
     return f"files: {shorten(fallback, command_width)}"
 
 
@@ -247,10 +250,7 @@ class MarkdownFormatter:
 
     def _format_actions(self, state: ProgressState) -> list[str]:
         actions = list(state.actions)
-        if self.max_actions == 0:
-            actions = []
-        else:
-            actions = actions[-self.max_actions :]
+        actions = [] if self.max_actions == 0 else actions[-self.max_actions :]
         return [
             format_action_line(
                 action_state.action,

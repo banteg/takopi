@@ -2,27 +2,27 @@ from __future__ import annotations
 
 # Headless JSONL schema derived from tag rust-v0.77.0 (git 112f40e91c12af0f7146d7e03f20283516a8af0b).
 
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
 import msgspec
 
-CommandExecutionStatus: TypeAlias = Literal[
+type CommandExecutionStatus = Literal[
     "in_progress",
     "completed",
     "failed",
     "declined",
 ]
-PatchApplyStatus: TypeAlias = Literal[
+type PatchApplyStatus = Literal[
     "in_progress",
     "completed",
     "failed",
 ]
-PatchChangeKind: TypeAlias = Literal[
+type PatchChangeKind = Literal[
     "add",
     "delete",
     "update",
 ]
-McpToolCallStatus: TypeAlias = Literal[
+type McpToolCallStatus = Literal[
     "in_progress",
     "completed",
     "failed",
@@ -127,7 +127,7 @@ class TodoListItem(msgspec.Struct, tag="todo_list", kw_only=True):
     items: list[TodoItem]
 
 
-ThreadItem: TypeAlias = (
+type ThreadItem = (
     AgentMessageItem
     | ReasoningItem
     | CommandExecutionItem
@@ -151,7 +151,7 @@ class ItemCompleted(msgspec.Struct, tag="item.completed", kw_only=True):
     item: ThreadItem
 
 
-ThreadEvent: TypeAlias = (
+type ThreadEvent = (
     ThreadStarted
     | TurnStarted
     | TurnCompleted

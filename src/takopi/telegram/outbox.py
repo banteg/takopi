@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Hashable, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
+from collections.abc import Awaitable, Callable, Hashable
 
 import anyio
 

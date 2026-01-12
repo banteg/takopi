@@ -4,7 +4,6 @@ import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
-from typing import TypeAlias
 
 import anyio
 
@@ -18,7 +17,7 @@ from ..model import (
 )
 from ..runner import ResumeTokenMixin, Runner, SessionLockMixin
 
-ENGINE: EngineId = EngineId("mock")
+ENGINE: EngineId = "mock"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +51,7 @@ class Raise:
     error: Exception
 
 
-ScriptStep: TypeAlias = Emit | Advance | Sleep | Wait | Return | Raise
+type ScriptStep = Emit | Advance | Sleep | Wait | Return | Raise
 
 
 def _resume_token(engine: EngineId, value: str | None) -> ResumeToken:
@@ -108,9 +107,9 @@ class MockRunner(SessionLockMixin, ResumeTokenMixin, Runner):
                 if (
                     isinstance(event_out, ActionEvent)
                     and event_out.phase == "completed"
+                    and event_out.ok is None
                 ):
-                    if event_out.ok is None:
-                        event_out = replace(event_out, ok=True)
+                    event_out = replace(event_out, ok=True)
                 yield event_out
                 await anyio.sleep(0)
 
@@ -187,9 +186,9 @@ class ScriptRunner(MockRunner):
                     if (
                         isinstance(event_out, ActionEvent)
                         and event_out.phase == "completed"
+                        and event_out.ok is None
                     ):
-                        if event_out.ok is None:
-                            event_out = replace(event_out, ok=True)
+                        event_out = replace(event_out, ok=True)
                     yield event_out
                     await anyio.sleep(0)
                     continue

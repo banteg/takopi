@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Iterable, Literal
+from typing import Annotated, Any, ClassVar, Literal
+from collections.abc import Iterable
 
 from pydantic import (
     BaseModel,

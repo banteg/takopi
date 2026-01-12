@@ -69,7 +69,7 @@ class _SavedFilePutGroup:
 def resolve_file_put_paths(
     plan: _FilePutPlan,
     *,
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     require_dir: bool,
 ) -> tuple[Path | None, Path | None, str | None]:
     path_value = plan.path_value
@@ -95,7 +95,7 @@ def resolve_file_put_paths(
 
 
 async def _check_file_permissions(
-    cfg: "TelegramBridgeConfig", msg: TelegramIncomingMessage
+    cfg: TelegramBridgeConfig, msg: TelegramIncomingMessage
 ) -> bool:
     reply = make_reply(cfg, msg)
     sender_id = msg.sender_id
@@ -123,7 +123,7 @@ async def _check_file_permissions(
 
 
 async def _prepare_file_put_plan(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     args_text: str,
     ambient_context: RunContext | None,
@@ -185,7 +185,7 @@ def _format_file_put_failures(failed: Sequence[_FilePutResult]) -> str | None:
 
 
 async def _save_document_payload(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     *,
     document: TelegramDocument,
     run_root: Path,
@@ -286,7 +286,7 @@ async def _save_document_payload(
 
 
 async def _handle_file_command(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     args_text: str,
     ambient_context: RunContext | None,
@@ -304,7 +304,7 @@ async def _handle_file_command(
 
 
 async def _handle_file_put_default(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     ambient_context: RunContext | None,
     topic_store: TopicStateStore | None,
@@ -313,7 +313,7 @@ async def _handle_file_put_default(
 
 
 async def _save_file_put(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     args_text: str,
     ambient_context: RunContext | None,
@@ -363,7 +363,7 @@ async def _save_file_put(
 
 
 async def _handle_file_put(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     args_text: str,
     ambient_context: RunContext | None,
@@ -389,7 +389,7 @@ async def _handle_file_put(
 
 
 async def _handle_file_put_group(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     args_text: str,
     messages: Sequence[TelegramIncomingMessage],
@@ -438,7 +438,7 @@ async def _handle_file_put_group(
 
 
 async def _save_file_put_group(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     args_text: str,
     messages: Sequence[TelegramIncomingMessage],
@@ -491,7 +491,7 @@ async def _save_file_put_group(
 
 
 async def _handle_file_get(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     args_text: str,
     ambient_context: RunContext | None,

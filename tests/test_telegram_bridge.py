@@ -39,7 +39,7 @@ from takopi.context import RunContext
 from takopi.config import ProjectConfig, ProjectsConfig
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
 from takopi.markdown import MarkdownPresenter
-from takopi.model import EngineId, ResumeToken
+from takopi.model import ResumeToken
 from takopi.progress import ProgressTracker
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.transport_runtime import TransportRuntime
@@ -52,7 +52,7 @@ from takopi.telegram.types import (
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from tests.plugin_fixtures import FakeEntryPoint, install_entrypoints
 
-CODEX_ENGINE = EngineId("codex")
+CODEX_ENGINE = "codex"
 
 
 def _empty_projects() -> ProjectsConfig:
@@ -2443,7 +2443,7 @@ async def test_run_main_loop_command_uses_project_default_engine(
     transport = _FakeTransport()
     bot = _FakeBot()
     codex_runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
-    pi_runner = ScriptRunner([Return(answer="ok")], engine=EngineId("pi"))
+    pi_runner = ScriptRunner([Return(answer="ok")], engine="pi")
     router = AutoRouter(
         entries=[
             RunnerEntry(engine=codex_runner.engine, runner=codex_runner),
@@ -2525,7 +2525,7 @@ async def test_run_main_loop_command_defaults_to_chat_project(
     transport = _FakeTransport()
     bot = _FakeBot()
     codex_runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
-    pi_runner = ScriptRunner([Return(answer="ok")], engine=EngineId("pi"))
+    pi_runner = ScriptRunner([Return(answer="ok")], engine="pi")
     router = AutoRouter(
         entries=[
             RunnerEntry(engine=codex_runner.engine, runner=codex_runner),

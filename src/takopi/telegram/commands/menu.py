@@ -92,7 +92,7 @@ def _reserved_commands(runtime: TransportRuntime) -> set[str]:
     }
 
 
-async def _set_command_menu(cfg: "TelegramBridgeConfig") -> None:
+async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
     commands = build_bot_commands(cfg.runtime, include_file=cfg.files.enabled)
     if not commands:
         return

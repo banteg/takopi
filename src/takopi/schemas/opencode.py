@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias
+from typing import Any
 
 import msgspec
 
@@ -42,7 +42,7 @@ class Error(_Event, tag="error"):
     message: Any = None
 
 
-OpenCodeEvent: TypeAlias = StepStart | StepFinish | ToolUse | Text | Error
+type OpenCodeEvent = StepStart | StepFinish | ToolUse | Text | Error
 
 _DECODER = msgspec.json.Decoder(OpenCodeEvent)
 

@@ -50,9 +50,7 @@ def _build_startup_message(
         notes.append(f"failed to load: {', '.join(failed_engines)}")
     if notes:
         engine_list = f"{engine_list} ({'; '.join(notes)})"
-    project_aliases = sorted(
-        {alias for alias in runtime.project_aliases()}, key=str.lower
-    )
+    project_aliases = sorted(set(runtime.project_aliases()), key=str.lower)
     project_list = ", ".join(project_aliases) if project_aliases else "none"
     return (
         f"\N{OCTOPUS} **takopi is ready**\n\n"

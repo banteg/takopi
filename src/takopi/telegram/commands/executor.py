@@ -59,13 +59,9 @@ def _should_show_resume_line(
     stateful_mode: bool,
     context: RunContext | None,
 ) -> bool:
-    if show_resume_line:
+    if show_resume_line or not stateful_mode:
         return True
-    if not stateful_mode:
-        return True
-    if context is None or context.project is None:
-        return True
-    return False
+    return context is None or context.project is None
 
 
 async def _send_runner_unavailable(

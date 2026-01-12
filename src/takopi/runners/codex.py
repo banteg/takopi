@@ -18,7 +18,7 @@ from ..utils.paths import relativize_command
 
 logger = get_logger(__name__)
 
-ENGINE: EngineId = EngineId("codex")
+ENGINE: EngineId = "codex"
 
 __all__ = [
     "ENGINE",

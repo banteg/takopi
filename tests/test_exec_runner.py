@@ -7,14 +7,13 @@ from collections.abc import AsyncIterator
 from takopi.model import (
     ActionEvent,
     CompletedEvent,
-    EngineId,
     ResumeToken,
     StartedEvent,
     TakopiEvent,
 )
 from takopi.runners.codex import CodexRunner, find_exec_only_flag
 
-CODEX_ENGINE = EngineId("codex")
+CODEX_ENGINE = "codex"
 
 
 @pytest.mark.anyio

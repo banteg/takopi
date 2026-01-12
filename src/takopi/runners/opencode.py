@@ -40,7 +40,7 @@ from .tool_actions import tool_input_path, tool_kind_and_title
 
 logger = get_logger(__name__)
 
-ENGINE: EngineId = EngineId("opencode")
+ENGINE: EngineId = "opencode"
 
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?opencode(?:\s+run)?\s+(?:--session|-s)\s+(?P<token>ses_[A-Za-z0-9]+)`?\s*$"
@@ -99,7 +99,7 @@ def _normalize_tool_title(
     path = tool_input_path(tool_input, path_keys=("file_path", "filePath"))
     if isinstance(path, str) and path:
         rel_path = relativize_path(path)
-        if title == path or title == rel_path:
+        if title in (path, rel_path):
             return f"`{rel_path}`"
 
     return title
@@ -149,9 +149,8 @@ def translate_opencode_event(
     """Translate an OpenCode JSON event into Takopi events."""
     session_id = event.sessionID
 
-    if isinstance(session_id, str) and session_id:
-        if state.session_id is None:
-            state.session_id = session_id
+    if isinstance(session_id, str) and session_id and state.session_id is None:
+        state.session_id = session_id
 
     match event:
         case opencode_schema.StepStart():

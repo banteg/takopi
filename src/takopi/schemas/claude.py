@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
 import msgspec
 
@@ -36,7 +36,7 @@ class StreamToolResultBlock(
     is_error: bool | None = None
 
 
-StreamContentBlock: TypeAlias = (
+type StreamContentBlock = (
     StreamTextBlock | StreamThinkingBlock | StreamToolUseBlock | StreamToolResultBlock
 )
 
@@ -164,7 +164,7 @@ class ControlRewindFilesRequest(
     user_message_id: str
 
 
-ControlRequest: TypeAlias = (
+type ControlRequest = (
     ControlInterruptRequest
     | ControlCanUseToolRequest
     | ControlInitializeRequest
@@ -196,7 +196,7 @@ class ControlErrorResponse(
     error: str
 
 
-ControlResponse: TypeAlias = ControlSuccessResponse | ControlErrorResponse
+type ControlResponse = ControlSuccessResponse | ControlErrorResponse
 
 
 class StreamControlResponse(
@@ -217,7 +217,7 @@ class StreamControlCancelRequest(
     request_id: str | None = None
 
 
-StreamJsonMessage: TypeAlias = (
+type StreamJsonMessage = (
     StreamUserMessage
     | StreamAssistantMessage
     | StreamSystemMessage

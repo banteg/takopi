@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
 from .config import ConfigError, ProjectsConfig
 from .context import RunContext
@@ -19,7 +19,7 @@ from .router import AutoRouter, EngineStatus
 from .runner import Runner
 from .worktrees import WorktreeError, resolve_run_cwd
 
-ContextSource: TypeAlias = Literal[
+type ContextSource = Literal[
     "reply_ctx",
     "directives",
     "ambient",
@@ -234,13 +234,13 @@ class TransportRuntime:
                 project_key = ambient_context.project
             else:
                 project_key = default_project
-        if branch is None:
-            if (
-                ambient_context is not None
-                and ambient_context.branch is not None
-                and project_key == ambient_context.project
-            ):
-                branch = ambient_context.branch
+        if (
+            branch is None
+            and ambient_context is not None
+            and ambient_context.branch is not None
+            and project_key == ambient_context.project
+        ):
+            branch = ambient_context.branch
         context: RunContext | None = None
         if project_key is not None or branch is not None:
             context = RunContext(project=project_key, branch=branch)

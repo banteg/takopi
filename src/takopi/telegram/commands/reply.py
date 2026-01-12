@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 def make_reply(
-    cfg: "TelegramBridgeConfig", msg: TelegramIncomingMessage
+    cfg: TelegramBridgeConfig, msg: TelegramIncomingMessage
 ) -> Callable[..., Awaitable[None]]:
     return partial(
         send_plain,

@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 
 
 async def _dispatch_command(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     text: str,
     command_id: str,

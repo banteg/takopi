@@ -8,7 +8,6 @@ import takopi.runner as runner_module
 from takopi.model import (
     ActionEvent,
     CompletedEvent,
-    EngineId,
     ResumeToken,
     StartedEvent,
     TakopiEvent,
@@ -22,7 +21,7 @@ from takopi.runner import (
 
 
 class _DummyRunner(ResumeTokenMixin, BaseRunner):
-    engine = EngineId("dummy")
+    engine = "dummy"
     resume_re = re.compile(r"(?im)^`?dummy resume (?P<token>[^`\s]+)`?$")
 
     async def run_impl(
@@ -39,7 +38,7 @@ class _DummyRunner(ResumeTokenMixin, BaseRunner):
 
 
 class _DummyJsonlRunner(JsonlSubprocessRunner):
-    engine = EngineId("dummy-jsonl")
+    engine = "dummy-jsonl"
 
     def command(self) -> str:
         return "dummy"
@@ -67,7 +66,7 @@ class _DummyJsonlRunner(JsonlSubprocessRunner):
 
 
 class _BareJsonlRunner(JsonlSubprocessRunner):
-    engine = EngineId("bare-jsonl")
+    engine = "bare-jsonl"
 
 
 class _RunJsonlRunner(_DummyJsonlRunner):
@@ -177,7 +176,7 @@ async def test_base_runner_run_locked_handles_resume() -> None:
 @pytest.mark.anyio
 async def test_base_runner_rejects_wrong_resume_engine() -> None:
     runner = _DummyRunner()
-    bad_resume = ResumeToken(engine=EngineId("other"), value="oops")
+    bad_resume = ResumeToken(engine="other", value="oops")
     with pytest.raises(RuntimeError):
         _ = [evt async for evt in runner.run("hello", bad_resume)]
 
@@ -185,7 +184,7 @@ async def test_base_runner_rejects_wrong_resume_engine() -> None:
 @pytest.mark.anyio
 async def test_base_runner_run_impl_not_implemented() -> None:
     class _BareRunner(BaseRunner):
-        engine = EngineId("bare")
+        engine = "bare"
 
     runner = _BareRunner()
     with pytest.raises(NotImplementedError):
@@ -204,7 +203,7 @@ def test_resume_token_format_and_extract() -> None:
     assert runner.extract_resume(None) is None
 
     with pytest.raises(RuntimeError):
-        runner.format_resume(ResumeToken(engine=EngineId("other"), value="bad"))
+        runner.format_resume(ResumeToken(engine="other", value="bad"))
 
 
 def test_session_lock_reuse() -> None:
@@ -294,7 +293,7 @@ def test_jsonl_helpers() -> None:
     assert found == resume
     assert emit is False
 
-    mismatch = StartedEvent(engine=EngineId("other"), resume=resume, title="t")
+    mismatch = StartedEvent(engine="other", resume=resume, title="t")
     with pytest.raises(RuntimeError):
         runner.handle_started_event(mismatch, expected_session=None, found_session=None)
 

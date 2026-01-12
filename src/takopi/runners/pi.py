@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path, PurePath
 from typing import Any
 from uuid import uuid4
@@ -32,7 +32,7 @@ from .tool_actions import tool_kind_and_title
 
 logger = get_logger(__name__)
 
-ENGINE: EngineId = EngineId("pi")
+ENGINE: EngineId = "pi"
 
 _RESUME_RE = re.compile(r"(?im)^\s*`?pi\s+--session\s+(?P<token>.+?)`?\s*$")
 
@@ -394,7 +394,7 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         cwd = get_run_base_dir() or Path.cwd()
         session_dir = _default_session_dir(cwd)
         session_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
         safe_timestamp = timestamp.replace(":", "-").replace(".", "-")
         token = uuid4().hex
         filename = f"{safe_timestamp}_{token}.jsonl"

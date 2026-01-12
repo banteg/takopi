@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Generic, Protocol, TypeVar
+from typing import Any, Protocol
 
 import anyio
 import msgspec
 
 from ..utils.json_state import atomic_write_json
-
-T = TypeVar("T", bound="_VersionedState")
 
 
 class _Logger(Protocol):
@@ -19,7 +18,7 @@ class _VersionedState(Protocol):
     version: int
 
 
-class JsonStateStore(Generic[T]):
+class JsonStateStore[T: _VersionedState]:
     def __init__(
         self,
         path: Path,

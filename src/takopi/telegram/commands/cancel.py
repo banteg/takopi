@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 
 
 async def handle_cancel(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     running_tasks: RunningTasks,
 ) -> None:
@@ -45,7 +45,7 @@ async def handle_cancel(
 
 
 async def handle_callback_cancel(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     query: TelegramCallbackQuery,
     running_tasks: RunningTasks,
 ) -> None:

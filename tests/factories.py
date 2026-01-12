@@ -14,7 +14,7 @@ from takopi.model import (
 
 
 def session_started(engine: str, value: str, title: str = "Codex") -> TakopiEvent:
-    engine_id = EngineId(engine)
+    engine_id: EngineId = engine
     return StartedEvent(
         engine=engine_id,
         resume=ResumeToken(engine=engine_id, value=value),
@@ -29,7 +29,7 @@ def action_started(
     detail: dict[str, Any] | None = None,
     engine: str = "codex",
 ) -> TakopiEvent:
-    engine_id = EngineId(engine)
+    engine_id: EngineId = engine
     return ActionEvent(
         engine=engine_id,
         action=Action(
@@ -50,7 +50,7 @@ def action_completed(
     detail: dict[str, Any] | None = None,
     engine: str = "codex",
 ) -> TakopiEvent:
-    engine_id = EngineId(engine)
+    engine_id: EngineId = engine
     return ActionEvent(
         engine=engine_id,
         action=Action(

@@ -408,7 +408,7 @@ from ..schemas import acme as acme_schema
 
 logger = logging.getLogger(__name__)
 
-ENGINE: EngineId = EngineId("acme")
+ENGINE: EngineId = "acme"
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?acme\s+--resume\s+(?P<token>[^`\s]+)`?\s*$"
 )

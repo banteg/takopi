@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
-EngineId: TypeAlias = str
+type EngineId = str
 
-ActionKind: TypeAlias = Literal[
+type ActionKind = Literal[
     "command",
     "tool",
     "file_change",
@@ -19,14 +19,14 @@ ActionKind: TypeAlias = Literal[
     "telemetry",
 ]
 
-TakopiEventType: TypeAlias = Literal[
+type TakopiEventType = Literal[
     "started",
     "action",
     "completed",
 ]
 
-ActionPhase: TypeAlias = Literal["started", "updated", "completed"]
-ActionLevel: TypeAlias = Literal["debug", "info", "warning", "error"]
+type ActionPhase = Literal["started", "updated", "completed"]
+type ActionLevel = Literal["debug", "info", "warning", "error"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,4 +74,4 @@ class CompletedEvent:
     usage: dict[str, Any] | None = None
 
 
-TakopiEvent: TypeAlias = StartedEvent | ActionEvent | CompletedEvent
+type TakopiEvent = StartedEvent | ActionEvent | CompletedEvent

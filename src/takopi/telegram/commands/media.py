@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 async def _handle_media_group(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     messages: Sequence[TelegramIncomingMessage],
     topic_store: TopicStateStore | None,
     run_prompt: Callable[

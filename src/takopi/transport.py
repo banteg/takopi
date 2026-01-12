@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, TypeAlias
+from typing import Any, Protocol
 
-ChannelId: TypeAlias = int | str
-MessageId: TypeAlias = int | str
-ThreadId: TypeAlias = int | str
+type ChannelId = int | str
+type MessageId = int | str
+type ThreadId = int | str
 
 
 @dataclass(frozen=True, slots=True)

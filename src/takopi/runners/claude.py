@@ -18,7 +18,7 @@ from .tool_actions import tool_input_path, tool_kind_and_title
 
 logger = get_logger(__name__)
 
-ENGINE: EngineId = EngineId("claude")
+ENGINE: EngineId = "claude"
 DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Edit", "Write"]
 
 _RESUME_RE = re.compile(

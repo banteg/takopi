@@ -4,7 +4,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib.metadata import EntryPoint, entry_points
 import re
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from .ids import ID_PATTERN, is_valid_id
 

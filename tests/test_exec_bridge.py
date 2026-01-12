@@ -5,7 +5,7 @@ import pytest
 
 from takopi.runner_bridge import ExecBridgeConfig, IncomingMessage, handle_message
 from takopi.markdown import MarkdownParts, MarkdownPresenter
-from takopi.model import EngineId, ResumeToken, TakopiEvent
+from takopi.model import ResumeToken, TakopiEvent
 from takopi.telegram.render import prepare_telegram
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Wait
@@ -13,7 +13,7 @@ from takopi.settings import load_settings, require_telegram
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from tests.factories import action_completed, action_started
 
-CODEX_ENGINE = EngineId("codex")
+CODEX_ENGINE = "codex"
 
 
 class _FakeTransport:

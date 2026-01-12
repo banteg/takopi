@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 async def _handle_ctx_command(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     args_text: str,
     store: TopicStateStore,
@@ -117,7 +117,7 @@ async def _handle_ctx_command(
 
 
 async def _handle_new_command(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     store: TopicStateStore,
     *,
@@ -143,7 +143,7 @@ async def _handle_new_command(
 
 
 async def _handle_chat_new_command(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     store: ChatSessionStore,
     session_key: tuple[int, int | None] | None,
@@ -161,7 +161,7 @@ async def _handle_chat_new_command(
 
 
 async def _handle_topic_command(
-    cfg: "TelegramBridgeConfig",
+    cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     args_text: str,
     store: TopicStateStore,

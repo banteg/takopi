@@ -6,7 +6,6 @@ from typing import Any
 import pytest
 
 from takopi.config import ProjectsConfig
-from takopi.model import EngineId
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
 from takopi.settings import (
@@ -19,8 +18,8 @@ from takopi.transport_runtime import TransportRuntime
 
 
 def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
-    codex = EngineId("codex")
-    pi = EngineId("pi")
+    codex = "codex"
+    pi = "pi"
     runner = ScriptRunner([Return(answer="ok")], engine=codex)
     missing = ScriptRunner([Return(answer="ok")], engine=pi)
     router = AutoRouter(
@@ -53,9 +52,9 @@ def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
 def test_build_startup_message_surfaces_unavailable_engine_reasons(
     tmp_path: Path,
 ) -> None:
-    codex = EngineId("codex")
-    pi = EngineId("pi")
-    claude = EngineId("claude")
+    codex = "codex"
+    pi = "pi"
+    claude = "claude"
     runner = ScriptRunner([Return(answer="ok")], engine=codex)
     bad_cfg = ScriptRunner([Return(answer="ok")], engine=pi)
     load_err = ScriptRunner([Return(answer="ok")], engine=claude)
@@ -100,7 +99,7 @@ def test_telegram_backend_build_and_run_wires_config(
         encoding="utf-8",
     )
 
-    codex = EngineId("codex")
+    codex = "codex"
     runner = ScriptRunner([Return(answer="ok")], engine=codex)
     router = AutoRouter(
         entries=[RunnerEntry(engine=codex, runner=runner)],

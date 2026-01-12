@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeAlias
+from typing import Any
 
 import msgspec
 
@@ -84,7 +84,7 @@ class AutoRetryEnd(_Event, tag="auto_retry_end"):
     finalError: str | None = None
 
 
-PiEvent: TypeAlias = (
+type PiEvent = (
     AgentStart
     | AgentEnd
     | MessageStart

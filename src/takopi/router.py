@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Literal, TypeAlias
+from typing import Literal
+from collections.abc import Iterable
 
 from .model import EngineId, ResumeToken
 from .runner import Runner
@@ -17,7 +18,7 @@ class RunnerUnavailableError(RuntimeError):
         self.issue = issue
 
 
-EngineStatus: TypeAlias = Literal["ok", "missing_cli", "bad_config", "load_error"]
+type EngineStatus = Literal["ok", "missing_cli", "bad_config", "load_error"]
 
 
 @dataclass(frozen=True, slots=True)

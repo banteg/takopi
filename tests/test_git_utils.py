@@ -45,11 +45,10 @@ def test_resolve_default_base_prefers_master_over_main(monkeypatch) -> None:
         return None
 
     def _fake_ok(args, **kwargs):
-        if args == ["show-ref", "--verify", "--quiet", "refs/heads/master"]:
-            return True
-        if args == ["show-ref", "--verify", "--quiet", "refs/heads/main"]:
-            return True
-        return False
+        return args in (
+            ["show-ref", "--verify", "--quiet", "refs/heads/master"],
+            ["show-ref", "--verify", "--quiet", "refs/heads/main"],
+        )
 
     monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
     monkeypatch.setattr("takopi.utils.git.git_ok", _fake_ok)

@@ -7,7 +7,6 @@ from takopi.model import (
     Action,
     ActionEvent,
     CompletedEvent,
-    EngineId,
     ResumeToken,
     StartedEvent,
     TakopiEvent,
@@ -15,7 +14,7 @@ from takopi.model import (
 from takopi.runners.mock import Emit, Return, ScriptRunner, Wait
 from tests.factories import action_started
 
-CODEX_ENGINE = EngineId("codex")
+CODEX_ENGINE = "codex"
 
 
 @pytest.mark.anyio
@@ -84,7 +83,7 @@ async def test_runner_releases_lock_when_consumer_closes() -> None:
     gate = anyio.Event()
     runner = ScriptRunner([Wait(gate)], engine=CODEX_ENGINE, resume_value="sid")
 
-    gen = cast(AsyncGenerator[TakopiEvent, None], runner.run("hello", None))
+    gen = cast(AsyncGenerator[TakopiEvent], runner.run("hello", None))
     try:
         while True:
             evt = await anext(gen)
@@ -94,7 +93,7 @@ async def test_runner_releases_lock_when_consumer_closes() -> None:
         await gen.aclose()
 
     gen2 = cast(
-        AsyncGenerator[TakopiEvent, None],
+        AsyncGenerator[TakopiEvent],
         runner.run("again", ResumeToken(engine=CODEX_ENGINE, value="sid")),
     )
     try:
