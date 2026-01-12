@@ -1555,9 +1555,19 @@ async def test_run_main_loop_hides_resume_line_when_disabled(
         presenter=MarkdownPresenter(),
         final_notify=True,
     )
+    projects = ProjectsConfig(
+        projects={
+            "proj": ProjectConfig(
+                alias="proj",
+                path=tmp_path,
+                worktrees_dir=Path(".worktrees"),
+            )
+        },
+        default_project="proj",
+    )
     runtime = TransportRuntime(
         router=_make_router(runner),
-        projects=_empty_projects(),
+        projects=projects,
         config_path=state_path,
     )
     cfg = TelegramBridgeConfig(
