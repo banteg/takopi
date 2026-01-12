@@ -777,12 +777,14 @@ async def run_main_loop(
                 if command_id == "new":
                     if topic_store is not None and topic_key is not None:
                         tg.start_soon(
-                            _handle_new_command,
-                            cfg,
-                            msg,
-                            topic_store,
-                            resolved_topics_scope,
-                            topics_chat_ids,
+                            partial(
+                                _handle_new_command,
+                                cfg,
+                                msg,
+                                topic_store,
+                                resolved_scope=resolved_topics_scope,
+                                scope_chat_ids=topics_chat_ids,
+                            )
                         )
                         continue
                     if chat_session_store is not None:
@@ -796,12 +798,14 @@ async def run_main_loop(
                         continue
                     if topic_store is not None:
                         tg.start_soon(
-                            _handle_new_command,
-                            cfg,
-                            msg,
-                            topic_store,
-                            resolved_topics_scope,
-                            topics_chat_ids,
+                            partial(
+                                _handle_new_command,
+                                cfg,
+                                msg,
+                                topic_store,
+                                resolved_scope=resolved_topics_scope,
+                                scope_chat_ids=topics_chat_ids,
+                            )
                         )
                         continue
                 if command_id is not None and _dispatch_builtin_command(
