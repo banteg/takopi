@@ -163,5 +163,6 @@ def test_telegram_files_settings_defaults() -> None:
 
     assert cfg.enabled is False
     assert cfg.auto_put is True
+    assert cfg.auto_put_mode == "upload"
     assert cfg.uploads_dir == "incoming"
     assert cfg.allowed_user_ids == []

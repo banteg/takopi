@@ -29,6 +29,7 @@ from .commands import (
     _handle_topic_command,
     _parse_slash_command,
     _reserved_commands,
+    _save_file_put,
     _run_engine,
     _set_command_menu,
     handle_callback_cancel,
@@ -429,6 +430,51 @@ async def run_main_loop(
 
             scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
 
+            async def run_prompt_from_upload(
+                msg: TelegramIncomingMessage,
+                prompt_text: str,
+                context: RunContext | None,
+            ) -> None:
+                reply_ref = (
+                    MessageRef(
+                        channel_id=msg.chat_id,
+                        message_id=msg.reply_to_message_id,
+                    )
+                    if msg.reply_to_message_id is not None
+                    else None
+                )
+                await run_job(
+                    msg.chat_id,
+                    msg.message_id,
+                    prompt_text,
+                    None,
+                    context,
+                    msg.thread_id,
+                    reply_ref,
+                    scheduler.note_thread_known,
+                )
+
+            async def handle_prompt_upload(
+                msg: TelegramIncomingMessage,
+                caption_text: str,
+                ambient_context: RunContext | None,
+                topic_store: TopicStateStore | None,
+            ) -> None:
+                saved = await _save_file_put(
+                    cfg,
+                    msg,
+                    "",
+                    ambient_context,
+                    topic_store,
+                )
+                if saved is None:
+                    return
+                prompt = (
+                    f"{caption_text}\n\n"
+                    f"[uploaded file: {saved.rel_path.as_posix()}]"
+                )
+                await run_prompt_from_upload(msg, prompt, saved.context)
+
             async def flush_media_group(key: tuple[int, str]) -> None:
                 while True:
                     state = media_groups.get(key)
@@ -443,7 +489,12 @@ async def run_main_loop(
                         continue
                     messages = list(state.messages)
                     del media_groups[key]
-                    await _handle_media_group(cfg, messages, topic_store)
+                    await _handle_media_group(
+                        cfg,
+                        messages,
+                        topic_store,
+                        run_prompt_from_upload,
+                    )
                     return
 
             async for msg in poller(cfg):
@@ -533,14 +584,28 @@ async def run_main_loop(
                 ):
                     continue
                 if msg.document is not None:
-                    if cfg.files.enabled and cfg.files.auto_put and not text.strip():
-                        tg.start_soon(
-                            _handle_file_put_default,
-                            cfg,
-                            msg,
-                            ambient_context,
-                            topic_store,
-                        )
+                    if cfg.files.enabled and cfg.files.auto_put:
+                        caption_text = text.strip()
+                        if cfg.files.auto_put_mode == "prompt" and caption_text:
+                            tg.start_soon(
+                                handle_prompt_upload,
+                                msg,
+                                caption_text,
+                                ambient_context,
+                                topic_store,
+                            )
+                        elif not caption_text:
+                            tg.start_soon(
+                                _handle_file_put_default,
+                                cfg,
+                                msg,
+                                ambient_context,
+                                topic_store,
+                            )
+                        else:
+                            tg.start_soon(
+                                partial(reply, text=FILE_PUT_USAGE),
+                            )
                     elif cfg.files.enabled:
                         tg.start_soon(
                             partial(reply, text=FILE_PUT_USAGE),

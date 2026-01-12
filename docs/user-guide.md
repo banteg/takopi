@@ -360,6 +360,9 @@ If you send a file **without a caption**, takopi saves it to:
 incoming/<original_filename>
 ```
 
+If you set `auto_put_mode = "prompt"`, a caption/question will start a run
+immediately after upload, with the prompt annotated with the uploaded path.
+
 Use `--force` to overwrite an existing file:
 
 ```
@@ -382,6 +385,7 @@ Directories are zipped automatically.
 [transports.telegram.files]
 enabled = true
 auto_put = true
+auto_put_mode = "upload"
 uploads_dir = "incoming"
 allowed_user_ids = [123456789]
 deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
@@ -412,6 +416,7 @@ voice_transcription = true
 [transports.telegram.files]
 enabled = true
 auto_put = true
+auto_put_mode = "upload"
 uploads_dir = "incoming"
 allowed_user_ids = [123456789]
 deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
