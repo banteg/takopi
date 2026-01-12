@@ -93,7 +93,7 @@ def test_resolve_message_reply_ctx_overrides_ambient() -> None:
 
     resolved = runtime.resolve_message(
         text="hello",
-        reply_text="`ctx: proj @ reply`",
+        reply_text="`ctx: proj @reply`",
         ambient_context=ambient,
     )
 

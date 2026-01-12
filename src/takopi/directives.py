@@ -142,5 +142,5 @@ def format_context_line(
     project_cfg = projects.projects.get(context.project)
     alias = project_cfg.alias if project_cfg is not None else context.project
     if context.branch:
-        return f"`ctx: {alias} @ {context.branch}`"
+        return f"`ctx: {alias} @{context.branch}`"
     return f"`ctx: {alias}`"

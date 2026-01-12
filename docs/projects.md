@@ -92,7 +92,7 @@ Rules:
 When a run has project context, Takopi appends a footer line rendered as inline
 code (backticked):
 
-- With branch: `` `ctx: <project> @ <branch>` ``
+- With branch: `` `ctx: <project> @<branch>` ``
 - Without branch: `` `ctx: <project>` ``
 
 The `ctx:` line is parsed from replies and takes precedence over new directives.
@@ -153,5 +153,5 @@ Start a new thread in a worktree:
 Reply to a progress message to continue in the same context:
 
 ```
-ctx: z80 @ feat/streaming
+ctx: z80 @feat/streaming
 ```

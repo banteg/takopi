@@ -238,7 +238,7 @@ sequenceDiagram
     Runner->>CLI: claude "fix the bug"
     CLI-->>Runner: StartedEvent(resume=abc123)
     Runner-->>Bridge: Stream events
-    Bridge->>User: Final message with:<br/>claude --resume abc123<br/>ctx: project @ branch
+    Bridge->>User: Final message with:<br/>claude --resume abc123<br/>ctx: project @branch
 
     Note over User,CLI: Resume Conversation
     User->>Bridge: Reply: "now add tests"

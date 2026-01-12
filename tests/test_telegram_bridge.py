@@ -1041,7 +1041,7 @@ def test_resolve_message_accepts_backticked_ctx_line() -> None:
     )
     resolved = runtime.resolve_message(
         text="do it",
-        reply_text="`ctx: takopi @ feat/api`",
+        reply_text="`ctx: takopi @feat/api`",
     )
 
     assert resolved.prompt == "do it"

@@ -115,7 +115,7 @@
 
 - register repos with `takopi init <alias>` and target them via `/project` directives
 - route runs to git worktrees with `@branch` — takopi resolves or creates worktrees automatically
-- replies preserve context via `ctx: project @ branch` footers, no need to repeat directives
+- replies preserve context via `ctx: project @branch` footers, no need to repeat directives
 - set `default_project` to skip the `/project` prefix entirely
 - per-project `default_engine` and `worktree_base` configuration
 
