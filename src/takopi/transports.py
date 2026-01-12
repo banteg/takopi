@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Iterable, Protocol, runtime_checkable
 
 from .backends import EngineBackend, SetupIssue
-from .config import ConfigError
 from .plugins import TRANSPORT_GROUP, list_ids, load_plugin_backend
 from .transport_runtime import TransportRuntime
 
