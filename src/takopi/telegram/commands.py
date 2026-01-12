@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import cast
 
 import anyio
 
@@ -21,7 +22,7 @@ from ..directives import DirectiveError
 from ..ids import RESERVED_COMMAND_IDS, is_valid_id
 from ..logging import bind_run_context, clear_context, get_logger
 from ..markdown import MarkdownParts
-from ..model import EngineId, ResumeToken
+from ..model import EngineId, ResumeToken, TakopiEvent
 from ..plugins import COMMAND_GROUP, list_entrypoints
 from ..progress import ProgressTracker
 from ..router import RunnerUnavailableError
@@ -273,7 +274,9 @@ class _ResumeLineProxy:
     def extract_resume(self, text: str | None) -> ResumeToken | None:
         return self.runner.extract_resume(text)
 
-    def run(self, prompt: str, resume: ResumeToken | None):
+    def run(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
         return self.runner.run(prompt, resume)
 
 
@@ -1281,7 +1284,7 @@ async def _run_engine(
             return
         runner: Runner = entry.runner
         if thread_id is not None and not show_resume_line:
-            runner = _ResumeLineProxy(runner)
+            runner = cast(Runner, _ResumeLineProxy(runner))
         if not entry.available:
             reason = entry.issue or "engine unavailable"
             await _send_runner_unavailable(
@@ -1534,9 +1537,7 @@ async def _dispatch_command(
         if msg.reply_to_message_id is not None
         else None
     )
-    topic_thread = (
-        msg.thread_id is not None and _topics_chat_allowed(cfg, msg.chat_id)
-    )
+    topic_thread = msg.thread_id is not None and _topics_chat_allowed(cfg, msg.chat_id)
     show_resume_line = cfg.topics.show_resume_line if topic_thread else True
     executor = _TelegramCommandExecutor(
         exec_cfg=cfg.exec_cfg,
