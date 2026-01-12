@@ -572,9 +572,7 @@ async def run_main_loop(
                 resume_token = resolved.resume_token
                 engine_override = resolved.engine_override
                 context = resolved.context
-                chat_session_key = _chat_session_key(
-                    msg, store=chat_session_store
-                )
+                chat_session_key = _chat_session_key(msg, store=chat_session_store)
                 topic_key = (
                     _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
                     if topic_store is not None
