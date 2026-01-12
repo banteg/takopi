@@ -17,6 +17,7 @@ from ..model import EngineId, ResumeToken
 from ..scheduler import ThreadJob, ThreadScheduler
 from ..settings import TelegramTransportSettings
 from ..transport import MessageRef
+from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
 from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
 from .commands import (
@@ -484,29 +485,170 @@ async def run_main_loop(
 
             scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
 
+            def _build_upload_prompt(base: str, annotation: str) -> str:
+                if base and base.strip():
+                    return f"{base}\n\n{annotation}"
+                return annotation
+
+            async def resolve_prompt_message(
+                msg: TelegramIncomingMessage,
+                text: str,
+                ambient_context: RunContext | None,
+            ) -> ResolvedMessage | None:
+                reply = partial(
+                    send_plain,
+                    cfg.exec_cfg.transport,
+                    chat_id=msg.chat_id,
+                    user_msg_id=msg.message_id,
+                    thread_id=msg.thread_id,
+                )
+                try:
+                    resolved = cfg.runtime.resolve_message(
+                        text=text,
+                        reply_text=msg.reply_to_text,
+                        ambient_context=ambient_context,
+                        chat_id=msg.chat_id,
+                    )
+                except DirectiveError as exc:
+                    await reply(text=f"error:\n{exc}")
+                    return None
+                topic_key = (
+                    _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
+                    if topic_store is not None
+                    else None
+                )
+                effective_context = ambient_context
+                if (
+                    topic_store is not None
+                    and topic_key is not None
+                    and resolved.context is not None
+                    and resolved.context_source == "directives"
+                ):
+                    await topic_store.set_context(*topic_key, resolved.context)
+                    await _maybe_rename_topic(
+                        cfg,
+                        topic_store,
+                        chat_id=topic_key[0],
+                        thread_id=topic_key[1],
+                        context=resolved.context,
+                    )
+                    effective_context = resolved.context
+                if (
+                    topic_store is not None
+                    and topic_key is not None
+                    and effective_context is None
+                    and resolved.context_source not in {"directives", "reply_ctx"}
+                ):
+                    chat_project = (
+                        _topics_chat_project(cfg, msg.chat_id)
+                        if cfg.topics.enabled
+                        else None
+                    )
+                    await reply(
+                        text="this topic isn't bound to a project yet.\n"
+                        f"{_usage_ctx_set(chat_project=chat_project)} or "
+                        f"{_usage_topic(chat_project=chat_project)}",
+                    )
+                    return None
+                return resolved
+
             async def run_prompt_from_upload(
                 msg: TelegramIncomingMessage,
                 prompt_text: str,
-                context: RunContext | None,
+                resolved: ResolvedMessage,
             ) -> None:
+                chat_id = msg.chat_id
+                user_msg_id = msg.message_id
+                reply_id = msg.reply_to_message_id
                 reply_ref = (
                     MessageRef(
                         channel_id=msg.chat_id,
                         message_id=msg.reply_to_message_id,
+                        thread_id=msg.thread_id,
                     )
                     if msg.reply_to_message_id is not None
                     else None
                 )
-                await run_job(
-                    msg.chat_id,
-                    msg.message_id,
+                resume_token = resolved.resume_token
+                engine_override = resolved.engine_override
+                context = resolved.context
+                chat_session_key = _chat_session_key(
+                    msg, store=chat_session_store
+                )
+                topic_key = (
+                    _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
+                    if topic_store is not None
+                    else None
+                )
+                if resume_token is None and reply_id is not None:
+                    running_task = running_tasks.get(
+                        MessageRef(channel_id=chat_id, message_id=reply_id)
+                    )
+                    if running_task is not None:
+                        tg.start_soon(
+                            send_with_resume,
+                            cfg,
+                            scheduler.enqueue_resume,
+                            running_task,
+                            chat_id,
+                            user_msg_id,
+                            msg.thread_id,
+                            chat_session_key,
+                            prompt_text,
+                        )
+                        return
+                if (
+                    resume_token is None
+                    and topic_store is not None
+                    and topic_key is not None
+                ):
+                    engine_for_session = cfg.runtime.resolve_engine(
+                        engine_override=engine_override,
+                        context=context,
+                    )
+                    stored = await topic_store.get_session_resume(
+                        topic_key[0], topic_key[1], engine_for_session
+                    )
+                    if stored is not None:
+                        resume_token = stored
+                if (
+                    resume_token is None
+                    and chat_session_store is not None
+                    and chat_session_key is not None
+                ):
+                    engine_for_session = cfg.runtime.resolve_engine(
+                        engine_override=engine_override,
+                        context=context,
+                    )
+                    stored = await chat_session_store.get_session_resume(
+                        chat_session_key[0],
+                        chat_session_key[1],
+                        engine_for_session,
+                    )
+                    if stored is not None:
+                        resume_token = stored
+                if resume_token is None:
+                    await run_job(
+                        chat_id,
+                        user_msg_id,
+                        prompt_text,
+                        None,
+                        context,
+                        msg.thread_id,
+                        chat_session_key,
+                        reply_ref,
+                        scheduler.note_thread_known,
+                        engine_override,
+                    )
+                    return
+                await scheduler.enqueue_resume(
+                    chat_id,
+                    user_msg_id,
                     prompt_text,
-                    None,
+                    resume_token,
                     context,
                     msg.thread_id,
-                    None,
-                    reply_ref,
-                    scheduler.note_thread_known,
+                    chat_session_key,
                 )
 
             async def handle_prompt_upload(
@@ -515,19 +657,25 @@ async def run_main_loop(
                 ambient_context: RunContext | None,
                 topic_store: TopicStateStore | None,
             ) -> None:
+                resolved = await resolve_prompt_message(
+                    msg,
+                    caption_text,
+                    ambient_context,
+                )
+                if resolved is None:
+                    return
                 saved = await _save_file_put(
                     cfg,
                     msg,
                     "",
-                    ambient_context,
+                    resolved.context,
                     topic_store,
                 )
                 if saved is None:
                     return
-                prompt = (
-                    f"{caption_text}\n\n[uploaded file: {saved.rel_path.as_posix()}]"
-                )
-                await run_prompt_from_upload(msg, prompt, saved.context)
+                annotation = f"[uploaded file: {saved.rel_path.as_posix()}]"
+                prompt = _build_upload_prompt(resolved.prompt, annotation)
+                await run_prompt_from_upload(msg, prompt, resolved)
 
             async def flush_media_group(key: tuple[int, str]) -> None:
                 while True:
@@ -548,6 +696,7 @@ async def run_main_loop(
                         messages,
                         topic_store,
                         run_prompt_from_upload,
+                        resolve_prompt_message,
                     )
                     return
 

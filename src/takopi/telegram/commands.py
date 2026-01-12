@@ -763,7 +763,12 @@ async def _handle_media_group(
     messages: Sequence[TelegramIncomingMessage],
     topic_store: TopicStateStore | None,
     run_prompt: Callable[
-        [TelegramIncomingMessage, str, RunContext | None], Awaitable[None]
+        [TelegramIncomingMessage, str, ResolvedMessage], Awaitable[None]
+    ]
+    | None = None,
+    resolve_prompt: Callable[
+        [TelegramIncomingMessage, str, RunContext | None],
+        Awaitable[ResolvedMessage | None],
     ]
     | None = None,
 ) -> None:
@@ -810,12 +815,29 @@ async def _handle_media_group(
     if cfg.files.enabled and cfg.files.auto_put:
         caption_text = command_msg.text.strip()
         if cfg.files.auto_put_mode == "prompt" and caption_text:
+            if resolve_prompt is None:
+                try:
+                    resolved = cfg.runtime.resolve_message(
+                        text=caption_text,
+                        reply_text=command_msg.reply_to_text,
+                        ambient_context=ambient_context,
+                        chat_id=command_msg.chat_id,
+                    )
+                except DirectiveError as exc:
+                    await reply(text=f"error:\n{exc}")
+                    return
+            else:
+                resolved = await resolve_prompt(
+                    command_msg, caption_text, ambient_context
+                )
+            if resolved is None:
+                return
             saved_group = await _save_file_put_group(
                 cfg,
                 command_msg,
                 "",
                 ordered,
-                ambient_context,
+                resolved.context,
                 topic_store,
             )
             if saved_group is None:
@@ -840,8 +862,13 @@ async def _handle_media_group(
                 if item.rel_path is not None
             ]
             files_text = "\n".join(f"- {path}" for path in paths)
-            prompt = f"{caption_text}\n\n[uploaded files]\n{files_text}"
-            await run_prompt(command_msg, prompt, saved_group.context)
+            prompt_base = resolved.prompt
+            annotation = f"[uploaded files]\n{files_text}"
+            if prompt_base and prompt_base.strip():
+                prompt = f"{prompt_base}\n\n{annotation}"
+            else:
+                prompt = annotation
+            await run_prompt(command_msg, prompt, resolved)
             return
         if not caption_text:
             await _handle_file_put_group(
