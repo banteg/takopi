@@ -296,8 +296,7 @@ def _default_alias_from_path(path: Path) -> str | None:
     name = path.name
     if not name:
         return None
-    if name.endswith(".git"):
-        name = name[: -len(".git")]
+    name = name.removesuffix(".git")
     return name or None
 
 
