@@ -84,7 +84,6 @@ class MockRunner(SessionLockMixin, ResumeTokenMixin, Runner):
     async def run(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
-        _ = prompt
         token_value = None
         if resume is not None:
             if resume.engine != self.engine:
@@ -158,7 +157,6 @@ class ScriptRunner(MockRunner):
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
         self.calls.append((prompt, resume))
-        _ = prompt
         token_value = None
         if resume is not None:
             if resume.engine != self.engine:

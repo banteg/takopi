@@ -290,7 +290,6 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: PiStreamState,
     ) -> list[str]:
-        _ = resume
         args: list[str] = [*self.extra_args, "--print", "--mode", "json"]
         if self.provider:
             args.extend(["--provider", self.provider])
@@ -307,18 +306,15 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: PiStreamState,
     ) -> bytes | None:
-        _ = prompt, resume, state
         return None
 
     def env(self, *, state: PiStreamState) -> dict[str, str] | None:
-        _ = state
         env = dict(os.environ)
         env.setdefault("NO_COLOR", "1")
         env.setdefault("CI", "1")
         return env
 
     def new_state(self, prompt: str, resume: ResumeToken | None) -> PiStreamState:
-        _ = prompt
         if resume is None:
             session_path = self._new_session_path()
             token = ResumeToken(engine=ENGINE, value=session_path)
@@ -334,7 +330,6 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
     ) -> list[TakopiEvent]:
-        _ = resume, found_session
         meta: dict[str, Any] = {"cwd": os.getcwd()}
         if self.model:
             meta["model"] = self.model
@@ -362,7 +357,6 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         error: Exception,
         state: PiStreamState,
     ) -> list[TakopiEvent]:
-        _ = raw, line, state
         if isinstance(error, msgspec.DecodeError):
             self.get_logger().warning(
                 "jsonl.msgspec.invalid",

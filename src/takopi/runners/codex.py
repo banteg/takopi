@@ -426,7 +426,6 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: Any,
     ) -> list[str]:
-        _ = prompt, state
         args = [
             *self.extra_args,
             "exec",
@@ -441,7 +440,6 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         return args
 
     def new_state(self, prompt: str, resume: ResumeToken | None) -> CodexRunState:
-        _ = prompt, resume
         return CodexRunState(factory=EventFactory(ENGINE))
 
     def start_run(
@@ -451,8 +449,6 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: CodexRunState,
     ) -> None:
-        _ = state, prompt, resume
-
     def decode_jsonl(self, *, line: bytes) -> codex_schema.ThreadEvent:
         return codex_schema.decode_event(line)
 
@@ -464,7 +460,6 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         error: Exception,
         state: CodexRunState,
     ) -> list[TakopiEvent]:
-        _ = raw, line
         if isinstance(error, msgspec.DecodeError):
             self.get_logger().warning(
                 "jsonl.msgspec.invalid",

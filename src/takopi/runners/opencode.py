@@ -367,7 +367,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: Any,
     ) -> list[str]:
-        _ = state
         args = ["run", "--format", "json"]
         if resume is not None:
             args.extend(["--session", resume.value])
@@ -383,11 +382,9 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: Any,
     ) -> bytes | None:
-        _ = prompt, resume, state
         return None
 
     def new_state(self, prompt: str, resume: ResumeToken | None) -> OpenCodeStreamState:
-        _ = prompt, resume
         return OpenCodeStreamState()
 
     def start_run(
@@ -397,8 +394,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: OpenCodeStreamState,
     ) -> None:
-        _ = state, prompt, resume
-
     def invalid_json_events(
         self,
         *,
@@ -406,7 +401,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         line: str,
         state: OpenCodeStreamState,
     ) -> list[TakopiEvent]:
-        _ = line
         message = "invalid JSON from opencode; ignoring line"
         return [self.note_event(message, state=state, detail={"line": raw})]
 
@@ -418,7 +412,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
     ) -> list[TakopiEvent]:
-        _ = resume, found_session
         return translate_opencode_event(
             data,
             title=self.session_title,
@@ -436,7 +429,6 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         error: Exception,
         state: OpenCodeStreamState,
     ) -> list[TakopiEvent]:
-        _ = raw, line, state
         if isinstance(error, msgspec.DecodeError):
             self.get_logger().warning(
                 "jsonl.msgspec.invalid",
