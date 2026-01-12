@@ -3,16 +3,29 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 from .config import ConfigError, ProjectsConfig
 from .context import RunContext
-from .directives import format_context_line, parse_context_line, parse_directives
+from .directives import (
+    ParsedDirectives,
+    format_context_line,
+    parse_context_line,
+    parse_directives,
+)
 from .model import EngineId, ResumeToken
 from .plugins import normalize_allowlist
 from .router import AutoRouter, EngineStatus
 from .runner import Runner
 from .worktrees import WorktreeError, resolve_run_cwd
+
+ContextSource: TypeAlias = Literal[
+    "reply_ctx",
+    "directives",
+    "ambient",
+    "default_project",
+    "none",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,13 +34,7 @@ class ResolvedMessage:
     resume_token: ResumeToken | None
     engine_override: EngineId | None
     context: RunContext | None
-    context_source: Literal[
-        "reply_ctx",
-        "directives",
-        "ambient",
-        "default_project",
-        "none",
-    ] = "none"
+    context_source: ContextSource = "none"
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,51 +190,16 @@ class TransportRuntime:
         chat_project = self._projects.project_for_chat(chat_id)
         default_project = chat_project or self._projects.default_project
 
-        context_source: Literal[
-            "reply_ctx",
-            "directives",
-            "ambient",
-            "default_project",
-            "none",
-        ] = "none"
-        context: RunContext | None = None
-
-        if reply_ctx is not None:
-            context = reply_ctx
-            context_source = "reply_ctx"
-        else:
-            project_key = directives.project
-            branch = directives.branch
-            if project_key is None:
-                if ambient_context is not None and ambient_context.project is not None:
-                    project_key = ambient_context.project
-                else:
-                    project_key = default_project
-            if branch is None:
-                if (
-                    ambient_context is not None
-                    and ambient_context.branch is not None
-                    and project_key == ambient_context.project
-                ):
-                    branch = ambient_context.branch
-            if project_key is not None or branch is not None:
-                context = RunContext(project=project_key, branch=branch)
-            if directives.project is not None or directives.branch is not None:
-                context_source = "directives"
-            elif ambient_context is not None and ambient_context.project is not None:
-                context_source = "ambient"
-            elif default_project is not None:
-                context_source = "default_project"
-
-        engine_override = directives.engine
-        if engine_override is None and context is not None:
-            project = (
-                self._projects.projects.get(context.project)
-                if context.project is not None
-                else None
-            )
-            if project is not None and project.default_engine is not None:
-                engine_override = project.default_engine
+        context, context_source = self._resolve_context(
+            directives=directives,
+            reply_ctx=reply_ctx,
+            ambient_context=ambient_context,
+            default_project=default_project,
+        )
+        engine_override = self._resolve_engine_override(
+            directives_engine=directives.engine,
+            context=context,
+        )
 
         return ResolvedMessage(
             prompt=directives.prompt,
@@ -236,6 +208,65 @@ class TransportRuntime:
             context=context,
             context_source=context_source,
         )
+
+    def _resolve_context(
+        self,
+        *,
+        directives: ParsedDirectives,
+        reply_ctx: RunContext | None,
+        ambient_context: RunContext | None,
+        default_project: str | None,
+    ) -> tuple[RunContext | None, ContextSource]:
+        if reply_ctx is not None:
+            return reply_ctx, "reply_ctx"
+
+        project_key = directives.project
+        branch = directives.branch
+        if project_key is None:
+            if ambient_context is not None and ambient_context.project is not None:
+                project_key = ambient_context.project
+            else:
+                project_key = default_project
+        if branch is None:
+            if (
+                ambient_context is not None
+                and ambient_context.branch is not None
+                and project_key == ambient_context.project
+            ):
+                branch = ambient_context.branch
+        context: RunContext | None = None
+        if project_key is not None or branch is not None:
+            context = RunContext(project=project_key, branch=branch)
+
+        if directives.project is not None or directives.branch is not None:
+            context_source: ContextSource = "directives"
+        elif ambient_context is not None and ambient_context.project is not None:
+            context_source = "ambient"
+        elif default_project is not None:
+            context_source = "default_project"
+        else:
+            context_source = "none"
+
+        return context, context_source
+
+    def _resolve_engine_override(
+        self,
+        *,
+        directives_engine: EngineId | None,
+        context: RunContext | None,
+    ) -> EngineId | None:
+        if directives_engine is not None:
+            return directives_engine
+        if context is None:
+            return None
+        project = (
+            self._projects.projects.get(context.project)
+            if context.project is not None
+            else None
+        )
+        if project is not None and project.default_engine is not None:
+            return project.default_engine
+        return None
 
     @property
     def default_project(self) -> str | None:
