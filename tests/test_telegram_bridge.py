@@ -1952,6 +1952,56 @@ async def test_run_main_loop_new_clears_chat_sessions(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_new_clears_topic_sessions(tmp_path: Path) -> None:
+    state_path = tmp_path / "takopi.toml"
+    store = TopicStateStore(resolve_state_path(state_path))
+    await store.set_session_resume(
+        123, 77, ResumeToken(engine=CODEX_ENGINE, value="resume-1")
+    )
+
+    transport = _FakeTransport()
+    bot = _FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+        config_path=state_path,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        topics=TelegramTopicsSettings(enabled=True, scope="main"),
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="/new",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            thread_id=77,
+            chat_type="supergroup",
+        )
+
+    with anyio.fail_after(2):
+        await run_main_loop(cfg, poller)
+
+    store2 = TopicStateStore(resolve_state_path(state_path))
+    assert await store2.get_session_resume(123, 77, CODEX_ENGINE) is None
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_replies_in_same_thread() -> None:
     transport = _FakeTransport()
     bot = _FakeBot()
