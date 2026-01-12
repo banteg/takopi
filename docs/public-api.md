@@ -185,9 +185,9 @@ engine pipeline. Use `mode="capture"` to collect results and build a custom repl
 
 `ctx.message` and `ctx.reply_to` are `MessageRef` objects with:
 
-- `channel_id` (chat/channel id)
-- `message_id` (message id)
-- `thread_id` (optional; set when the transport supports threads, like Telegram topics)
+- `channel_id` (`int | str`, chat/channel id)
+- `message_id` (`int | str`, message id)
+- `thread_id` (`int | str | None`; set when the transport supports threads, like Telegram topics)
 - `raw` (transport-specific payload, may be `None`)
 
 Example: key per-thread state by `(ctx.message.channel_id, ctx.message.thread_id)`.
@@ -237,6 +237,7 @@ async def on_message(...):
         message_id=...,
         text=...,
         reply_to=...,
+        thread_id=...,
     )
     await handle_message(
         exec_cfg,

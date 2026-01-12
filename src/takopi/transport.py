@@ -5,6 +5,7 @@ from typing import Any, Protocol, TypeAlias
 
 ChannelId: TypeAlias = int | str
 MessageId: TypeAlias = int | str
+ThreadId: TypeAlias = int | str
 
 
 @dataclass(frozen=True, slots=True)
@@ -12,7 +13,7 @@ class MessageRef:
     channel_id: ChannelId
     message_id: MessageId
     raw: Any | None = field(default=None, compare=False, hash=False)
-    thread_id: int | None = field(default=None, compare=False, hash=False)
+    thread_id: ThreadId | None = field(default=None, compare=False, hash=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +27,7 @@ class SendOptions:
     reply_to: MessageRef | None = None
     notify: bool = True
     replace: MessageRef | None = None
-    thread_id: int | None = None
+    thread_id: ThreadId | None = None
 
 
 class Transport(Protocol):

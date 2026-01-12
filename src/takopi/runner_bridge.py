@@ -19,6 +19,7 @@ from .transport import (
     MessageRef,
     RenderedMessage,
     SendOptions,
+    ThreadId,
     Transport,
 )
 
@@ -79,7 +80,7 @@ class IncomingMessage:
     message_id: MessageId
     text: str
     reply_to: MessageRef | None = None
-    thread_id: int | None = None
+    thread_id: ThreadId | None = None
 
 
 @dataclass(frozen=True)
@@ -110,7 +111,7 @@ async def _send_or_edit_message(
     reply_to: MessageRef | None = None,
     notify: bool = True,
     replace_ref: MessageRef | None = None,
-    thread_id: int | None = None,
+    thread_id: ThreadId | None = None,
 ) -> tuple[MessageRef | None, bool]:
     msg = message
     followups = message.extra.get("followups")
@@ -248,7 +249,7 @@ async def send_initial_progress(
     tracker: ProgressTracker,
     resume_formatter: Callable[[ResumeToken], str] | None = None,
     context_line: str | None = None,
-    thread_id: int | None = None,
+    thread_id: ThreadId | None = None,
 ) -> ProgressMessageState:
     progress_ref: MessageRef | None = None
     last_rendered: RenderedMessage | None = None
@@ -358,7 +359,7 @@ async def send_result_message(
     edit_ref: MessageRef | None,
     replace_ref: MessageRef | None = None,
     delete_tag: str = "final",
-    thread_id: int | None = None,
+    thread_id: ThreadId | None = None,
 ) -> None:
     final_msg, edited = await _send_or_edit_message(
         cfg.transport,

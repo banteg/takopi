@@ -8,16 +8,17 @@ import anyio
 
 from .context import RunContext
 from .model import ResumeToken
+from .transport import ChannelId, MessageId, ThreadId
 
 
 @dataclass(frozen=True, slots=True)
 class ThreadJob:
-    chat_id: int
-    user_msg_id: int
+    chat_id: ChannelId
+    user_msg_id: MessageId
     text: str
     resume_token: ResumeToken
     context: RunContext | None = None
-    thread_id: int | None = None
+    thread_id: ThreadId | None = None
 
 
 RunJob = Callable[[ThreadJob], Awaitable[None]]
@@ -65,12 +66,12 @@ class ThreadScheduler:
 
     async def enqueue_resume(
         self,
-        chat_id: int,
-        user_msg_id: int,
+        chat_id: ChannelId,
+        user_msg_id: MessageId,
         text: str,
         resume_token: ResumeToken,
         context: RunContext | None = None,
-        thread_id: int | None = None,
+        thread_id: ThreadId | None = None,
     ) -> None:
         await self.enqueue(
             ThreadJob(
