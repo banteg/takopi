@@ -313,6 +313,4 @@ def load_plugin_backend(
     except PluginLoadFailed as exc:
         from .config import ConfigError
 
-        raise ConfigError(
-            f"Failed to load {kind_label} {name!r}: {exc}"
-        ) from exc
+        raise ConfigError(f"Failed to load {kind_label} {name!r}: {exc}") from exc
