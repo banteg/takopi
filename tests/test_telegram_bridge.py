@@ -1455,14 +1455,14 @@ async def test_run_main_loop_auto_resumes_topic_default_engine(
         123, 77, ResumeToken(engine=CODEX_ENGINE, value="resume-codex")
     )
     await store.set_session_resume(
-        123, 77, ResumeToken(engine=EngineId("claude"), value="resume-claude")
+        123, 77, ResumeToken(engine="claude", value="resume-claude")
     )
     await store.set_default_engine(123, 77, "claude")
 
     transport = _FakeTransport()
     bot = _FakeBot()
     codex_runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
-    claude_runner = ScriptRunner([Return(answer="ok")], engine=EngineId("claude"))
+    claude_runner = ScriptRunner([Return(answer="ok")], engine="claude")
     router = AutoRouter(
         entries=[
             RunnerEntry(engine=codex_runner.engine, runner=codex_runner),
@@ -1520,7 +1520,7 @@ async def test_run_main_loop_auto_resumes_topic_default_engine(
     assert codex_runner.calls == []
     assert len(claude_runner.calls) == 1
     assert claude_runner.calls[0][1] == ResumeToken(
-        engine=EngineId("claude"), value="resume-claude"
+        engine="claude", value="resume-claude"
     )
 
 

@@ -8,7 +8,7 @@ import anyio
 from ...commands import CommandContext, get_command
 from ...config import ConfigError
 from ...logging import get_logger
-from ...model import ResumeToken
+from ...model import EngineId, ResumeToken
 from ...runner_bridge import RunningTasks
 from ...scheduler import ThreadScheduler
 from ...transport import MessageRef
@@ -32,6 +32,7 @@ async def _dispatch_command(
     scheduler: ThreadScheduler,
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
     stateful_mode: bool,
+    default_engine_override: EngineId | None,
 ) -> None:
     allowlist = cfg.runtime.allowlist
     chat_id = msg.chat_id
@@ -56,9 +57,14 @@ async def _dispatch_command(
         thread_id=msg.thread_id,
         show_resume_line=cfg.show_resume_line,
         stateful_mode=stateful_mode,
+        default_engine_override=default_engine_override,
     )
     message_ref = MessageRef(
-        channel_id=chat_id, message_id=user_msg_id, thread_id=msg.thread_id
+        channel_id=chat_id,
+        message_id=user_msg_id,
+        thread_id=msg.thread_id,
+        sender_id=msg.sender_id,
+        raw=msg.raw,
     )
     try:
         backend = get_command(command_id, allowlist=allowlist, required=False)

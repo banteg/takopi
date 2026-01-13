@@ -238,6 +238,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         thread_id: int | None,
         show_resume_line: bool,
         stateful_mode: bool,
+        default_engine_override: EngineId | None,
     ) -> None:
         self._exec_cfg = exec_cfg
         self._runtime = runtime
@@ -249,6 +250,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         self._thread_id = thread_id
         self._show_resume_line = show_resume_line
         self._stateful_mode = stateful_mode
+        self._default_engine_override = default_engine_override
         self._reply_ref = MessageRef(
             channel_id=chat_id,
             message_id=user_msg_id,
@@ -265,6 +267,15 @@ class _TelegramCommandExecutor(CommandExecutor):
             prompt=request.prompt,
             engine=request.engine,
             context=context,
+        )
+
+    def _apply_default_engine(self, request: RunRequest) -> RunRequest:
+        if request.engine is not None or self._default_engine_override is None:
+            return request
+        return RunRequest(
+            prompt=request.prompt,
+            engine=self._default_engine_override,
+            context=request.context,
         )
 
     async def send(
@@ -294,6 +305,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         self, request: RunRequest, *, mode: RunMode = "emit"
     ) -> RunResult:
         request = self._apply_default_context(request)
+        request = self._apply_default_engine(request)
         effective_show_resume_line = _should_show_resume_line(
             show_resume_line=self._show_resume_line,
             stateful_mode=self._stateful_mode,

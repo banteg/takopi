@@ -4,7 +4,6 @@ import pytest
 
 from takopi.config import ProjectConfig, ProjectsConfig
 from takopi.context import RunContext
-from takopi.model import EngineId
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
 from takopi.telegram.chat_prefs import ChatPrefsStore
@@ -15,8 +14,8 @@ from takopi.transport_runtime import TransportRuntime
 
 @pytest.mark.anyio
 async def test_resolve_engine_for_message_sources(tmp_path) -> None:
-    codex = ScriptRunner([Return(answer="ok")], engine=EngineId("codex"))
-    pi = ScriptRunner([Return(answer="ok")], engine=EngineId("pi"))
+    codex = ScriptRunner([Return(answer="ok")], engine="codex")
+    pi = ScriptRunner([Return(answer="ok")], engine="pi")
     router = AutoRouter(
         entries=[
             RunnerEntry(engine=codex.engine, runner=codex),
@@ -42,7 +41,7 @@ async def test_resolve_engine_for_message_sources(tmp_path) -> None:
     resolved = await resolve_engine_for_message(
         runtime=runtime,
         context=RunContext(project="proj"),
-        explicit_engine=EngineId("codex"),
+        explicit_engine="codex",
         chat_id=1,
         topic_key=(1, 10),
         topic_store=topic_store,
