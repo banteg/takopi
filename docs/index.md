@@ -6,28 +6,47 @@ Takopi lets you run an engine CLI in a local repo while controlling it from Tele
 
 ## Choose your path
 
-- **I’m new / I want to get it running**
-  - Start with **[Tutorials](tutorials/index.md)**:
+<div class="grid cards" markdown>
+-   **I’m new / I want to get it running**
+    
+    ---
+
+    Start with [Tutorials](tutorials/index.md).
+
     - [Install & onboard](tutorials/install-and-onboard.md)
     - [First run](tutorials/first-run.md)
 
-- **I know what I want to do (enable a feature / fix a workflow)**
-  - Use **[How-to guides](how-to/index.md)**:
+-   **I know what I want to do**
+
+    ---
+
+    Use [How-to guides](how-to/index.md).
+
     - [Projects](how-to/projects.md) and [Worktrees](how-to/worktrees.md)
     - [Topics](how-to/topics.md) and [Route by chat](how-to/route-by-chat.md)
     - [File transfer](how-to/file-transfer.md) and [Voice notes](how-to/voice-notes.md)
 
-- **I need exact knobs, defaults, and contracts**
-  - Go straight to **[Reference](reference/index.md)**:
+-   **I need exact knobs, defaults, and contracts**
+
+    ---
+
+    Go straight to [Reference](reference/index.md).
+
     - [Commands & directives](reference/commands-and-directives.md)
     - [Configuration](reference/config.md)
     - [Specification](reference/specification.md) (normative behavior)
 
-- **I’m trying to understand the design**
-  - Read **[Explanation](explanation/index.md)**:
+-   **I’m trying to understand the design**
+
+    ---
+
+    Read [Explanation](explanation/index.md).
+
     - [Architecture](explanation/architecture.md)
     - [Routing & sessions](explanation/routing-and-sessions.md)
     - [Plugin system](explanation/plugin-system.md)
+
+</div>
 
 ## Quick start
 
