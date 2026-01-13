@@ -6,15 +6,25 @@ This tutorial walks you through installing Takopi, creating a Telegram bot, and 
 
 ## 1. Install Python 3.14 and uv
 
-First, make sure you have **Python 3.14+** and **uv** installed.
+We only recommend **uv** for installing both uv itself and Python.
 
-1. Install Python 3.14+ (for example via [python.org](https://www.python.org/downloads/) or a version manager like [pyenv](https://github.com/pyenv/pyenv)).
-2. Install uv using the official instructions: [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
-3. Verify both are available:
+Install uv:
 
 ```sh
-python3 --version
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Install Python 3.14 with uv:
+
+```sh
+uv python install 3.14
+```
+
+Verify:
+
+```sh
 uv --version
+uv python list
 ```
 
 ## 2. Install Takopi
