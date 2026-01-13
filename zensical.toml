@@ -1,13 +1,12 @@
 [project]
 site_name = "takopi"
-site_description = "takopi - Telegram bridge for coding agents"
+site_description = "takopi - telegram bridge for coding agents"
 site_url = "https://takopi.banteg.xyz/"
 repo_url = "https://github.com/banteg/takopi"
 repo_name = "banteg/takopi"
 edit_uri = "edit/master/docs/"
 docs_dir = "docs"
 site_dir = "_site"
-extra_css = ["stylesheets/extra.css"]
 
 nav = [
   { "Home" = "index.md" },
@@ -36,6 +35,7 @@ nav = [
     { "Commands & directives" = "reference/commands-and-directives.md" },
     { "Configuration" = "reference/config.md" },
     { "Environment variables" = "reference/env-vars.md" },
+    { "Changelog" = "reference/changelog.md" },
     { "Specification" = "reference/specification.md" },
     { "Plugin API" = "reference/plugin-api.md" },
     { "Context resolution" = "reference/context-resolution.md" },
