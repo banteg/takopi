@@ -91,12 +91,20 @@ features = [
   "navigation.sections",
   "navigation.instant",
   "navigation.tracking",
+  "navigation.tabs",
+  "navigation.tabs.sticky",
   "content.code.copy",
   "content.action.edit",
   "search.highlight",
 ]
 
 [[project.theme.palette]]
+media = "(prefers-color-scheme)"
+toggle.icon = "lucide/sun-moon"
+toggle.name = "Switch to light mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
 scheme = "default"
 primary = "pink"
 accent = "teal"
@@ -104,11 +112,12 @@ toggle.icon = "lucide/sun"
 toggle.name = "Switch to dark mode"
 
 [[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
 scheme = "slate"
 primary = "pink"
 accent = "teal"
 toggle.icon = "lucide/moon"
-toggle.name = "Switch to light mode"
+toggle.name = "Switch to system preference"
 
 [project.markdown_extensions.admonition]
 [project.markdown_extensions.attr_list]
