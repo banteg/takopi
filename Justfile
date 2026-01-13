@@ -4,6 +4,12 @@ check:
     uv run ty check src tests
     uv run pytest
 
+docs-serve:
+    uv run --group docs mkdocs serve
+
+docs-build:
+    uv run --group docs mkdocs build --strict
+
 bundle:
     #!/usr/bin/env bash
     set -euo pipefail
