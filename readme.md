@@ -46,17 +46,17 @@ register a project with `takopi init happy-gadgets`, then target it from anywher
 
 mention a branch to run an agent in a dedicated worktree `/happy-gadgets @feat/memory-box freeze artifacts forever`.
 
-see [`docs/user-guide.md`](docs/user-guide.md) for configuration, worktrees, topics, file transfer, and more.
+see [`docs/index.md`](docs/index.md) (or [`docs/user-guide.md`](docs/user-guide.md)) for configuration, worktrees, topics, file transfer, and more.
 
 ## plugins
 
 takopi supports entrypoint-based plugins for engines, transports, and commands.
 
-see [`docs/plugins.md`](docs/plugins.md) and [`docs/public-api.md`](docs/public-api.md).
+see [`docs/how-to/write-a-plugin.md`](docs/how-to/write-a-plugin.md) and [`docs/reference/plugin-api.md`](docs/reference/plugin-api.md).
 
 ## development
 
-see [`docs/specification.md`](docs/specification.md) and [`docs/developing.md`](docs/developing.md).
+see [`docs/reference/specification.md`](docs/reference/specification.md) and [`docs/developing.md`](docs/developing.md).
 
 ## community
 

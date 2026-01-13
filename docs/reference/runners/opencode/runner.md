@@ -44,4 +44,4 @@ OpenCode outputs JSON events with the following types:
 | `step_finish` | End of a step (reason: "stop" or "tool-calls" when present) |
 | `error` | Error event |
 
-See [opencode-stream-json-cheatsheet.md](./opencode-stream-json-cheatsheet.md) for detailed event format documentation.
+See [stream-json-cheatsheet.md](./stream-json-cheatsheet.md) for detailed event format documentation.

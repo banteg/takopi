@@ -10,20 +10,20 @@ It supports multiple runner backends and a pluggable transport layer, with a sta
 - The plugin system and stable public API surface
 - Architectural details and behavioral guarantees
 
-## Quick start
+## Start here
 
-```bash
-uv run takopi --help
-```
+- Learn-by-doing: [Tutorials](tutorials/index.md)
+- Goal-oriented tasks: [How-to guides](how-to/index.md)
+- Exact behavior and knobs: [Reference](reference/index.md)
+- Design and tradeoffs: [Explanation](explanation/index.md)
 
 ## Documentation map
 
-- Start here: [User guide](user-guide.md)
-- Projects and worktrees: [Projects](projects.md)
-- Plugin development: [Plugins](plugins.md) and [Public API](public-api.md)
-- System behavior: [Architecture](architecture.md) and [Specification](specification.md)
-- Transport details: [Telegram](transports/telegram.md)
-- Contributor notes: [Developing](developing.md)
+- Tutorials: [Install & onboard](tutorials/install-and-onboard.md), [First run](tutorials/first-run.md)
+- Common tasks: [Projects](how-to/projects.md), [Worktrees](how-to/worktrees.md), [Topics](how-to/topics.md), [File transfer](how-to/file-transfer.md)
+- Reference: [Config](reference/config.md), [Commands & directives](reference/commands-and-directives.md), [Specification](reference/specification.md)
+- Extending Takopi: [Write a plugin](how-to/write-a-plugin.md), [Plugin API](reference/plugin-api.md), [Add a runner](how-to/add-a-runner.md)
+- Legacy portals: [User guide](user-guide.md), [Plugins](plugins.md), [Developing](developing.md)
 
 ## LLM entrypoints
 

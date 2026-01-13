@@ -199,7 +199,7 @@ Claude runner implementation summary (no Takopi domain model changes):
 2. [x] Define `BACKEND` in `takopi/runners/claude.py`:
    - `install_cmd`: install command for the `claude` binary
    - `build_runner`: read `[claude]` config + construct runner
-3. [x] Add new docs (this file + `claude-stream-json-cheatsheet.md`).
+3. [x] Add new docs (this file + `stream-json-cheatsheet.md`).
 4. [x] Add fixtures in `tests/fixtures/` (see below).
 5. [x] Add unit tests mirroring `tests/test_codex_*` but for Claude translation
    and resume parsing (recommended, not required for initial handoff).

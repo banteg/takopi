@@ -34,6 +34,25 @@ markdown_extensions:
 
 plugins:
   - search
+  - redirects:
+      redirect_maps:
+        architecture.md: explanation/architecture.md
+        specification.md: reference/specification.md
+        public-api.md: reference/plugin-api.md
+        transports/telegram.md: reference/transports/telegram.md
+        adding-a-runner.md: how-to/add-a-runner.md
+        projects.md: reference/context-resolution.md
+        runner/claude/claude-runner.md: reference/runners/claude/runner.md
+        runner/claude/claude-stream-json-cheatsheet.md: reference/runners/claude/stream-json-cheatsheet.md
+        runner/claude/claude-takopi-events.md: reference/runners/claude/takopi-events.md
+        runner/codex/exec-json-cheatsheet.md: reference/runners/codex/exec-json-cheatsheet.md
+        runner/codex/codex-takopi-events.md: reference/runners/codex/takopi-events.md
+        runner/opencode/opencode-runner.md: reference/runners/opencode/runner.md
+        runner/opencode/opencode-stream-json-cheatsheet.md: reference/runners/opencode/stream-json-cheatsheet.md
+        runner/opencode/opencode-takopi-events.md: reference/runners/opencode/takopi-events.md
+        runner/pi/pi-runner.md: reference/runners/pi/runner.md
+        runner/pi/pi-stream-json-cheatsheet.md: reference/runners/pi/stream-json-cheatsheet.md
+        runner/pi/pi-takopi-events.md: reference/runners/pi/takopi-events.md
   - mkdocstrings:
       handlers:
         python:
@@ -42,36 +61,89 @@ plugins:
             show_source: false
   - llmstxt:
       markdown_description: |
-        Takopi is a Telegram bridge for coding agents. Use this index to find the most relevant docs pages.
-        For LLM ingestion, prefer the linked `.md` pages.
+        Takopi is a Telegram bridge for coding agents.
+        For LLM ingestion, prefer the linked `.md` pages (Diátaxis: Tutorials / How-to / Reference / Explanation).
       full_output: llms-full.txt
       sections:
-        Getting started:
-          - index.md: Overview + quick start
-          - user-guide.md: How to use Takopi end-to-end
-          - projects.md: Project aliases + worktrees
-        Plugin development:
-          - plugins.md: Plugin system overview
-          - public-api.md: Stable plugin API surface
-          - adding-a-runner.md: Engine runner integration
-        Internals:
-          - architecture.md: Core architecture
-          - specification.md: Behavior spec
-          - developing.md: Developer guide
+        Start here:
+          - index.md: Overview + doc map
+          - tutorials/install-and-onboard.md: Install Takopi + onboarding
+          - tutorials/first-run.md: First run
+          - how-to/projects.md: Projects (routing)
+          - how-to/worktrees.md: Worktrees (@branch)
+          - how-to/topics.md: Telegram topics
+          - how-to/file-transfer.md: File transfer
+        Reference:
+          - reference/commands-and-directives.md: Commands, directives, and CLI flags
+          - reference/config.md: Config schema and defaults
+          - reference/specification.md: Normative behavior spec
+          - reference/plugin-api.md: Stable plugin API surface
+          - reference/context-resolution.md: Directive parsing + worktree rules
+          - reference/transports/telegram.md: Telegram transport details
+        Contributors & agents:
+          - how-to/dev-setup.md: Dev setup + checks
+          - explanation/module-map.md: Module responsibilities
+          - reference/env-vars.md: Environment variables
+          - reference/agents/invariants.md: Critical invariants
+          - reference/agents/repo-map.md: Codebase entrypoints
         Optional:
-          - transports/telegram.md: Telegram transport details
+          - reference/runners/index.md: Runner docs index
+          - reference/runners/claude/stream-json-cheatsheet.md: Claude stream-json notes
+          - reference/runners/codex/exec-json-cheatsheet.md: Codex exec --json notes
 
 nav:
   - Home: index.md
-  - User guide: user-guide.md
-  - Projects: projects.md
-  - Plugins:
-      - Plugin system: plugins.md
-      - Public API: public-api.md
-      - Adding a runner: adding-a-runner.md
-  - Internals:
-      - Architecture: architecture.md
-      - Specification: specification.md
-      - Developing: developing.md
-  - Transports:
-      - Telegram: transports/telegram.md
+  - Tutorials:
+      - Overview: tutorials/index.md
+      - Install & onboard: tutorials/install-and-onboard.md
+      - First run: tutorials/first-run.md
+  - How-to:
+      - Overview: how-to/index.md
+      - Switch engines: how-to/switch-engines.md
+      - Projects: how-to/projects.md
+      - Worktrees: how-to/worktrees.md
+      - Route by chat: how-to/route-by-chat.md
+      - Topics: how-to/topics.md
+      - Voice notes: how-to/voice-notes.md
+      - File transfer: how-to/file-transfer.md
+      - Schedule tasks: how-to/schedule-tasks.md
+      - Troubleshooting: how-to/troubleshooting.md
+      - Write a plugin: how-to/write-a-plugin.md
+      - Add a runner: how-to/add-a-runner.md
+      - Dev setup: how-to/dev-setup.md
+  - Reference:
+      - Overview: reference/index.md
+      - Commands & directives: reference/commands-and-directives.md
+      - Configuration: reference/config.md
+      - Environment variables: reference/env-vars.md
+      - Specification: reference/specification.md
+      - Plugin API: reference/plugin-api.md
+      - Context resolution: reference/context-resolution.md
+      - Telegram transport: reference/transports/telegram.md
+      - Runners:
+          - Overview: reference/runners/index.md
+          - Claude:
+              - Runner: reference/runners/claude/runner.md
+              - Stream JSON cheatsheet: reference/runners/claude/stream-json-cheatsheet.md
+              - Takopi events: reference/runners/claude/takopi-events.md
+          - Codex:
+              - Exec JSON cheatsheet: reference/runners/codex/exec-json-cheatsheet.md
+              - Takopi events: reference/runners/codex/takopi-events.md
+          - OpenCode:
+              - Runner: reference/runners/opencode/runner.md
+              - Stream JSON cheatsheet: reference/runners/opencode/stream-json-cheatsheet.md
+              - Takopi events: reference/runners/opencode/takopi-events.md
+          - Pi:
+              - Runner: reference/runners/pi/runner.md
+              - Stream JSON cheatsheet: reference/runners/pi/stream-json-cheatsheet.md
+              - Takopi events: reference/runners/pi/takopi-events.md
+      - For agents:
+          - Agent entrypoint: reference/agents/index.md
+          - Repo map: reference/agents/repo-map.md
+          - Invariants: reference/agents/invariants.md
+  - Explanation:
+      - Overview: explanation/index.md
+      - Architecture: explanation/architecture.md
+      - Routing & sessions: explanation/routing-and-sessions.md
+      - Plugin system: explanation/plugin-system.md
+      - Module map: explanation/module-map.md

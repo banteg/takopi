@@ -1,7 +1,7 @@
-# Projects and Worktrees
+# Context resolution
 
-This doc covers project aliases, worktree behavior, and how Takopi resolves run
-context from messages.
+This page documents how Takopi resolves **run context** (project, worktree/branch, engine) from messages.
+For step-by-step usage, see [Projects](../how-to/projects.md) and [Worktrees](../how-to/worktrees.md).
 
 ## Overview
 
@@ -13,9 +13,10 @@ worktree-based runs via `@branch`.
   the task in that worktree.
 - Progress/final messages include a `ctx:` footer when project context is active.
 
-## Config schema
+## Config schema (relevant subset)
 
 All config lives in `~/.takopi/takopi.toml`.
+See [Config](config.md) for the full reference.
 
 ```toml
 default_engine = "codex"       # optional

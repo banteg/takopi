@@ -1,6 +1,6 @@
-# Public Plugin API
+# Plugin API
 
-Takopi's **public plugin API** is exported from:
+Takopi’s **public plugin API** is exported from:
 
 ```
 takopi.api
