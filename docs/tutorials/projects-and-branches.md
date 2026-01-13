@@ -41,30 +41,25 @@ path = "~/dev/happy-gadgets"
 
 ## 2. Target a project from chat
 
-Now you can start Takopi anywhere:
+Now you can start Takopi from another repo. If you don't specify a project, Takopi runs in the directory where you launched it.
 
 ```sh
-cd ~  # doesn't matter where
+cd ~/dev/your-project
 takopi
 ```
 
 And target the project by prefixing your message:
 
-```
-/happy-gadgets explain the authentication flow
-```
+!!! user "You"
+    /happy-gadgets explain the authentication flow
 
 Takopi runs the agent in `~/dev/happy-gadgets`, not your current directory.
 
 The response includes a context footer:
 
-```
-The authentication flow uses JWT tokens stored in
-httpOnly cookies...
-
-`ctx: happy-gadgets`
-`codex resume abc123`
-```
+!!! takopi "Takopi"
+    `ctx: happy-gadgets`
+    `codex resume abc123`
 
 That `ctx:` line tells you which project is active. When you reply, Takopi automatically uses the same project—you don't need to repeat `/happy-gadgets`.
 
@@ -91,9 +86,8 @@ worktree_base = "main"            # base for new branches
 
 Use `@branch` after the project:
 
-```
-/happy-gadgets @feat/new-login add rate limiting to the login endpoint
-```
+!!! user "You"
+    /happy-gadgets @feat/new-login add rate limiting to the login endpoint
 
 Takopi:
 1. Checks if `.worktrees/feat/new-login` exists (and is a worktree)
@@ -103,13 +97,12 @@ Takopi:
 
 The response shows both project and branch:
 
-```
-Added rate limiting middleware to the login endpoint.
-Limited to 5 attempts per minute per IP...
+!!! takopi "Takopi"
+    Added rate limiting middleware to the login endpoint.
+    Limited to 5 attempts per minute per IP...
 
-`ctx: happy-gadgets @feat/new-login`
-`codex resume xyz789`
-```
+    `ctx: happy-gadgets @feat/new-login`
+    `codex resume xyz789`
 
 Replies stay on the same branch. Your main checkout is untouched.
 
@@ -117,17 +110,22 @@ Replies stay on the same branch. Your main checkout is untouched.
 
 Once you've set a context (via `/project @branch` or by replying), it sticks:
 
-```
-You: /happy-gadgets @feat/new-login add tests
+!!! user "You"
+    /happy-gadgets @feat/new-login add tests
 
-Bot: Added unit tests for rate limiting...
-     `ctx: happy-gadgets @feat/new-login`
+!!! takopi "Takopi"
+    Added unit tests for rate limiting...
+    `ctx: happy-gadgets @feat/new-login`
 
-You: (reply) also add integration tests    ← no need to repeat context
+!!! quote ""
+    `ctx: happy-gadgets @feat/new-login`
 
-Bot: Added integration tests...
-     `ctx: happy-gadgets @feat/new-login`
-```
+    !!! user "reply to the bot's answer"
+        also add integration tests
+
+!!! takopi "Takopi"
+    Added integration tests...
+    `ctx: happy-gadgets @feat/new-login`
 
 The `ctx:` line in each message carries the context forward.
 
@@ -141,9 +139,8 @@ default_project = "happy-gadgets"
 
 Now messages without a `/project` prefix go to that repo:
 
-```
-add a health check endpoint
-```
+!!! user "You"
+    add a health check endpoint
 
 Goes to `happy-gadgets` automatically.
 
@@ -151,25 +148,27 @@ Goes to `happy-gadgets` automatically.
 
 Here's a typical workflow:
 
-```
-# Start Takopi once, anywhere
+```sh
 takopi
-
-# Work on main
-/happy-gadgets review the error handling
-
-# Work on a feature branch
-/happy-gadgets @feat/caching implement redis caching
-
-# Continue on the branch (just reply)
-↩️ also add cache invalidation
-
-# Switch to another project
-/backend @fix/memory-leak profile memory usage
-
-# Quick task on main (new message, no reply)
-/happy-gadgets bump the version number
 ```
+
+!!! user "You"
+    /happy-gadgets review the error handling
+
+!!! user "You"
+    /happy-gadgets @feat/caching implement redis caching
+
+!!! quote ""
+    `ctx: happy-gadgets @feat/caching`
+
+    !!! user "reply to the bot's answer"
+        also add cache invalidation
+
+!!! user "You"
+    /backend @fix/memory-leak profile memory usage
+
+!!! user "You"
+    /happy-gadgets bump the version number
 
 All from the same Telegram chat, without restarting Takopi or changing directories.
 

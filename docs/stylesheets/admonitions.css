@@ -1,0 +1,42 @@
+:root {
+  --md-admonition-icon--user: var(--md-admonition-icon--question);
+  --md-admonition-icon--takopi: var(--md-admonition-icon--info);
+  --md-admonition-color--user: #64dd17;
+  --md-admonition-color--takopi: #00b8d4;
+  --md-admonition-bg-color--user: #64dd171a;
+  --md-admonition-bg-color--takopi: #00b8d41a;
+}
+
+.md-typeset .admonition.user,
+.md-typeset details.user {
+  background-color: var(--md-admonition-bg-color--user);
+}
+
+.md-typeset .admonition.takopi,
+.md-typeset details.takopi {
+  background-color: var(--md-admonition-bg-color--takopi);
+}
+
+.md-typeset .user > .admonition-title::before,
+.md-typeset .user > summary::before {
+  background-color: var(--md-admonition-color--user);
+  -webkit-mask-image: var(--md-admonition-icon--user);
+  mask-image: var(--md-admonition-icon--user);
+}
+
+.md-typeset .user > .admonition-title::after,
+.md-typeset .user > summary::after {
+  color: var(--md-admonition-color--user);
+}
+
+.md-typeset .takopi > .admonition-title::before,
+.md-typeset .takopi > summary::before {
+  background-color: var(--md-admonition-color--takopi);
+  -webkit-mask-image: var(--md-admonition-icon--takopi);
+  mask-image: var(--md-admonition-icon--takopi);
+}
+
+.md-typeset .takopi > .admonition-title::after,
+.md-typeset .takopi > summary::after {
+  color: var(--md-admonition-color--takopi);
+}

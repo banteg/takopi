@@ -8,6 +8,7 @@ repo_name = "banteg/takopi"
 edit_uri = "edit/master/docs/"
 docs_dir = "docs"
 site_dir = "_site"
+extra_css = ["stylesheets/admonitions.css"]
 
 nav = [
   { "Home" = "index.md" },
@@ -95,6 +96,7 @@ link = "https://t.me/+4VRTEKT_To0wMTUy"
 language = "en"
 logo = "assets/logo.svg"
 favicon = "assets/favicon.svg"
+custom_dir = "overrides"
 font.text = "Nunito"
 font.code = "Fira Code"
 features = [
@@ -114,6 +116,12 @@ features = [
 
 [project.theme.icon]
 repo = "fontawesome/brands/github"
+
+[project.theme.icon.admonition]
+question = "fontawesome/solid/paper-plane"
+info = "takopi/takopi"
+user = "fontawesome/solid/paper-plane"
+takopi = "takopi/takopi"
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme)"
@@ -144,6 +152,7 @@ toggle.name = "Switch to system preference"
 [project.markdown_extensions.pymdownx.emoji]
 emoji_index = "zensical.extensions.emoji.twemoji"
 emoji_generator = "zensical.extensions.emoji.to_svg"
+options.custom_icons = ["overrides/.icons"]
 
 [project.markdown_extensions.toc]
 permalink = true

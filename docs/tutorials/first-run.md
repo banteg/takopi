@@ -15,7 +15,7 @@ takopi
 
 Takopi keeps running in your terminal. In Telegram, your bot will post a startup message like:
 
-!!! info ""
+!!! takopi "Takopi"
     🐙 takopi is ready
 
     default: `codex`<br>
@@ -37,7 +37,7 @@ The engines/projects list reflects your setup. This tells you:
 
 Open Telegram and send a message to your bot:
 
-!!! question ""
+!!! user "You"
     explain what this repo does
 
 
@@ -45,12 +45,12 @@ Open Telegram and send a message to your bot:
 
 Takopi immediately posts a progress message and updates it as the agent works:
 
-!!! info ""
+!!! takopi "Takopi"
     starting · codex · 0s
 
 As the agent calls tools and makes progress, you'll see updates like:
 
-!!! info ""
+!!! takopi "Takopi"
     working · codex · 12s · step 3
 
     ✓ tool: read: readme.md<br>
@@ -64,7 +64,7 @@ The progress message is edited in-place.
 When the agent finishes, Takopi sends a new message and replaces the progress message, so you get a notification.
 
 
-!!! info ""
+!!! takopi "Takopi"
     done · codex · 11s · step 5
     
     Takopi is a Telegram bridge for AI coding agents (Codex, Claude Code, OpenCode, Pi). It lets you run agents from chat, manage multiple projects and git worktrees, stream progress (commands, file changes, elapsed time), and resume sessions from either chat or terminal. It also supports file transfer, group topics mapped to repo/branch contexts, and multiple engines via chat commands, with a plugin system for engines/transports/commands.
@@ -81,12 +81,12 @@ To follow up, **reply** to the bot's message:
 !!! quote ""
     done · codex · 11s · step 5
 
-    !!! question "reply to the bot's answer"
+    !!! user "reply to the bot's answer"
         what command line arguments does it support?
 
 Takopi extracts the resume token from the message you replied to and continues the same agent session. The agent remembers everything from before.
 
-!!! info ""
+!!! takopi "Takopi"
     done · codex · 47s · step 11
 
     CLI Args
@@ -113,7 +113,7 @@ While the progress message is showing, tap the **cancel** button or reply to it 
 !!! quote ""
     working · codex · 12s · step 3
 
-    !!! question "reply to a progress message"
+    !!! user "reply to a progress message"
         /cancel
 
 Takopi sends `SIGTERM` to the agent process and posts a cancelled status:
@@ -132,7 +132,7 @@ If a resume token was already issued (and resume lines are enabled), it will sti
 
 Want to use a different agent for one message? Prefix your message with `/<engine>`:
 
-!!! question ""
+!!! user "You"
     /claude explain the error handling in this codebase
 
 This uses Claude Code for just this message. The resume line will show `claude --resume ...`, and replies will automatically use Claude.
