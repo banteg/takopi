@@ -7,7 +7,7 @@ Takopi lets you run an engine CLI in a local repo while controlling it from Tele
 ## Choose your path
 
 <div class="grid cards" markdown>
--   :lucide-rabbit:{ .lg } **I’m new / I want to get it running**
+-   :lucide-sparkles:{ .lg } **I’m new / I want to get it running**
     
     ---
 
