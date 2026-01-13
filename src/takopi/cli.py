@@ -256,7 +256,7 @@ def _run_auto_router(
             )
         lock_token = transport_backend.lock_token(
             transport_config=transport_config,
-            config_path=config_path,
+            _config_path=config_path,
         )
         lock_handle = acquire_config_lock(config_path, lock_token)
         runtime = spec.to_runtime(config_path=config_path)

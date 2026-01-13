@@ -35,7 +35,7 @@ class TransportBackend(Protocol):
     def interactive_setup(self, *, force: bool) -> bool: ...
 
     def lock_token(
-        self, *, transport_config: object, config_path: Path
+        self, *, transport_config: object, _config_path: Path
     ) -> str | None: ...
 
     def build_and_run(

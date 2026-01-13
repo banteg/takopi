@@ -20,27 +20,25 @@ from ..transport import MessageRef
 from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
 from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
-from .commands import (
+from .commands.agent import _handle_agent_command
+from .commands.cancel import handle_callback_cancel, handle_cancel
+from .commands.dispatch import _dispatch_command
+from .commands.executor import _run_engine, _should_show_resume_line
+from .commands.file_transfer import (
     FILE_PUT_USAGE,
-    _dispatch_command,
-    _handle_agent_command,
-    _handle_chat_new_command,
-    _handle_ctx_command,
     _handle_file_command,
     _handle_file_put_default,
-    _handle_media_group,
+    _save_file_put,
+)
+from .commands.media import _handle_media_group
+from .commands.menu import _reserved_commands, _set_command_menu
+from .commands.parse import _parse_slash_command, is_cancel_command
+from .commands.reply import make_reply
+from .commands.topics import (
+    _handle_chat_new_command,
+    _handle_ctx_command,
     _handle_new_command,
     _handle_topic_command,
-    _parse_slash_command,
-    _reserved_commands,
-    _save_file_put,
-    _should_show_resume_line,
-    _run_engine,
-    _set_command_menu,
-    handle_callback_cancel,
-    handle_cancel,
-    is_cancel_command,
-    make_reply,
 )
 from .context import _merge_topic_context, _usage_ctx_set, _usage_topic
 from .topics import (

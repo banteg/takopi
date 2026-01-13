@@ -53,16 +53,14 @@ class TelegramClient:
             if token is not None or http_client is not None:
                 raise ValueError("Provide either token or client, not both.")
             self._client = client
-            self._api = None
         else:
             if token is None or not token:
                 raise ValueError("Telegram token is empty")
-            self._api = HttpBotClient(
+            self._client = HttpBotClient(
                 token,
                 timeout_s=timeout_s,
                 http_client=http_client,
             )
-            self._client = self._api
         self._clock = clock
         self._sleep = sleep
         self._private_interval = (
@@ -138,21 +136,6 @@ class TelegramClient:
                 return await fn()
             except TelegramRetryAfter as exc:
                 await self._sleep(exc.retry_after)
-
-    async def _post(self, method: str, json_data: dict[str, Any]) -> Any | None:
-        if self._api is None:
-            raise RuntimeError("TelegramClient is configured without an HTTP client.")
-        return await self._api._post(method, json_data)
-
-    async def _post_form(
-        self,
-        method: str,
-        data: dict[str, Any],
-        files: dict[str, Any],
-    ) -> Any | None:
-        if self._api is None:
-            raise RuntimeError("TelegramClient is configured without an HTTP client.")
-        return await self._api._post_form(method, data, files)
 
     async def get_updates(
         self,

@@ -6,8 +6,9 @@ import anyio
 import pytest
 
 from takopi import commands, plugins
+from takopi.telegram.commands.executor import _CaptureTransport, _run_engine
+from takopi.telegram.commands.file_transfer import _handle_file_get, _handle_file_put
 import takopi.telegram.loop as telegram_loop
-import takopi.telegram.commands as telegram_commands
 import takopi.telegram.topics as telegram_topics
 from takopi.directives import parse_directives
 from takopi.telegram.api_models import (
@@ -905,9 +906,7 @@ async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
         ),
     )
 
-    await telegram_commands._handle_file_put(
-        cfg, msg, "/proj uploads/hello.txt", None, None
-    )
+    await _handle_file_put(cfg, msg, "/proj uploads/hello.txt", None, None)
 
     target = tmp_path / "uploads" / "hello.txt"
     assert target.read_bytes() == payload
@@ -966,7 +965,7 @@ async def test_handle_file_get_sends_document_for_allowed_user(
         chat_type="supergroup",
     )
 
-    await telegram_commands._handle_file_get(cfg, msg, "/proj hello.txt", None, None)
+    await _handle_file_get(cfg, msg, "/proj hello.txt", None, None)
 
     assert bot.document_calls
     assert bot.document_calls[0]["filename"] == "hello.txt"
@@ -1263,7 +1262,7 @@ async def test_send_with_resume_reports_when_missing() -> None:
 
 @pytest.mark.anyio
 async def test_run_engine_hides_resume_line_in_topics() -> None:
-    transport = telegram_commands._CaptureTransport()
+    transport = _CaptureTransport()
     runner = ScriptRunner(
         [Return(answer="ok")],
         engine=CODEX_ENGINE,
@@ -1279,7 +1278,7 @@ async def test_run_engine_hides_resume_line_in_topics() -> None:
         projects=_empty_projects(),
     )
 
-    await telegram_commands._run_engine(
+    await _run_engine(
         exec_cfg=exec_cfg,
         runtime=runtime,
         running_tasks={},

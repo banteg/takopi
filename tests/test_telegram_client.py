@@ -3,6 +3,7 @@ import pytest
 
 from takopi.logging import setup_logging
 from takopi.telegram.client import TelegramClient, TelegramRetryAfter
+from takopi.telegram.client_api import HttpBotClient
 
 
 @pytest.mark.anyio
@@ -25,9 +26,9 @@ async def test_telegram_429_no_retry() -> None:
 
     client = httpx.AsyncClient(transport=transport)
     try:
-        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
+        api = HttpBotClient("123:abcDEF_ghij", http_client=client)
         with pytest.raises(TelegramRetryAfter) as exc:
-            await tg._post("sendMessage", {"chat_id": 1, "text": "hi"})
+            await api._post("sendMessage", {"chat_id": 1, "text": "hi"})
     finally:
         await client.aclose()
 
@@ -49,8 +50,8 @@ async def test_no_token_in_logs_on_http_error(
 
     client = httpx.AsyncClient(transport=transport)
     try:
-        tg = TelegramClient(token, http_client=client)
-        await tg._post("getUpdates", {"timeout": 1})
+        api = HttpBotClient(token, http_client=client)
+        await api._post("getUpdates", {"timeout": 1})
     finally:
         await client.aclose()
 
@@ -79,9 +80,9 @@ async def test_telegram_429_no_retry_post_form() -> None:
 
     client = httpx.AsyncClient(transport=transport)
     try:
-        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
+        api = HttpBotClient("123:abcDEF_ghij", http_client=client)
         with pytest.raises(TelegramRetryAfter) as exc:
-            await tg._post_form(
+            await api._post_form(
                 "sendDocument",
                 {"chat_id": 1},
                 files={"document": ("note.txt", b"hi")},
@@ -102,9 +103,9 @@ async def test_telegram_429_defaults_retry_after_on_bad_body() -> None:
 
     client = httpx.AsyncClient(transport=transport)
     try:
-        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
+        api = HttpBotClient("123:abcDEF_ghij", http_client=client)
         with pytest.raises(TelegramRetryAfter) as exc:
-            await tg._post("sendMessage", {"chat_id": 1, "text": "hi"})
+            await api._post("sendMessage", {"chat_id": 1, "text": "hi"})
     finally:
         await client.aclose()
 
@@ -124,8 +125,8 @@ async def test_telegram_ok_false_returns_none() -> None:
 
     client = httpx.AsyncClient(transport=transport)
     try:
-        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
-        result = await tg._post("getUpdates", {"timeout": 1})
+        api = HttpBotClient("123:abcDEF_ghij", http_client=client)
+        result = await api._post("getUpdates", {"timeout": 1})
     finally:
         await client.aclose()
 
@@ -141,8 +142,8 @@ async def test_telegram_invalid_payload_returns_none() -> None:
 
     client = httpx.AsyncClient(transport=transport)
     try:
-        tg = TelegramClient("123:abcDEF_ghij", http_client=client)
-        result = await tg._post("getUpdates", {"timeout": 1})
+        api = HttpBotClient("123:abcDEF_ghij", http_client=client)
+        result = await api._post("getUpdates", {"timeout": 1})
     finally:
         await client.aclose()
 

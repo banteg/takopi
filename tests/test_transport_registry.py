@@ -15,8 +15,8 @@ class DummyTransport:
     def interactive_setup(self, *, force: bool) -> bool:
         raise NotImplementedError
 
-    def lock_token(self, *, transport_config: object, config_path):
-        _ = transport_config, config_path
+    def lock_token(self, *, transport_config: object, _config_path):
+        _ = transport_config, _config_path
         raise NotImplementedError
 
     def build_and_run(
