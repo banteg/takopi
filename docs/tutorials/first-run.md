@@ -13,17 +13,22 @@ cd ~/dev/your-project
 takopi
 ```
 
-You should see:
+Takopi keeps running in your terminal. In Telegram, your bot will post a startup message like:
 
 ```
-takopi v0.17.1 • codex • telegram
-listening...
+🐙 takopi is ready
+
+default: `codex`
+agents: `codex, claude`
+projects: `none`
+working in: `/Users/you/dev/your-project`
 ```
 
-This tells you:
-- Which version is running
-- Which engine is the default (`codex`)
-- Which transport is active (`telegram`)
+The engines/projects list reflects your setup. This tells you:
+- Which engine is the default
+- Which agents are available (and any missing ones)
+- Which projects are registered
+- Which directory Takopi will run in
 
 !!! note "Takopi runs where you start it"
     The agent will see files in your current directory. If you want to work on a different repo, stop Takopi (`Ctrl+C`) and restart it in that directory—or set up [projects](projects-and-branches.md) to switch repos from chat.
@@ -41,26 +46,22 @@ explain what this repo does
 Takopi immediately posts a progress message and updates it as the agent works:
 
 ```
-⏳ thinking...
+starting · codex · 0s
 ```
 
-As the agent calls tools and makes progress, you'll see updates:
+As the agent calls tools and makes progress, you'll see updates like:
 
 ```
-⏳ working...
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📂 Read README.md
-📂 Read src/main.py
-📂 Read pyproject.toml
+working · codex · 12s · step 3
+▸ `git status`
+▸ tool: <tool>
 ```
 
 The progress message is edited in-place (rate-limited to avoid Telegram API limits).
 
 ## 4. See the final answer
 
-When the agent finishes, Takopi:
-1. Deletes the progress message
-2. Posts the final answer as a new message
+When the agent finishes, Takopi edits the progress message into the final answer by default. If editing isn't possible (or if `final_notify` is enabled), it sends a new message and replaces the progress message.
 
 ```
 This is a Python CLI tool that converts Markdown files to
@@ -70,8 +71,7 @@ supports syntax highlighting via `pygments`.
 The main entry point is `src/main.py`, which accepts a
 file path and outputs HTML to stdout.
 
-──────────────────────────────────
-codex --resume abc123def456
+`codex resume abc123def456`
 ```
 
 That last line is the **resume line**—it's how Takopi knows which conversation to continue.
@@ -98,8 +98,7 @@ The CLI supports these arguments:
 Example:
   python -m myproject input.md -o output.html --style monokai
 
-──────────────────────────────────
-codex --resume abc123def456
+`codex resume abc123def456`
 ```
 
 !!! tip "You can reply to any message with a resume line"
@@ -109,7 +108,7 @@ codex --resume abc123def456
 
 Sometimes you want to stop a run in progress—maybe you realize you asked the wrong question, or it's taking too long.
 
-While the progress message is showing, reply to it with:
+While the progress message is showing, tap the **cancel** button or reply to it with:
 
 ```
 /cancel
@@ -118,13 +117,12 @@ While the progress message is showing, reply to it with:
 Takopi sends `SIGTERM` to the agent process and posts a cancelled status:
 
 ```
-⚠️ cancelled
+`cancelled` · codex · 12s
 
-──────────────────────────────────
-codex --resume abc123def456
+`codex resume abc123def456`
 ```
 
-The resume line is still included, so you can continue from where it stopped.
+If a resume token was already issued (and resume lines are enabled), it will still be included so you can continue from where it stopped.
 
 !!! note "Cancel only works on progress messages"
     If the run already finished, there's nothing to cancel. Just send a new message or reply to continue.
@@ -175,7 +173,7 @@ Key points:
 - Takopi spawns the agent CLI as a subprocess
 - The agent streams JSONL events (tool calls, progress, answer)
 - Takopi renders these as an editable progress message
-- When done, the progress is replaced with the final answer
+- When done, the progress message is edited into the final answer (or replaced if editing isn't possible)
 - The resume line lets you continue the conversation
 
 ## The core loop
@@ -186,23 +184,23 @@ You now know the three fundamental interactions:
 |--------|-----|
 | **Start** | Send a message to your bot |
 | **Continue** | Reply to any message with a resume line |
-| **Cancel** | Reply `/cancel` to a progress message |
+| **Cancel** | Reply `/cancel` (or tap **cancel**) on a progress message |
 
 Everything else in Takopi builds on this loop.
 
 ## Troubleshooting
 
-**Progress message stuck on "thinking..."**
+**Progress message stuck on "starting" (or not updating)**
 
 The agent might be doing something slow (large repo scan, network call). Wait a bit, or `/cancel` and try a more specific prompt.
 
-**"error: codex not found"**
+**Agent CLI not found**
 
-The agent CLI isn't on your PATH. Install it (`npm install -g @openai/codex`) and make sure the install location is in your PATH.
+The agent CLI isn't on your PATH. Install the CLI for the engine you're using (e.g., `npm install -g @openai/codex`) and make sure the install location is in your PATH.
 
 **Bot doesn't respond at all**
 
-Check that Takopi is running in your terminal. If you see `listening...`, it's working. If not, restart it.
+Check that Takopi is still running in your terminal. You should also see a startup message ("takopi is ready") from the bot in Telegram. If not, restart it.
 
 **Resume doesn't work (starts a new conversation)**
 

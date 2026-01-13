@@ -16,8 +16,8 @@ Before starting, make sure you have:
 |-------|---------|
 | Codex | `npm install -g @openai/codex` |
 | Claude Code | `npm install -g @anthropic-ai/claude-code` |
-| OpenCode | `go install github.com/opencode-ai/opencode@latest` |
-| Pi | `pip install inflection-pi` |
+| OpenCode | `npm install -g opencode-ai@latest` |
+| Pi | `npm install -g @mariozechner/pi-coding-agent` |
 
 You only need one to get started. Takopi auto-detects what's available.
 

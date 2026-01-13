@@ -26,10 +26,10 @@ takopi init happy-gadgets
 Output:
 
 ```
-added project "happy-gadgets" → ~/dev/happy-gadgets
+saved project 'happy-gadgets' to ~/.takopi/takopi.toml
 ```
 
-This adds an entry to your config:
+This adds an entry to your config (Takopi also fills in defaults like `worktrees_dir`, `default_engine`, and sometimes `worktree_base`):
 
 ```toml
 [projects.happy-gadgets]
@@ -62,9 +62,8 @@ The response includes a context footer:
 The authentication flow uses JWT tokens stored in
 httpOnly cookies...
 
-──────────────────────────────────
-codex --resume abc123
-ctx: happy-gadgets
+`ctx: happy-gadgets`
+`codex resume abc123`
 ```
 
 That `ctx:` line tells you which project is active. When you reply, Takopi automatically uses the same project—you don't need to repeat `/happy-gadgets`.
@@ -97,9 +96,10 @@ Use `@branch` after the project:
 ```
 
 Takopi:
-1. Checks if `.worktrees/feat/new-login` exists
-2. If not, creates it: `git worktree add .worktrees/feat/new-login -b feat/new-login`
-3. Runs the agent in that worktree
+1. Checks if `.worktrees/feat/new-login` exists (and is a worktree)
+2. If the branch exists locally, it adds a worktree for it
+3. If the branch doesn't exist, it creates it from `worktree_base` (or the repo default) and adds the worktree
+4. Runs the agent in that worktree
 
 The response shows both project and branch:
 
@@ -107,9 +107,8 @@ The response shows both project and branch:
 Added rate limiting middleware to the login endpoint.
 Limited to 5 attempts per minute per IP...
 
-──────────────────────────────────
-codex --resume xyz789
-ctx: happy-gadgets @feat/new-login
+`ctx: happy-gadgets @feat/new-login`
+`codex resume xyz789`
 ```
 
 Replies stay on the same branch. Your main checkout is untouched.
@@ -122,12 +121,12 @@ Once you've set a context (via `/project @branch` or by replying), it sticks:
 You: /happy-gadgets @feat/new-login add tests
 
 Bot: Added unit tests for rate limiting...
-     ctx: happy-gadgets @feat/new-login
+     `ctx: happy-gadgets @feat/new-login`
 
 You: (reply) also add integration tests    ← no need to repeat context
 
 Bot: Added integration tests...
-     ctx: happy-gadgets @feat/new-login
+     `ctx: happy-gadgets @feat/new-login`
 ```
 
 The `ctx:` line in each message carries the context forward.
@@ -181,8 +180,8 @@ Full options for `[projects.<alias>]`:
 | Key | Default | Description |
 |-----|---------|-------------|
 | `path` | (required) | Repo root. Expands `~`. |
-| `worktrees_dir` | `.worktrees` | Where branch worktrees are created. |
-| `worktree_base` | `null` | Base branch for new worktrees. If unset, uses the branch the worktree command specifies. |
+| `worktrees_dir` | `.worktrees` | Where branch worktrees are created (relative to the project path). |
+| `worktree_base` | `null` | Base branch for new worktrees. If unset, Takopi uses `origin/HEAD`, the current branch, or `master`/`main` (in that order). |
 | `default_engine` | `null` | Engine to use for this project (overrides global default). |
 | `chat_id` | `null` | Bind a Telegram chat/group to this project. |
 
@@ -194,7 +193,7 @@ Run `takopi init <alias>` in the repo first.
 
 **Branch worktree not created**
 
-Make sure `worktrees_dir` is set in the project config. Check that the directory is writable.
+Make sure the worktrees directory (default `.worktrees`) is writable. If you've customized `worktrees_dir`, verify that path exists or can be created.
 
 **Context not carrying forward**
 
@@ -202,7 +201,7 @@ Make sure you're **replying** to a message with a `ctx:` line. If you send a new
 
 **Worktree conflicts with existing branch**
 
-If the branch already exists locally, Takopi uses it. If you want a fresh start, delete the worktree directory: `rm -rf ~/dev/happy-gadgets/.worktrees/feat/old-branch`.
+If the branch already exists locally, Takopi uses it. For a fresh start, delete the worktree **and** the branch, or pick a new branch name.
 
 ## Next
 

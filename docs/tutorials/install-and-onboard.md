@@ -26,19 +26,15 @@ Start Takopi without a config file—it will detect this and launch the setup wi
 takopi
 ```
 
-You'll see:
+You'll see something like (box styling may vary by terminal):
 
 ```
-╭─────────────────────────────╮
-│  welcome to takopi!         │
-│                             │
-│  let's set up your telegram │
-│  bot.                       │
-╰─────────────────────────────╯
+welcome to takopi!
+let's set up your telegram bot.
 
 step 1: telegram bot setup
 
-? do you have a telegram bot token? (Y/n)
+? do you have a telegram bot token? (yes/no)
 ```
 
 If you don't have a bot token yet, answer **n** and Takopi will show you the steps.
@@ -114,10 +110,10 @@ step 2: agent cli tools
   ───────────────────────────────────────────
   codex     ✓ installed
   claude    ✓ installed
-  opencode  ✗ not found    go install github.com/opencode-ai/opencode@latest
-  pi        ✗ not found    pip install inflection-pi
+  opencode  ✗ not found    npm install -g opencode-ai@latest
+  pi        ✗ not found    npm install -g @mariozechner/pi-coding-agent
 
-? choose default agent: (Use arrow keys)
+? choose default agent:
  ❯ codex
    claude
 ```
@@ -140,7 +136,7 @@ step 3: save configuration
   bot_token = "123456789:ABC..."
   chat_id = 123456789
 
-? save this config to ~/.takopi/takopi.toml? (Y/n)
+? save this config to ~/.takopi/takopi.toml? (yes/no)
 ```
 
 Press **Enter** to save. You'll see:
@@ -148,10 +144,7 @@ Press **Enter** to save. You'll see:
 ```
   config saved to ~/.takopi/takopi.toml
 
-╭──────────────────────────────────╮
-│  setup complete. starting        │
-│  takopi...                       │
-╰──────────────────────────────────╯
+setup complete. starting takopi...
 ```
 
 Takopi is now running and listening for messages!
@@ -189,17 +182,17 @@ This will prompt you to update your existing config (it won't overwrite without 
 
 Run `takopi` in a terminal with a TTY. The setup wizard only runs interactively.
 
-**"failed to connect, check the token"**
+**"failed to connect, check the token and try again"**
 
 Make sure you copied the full token from BotFather, including the numbers before the colon.
 
 **Bot doesn't respond to /start**
 
-Takopi might not be running. Check your terminal—it should show "waiting...". If you accidentally closed it, run `takopi` again.
+If you're still in onboarding, your terminal should show "waiting...". If you accidentally closed it, run `takopi` again and restart the setup.
 
-**"error: another instance is running"**
+**"error: already running"**
 
-You can only run one Takopi instance per bot token. Find and stop the other process, or check if you have a stale lock file at `~/.takopi/takopi.lock`.
+You can only run one Takopi instance per bot token. Find and stop the other process, or remove the stale lock file at `~/.takopi/takopi.lock`.
 
 ## Next
 

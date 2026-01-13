@@ -71,7 +71,7 @@ Use `/agent set` to change the default for the current scope:
 Response:
 
 ```
-default agent set to claude for this chat
+chat default agent set to `claude`
 ```
 
 Now all new conversations in this chat use Claude (unless you explicitly override with `/codex`).
@@ -82,10 +82,25 @@ Check the current default:
 /agent
 ```
 
+Example response:
+
+```
+agent: claude (chat default)
+
+defaults: topic: none, chat: claude, project: none, global: codex
+available: codex, claude, opencode, pi
+```
+
 Clear it:
 
 ```
 /agent clear
+```
+
+Response:
+
+```
+chat default agent cleared.
 ```
 
 ## 4. Defaults in topics
@@ -125,7 +140,7 @@ When Takopi picks an engine, it checks (highest to lowest):
 5. **Project default** — `default_engine` in project config
 6. **Global default** — `default_engine` at the top of `takopi.toml`
 
-This means: explicit always wins, then the most specific default applies.
+This means: resume lines always win, then explicit directives, then the most specific default applies.
 
 ## 7. Practical patterns
 
