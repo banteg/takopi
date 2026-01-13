@@ -11,6 +11,24 @@ site_dir: _site
 
 theme:
   name: material
+  palette:
+    - scheme: default
+      primary: pink
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: pink
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Nunito
+    code: Fira Code
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
   features:
     - navigation.sections
     - navigation.instant
@@ -19,6 +37,9 @@ theme:
     - content.action.edit
     - search.suggest
     - search.highlight
+
+extra_css:
+  - stylesheets/extra.css
 
 markdown_extensions:
   - admonition
