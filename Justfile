@@ -12,11 +12,6 @@ docs-build:
     uv run --no-sync python scripts/docs_prebuild.py
     uv run --group docs zensical build
 
-docs-build-cf:
-    uv sync --frozen --no-install-project --group docs
-    uv run --no-sync python scripts/docs_prebuild.py
-    uv run --no-sync zensical build --clean
-
 bundle:
     #!/usr/bin/env bash
     set -euo pipefail
