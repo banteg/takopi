@@ -28,12 +28,26 @@ Run these inside a topic thread:
 
 In project chats, omit the project: `/topic @branch` or `/ctx set @branch`.
 
+## Chat sessions
+
+Chat sessions store one resume token per chat (per sender in groups) so new messages can auto-resume without replying.
+
+Enable:
+
+```toml
+[transports.telegram]
+session_mode = "chat" # stateless | chat
+```
+
+Reset the stored session with `/new`.
+
 ## State files
 
-Topic state is stored in `telegram_topics_state.json` next to your config file. Chat defaults live in `telegram_chat_prefs_state.json`.
+- Topic state: `telegram_topics_state.json`
+- Chat sessions state: `telegram_chat_sessions_state.json`
+- Chat defaults (e.g. `/agent`): `telegram_chat_prefs_state.json`
 
 ## Related
 
 - [Switch engines](switch-engines.md)
 - [Commands & directives](../reference/commands-and-directives.md)
-
