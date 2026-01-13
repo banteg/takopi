@@ -7,7 +7,7 @@ Takopi lets you run an engine CLI in a local repo while controlling it from Tele
 ## Choose your path
 
 <div class="grid cards" markdown>
--   :lucide-rabbit: **I’m new / I want to get it running**
+-   :lucide-rabbit:{ .lg } **I’m new / I want to get it running**
     
     ---
 
@@ -16,7 +16,7 @@ Takopi lets you run an engine CLI in a local repo while controlling it from Tele
     - [Install & onboard](tutorials/install-and-onboard.md)
     - [First run](tutorials/first-run.md)
 
--   **I know what I want to do**
+-   :lucide-compass:{ .lg } **I know what I want to do**
 
     ---
 
@@ -26,7 +26,7 @@ Takopi lets you run an engine CLI in a local repo while controlling it from Tele
     - [Topics](how-to/topics.md) and [Route by chat](how-to/route-by-chat.md)
     - [File transfer](how-to/file-transfer.md) and [Voice notes](how-to/voice-notes.md)
 
--   **I need exact knobs, defaults, and contracts**
+-   :lucide-book:{ .lg } **I need exact knobs, defaults, and contracts**
 
     ---
 
@@ -36,7 +36,7 @@ Takopi lets you run an engine CLI in a local repo while controlling it from Tele
     - [Configuration](reference/config.md)
     - [Specification](reference/specification.md) (normative behavior)
 
--   **I’m trying to understand the design**
+-   :lucide-lightbulb:{ .lg } **I'm trying to understand the design**
 
     ---
 
