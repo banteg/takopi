@@ -36,6 +36,9 @@ jobs:
       - name: Sync docs dependencies
         run: uv sync --frozen --no-install-project --group docs
 
+      - name: Prepare docs
+        run: uv run --no-sync python scripts/docs_prebuild.py
+
       - name: Build site
         run: uv run --no-sync zensical build --clean
 

@@ -8,3 +8,4 @@ __pycache__/
 .worktrees/
 research/
 _site/
+docs/reference/changelog.md
