@@ -72,9 +72,7 @@ def _short_session_id(session_id: str) -> str:
     return session_id
 
 
-def _maybe_promote_session_id(
-    state: PiStreamState, session_id: str | None
-) -> None:
+def _maybe_promote_session_id(state: PiStreamState, session_id: str | None) -> None:
     if not session_id:
         return
     if state.started:
