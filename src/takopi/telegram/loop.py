@@ -915,9 +915,11 @@ async def run_main_loop(
 
                 # Filter messages when require_explicit_trigger is enabled
                 if cfg.require_explicit_trigger:
-                    is_reply_to_bot = reply_id is not None and MessageRef(
-                        channel_id=chat_id, message_id=reply_id
-                    ) in running_tasks
+                    is_reply_to_bot = (
+                        reply_id is not None
+                        and MessageRef(channel_id=chat_id, message_id=reply_id)
+                        in running_tasks
+                    )
                     has_engine_or_project = has_directive(
                         text,
                         engine_ids=cfg.runtime.engine_ids,

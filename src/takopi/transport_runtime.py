@@ -269,6 +269,10 @@ class TransportRuntime:
     def default_project(self) -> str | None:
         return self._projects.default_project
 
+    @property
+    def projects(self) -> ProjectsConfig:
+        return self._projects
+
     def normalize_project_key(self, value: str) -> str | None:
         key = value.strip().lower()
         if key in self._projects.projects:
