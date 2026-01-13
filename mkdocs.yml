@@ -1,0 +1,82 @@
+site_name: takopi
+site_description: takopi — Telegram bridge for coding agents
+site_url: https://banteg.github.io/takopi/
+
+repo_url: https://github.com/banteg/takopi
+repo_name: banteg/takopi
+edit_uri: edit/master/docs/
+
+docs_dir: docs
+site_dir: _site
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.instant
+    - navigation.tracking
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+  - llmstxt:
+      markdown_description: |
+        Takopi is a Telegram bridge for coding agents. Use this index to find the most relevant docs pages.
+        For LLM ingestion, prefer the linked `.md` pages.
+      full_output: llms-full.txt
+      sections:
+        Getting started:
+          - index.md: Overview + quick start
+          - user-guide.md: How to use Takopi end-to-end
+          - projects.md: Project aliases + worktrees
+        Plugin development:
+          - plugins.md: Plugin system overview
+          - public-api.md: Stable plugin API surface
+          - adding-a-runner.md: Engine runner integration
+        Internals:
+          - architecture.md: Core architecture
+          - specification.md: Behavior spec
+          - developing.md: Developer guide
+        Optional:
+          - transports/telegram.md: Telegram transport details
+
+nav:
+  - Home: index.md
+  - User guide: user-guide.md
+  - Projects: projects.md
+  - Plugins:
+      - Plugin system: plugins.md
+      - Public API: public-api.md
+      - Adding a runner: adding-a-runner.md
+      - API reference:
+          - takopi.api: reference/takopi-api.md
+  - Internals:
+      - Architecture: architecture.md
+      - Specification: specification.md
+      - Developing: developing.md
+  - Transports:
+      - Telegram: transports/telegram.md
+  - Agents:
+      - Agent quickstart: agents/index.md
+      - Repo map: agents/repo-map.md
