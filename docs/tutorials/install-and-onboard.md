@@ -4,7 +4,20 @@ This tutorial walks you through installing Takopi, creating a Telegram bot, and 
 
 **What you'll have at the end:** A working `~/.takopi/takopi.toml` with your bot token, chat ID, and default engine.
 
-## 1. Install Takopi
+## 1. Install Python 3.14 and uv
+
+First, make sure you have **Python 3.14+** and **uv** installed.
+
+1. Install Python 3.14+ (for example via [python.org](https://www.python.org/downloads/) or a version manager like [pyenv](https://github.com/pyenv/pyenv)).
+2. Install uv using the official instructions: [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+3. Verify both are available:
+
+```sh
+python3 --version
+uv --version
+```
+
+## 2. Install Takopi
 
 ```sh
 uv tool install -U takopi
@@ -18,7 +31,7 @@ takopi --version
 
 You should see something like `0.17.1`.
 
-## 2. Run onboarding
+## 3. Run onboarding
 
 Start Takopi without a config file—it will detect this and launch the setup wizard:
 
@@ -39,9 +52,9 @@ step 1: telegram bot setup
 
 If you don't have a bot token yet, answer **n** and Takopi will show you the steps.
 
-## 3. Create a Telegram bot
+## 4. Create a Telegram bot
 
-If you answered **n**, follow these steps (or skip to step 4 if you already have a token):
+If you answered **n**, follow these steps (or skip to step 5 if you already have a token):
 
 1. Open Telegram and message [@BotFather](https://t.me/BotFather)
 2. Send `/newbot`
@@ -68,7 +81,7 @@ Copy the token (the `123456789:ABC...` part).
 !!! warning "Keep your token secret"
     Anyone with your bot token can control your bot. Don't commit it to git or share it publicly.
 
-## 4. Enter your bot token
+## 5. Enter your bot token
 
 Paste your token when prompted:
 
@@ -80,7 +93,7 @@ Paste your token when prompted:
 
 Takopi validates the token by calling the Telegram API. If it fails, double-check you copied the full token.
 
-## 5. Capture your chat ID
+## 6. Capture your chat ID
 
 Takopi needs to know which chat to send messages to. It will listen for a message from you:
 
@@ -99,7 +112,7 @@ Open Telegram and send `/start` (or any message) to your bot. Takopi will captur
 !!! tip "Using Takopi in a group"
     You can also send a message in a group where the bot is a member. Takopi will capture that group's chat ID instead. This is useful if you want multiple people to share the same bot.
 
-## 6. Choose your default engine
+## 7. Choose your default engine
 
 Takopi scans your PATH for installed agent CLIs:
 
@@ -120,7 +133,7 @@ step 2: agent cli tools
 
 Pick whichever you prefer. You can always switch engines per-message later.
 
-## 7. Save your config
+## 8. Save your config
 
 Takopi shows you a preview of what it will save:
 
