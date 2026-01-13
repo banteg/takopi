@@ -1108,27 +1108,27 @@ async def _handle_agent_command(
             "project_default": "project default",
             "global_default": "global default",
         }
-        lines = [
+        items = [
             f"default agent: `{selection.engine}` ({source_labels[selection.source]})",
         ]
         if tkey is not None:
             topic_default = selection.topic_default or "none"
-            lines.append(f"topic default: `{topic_default}`")
+            items.append(f"topic default: `{topic_default}`")
         if chat_prefs is None:
-            lines.append("chat default: unavailable (no config path)")
+            items.append("chat default: unavailable (no config path)")
         else:
             chat_default = selection.chat_default or "none"
-            lines.append(f"chat default: `{chat_default}`")
+            items.append(f"chat default: `{chat_default}`")
         project_default = selection.project_default
-        lines.append(
+        items.append(
             f"project default: `{project_default}`"
             if project_default is not None
             else "project default: none"
         )
-        lines.append(f"global default: `{cfg.runtime.default_engine}`")
+        items.append(f"global default: `{cfg.runtime.default_engine}`")
         available = ", ".join(cfg.runtime.engine_ids)
-        lines.append(f"available agents: `{available}`")
-        await reply(text="\n".join(lines))
+        items.append(f"available agents: `{available}`")
+        await reply(text=", ".join(items))
         return
 
     if action == "set":
