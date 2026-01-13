@@ -31,13 +31,15 @@ Provide the **`pi`** engine backend so Takopi can:
 Takopi appends a **single backticked** resume line at the end of the message, like:
 
 ```text
-`pi --session /home/user/.pi/agent/sessions/--repo--/2026-01-02T12-34-56-789Z_abcd.jsonl`
+`pi --session ccd569e0`
 ```
 
 Notes:
 
 * `pi --resume/-r` opens an interactive session picker, so Takopi uses `--session <path>` instead.
-* The resume token is the **session file path** (JSONL), treated as an opaque string.
+* The resume token is the **session id** (short prefix), derived from the first JSON
+  object in the session file. If the id cannot be read, Takopi falls back to the
+  session file path.
 * If the path contains spaces, the runner will quote it.
 
 ### Non-interactive runs

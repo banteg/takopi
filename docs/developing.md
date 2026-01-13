@@ -45,7 +45,7 @@ The core handler module containing:
 
 **Key patterns:**
 - Progress edits are best-effort and only run when new events arrive (Telegram outbox handles rate limiting/coalescing)
-- Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``, `` `claude --resume <token>` ``, `` `pi --session <path>` ``)
+- Resume tokens are runner-formatted command lines (e.g., `` `codex resume <token>` ``, `` `claude --resume <token>` ``, `` `pi --session <id>` ``)
 - Resume lines are stripped from the prompt before invoking the runner
 - Errors/cancellation render final status while preserving resume tokens when known
 
@@ -356,7 +356,7 @@ transport.send()/edit() final message, delete progress if needed
 ### Resume Flow
 
 Same as above; auto-router polls all runners to extract resume tokens:
-- Router returns first matching token (e.g. `` `claude --resume <id>` `` routes to Claude, `` `pi --session <path>` `` routes to Pi)
+- Router returns first matching token (e.g. `` `claude --resume <id>` `` routes to Claude, `` `pi --session <id>` `` routes to Pi)
 - Selected runner spawns with resume (e.g. `codex exec --json resume <token> -`, `pi --print --mode json --session <path> <prompt>`)
 - Per-token lock serializes concurrent resumes on the same thread
 

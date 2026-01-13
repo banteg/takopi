@@ -30,10 +30,11 @@ Notes:
 - Canonical resume line (embedded in chat):
 
 ```
-`pi --session <path>`
+`pi --session <id>`
 ```
 
-The token is the **session JSONL file path**.
+The token is the **short session id**, derived from the first JSON object in the
+session file. If the id cannot be read, Takopi falls back to the session file path.
 
 Why not `--resume`?
 - `--resume/-r` opens an interactive session picker; it does not accept a

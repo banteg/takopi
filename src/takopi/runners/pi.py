@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import re
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path, PurePath
@@ -35,16 +37,85 @@ ENGINE: EngineId = EngineId("pi")
 
 _RESUME_RE = re.compile(r"(?im)^\s*`?pi\s+--session\s+(?P<token>.+?)`?\s*$")
 
+_SESSION_ID_PREFIX_LEN = 8
+
 
 @dataclass(slots=True)
 class PiStreamState:
     resume: ResumeToken
+    session_path: str | None = None
+    allow_id_promotion: bool = False
     pending_actions: dict[str, Action] = field(default_factory=dict)
     last_assistant_text: str | None = None
     last_assistant_error: str | None = None
     last_usage: dict[str, Any] | None = None
     started: bool = False
     note_seq: int = 0
+
+
+def _looks_like_session_path(token: str) -> bool:
+    if not token:
+        return False
+    if token.endswith(".jsonl"):
+        return True
+    if "/" in token or "\\" in token:
+        return True
+    if token.startswith("~"):
+        return True
+    return False
+
+
+def _short_session_id(session_id: str) -> str:
+    if not session_id:
+        return session_id
+    if "-" in session_id:
+        return session_id.split("-", 1)[0]
+    if len(session_id) > _SESSION_ID_PREFIX_LEN:
+        return session_id[:_SESSION_ID_PREFIX_LEN]
+    return session_id
+
+
+def _session_id_from_line(line: str) -> str | None:
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    event_type = data.get("type")
+    if event_type is not None and event_type != "session":
+        return None
+    session_id = data.get("id")
+    if isinstance(session_id, str) and session_id:
+        return _short_session_id(session_id)
+    return None
+
+
+def _session_id_from_path(path: Path) -> str | None:
+    path = path.expanduser()
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                return _session_id_from_line(line)
+    except OSError:
+        return None
+    return None
+
+
+def _maybe_promote_session_id(state: PiStreamState) -> None:
+    if not state.allow_id_promotion:
+        return
+    session_path = state.session_path
+    if not session_path:
+        return
+    if state.resume.value != session_path:
+        return
+    session_id = _session_id_from_path(Path(session_path))
+    if session_id:
+        state.resume = ResumeToken(engine=ENGINE, value=session_id)
 
 
 def _action_event(
@@ -141,6 +212,7 @@ def translate_pi_event(
     state: PiStreamState,
 ) -> list[TakopiEvent]:
     out: list[TakopiEvent] = []
+    _maybe_promote_session_id(state)
     if not state.started:
         out.append(
             StartedEvent(
@@ -264,6 +336,11 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             raise RuntimeError(f"resume token is for engine {token.engine!r}")
         return f"`pi --session {self._quote_token(token.value)}`"
 
+    def run(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
+        return super().run(prompt, self._normalize_resume_token(resume))
+
     def extract_resume(self, text: str | None) -> ResumeToken | None:
         if not text:
             return None
@@ -278,7 +355,23 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             found = token
         if not found:
             return None
+        if _looks_like_session_path(found):
+            session_id = _session_id_from_path(Path(found))
+            if session_id:
+                found = session_id
         return ResumeToken(engine=self.engine, value=found)
+
+    def _normalize_resume_token(self, resume: ResumeToken | None) -> ResumeToken | None:
+        if resume is None:
+            return None
+        if resume.engine != ENGINE:
+            return resume
+        if not _looks_like_session_path(resume.value):
+            return resume
+        session_id = _session_id_from_path(Path(resume.value))
+        if session_id:
+            return ResumeToken(engine=ENGINE, value=session_id)
+        return resume
 
     def command(self) -> str:
         return "pi"
@@ -318,9 +411,13 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         if resume is None:
             session_path = self._new_session_path()
             token = ResumeToken(engine=ENGINE, value=session_path)
-        else:
-            token = resume
-        return PiStreamState(resume=token)
+            return PiStreamState(
+                resume=token,
+                session_path=session_path,
+                allow_id_promotion=True,
+            )
+        session_path = resume.value if _looks_like_session_path(resume.value) else None
+        return PiStreamState(resume=resume, session_path=session_path)
 
     def translate(
         self,

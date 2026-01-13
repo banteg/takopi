@@ -29,22 +29,24 @@ def _load_fixture(name: str) -> list[pi_schema.PiEvent]:
     return events
 
 
-def test_pi_resume_format_and_extract() -> None:
+def test_pi_resume_format_and_extract(tmp_path: Path) -> None:
     runner = PiRunner(
         extra_args=[],
         model=None,
         provider=None,
     )
-    token = ResumeToken(engine=ENGINE, value="/tmp/pi/session.jsonl")
+    session_path = tmp_path / "session.jsonl"
+    token = ResumeToken(engine=ENGINE, value=str(session_path))
 
-    assert runner.format_resume(token) == "`pi --session /tmp/pi/session.jsonl`"
-    assert runner.extract_resume("`pi --session /tmp/pi/session.jsonl`") == token
-    assert runner.extract_resume('pi --session "/tmp/pi/session.jsonl"') == token
+    assert runner.format_resume(token) == f"`pi --session {session_path}`"
+    assert runner.extract_resume(f"`pi --session {session_path}`") == token
+    assert runner.extract_resume(f'pi --session "{session_path}"') == token
     assert runner.extract_resume("`codex resume sid`") is None
 
-    spaced = ResumeToken(engine=ENGINE, value="/tmp/pi session.jsonl")
-    assert runner.format_resume(spaced) == '`pi --session "/tmp/pi session.jsonl"`'
-    assert runner.extract_resume('`pi --session "/tmp/pi session.jsonl"`') == spaced
+    spaced_path = tmp_path / "pi session.jsonl"
+    spaced = ResumeToken(engine=ENGINE, value=str(spaced_path))
+    assert runner.format_resume(spaced) == f'`pi --session "{spaced_path}"`'
+    assert runner.extract_resume(f'`pi --session "{spaced_path}"`') == spaced
 
 
 def test_translate_success_fixture() -> None:
@@ -95,6 +97,86 @@ def test_translate_error_fixture() -> None:
     assert completed.ok is False
     assert completed.error == "Upstream error"
     assert completed.answer == "Request failed."
+
+
+def test_session_id_promotion_from_file(tmp_path: Path) -> None:
+    session_path = tmp_path / "session.jsonl"
+    session_path.write_text(
+        '{"type":"session","version":3,'
+        '"id":"ccd569e0-4e1b-4c7d-a981-637ed4107310",'
+        '"timestamp":"2026-01-13T00:33:34.702Z",'
+        '"cwd":"/tmp"}\n',
+        encoding="utf-8",
+    )
+    runner = PiRunner(
+        extra_args=[],
+        model=None,
+        provider=None,
+    )
+    with patch(
+        "takopi.runners.pi.PiRunner._new_session_path",
+        return_value=str(session_path),
+    ):
+        state = runner.new_state("prompt", None)
+    events = translate_pi_event(
+        pi_schema.AgentStart(), title="pi", meta=None, state=state
+    )
+    started = next(evt for evt in events if isinstance(evt, StartedEvent))
+    assert started.resume.value == "ccd569e0"
+
+
+def test_extract_resume_prefers_session_id(tmp_path: Path) -> None:
+    session_path = tmp_path / "session.jsonl"
+    session_path.write_text(
+        '{"type":"session","version":3,'
+        '"id":"ccd569e0-4e1b-4c7d-a981-637ed4107310",'
+        '"timestamp":"2026-01-13T00:33:34.702Z",'
+        '"cwd":"/tmp"}\n',
+        encoding="utf-8",
+    )
+    runner = PiRunner(
+        extra_args=[],
+        model=None,
+        provider=None,
+    )
+    token = runner.extract_resume(f"pi --session {session_path}")
+    assert token is not None
+    assert token.value == "ccd569e0"
+
+
+@pytest.mark.anyio
+async def test_run_normalizes_resume_path(tmp_path: Path) -> None:
+    session_path = tmp_path / "session.jsonl"
+    session_path.write_text(
+        '{"type":"session","version":3,'
+        '"id":"ccd569e0-4e1b-4c7d-a981-637ed4107310",'
+        '"timestamp":"2026-01-13T00:33:34.702Z",'
+        '"cwd":"/tmp"}\n',
+        encoding="utf-8",
+    )
+    runner = PiRunner(
+        extra_args=[],
+        model=None,
+        provider=None,
+    )
+    seen_resume: ResumeToken | None = None
+
+    async def run_stub(_prompt: str, resume: ResumeToken | None):
+        nonlocal seen_resume
+        seen_resume = resume
+        yield CompletedEvent(
+            engine=ENGINE,
+            resume=resume,
+            ok=True,
+            answer="ok",
+        )
+
+    runner.run_impl = run_stub  # type: ignore[assignment]
+    resume = ResumeToken(engine=ENGINE, value=str(session_path))
+    async for _event in runner.run("test", resume):
+        pass
+    assert seen_resume is not None
+    assert seen_resume.value == "ccd569e0"
 
 
 @pytest.mark.anyio
