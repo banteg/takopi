@@ -14,6 +14,7 @@ dependencies = [
   "openai>=2.15.0",
   "pydantic>=2.12.5",
   "pydantic-settings>=2.12.0",
+  "pyyaml>=6.0",
   "questionary>=2.1.1",
   "rich>=14.2.0",
   "structlog>=25.5.0",
@@ -46,6 +47,9 @@ pi = "takopi.runners.pi:BACKEND"
 
 [project.entry-points."takopi.transport_backends"]
 telegram = "takopi.telegram.backend:BACKEND"
+
+[project.entry-points."takopi.command_backends"]
+workflow = "takopi.plugins.workflow.backend:BACKEND"
 
 [build-system]
 requires = ["uv_build>=0.9.18,<0.10.0"]

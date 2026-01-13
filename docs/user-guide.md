@@ -540,7 +540,14 @@ Telegram has a native message scheduling feature that works seamlessly with tako
 
 ---
 
-## 13. Troubleshooting
+## 13. Advanced workflows
+
+Takopi can be used to run some advanced workflows with mixed engines across tasks to trade cost, speed, or quality.
+See `docs/workflow.md` for advanced workflow examples, including YAML spec and natural language parsing.
+
+---
+
+## 14. Troubleshooting
 
 If something isn't working, rerun with `takopi --debug` and check `debug.log`
 for errors. Include it when reporting issues.
