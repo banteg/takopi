@@ -35,8 +35,7 @@ Notes:
 
 The token is the **short session id**, derived from the session header line
 (`{"type":"session", ...}`) emitted on stdout when running in `--mode json`.
-This requires **pi-coding-agent >= 0.45.1**. If the header is missing,
-Takopi falls back to the session file path.
+This requires **pi-coding-agent >= 0.45.1**.
 
 Why not `--resume`?
 - `--resume/-r` opens an interactive session picker; it does not accept a

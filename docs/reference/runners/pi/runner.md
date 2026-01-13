@@ -39,8 +39,7 @@ Notes:
 * `pi --resume/-r` opens an interactive session picker, so Takopi uses `--session <token>` instead.
 * The resume token is the **session id** (short prefix), derived from the session
   header line (`{"type":"session", ...}`) emitted to stdout in `--mode json`.
-  This requires **pi-coding-agent >= 0.45.1**. If the header is missing,
-  Takopi falls back to the session file path.
+  This requires **pi-coding-agent >= 0.45.1**.
 * If the path contains spaces, the runner will quote it.
 
 ### Non-interactive runs
