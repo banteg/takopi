@@ -11,6 +11,14 @@ class _Event(msgspec.Struct, tag_field="type", forbid_unknown_fields=False):
     pass
 
 
+class SessionHeader(_Event, tag="session"):
+    id: str | None = None
+    version: int | None = None
+    timestamp: str | None = None
+    cwd: str | None = None
+    parentSession: str | None = None
+
+
 class AgentStart(_Event, tag="agent_start"):
     pass
 
@@ -85,7 +93,8 @@ class AutoRetryEnd(_Event, tag="auto_retry_end"):
 
 
 type PiEvent = (
-    AgentStart
+    SessionHeader
+    | AgentStart
     | AgentEnd
     | MessageStart
     | MessageUpdate

@@ -99,41 +99,28 @@ def test_translate_error_fixture() -> None:
     assert completed.answer == "Request failed."
 
 
-def test_session_id_promotion_from_file(tmp_path: Path) -> None:
-    session_path = tmp_path / "session.jsonl"
-    session_path.write_text(
-        '{"type":"session","version":3,'
-        '"id":"ccd569e0-4e1b-4c7d-a981-637ed4107310",'
-        '"timestamp":"2026-01-13T00:33:34.702Z",'
-        '"cwd":"/tmp"}\n',
-        encoding="utf-8",
+def test_session_id_promotion_from_stdout() -> None:
+    state = PiStreamState(
+        resume=ResumeToken(engine=ENGINE, value="session.jsonl"),
+        allow_id_promotion=True,
     )
-    runner = PiRunner(
-        extra_args=[],
-        model=None,
-        provider=None,
-    )
-    with patch(
-        "takopi.runners.pi.PiRunner._new_session_path",
-        return_value=str(session_path),
-    ):
-        state = runner.new_state("prompt", None)
     events = translate_pi_event(
-        pi_schema.AgentStart(), title="pi", meta=None, state=state
+        pi_schema.SessionHeader(
+            id="ccd569e0-4e1b-4c7d-a981-637ed4107310",
+            version=3,
+            timestamp="2026-01-13T00:33:34.702Z",
+            cwd="/tmp",
+        ),
+        title="pi",
+        meta=None,
+        state=state,
     )
     started = next(evt for evt in events if isinstance(evt, StartedEvent))
     assert started.resume.value == "ccd569e0"
 
 
-def test_extract_resume_prefers_session_id(tmp_path: Path) -> None:
+def test_extract_resume_keeps_session_path(tmp_path: Path) -> None:
     session_path = tmp_path / "session.jsonl"
-    session_path.write_text(
-        '{"type":"session","version":3,'
-        '"id":"ccd569e0-4e1b-4c7d-a981-637ed4107310",'
-        '"timestamp":"2026-01-13T00:33:34.702Z",'
-        '"cwd":"/tmp"}\n',
-        encoding="utf-8",
-    )
     runner = PiRunner(
         extra_args=[],
         model=None,
@@ -141,19 +128,12 @@ def test_extract_resume_prefers_session_id(tmp_path: Path) -> None:
     )
     token = runner.extract_resume(f"pi --session {session_path}")
     assert token is not None
-    assert token.value == "ccd569e0"
+    assert token.value == str(session_path)
 
 
 @pytest.mark.anyio
-async def test_run_normalizes_resume_path(tmp_path: Path) -> None:
+async def test_run_keeps_resume_path(tmp_path: Path) -> None:
     session_path = tmp_path / "session.jsonl"
-    session_path.write_text(
-        '{"type":"session","version":3,'
-        '"id":"ccd569e0-4e1b-4c7d-a981-637ed4107310",'
-        '"timestamp":"2026-01-13T00:33:34.702Z",'
-        '"cwd":"/tmp"}\n',
-        encoding="utf-8",
-    )
     runner = PiRunner(
         extra_args=[],
         model=None,
@@ -176,7 +156,7 @@ async def test_run_normalizes_resume_path(tmp_path: Path) -> None:
     async for _event in runner.run("test", resume):
         pass
     assert seen_resume is not None
-    assert seen_resume.value == "ccd569e0"
+    assert seen_resume.value == str(session_path)
 
 
 @pytest.mark.anyio

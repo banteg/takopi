@@ -33,12 +33,14 @@ Notes:
 `pi --session <id>`
 ```
 
-The token is the **short session id**, derived from the first JSON object in the
-session file. If the id cannot be read, Takopi falls back to the session file path.
+The token is the **short session id**, derived from the session header line
+(`{"type":"session", ...}`) emitted on stdout when running in `--mode json`.
+This requires **pi-coding-agent >= 0.45.1**. If the header is missing,
+Takopi falls back to the session file path.
 
 Why not `--resume`?
 - `--resume/-r` opens an interactive session picker; it does not accept a
-  session token. Takopi must use `--session <path>` instead.
+  session token. Takopi must use `--session <token>` instead.
 
 ---
 
@@ -47,8 +49,9 @@ Why not `--resume`?
 Takopi requires **serialization per session token**:
 
 - For new runs (`resume=None`), do **not** acquire a lock until a `started`
-  event is emitted (Takopi emits this as soon as the first JSON event arrives).
-- Once the session is known, acquire a lock for `pi:<session_path>` and hold it
+  event is emitted (Takopi emits this as soon as the session header or first
+  JSON event arrives).
+- Once the session is known, acquire a lock for `pi:<session_token>` and hold it
   until the run completes.
 - For resumed runs, acquire the lock immediately on entry.
 
@@ -103,7 +106,7 @@ Mapping:
   - `ok = true` unless the last assistant message has `stopReason` `error` or `aborted`.
   - `answer = last assistant text` (from `message_end` or `agent_end.messages`).
   - `error = errorMessage` if present.
-  - `resume = ResumeToken(engine="pi", value=session_path)`.
+  - `resume = ResumeToken(engine="pi", value=session_token)`.
   - `usage = last assistant usage`.
 
 ### 4.5 Other events

@@ -10,7 +10,7 @@ Provide the **`pi`** engine backend so Takopi can:
 
 * Run Pi non-interactively via the **pi CLI** (`pi --print`).
 * Stream progress by parsing **`--mode json`** (newline-delimited JSON). Each line is a JSON object.
-* Support resumable sessions via **`--session <path>`** (Takopi emits a canonical resume line the user can reply with).
+* Support resumable sessions via **`--session <token>`** (Takopi emits a canonical resume line the user can reply with).
 
 ### Non-goals (v1)
 
@@ -36,10 +36,11 @@ Takopi appends a **single backticked** resume line at the end of the message, li
 
 Notes:
 
-* `pi --resume/-r` opens an interactive session picker, so Takopi uses `--session <path>` instead.
-* The resume token is the **session id** (short prefix), derived from the first JSON
-  object in the session file. If the id cannot be read, Takopi falls back to the
-  session file path.
+* `pi --resume/-r` opens an interactive session picker, so Takopi uses `--session <token>` instead.
+* The resume token is the **session id** (short prefix), derived from the session
+  header line (`{"type":"session", ...}`) emitted to stdout in `--mode json`.
+  This requires **pi-coding-agent >= 0.45.1**. If the header is missing,
+  Takopi falls back to the session file path.
 * If the path contains spaces, the runner will quote it.
 
 ### Non-interactive runs
@@ -91,7 +92,7 @@ The runner should launch Pi in headless JSON mode:
 pi --print --mode json --session <session.jsonl> <prompt>
 ```
 
-When resuming, `<session.jsonl>` is the resume token extracted from the chat.
+When resuming, `<session.jsonl>` is replaced by the resume token extracted from the chat.
 
 #### Event translation
 
@@ -115,6 +116,8 @@ Install the CLI globally:
 ```text
 npm install -g @mariozechner/pi-coding-agent
 ```
+
+Minimum supported pi version: **0.45.1**.
 
 Auth is stored under `~/.pi/agent/auth.json`. Run `pi` once interactively to
 set up credentials before using Takopi.

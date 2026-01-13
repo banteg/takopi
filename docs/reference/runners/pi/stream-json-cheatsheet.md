@@ -6,6 +6,12 @@ required `type` field. These are `AgentSessionEvent` objects from
 
 ## Top-level event lines
 
+### `session` (header, pi >= 0.45.1)
+
+```json
+{"type":"session","id":"ccd569e0-4e1b-4c7d-a981-637ed4107310","version":3,"timestamp":"2026-01-13T00:33:34.702Z","cwd":"/repo"}
+```
+
 ### `agent_start`
 
 ```json
