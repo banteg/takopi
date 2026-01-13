@@ -6,27 +6,16 @@ This tutorial walks you through installing Takopi, creating a Telegram bot, and 
 
 ## 1. Install Python 3.14 and uv
 
-We only recommend **uv** for installing both uv itself and Python.
-
-Install uv:
+Install `uv`, the modern Python [package manager](https://docs.astral.sh/uv/):
 
 ```sh
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-If you prefer to follow the official instructions (or want to learn more), see the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
-
 Install Python 3.14 with uv:
 
 ```sh
 uv python install 3.14
-```
-
-Verify:
-
-```sh
-uv --version
-uv python list
 ```
 
 ## 2. Install Takopi
@@ -45,16 +34,17 @@ You should see something like `0.17.1`.
 
 ## 3. Run onboarding
 
-Start Takopi without a config file—it will detect this and launch the setup wizard:
+Start Takopi without a config file. It will detect this and launch the setup wizard:
 
 ```sh
 takopi
 ```
 
-You'll see something like (box styling may vary by terminal):
+You'll see something like:
 
 ```
 welcome to takopi!
+
 let's set up your telegram bot.
 
 step 1: telegram bot setup
@@ -69,11 +59,11 @@ If you don't have a bot token yet, answer **n** and Takopi will show you the ste
 If you answered **n**, follow these steps (or skip to step 5 if you already have a token):
 
 1. Open Telegram and message [@BotFather](https://t.me/BotFather)
-2. Send `/newbot`
-3. Choose a display name (e.g., "My Takopi Bot")
+2. Send `/newbot` or use the mini app
+3. Choose a display name (the obvious choice is "takopi")
 4. Choose a username ending in `bot` (e.g., `my_takopi_bot`)
 
-BotFather will reply with your token:
+BotFather will congratulate you on your new bot and will reply with your token:
 
 ```
 Done! Congratulations on your new bot. You will find it at
