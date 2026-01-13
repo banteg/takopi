@@ -32,7 +32,43 @@ takopi --version
 
 You should see something like `0.17.1`.
 
-## 3. Run onboarding
+## 3. Install agent CLIs
+
+Takopi shells out to agent CLIs. Install the ones you plan to use (or install them all now):
+
+### Codex
+
+```sh
+npm install -g @openai/codex
+```
+
+Takopi uses the official Codex CLI, so your existing ChatGPT subscription applies. Run `codex` and sign in with your ChatGPT account.
+
+### Claude Code
+
+```sh
+npm install -g @anthropic-ai/claude-code
+```
+
+Takopi uses the official Claude CLI, so your existing Claude subscription applies. Run `claude` and log in with your Claude account. Takopi defaults to subscription billing unless you opt into API billing in config.
+
+### OpenCode
+
+```sh
+npm install -g opencode-ai@latest
+```
+
+OpenCode supports logging in with Anthropic for your Claude subscription or with OpenAI for your ChatGPT subscription, and it can connect to 75+ providers via Models.dev (including local models).
+
+### Pi
+
+```sh
+npm install -g @mariozechner/pi-coding-agent
+```
+
+Pi can authenticate via a provider login or use API billing. You can log in with Anthropic (Claude subscription), OpenAI (ChatGPT subscription), GitHub Copilot, Google Cloud Code Assist (Gemini CLI), or Antigravity (Gemini 3, Claude, GPT-OSS), or choose API billing instead.
+
+## 4. Run onboarding
 
 Start Takopi without a config file. It will detect this and launch the setup wizard:
 
@@ -54,9 +90,9 @@ step 1: telegram bot setup
 
 If you don't have a bot token yet, answer **n** and Takopi will show you the steps.
 
-## 4. Create a Telegram bot
+## 5. Create a Telegram bot
 
-If you answered **n**, follow these steps (or skip to step 5 if you already have a token):
+If you answered **n**, follow these steps (or skip to step 6 if you already have a token):
 
 1. Open Telegram and message [@BotFather](https://t.me/BotFather)
 2. Send `/newbot` or use the mini app
@@ -83,7 +119,7 @@ Copy the token (the `123456789:ABC...` part).
 !!! warning "Keep your token secret"
     Anyone with your bot token can control your bot. Don't commit it to git or share it publicly.
 
-## 5. Enter your bot token
+## 6. Enter your bot token
 
 Paste your token when prompted:
 
@@ -95,7 +131,7 @@ Paste your token when prompted:
 
 Takopi validates the token by calling the Telegram API. If it fails, double-check you copied the full token.
 
-## 6. Capture your chat ID
+## 7. Capture your chat ID
 
 Takopi needs to know which chat to send messages to. It will listen for a message from you:
 
@@ -114,7 +150,7 @@ Open Telegram and send `/start` (or any message) to your bot. Takopi will captur
 !!! tip "Using Takopi in a group"
     You can also send a message in a group where the bot is a member. Takopi will capture that group's chat ID instead. This is useful if you want multiple people to share the same bot.
 
-## 7. Choose your default engine
+## 8. Choose your default engine
 
 Takopi scans your PATH for installed agent CLIs:
 
@@ -135,7 +171,7 @@ step 2: agent cli tools
 
 Pick whichever you prefer. You can always switch engines per-message later.
 
-## 8. Save your config
+## 9. Save your config
 
 Takopi shows you a preview of what it will save:
 
