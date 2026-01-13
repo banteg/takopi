@@ -14,6 +14,8 @@ Install uv:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+If you prefer to follow the official instructions (or want to learn more), see the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+
 Install Python 3.14 with uv:
 
 ```sh
