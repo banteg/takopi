@@ -60,9 +60,7 @@ def _looks_like_session_path(token: str) -> bool:
         return True
     if "/" in token or "\\" in token:
         return True
-    if token.startswith("~"):
-        return True
-    return False
+    return token.startswith("~")
 
 
 def _short_session_id(session_id: str) -> str:
