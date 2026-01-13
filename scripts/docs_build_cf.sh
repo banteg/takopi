@@ -2,6 +2,7 @@
 set -euo pipefail
 
 pip install uv
+uv python install 3.14
 uv sync --frozen --no-install-project --group docs
 uv run --no-sync python scripts/docs_prebuild.py
 uv run --no-sync zensical build --clean
