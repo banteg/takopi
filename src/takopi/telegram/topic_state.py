@@ -192,6 +192,15 @@ class TopicStateStore(JsonStateStore[_TopicState]):
             thread.sessions = {}
             self._save_locked()
 
+    async def delete_thread(self, chat_id: int, thread_id: int) -> None:
+        async with self._lock:
+            self._reload_locked_if_needed()
+            key = _thread_key(chat_id, thread_id)
+            if key not in self._state.threads:
+                return
+            self._state.threads.pop(key, None)
+            self._save_locked()
+
     async def find_thread_for_context(
         self, chat_id: int, context: RunContext
     ) -> int | None:

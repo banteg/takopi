@@ -191,19 +191,29 @@ async def _handle_topic_command(
         text = f"error:\n{error}\n{usage}" if error else usage
         await reply(text=text)
         return
-    existing = await store.find_thread_for_context(msg.chat_id, context)
-    if existing is not None:
-        await reply(
-            text=f"topic already exists for {_format_context(cfg.runtime, context)} "
-            "in this chat.",
-        )
-        return
     title = _topic_title(runtime=cfg.runtime, context=context)
+    existing = await store.find_thread_for_context(msg.chat_id, context)
+    stale_thread_id: int | None = None
+    if existing is not None:
+        updated = await cfg.bot.edit_forum_topic(
+            chat_id=msg.chat_id,
+            message_thread_id=existing,
+            name=title,
+        )
+        if updated:
+            await reply(
+                text=f"topic already exists for {_format_context(cfg.runtime, context)} "
+                "in this chat.",
+            )
+            return
+        stale_thread_id = existing
     created = await cfg.bot.create_forum_topic(msg.chat_id, title)
     if created is None:
         await reply(text="failed to create topic.")
         return
     thread_id = created.message_thread_id
+    if stale_thread_id is not None:
+        await store.delete_thread(msg.chat_id, stale_thread_id)
     await store.set_context(
         msg.chat_id,
         thread_id,

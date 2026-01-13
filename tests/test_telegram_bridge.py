@@ -8,6 +8,7 @@ import pytest
 from takopi import commands, plugins
 from takopi.telegram.commands.executor import _CaptureTransport, _run_engine
 from takopi.telegram.commands.file_transfer import _handle_file_get, _handle_file_put
+from takopi.telegram.commands.topics import _handle_topic_command
 import takopi.telegram.loop as telegram_loop
 import takopi.telegram.topics as telegram_topics
 from takopi.directives import parse_directives
@@ -1147,6 +1148,92 @@ async def test_maybe_rename_topic_skips_when_title_matches(tmp_path: Path) -> No
 
     bot = cast(_FakeBot, cfg.bot)
     assert bot.edit_topic_calls == []
+
+
+@pytest.mark.anyio
+async def test_topic_command_recreates_stale_topic(tmp_path: Path) -> None:
+    class _StaleTopicBot(_FakeBot):
+        def __init__(self) -> None:
+            super().__init__()
+            self.create_topic_calls: list[dict[str, Any]] = []
+
+        async def create_forum_topic(
+            self, chat_id: int, name: str
+        ) -> ForumTopic | None:
+            self.create_topic_calls.append({"chat_id": chat_id, "name": name})
+            return ForumTopic(message_thread_id=55)
+
+        async def edit_forum_topic(
+            self, chat_id: int, message_thread_id: int, name: str
+        ) -> bool:
+            self.edit_topic_calls.append(
+                {
+                    "chat_id": chat_id,
+                    "message_thread_id": message_thread_id,
+                    "name": name,
+                }
+            )
+            return False
+
+    transport = _FakeTransport()
+    bot = _StaleTopicBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    projects = ProjectsConfig(
+        projects={
+            "takopi": ProjectConfig(
+                alias="takopi",
+                path=tmp_path,
+                worktrees_dir=Path(".worktrees"),
+            )
+        },
+        default_project=None,
+    )
+    runtime = TransportRuntime(router=_make_router(runner), projects=projects)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        topics=TelegramTopicsSettings(enabled=True, scope="main"),
+    )
+    store = TopicStateStore(tmp_path / "telegram_topics_state.json")
+    await store.set_context(
+        123,
+        77,
+        RunContext(project="takopi", branch="master"),
+        topic_title="takopi @master",
+    )
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/topic takopi @master",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+    )
+
+    await _handle_topic_command(
+        cfg,
+        msg,
+        "takopi @master",
+        store,
+        resolved_scope="main",
+        scope_chat_ids=frozenset({123}),
+    )
+
+    assert bot.edit_topic_calls
+    assert bot.create_topic_calls
+    assert await store.get_thread(123, 77) is None
+    snapshot = await store.get_thread(123, 55)
+    assert snapshot is not None
+    assert snapshot.context == RunContext(project="takopi", branch="master")
 
 
 @pytest.mark.anyio

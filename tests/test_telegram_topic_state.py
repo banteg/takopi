@@ -54,3 +54,17 @@ async def test_topic_state_store_clear_and_find(tmp_path) -> None:
     snapshot = await store.get_thread(2, 20)
     assert snapshot is not None
     assert snapshot.default_engine is None
+
+
+@pytest.mark.anyio
+async def test_topic_state_store_delete_thread(tmp_path) -> None:
+    path = tmp_path / "telegram_topics_state.json"
+    store = TopicStateStore(path)
+    context = RunContext(project="proj", branch="main")
+    await store.set_context(1, 10, context)
+    await store.set_session_resume(1, 10, ResumeToken(engine="codex", value="abc123"))
+
+    await store.delete_thread(1, 10)
+
+    assert await store.get_thread(1, 10) is None
+    assert await store.find_thread_for_context(1, context) is None
