@@ -58,8 +58,8 @@ Takopi runs the agent in `~/dev/happy-gadgets`, not your current directory.
 The response includes a context footer:
 
 !!! takopi "Takopi"
-    `ctx: happy-gadgets`
-    `codex resume abc123`
+    ctx: happy-gadgets<br>
+    codex resume abc123
 
 That `ctx:` line tells you which project is active. When you reply, Takopi automatically uses the same project—you don't need to repeat `/happy-gadgets`.
 
@@ -98,11 +98,8 @@ Takopi:
 The response shows both project and branch:
 
 !!! takopi "Takopi"
-    Added rate limiting middleware to the login endpoint.
-    Limited to 5 attempts per minute per IP...
-
-    `ctx: happy-gadgets @feat/new-login`
-    `codex resume xyz789`
+    ctx: happy-gadgets @feat/new-login<br>
+    codex resume xyz789
 
 Replies stay on the same branch. Your main checkout is untouched.
 
@@ -114,18 +111,13 @@ Once you've set a context (via `/project @branch` or by replying), it sticks:
     /happy-gadgets @feat/new-login add tests
 
 !!! takopi "Takopi"
-    Added unit tests for rate limiting...
-    `ctx: happy-gadgets @feat/new-login`
+    ctx: happy-gadgets @feat/new-login
 
-!!! quote ""
-    `ctx: happy-gadgets @feat/new-login`
-
-    !!! user "reply to the bot's answer"
-        also add integration tests
+!!! user "reply to the bot's answer"
+    also add integration tests
 
 !!! takopi "Takopi"
-    Added integration tests...
-    `ctx: happy-gadgets @feat/new-login`
+    ctx: happy-gadgets @feat/new-login
 
 The `ctx:` line in each message carries the context forward.
 
@@ -156,12 +148,12 @@ takopi
     /happy-gadgets review the error handling
 
 !!! user "You"
-    /happy-gadgets @feat/caching implement redis caching
+    /happy-gadgets @feat/caching implement caching
 
-!!! quote ""
-    `ctx: happy-gadgets @feat/caching`
+!!! takopi "Takopi"
+    ctx: happy-gadgets @feat/caching
 
-    !!! user "reply to the bot's answer"
+    !!! user "You"
         also add cache invalidation
 
 !!! user "You"

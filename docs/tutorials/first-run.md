@@ -18,10 +18,10 @@ Takopi keeps running in your terminal. In Telegram, your bot will post a startup
 !!! takopi "Takopi"
     🐙 takopi is ready
 
-    default: `codex`<br>
-    agents: `codex, claude`<br>
-    projects: `none`<br>
-    working in: `/Users/you/dev/your-project`
+    default: codex<br>
+    agents: codex, claude<br>
+    projects: none<br>
+    working in: /Users/you/dev/your-project
 
 The engines/projects list reflects your setup. This tells you:
 
@@ -78,10 +78,10 @@ That last line is the **resume line**—it's how Takopi knows which conversation
 
 To follow up, **reply** to the bot's message:
 
-!!! quote ""
+!!! takopi "Takopi"
     done · codex · 11s · step 5
 
-    !!! user "reply to the bot's answer"
+    !!! user "You"
         what command line arguments does it support?
 
 Takopi extracts the resume token from the message you replied to and continues the same agent session. The agent remembers everything from before.
@@ -110,10 +110,10 @@ Sometimes you want to stop a run in progress—maybe you realize you asked the w
 
 While the progress message is showing, tap the **cancel** button or reply to it with:
 
-!!! quote ""
+!!! takopi "Takopi"
     working · codex · 12s · step 3
 
-    !!! user "reply to a progress message"
+    !!! user "You"
         /cancel
 
 Takopi sends `SIGTERM` to the agent process and posts a cancelled status:
