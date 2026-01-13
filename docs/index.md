@@ -75,11 +75,6 @@ If you’re contributing to core:
 
 ## For LLM agents
 
-Takopi publishes an LLM-oriented index at:
-
-* [/llms.txt](/llms.txt) — curated entrypoints + links to Markdown mirrors
-* [/llms-full.txt](/llms-full.txt) — expanded “single file” context of the most important pages
-
 In the docs, start here:
 
 * [Reference: For agents](reference/agents/index.md)

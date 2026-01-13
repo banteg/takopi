@@ -37,7 +37,7 @@ jobs:
         run: uv sync --frozen --no-install-project --group docs
 
       - name: Build site
-        run: uv run --no-sync zensical build
+        run: uv run --no-sync zensical build --clean
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

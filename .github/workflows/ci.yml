@@ -40,7 +40,7 @@ jobs:
             sync_args: ""
           - task: docs
             do_sync: true
-            command: uv run --no-sync zensical build
+            command: uv run --no-sync zensical build --clean
             sync_args: --no-install-project --group docs
 
     steps:
