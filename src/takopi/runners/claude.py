@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -449,7 +450,7 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
 
 def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
-    claude_cmd = "claude"
+    claude_cmd = shutil.which("claude") or "claude"
 
     model = config.get("model")
     if "allowed_tools" in config:
