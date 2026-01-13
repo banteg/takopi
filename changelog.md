@@ -1,5 +1,22 @@
 # changelog
 
+## v0.18.0 (2026-01-14)
+
+### changes
+
+- add per-chat and per-topic default agent via `/agent set` command [#109](https://github.com/banteg/takopi/pull/109)
+- add session resume shorthand for pi runner [#113](https://github.com/banteg/takopi/pull/113)
+- expose `sender_id` and `raw` fields on `MessageRef` for plugins [#112](https://github.com/banteg/takopi/pull/112)
+
+### fixes
+
+- recreate stale topic bindings when topic is deleted and recreated [#127](https://github.com/banteg/takopi/pull/127)
+- use stdout session header for pi runner [#126](https://github.com/banteg/takopi/pull/126)
+
+### docs
+
+- restructure docs into diataxis format and switch to zensical [#121](https://github.com/banteg/takopi/pull/121) [#125](https://github.com/banteg/takopi/pull/125)
+
 ## v0.17.1 (2026-01-12)
 
 ### fixes
