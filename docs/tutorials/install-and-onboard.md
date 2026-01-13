@@ -1,56 +1,208 @@
-# Install & onboard
+# Install and onboard
 
-You’ll install Takopi, connect it to Telegram, and generate a working `takopi.toml`.
+This tutorial walks you through installing Takopi, creating a Telegram bot, and generating your config file.
 
-## Prerequisites
+**What you'll have at the end:** A working `~/.takopi/takopi.toml` with your bot token, chat ID, and default engine.
 
-- A Telegram account
-- Python 3.14+ and `uv`
-- At least one supported engine CLI on your `PATH` (`codex`, `claude`, `opencode`, or `pi`)
-
-## 1) Install Takopi
+## 1. Install Takopi
 
 ```sh
 uv tool install -U takopi
 ```
 
-## 2) Run onboarding
+Verify it's installed:
 
-Start Takopi:
+```sh
+takopi --version
+```
+
+You should see something like `0.17.1`.
+
+## 2. Run onboarding
+
+Start Takopi without a config file—it will detect this and launch the setup wizard:
 
 ```sh
 takopi
 ```
 
-If you want to re-run onboarding later:
+You'll see:
+
+```
+╭─────────────────────────────╮
+│  welcome to takopi!         │
+│                             │
+│  let's set up your telegram │
+│  bot.                       │
+╰─────────────────────────────╯
+
+step 1: telegram bot setup
+
+? do you have a telegram bot token? (Y/n)
+```
+
+If you don't have a bot token yet, answer **n** and Takopi will show you the steps.
+
+## 3. Create a Telegram bot
+
+If you answered **n**, follow these steps (or skip to step 4 if you already have a token):
+
+1. Open Telegram and message [@BotFather](https://t.me/BotFather)
+2. Send `/newbot`
+3. Choose a display name (e.g., "My Takopi Bot")
+4. Choose a username ending in `bot` (e.g., `my_takopi_bot`)
+
+BotFather will reply with your token:
+
+```
+Done! Congratulations on your new bot. You will find it at
+t.me/my_takopi_bot. You can now add a description, about
+section and profile picture for your bot, see /help for a
+list of commands.
+
+Use this token to access the HTTP API:
+123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+
+Keep your token secure and store it safely, it can be used
+by anyone to control your bot.
+```
+
+Copy the token (the `123456789:ABC...` part).
+
+!!! warning "Keep your token secret"
+    Anyone with your bot token can control your bot. Don't commit it to git or share it publicly.
+
+## 4. Enter your bot token
+
+Paste your token when prompted:
+
+```
+? paste your bot token: ****
+  validating...
+  connected to @my_takopi_bot
+```
+
+Takopi validates the token by calling the Telegram API. If it fails, double-check you copied the full token.
+
+## 5. Capture your chat ID
+
+Takopi needs to know which chat to send messages to. It will listen for a message from you:
+
+```
+  send /start to @my_takopi_bot (works in groups too)
+  waiting...
+```
+
+Open Telegram and send `/start` (or any message) to your bot. Takopi will capture the chat:
+
+```
+  got chat_id 123456789 from @yourusername
+  sent confirmation message
+```
+
+!!! tip "Using Takopi in a group"
+    You can also send a message in a group where the bot is a member. Takopi will capture that group's chat ID instead. This is useful if you want multiple people to share the same bot.
+
+## 6. Choose your default engine
+
+Takopi scans your PATH for installed agent CLIs:
+
+```
+step 2: agent cli tools
+
+  agent     status         install command
+  ───────────────────────────────────────────
+  codex     ✓ installed
+  claude    ✓ installed
+  opencode  ✗ not found    go install github.com/opencode-ai/opencode@latest
+  pi        ✗ not found    pip install inflection-pi
+
+? choose default agent: (Use arrow keys)
+ ❯ codex
+   claude
+```
+
+Pick whichever you prefer. You can always switch engines per-message later.
+
+## 7. Save your config
+
+Takopi shows you a preview of what it will save:
+
+```
+step 3: save configuration
+
+  ~/.takopi/takopi.toml
+
+  default_engine = "codex"
+  transport = "telegram"
+
+  [transports.telegram]
+  bot_token = "123456789:ABC..."
+  chat_id = 123456789
+
+? save this config to ~/.takopi/takopi.toml? (Y/n)
+```
+
+Press **Enter** to save. You'll see:
+
+```
+  config saved to ~/.takopi/takopi.toml
+
+╭──────────────────────────────────╮
+│  setup complete. starting        │
+│  takopi...                       │
+╰──────────────────────────────────╯
+```
+
+Takopi is now running and listening for messages!
+
+## What just happened
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  ~/.takopi/takopi.toml                                  │
+├─────────────────────────────────────────────────────────┤
+│  default_engine = "codex"    ← new threads use this    │
+│  transport = "telegram"      ← how Takopi talks to you │
+│                                                         │
+│  [transports.telegram]                                  │
+│  bot_token = "..."           ← your bot's API key      │
+│  chat_id = 123456789         ← where to send messages  │
+└─────────────────────────────────────────────────────────┘
+```
+
+This config file controls all of Takopi's behavior. You'll edit it directly for advanced features.
+
+## Re-running onboarding
+
+If you ever need to reconfigure:
 
 ```sh
 takopi --onboard
 ```
 
-The wizard walks you through:
+This will prompt you to update your existing config (it won't overwrite without asking).
 
-1. Creating a bot token via [@BotFather](https://t.me/BotFather)
-2. Capturing your `chat_id` (it listens for a message from you)
-3. Choosing a default engine
+## Troubleshooting
 
-Your configuration lives at `~/.takopi/takopi.toml`.
+**"error: missing takopi config"**
 
-## 3) Verify minimal config
+Run `takopi` in a terminal with a TTY. The setup wizard only runs interactively.
 
-After onboarding you should have something like:
+**"failed to connect, check the token"**
 
-```toml
-default_engine = "codex"
-transport = "telegram"
+Make sure you copied the full token from BotFather, including the numbers before the colon.
 
-[transports.telegram]
-bot_token = "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-chat_id = 123456789
-```
+**Bot doesn't respond to /start**
+
+Takopi might not be running. Check your terminal—it should show "waiting...". If you accidentally closed it, run `takopi` again.
+
+**"error: another instance is running"**
+
+You can only run one Takopi instance per bot token. Find and stop the other process, or check if you have a stale lock file at `~/.takopi/takopi.lock`.
 
 ## Next
 
-- [First run](first-run.md)
-- [Config reference](../reference/config.md)
+Now that Takopi is configured, let's send your first task.
 
+[First run →](first-run.md)

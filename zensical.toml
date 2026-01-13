@@ -15,6 +15,8 @@ nav = [
     { "Overview" = "tutorials/index.md" },
     { "Install & onboard" = "tutorials/install-and-onboard.md" },
     { "First run" = "tutorials/first-run.md" },
+    { "Projects & branches" = "tutorials/projects-and-branches.md" },
+    { "Multi-engine" = "tutorials/multi-engine.md" },
   ] },
   { "How-to" = [
     { "Overview" = "how-to/index.md" },
