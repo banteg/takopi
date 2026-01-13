@@ -166,18 +166,14 @@ Takopi is now running and listening for messages!
 
 ## What just happened
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  ~/.takopi/takopi.toml                                  │
-├─────────────────────────────────────────────────────────┤
-│  default_engine = "codex"    ← new threads use this    │
-│  transport = "telegram"      ← how Takopi talks to you │
-│                                                         │
-│  [transports.telegram]                                  │
-│  bot_token = "..."           ← your bot's API key      │
-│  chat_id = 123456789         ← where to send messages  │
-└─────────────────────────────────────────────────────────┘
-```
+Your config file lives at `~/.takopi/takopi.toml`:
+
+| Key | Example | Meaning |
+|---|---|---|
+| `default_engine` | `"codex"` | New threads use this. |
+| `transport` | `"telegram"` | How Takopi talks to you. |
+| `transports.telegram.bot_token` | `"..."` | Your bot's API key. |
+| `transports.telegram.chat_id` | `123456789` | Where to send messages. |
 
 This config file controls all of Takopi's behavior. You'll edit it directly for advanced features.
 
