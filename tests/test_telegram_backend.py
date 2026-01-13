@@ -5,7 +5,9 @@ from typing import Any
 
 import pytest
 
+from takopi import __version__
 from takopi.config import ProjectsConfig
+from takopi.plugins import COMMAND_GROUP, ENGINE_GROUP, TRANSPORT_GROUP
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
 from takopi.settings import (
@@ -17,9 +19,35 @@ from takopi.telegram import backend as telegram_backend
 from takopi.transport_runtime import TransportRuntime
 
 
-def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
+def test_build_startup_message_includes_missing_engines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     codex = "codex"
     pi = "pi"
+
+    class _Dist:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class _Ep:
+        def __init__(self, name: str, dist: str) -> None:
+            self.name = name
+            self.value = f"{name}:BACKEND"
+            self.dist = _Dist(dist)
+
+    entrypoints = {
+        ENGINE_GROUP: [_Ep(codex, "takopi"), _Ep(pi, "takopi")],
+        TRANSPORT_GROUP: [_Ep("telegram", "takopi")],
+        COMMAND_GROUP: [],
+    }
+
+    def fake_list_entrypoints(
+        group: str, *, allowlist=None, reserved_ids=None
+    ) -> list[object]:
+        return entrypoints.get(group, [])
+
+    monkeypatch.setattr(telegram_backend, "list_entrypoints", fake_list_entrypoints)
     runner = ScriptRunner([Return(answer="ok")], engine=codex)
     missing = ScriptRunner([Return(answer="ok")], engine=pi)
     router = AutoRouter(
@@ -45,16 +73,50 @@ def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
     )
 
     assert "takopi is ready" in message
+    assert f"version: `{__version__}`" in message
     assert "agents: `codex (not installed: pi)`" in message
     assert "projects: `none`" in message
+    assert "plugins: `none`" in message
 
 
 def test_build_startup_message_surfaces_unavailable_engine_reasons(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     codex = "codex"
     pi = "pi"
     claude = "claude"
+
+    class _Dist:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    class _Ep:
+        def __init__(self, name: str, dist: str) -> None:
+            self.name = name
+            self.value = f"{name}:BACKEND"
+            self.dist = _Dist(dist)
+
+    entrypoints = {
+        ENGINE_GROUP: [
+            _Ep(codex, "takopi"),
+            _Ep(pi, "takopi"),
+            _Ep(claude, "takopi"),
+            _Ep("myengine", "myengine-dist"),
+        ],
+        TRANSPORT_GROUP: [
+            _Ep("telegram", "takopi"),
+            _Ep("slack", "slack-dist"),
+        ],
+        COMMAND_GROUP: [_Ep("home", "hello-dist"), _Ep("workon", "hello-dist")],
+    }
+
+    def fake_list_entrypoints(
+        group: str, *, allowlist=None, reserved_ids=None
+    ) -> list[object]:
+        return entrypoints.get(group, [])
+
+    monkeypatch.setattr(telegram_backend, "list_entrypoints", fake_list_entrypoints)
     runner = ScriptRunner([Return(answer="ok")], engine=codex)
     bad_cfg = ScriptRunner([Return(answer="ok")], engine=pi)
     load_err = ScriptRunner([Return(answer="ok")], engine=claude)
@@ -83,8 +145,13 @@ def test_build_startup_message_surfaces_unavailable_engine_reasons(
     )
 
     assert "agents: `codex" in message
+    assert f"version: `{__version__}`" in message
     assert "misconfigured: pi" in message
     assert "failed to load: claude" in message
+    assert (
+        "plugins: `engines=myengine-dist; transports=slack-dist; commands=hello-dist`"
+        in message
+    )
 
 
 def test_telegram_backend_build_and_run_wires_config(
