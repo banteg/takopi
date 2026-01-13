@@ -141,39 +141,12 @@ Available prefixes depend on what you have installed: `/codex`, `/claude`, `/ope
 
 ## What just happened
 
-Here's the full message lifecycle:
-
-```
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│   You send   │───▶│   Takopi     │───▶│  Agent CLI   │
-│   message    │    │   bridges    │    │  (codex)     │
-└──────────────┘    └──────────────┘    └──────────────┘
-                           │                    │
-                           │◀───────────────────┤
-                           │   JSONL events     │
-                           │   (streaming)      │
-                           ▼                    │
-                    ┌──────────────┐            │
-                    │  Progress    │            │
-                    │  message     │            │
-                    │  (edited)    │            │
-                    └──────────────┘            │
-                           │                    │
-                           │◀───────────────────┘
-                           │   completed event
-                           ▼
-                    ┌──────────────┐
-                    │  Final       │
-                    │  answer      │
-                    │  + resume    │
-                    └──────────────┘
-```
-
 Key points:
+
 - Takopi spawns the agent CLI as a subprocess
 - The agent streams JSONL events (tool calls, progress, answer)
 - Takopi renders these as an editable progress message
-- When done, the progress message is edited into the final answer (or replaced if editing isn't possible)
+- When done, the progress message is replaced with the final answer
 - The resume line lets you continue the conversation
 
 ## The core loop
@@ -184,7 +157,7 @@ You now know the three fundamental interactions:
 |--------|-----|
 | **Start** | Send a message to your bot |
 | **Continue** | Reply to any message with a resume line |
-| **Cancel** | Reply `/cancel` (or tap **cancel**) on a progress message |
+| **Cancel** | Tap **cancel** on a progress message |
 
 Everything else in Takopi builds on this loop.
 
