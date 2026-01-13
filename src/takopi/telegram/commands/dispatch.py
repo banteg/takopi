@@ -78,6 +78,8 @@ async def _dispatch_command(
     except ConfigError as exc:
         await executor.send(f"error:\n{exc}", reply_to=message_ref, notify=True)
         return
+    # Inject bot client for plugins that need Telegram API access
+    plugin_config["bot"] = cfg.bot
     ctx = CommandContext(
         command=command_id,
         text=text,
