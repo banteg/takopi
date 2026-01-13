@@ -85,6 +85,10 @@ generator = false
 icon = "fontawesome/brands/x-twitter"
 link = "https://x.com/banteg"
 
+[[project.extra.social]]
+icon = "fontawesome/brands/telegram"
+link = "https://t.me/+4VRTEKT_To0wMTUy"
+
 [project.theme]
 language = "en"
 logo = "assets/logo.svg"
@@ -102,8 +106,12 @@ features = [
   "toc.follow",
   "content.code.copy",
   "content.action.edit",
+  "content.action.view",
   "search.highlight",
 ]
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme)"
