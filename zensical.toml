@@ -81,6 +81,10 @@ nav = [
 [project.extra]
 generator = false
 
+[[project.extra.social]]
+icon = "fontawesome/brands/x-twitter"
+link = "https://x.com/banteg"
+
 [project.theme]
 language = "en"
 logo = "assets/logo.svg"
@@ -93,6 +97,9 @@ features = [
   "navigation.tracking",
   "navigation.tabs",
   "navigation.tabs.sticky",
+  "navigation.expand",
+  "navigation.footer",
+  "toc.follow",
   "content.code.copy",
   "content.action.edit",
   "search.highlight",
