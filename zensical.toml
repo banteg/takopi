@@ -96,7 +96,7 @@ link = "https://t.me/+4VRTEKT_To0wMTUy"
 language = "en"
 logo = "assets/logo.svg"
 favicon = "assets/favicon.svg"
-custom_dir = "overrides"
+custom_dir = "docs/overrides"
 font.text = "Nunito"
 font.code = "Fira Code"
 features = [
@@ -120,7 +120,7 @@ repo = "fontawesome/brands/github"
 [project.theme.icon.admonition]
 question = "fontawesome/solid/paper-plane"
 info = "takopi/takopi"
-user = "fontawesome/solid/paper-plane"
+user = "lucide/user-round"
 takopi = "takopi/takopi"
 
 [[project.theme.palette]]
@@ -152,7 +152,7 @@ toggle.name = "Switch to system preference"
 [project.markdown_extensions.pymdownx.emoji]
 emoji_index = "zensical.extensions.emoji.twemoji"
 emoji_generator = "zensical.extensions.emoji.to_svg"
-options.custom_icons = ["overrides/.icons"]
+options.custom_icons = ["docs/overrides/.icons"]
 
 [project.markdown_extensions.toc]
 permalink = true

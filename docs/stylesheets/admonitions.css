@@ -1,10 +1,10 @@
 :root {
-  --md-admonition-icon--user: var(--md-admonition-icon--question);
+  --md-admonition-icon--user: url('data:image/svg+xml;charset=utf-8,%3Csvg%20class%3D%22lucide%20lucide-user-round%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20%3E%20%3Ccircle%20cx%3D%2212%22%20cy%3D%228%22%20r%3D%225%22%20%2F%3E%20%3Cpath%20d%3D%22M20%2021a8%208%200%200%200-16%200%22%20%2F%3E%20%3C%2Fsvg%3E');
   --md-admonition-icon--takopi: var(--md-admonition-icon--info);
   --md-admonition-color--user: #64dd17;
-  --md-admonition-color--takopi: #00b8d4;
+  --md-admonition-color--takopi: #f4a5b8;
   --md-admonition-bg-color--user: #64dd171a;
-  --md-admonition-bg-color--takopi: #00b8d41a;
+  --md-admonition-bg-color--takopi: #f4a5b81a;
 }
 
 .md-typeset .admonition.user,
