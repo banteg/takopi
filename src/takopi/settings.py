@@ -100,6 +100,7 @@ class TelegramTransportSettings(BaseModel):
     voice_transcription_model: NonEmptyStr = "gpt-4o-mini-transcribe"
     session_mode: Literal["stateless", "chat"] = "stateless"
     show_resume_line: bool = True
+    require_explicit_trigger: bool = False
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
     files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
 

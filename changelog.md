@@ -1,5 +1,11 @@
 # changelog
 
+## unreleased
+
+### changes
+
+- add `require_explicit_trigger` option to only respond to `/engine`, `/project`, commands, or replies [#118](https://github.com/banteg/takopi/pull/118)
+
 ## v0.18.0 (2026-01-13)
 
 ### changes

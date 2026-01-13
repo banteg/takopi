@@ -235,3 +235,34 @@ def test_load_settings_rejects_non_file(tmp_path: Path) -> None:
     config_path.mkdir()
     with pytest.raises(ConfigError, match="exists but is not a file"):
         load_settings(config_path)
+
+
+def test_require_explicit_trigger_defaults_false(tmp_path: Path) -> None:
+    config_path = tmp_path / "takopi.toml"
+    config_path.write_text(
+        'transport = "telegram"\n\n'
+        "[transports.telegram]\n"
+        'bot_token = "token"\n'
+        "chat_id = 123\n",
+        encoding="utf-8",
+    )
+
+    settings, _ = load_settings(config_path)
+
+    assert settings.transports.telegram.require_explicit_trigger is False
+
+
+def test_require_explicit_trigger_enabled(tmp_path: Path) -> None:
+    config_path = tmp_path / "takopi.toml"
+    config_path.write_text(
+        'transport = "telegram"\n\n'
+        "[transports.telegram]\n"
+        'bot_token = "token"\n'
+        "chat_id = 123\n"
+        "require_explicit_trigger = true\n",
+        encoding="utf-8",
+    )
+
+    settings, _ = load_settings(config_path)
+
+    assert settings.transports.telegram.require_explicit_trigger is True

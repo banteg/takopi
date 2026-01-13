@@ -11,7 +11,7 @@ from anyio.abc import TaskGroup
 from ..config import ConfigError
 from ..config_watch import ConfigReload, watch_config as watch_config_changes
 from ..commands import list_command_ids
-from ..directives import DirectiveError
+from ..directives import DirectiveError, has_directive
 from ..logging import get_logger
 from ..model import EngineId, ResumeToken
 from ..scheduler import ThreadJob, ThreadScheduler
@@ -911,6 +911,19 @@ async def run_main_loop(
                             stateful_mode,
                             default_engine_override,
                         )
+                        continue
+
+                # Filter messages when require_explicit_trigger is enabled
+                if cfg.require_explicit_trigger:
+                    is_reply_to_bot = reply_id is not None and MessageRef(
+                        channel_id=chat_id, message_id=reply_id
+                    ) in running_tasks
+                    has_engine_or_project = has_directive(
+                        text,
+                        engine_ids=cfg.runtime.engine_ids,
+                        projects=cfg.runtime.projects,
+                    )
+                    if not is_reply_to_bot and not has_engine_or_project:
                         continue
 
                 reply_text = msg.reply_to_text

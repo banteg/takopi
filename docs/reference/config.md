@@ -35,6 +35,7 @@ chat_id = 123
 | `voice_transcription_model` | string | `"gpt-4o-mini-transcribe"` | OpenAI transcription model name. |
 | `session_mode` | `"stateless"`\|`"chat"` | `"stateless"` | Auto-resume mode. |
 | `show_resume_line` | bool | `true` | Show resume line in message footer. |
+| `require_explicit_trigger` | bool | `false` | Only respond to directives, commands, or replies. |
 
 ### `transports.telegram.topics`
 

@@ -144,3 +144,40 @@ def format_context_line(
     if context.branch:
         return f"`ctx: {alias} @{context.branch}`"
     return f"`ctx: {alias}`"
+
+
+def has_directive(
+    text: str,
+    *,
+    engine_ids: tuple[EngineId, ...],
+    projects: ProjectsConfig,
+) -> bool:
+    """Check if text begins with an engine or project directive."""
+    if not text:
+        return False
+
+    lines = text.splitlines()
+    idx = next((i for i, line in enumerate(lines) if line.strip()), None)
+    if idx is None:
+        return False
+
+    line = lines[idx].lstrip()
+    tokens = line.split()
+    if not tokens:
+        return False
+
+    first_token = tokens[0]
+    if not first_token.startswith("/"):
+        return False
+
+    name = first_token[1:]
+    if "@" in name:
+        name = name.split("@", 1)[0]
+    if not name:
+        return False
+
+    key = name.lower()
+    engine_map = {engine.lower(): engine for engine in engine_ids}
+    project_map = {alias.lower(): alias for alias in projects.projects}
+
+    return key in engine_map or key in project_map
