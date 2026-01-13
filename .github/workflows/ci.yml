@@ -38,6 +38,10 @@ jobs:
             do_sync: false
             command: uv build
             sync_args: ""
+          - task: docs
+            do_sync: true
+            command: uv run --no-sync mkdocs build --strict
+            sync_args: --no-install-project --group docs
 
     steps:
       - name: Checkout
