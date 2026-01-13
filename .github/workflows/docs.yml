@@ -6,7 +6,7 @@ on:
     paths:
       - "docs/**"
       - "src/**"
-      - "mkdocs.yml"
+      - "zensical.toml"
       - "pyproject.toml"
       - "uv.lock"
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
         run: uv sync --frozen --no-install-project --group docs
 
       - name: Build site
-        run: uv run --no-sync mkdocs build --strict
+        run: uv run --no-sync zensical build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

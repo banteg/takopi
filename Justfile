@@ -5,10 +5,10 @@ check:
     uv run pytest
 
 docs-serve:
-    uv run --group docs mkdocs serve
+    uv run --group docs zensical serve
 
 docs-build:
-    uv run --group docs mkdocs build --strict
+    uv run --group docs zensical build
 
 bundle:
     #!/usr/bin/env bash

@@ -60,11 +60,8 @@ dev = [
     "ty>=0.0.8",
 ]
 docs = [
-    "mkdocs>=1.6",
-    "mkdocs-llmstxt>=0.5.0",
-    "mkdocs-material>=9.7",
-    "mkdocs-redirects>=1.2.2",
-    "mkdocstrings[python]>=0.29",
+    "mkdocstrings-python>=2.0.1",
+    "zensical>=0.0.15",
 ]
 
 [tool.pytest.ini_options]

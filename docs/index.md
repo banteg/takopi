@@ -77,8 +77,8 @@ If you’re contributing to core:
 
 Takopi publishes an LLM-oriented index at:
 
-* `/llms.txt` — curated entrypoints + links to Markdown mirrors
-* `/llms-full.txt` — expanded “single file” context of the most important pages
+* [/llms.txt](/llms.txt) — curated entrypoints + links to Markdown mirrors
+* [/llms-full.txt](/llms-full.txt) — expanded “single file” context of the most important pages
 
 In the docs, start here:
 
