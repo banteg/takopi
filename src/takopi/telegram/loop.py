@@ -15,8 +15,9 @@ from ..directives import DirectiveError
 from ..logging import get_logger
 from ..model import EngineId, ResumeToken
 from ..scheduler import ThreadJob, ThreadScheduler
+from ..progress import ProgressTracker
 from ..settings import TelegramTransportSettings
-from ..transport import MessageRef
+from ..transport import MessageRef, SendOptions
 from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
 from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
@@ -257,6 +258,36 @@ async def _wait_for_resume(running_task) -> ResumeToken | None:
     return resume
 
 
+async def _send_queued_progress(
+    cfg: TelegramBridgeConfig,
+    *,
+    chat_id: int,
+    user_msg_id: int,
+    thread_id: int | None,
+    resume_token: ResumeToken,
+    context: RunContext | None,
+) -> MessageRef | None:
+    tracker = ProgressTracker(engine=resume_token.engine)
+    tracker.set_resume(resume_token)
+    context_line = cfg.runtime.format_context_line(context)
+    state = tracker.snapshot(context_line=context_line)
+    message = cfg.exec_cfg.presenter.render_progress(
+        state,
+        elapsed_s=0.0,
+        label="queued",
+    )
+    reply_ref = MessageRef(
+        channel_id=chat_id,
+        message_id=user_msg_id,
+        thread_id=thread_id,
+    )
+    return await cfg.exec_cfg.transport.send(
+        channel_id=chat_id,
+        message=message,
+        options=SendOptions(reply_to=reply_ref, notify=False, thread_id=thread_id),
+    )
+
+
 async def send_with_resume(
     cfg: TelegramBridgeConfig,
     enqueue: Callable[
@@ -268,6 +299,7 @@ async def send_with_resume(
             RunContext | None,
             int | None,
             tuple[int, int | None] | None,
+            MessageRef | None,
         ],
         Awaitable[None],
     ],
@@ -292,6 +324,14 @@ async def send_with_resume(
             notify=False,
         )
         return
+    progress_ref = await _send_queued_progress(
+        cfg,
+        chat_id=chat_id,
+        user_msg_id=user_msg_id,
+        thread_id=thread_id,
+        resume_token=resume,
+        context=running_task.context,
+    )
     await enqueue(
         chat_id,
         user_msg_id,
@@ -300,6 +340,7 @@ async def send_with_resume(
         running_task.context,
         thread_id,
         session_key,
+        progress_ref,
     )
 
 
@@ -459,6 +500,7 @@ async def run_main_loop(
                 on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
                 | None = None,
                 engine_override: EngineId | None = None,
+                progress_ref: MessageRef | None = None,
             ) -> None:
                 topic_key = (
                     (chat_id, thread_id)
@@ -491,6 +533,7 @@ async def run_main_loop(
                     engine_override=engine_override,
                     thread_id=thread_id,
                     show_resume_line=show_resume_line,
+                    progress_ref=progress_ref,
                 )
 
             async def run_thread_job(job: ThreadJob) -> None:
@@ -504,6 +547,8 @@ async def run_main_loop(
                     job.session_key,
                     None,
                     scheduler.note_thread_known,
+                    None,
+                    job.progress_ref,
                 )
 
             scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
@@ -673,6 +718,14 @@ async def run_main_loop(
                         engine_override,
                     )
                     return
+                progress_ref = await _send_queued_progress(
+                    cfg,
+                    chat_id=chat_id,
+                    user_msg_id=user_msg_id,
+                    thread_id=msg.thread_id,
+                    resume_token=resume_token,
+                    context=context,
+                )
                 await scheduler.enqueue_resume(
                     chat_id,
                     user_msg_id,
@@ -681,6 +734,7 @@ async def run_main_loop(
                     context,
                     msg.thread_id,
                     chat_session_key,
+                    progress_ref,
                 )
 
             async def handle_prompt_upload(
@@ -735,7 +789,9 @@ async def run_main_loop(
             async for msg in poller(cfg):
                 if isinstance(msg, TelegramCallbackQuery):
                     if msg.data == CANCEL_CALLBACK_DATA:
-                        tg.start_soon(handle_callback_cancel, cfg, msg, running_tasks)
+                        tg.start_soon(
+                            handle_callback_cancel, cfg, msg, running_tasks, scheduler
+                        )
                     else:
                         tg.start_soon(
                             cfg.bot.answer_callback_query,
@@ -798,7 +854,7 @@ async def run_main_loop(
                     continue
 
                 if is_cancel_command(text):
-                    tg.start_soon(handle_cancel, cfg, msg, running_tasks)
+                    tg.start_soon(handle_cancel, cfg, msg, running_tasks, scheduler)
                     continue
 
                 command_id, args_text = _parse_slash_command(text)
@@ -1017,6 +1073,14 @@ async def run_main_loop(
                         engine_override,
                     )
                 else:
+                    progress_ref = await _send_queued_progress(
+                        cfg,
+                        chat_id=chat_id,
+                        user_msg_id=user_msg_id,
+                        thread_id=msg.thread_id,
+                        resume_token=resume_token,
+                        context=context,
+                    )
                     await scheduler.enqueue_resume(
                         chat_id,
                         user_msg_id,
@@ -1025,6 +1089,7 @@ async def run_main_loop(
                         context,
                         msg.thread_id,
                         chat_session_key,
+                        progress_ref,
                     )
     finally:
         await cfg.exec_cfg.transport.close()

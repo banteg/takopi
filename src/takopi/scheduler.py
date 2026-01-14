@@ -10,7 +10,7 @@ import anyio
 from .context import RunContext
 from .logging import get_logger
 from .model import ResumeToken
-from .transport import ChannelId, MessageId, ThreadId
+from .transport import ChannelId, MessageId, MessageRef, ThreadId
 
 logger = get_logger(__name__)
 
@@ -24,6 +24,7 @@ class ThreadJob:
     context: RunContext | None = None
     thread_id: ThreadId | None = None
     session_key: tuple[int, int | None] | None = None
+    progress_ref: MessageRef | None = None
 
 
 RunJob = Callable[[ThreadJob], Awaitable[None]]
@@ -41,6 +42,7 @@ class ThreadScheduler:
         self._run_job = run_job
         self._lock = anyio.Lock()
         self._pending_by_thread: dict[str, deque[ThreadJob]] = {}
+        self._queued_by_progress: dict[tuple[ChannelId, MessageId], ThreadJob] = {}
         self._active_threads: set[str] = set()
         self._busy_until: dict[str, anyio.Event] = {}
 
@@ -64,6 +66,9 @@ class ThreadScheduler:
                 queue = deque()
                 self._pending_by_thread[key] = queue
             queue.append(job)
+            if job.progress_ref is not None:
+                progress_key = (job.chat_id, job.progress_ref.message_id)
+                self._queued_by_progress[progress_key] = job
             if key in self._active_threads:
                 return
             self._active_threads.add(key)
@@ -78,6 +83,7 @@ class ThreadScheduler:
         context: RunContext | None = None,
         thread_id: ThreadId | None = None,
         session_key: tuple[int, int | None] | None = None,
+        progress_ref: MessageRef | None = None,
     ) -> None:
         await self.enqueue(
             ThreadJob(
@@ -88,8 +94,29 @@ class ThreadScheduler:
                 context=context,
                 thread_id=thread_id,
                 session_key=session_key,
+                progress_ref=progress_ref,
             )
         )
+
+    async def cancel_queued(
+        self, chat_id: ChannelId, progress_msg_id: MessageId
+    ) -> ThreadJob | None:
+        progress_key = (chat_id, progress_msg_id)
+        async with self._lock:
+            job = self._queued_by_progress.pop(progress_key, None)
+            if job is None:
+                return None
+            thread_key = self.thread_key(job.resume_token)
+            queue = self._pending_by_thread.get(thread_key)
+            if queue is None:
+                return None
+            try:
+                queue.remove(job)
+            except ValueError:
+                return None
+            if not queue:
+                self._pending_by_thread.pop(thread_key, None)
+            return job
 
     async def _clear_busy(self, key: str, done: anyio.Event) -> None:
         await done.wait()
@@ -108,6 +135,9 @@ class ThreadScheduler:
                         self._active_threads.discard(key)
                         return
                     job = queue.popleft()
+                    if job.progress_ref is not None:
+                        progress_key = (job.chat_id, job.progress_ref.message_id)
+                        self._queued_by_progress.pop(progress_key, None)
 
                 if done is not None and not done.is_set():
                     await done.wait()

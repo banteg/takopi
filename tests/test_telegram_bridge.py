@@ -44,6 +44,7 @@ from takopi.markdown import MarkdownPresenter
 from takopi.model import ResumeToken
 from takopi.progress import ProgressTracker
 from takopi.router import AutoRouter, RunnerEntry
+from takopi.scheduler import ThreadScheduler
 from takopi.transport_runtime import TransportRuntime
 from takopi.runners.mock import Return, ScriptRunner, Sleep, Wait
 from takopi.telegram.types import (
@@ -66,6 +67,12 @@ def _make_router(runner) -> AutoRouter:
         entries=[RunnerEntry(engine=runner.engine, runner=runner)],
         default_engine=runner.engine,
     )
+
+
+class _NoopTaskGroup:
+    def start_soon(self, func, *args: Any) -> None:
+        _ = func, args
+        return None
 
 
 class _FakeTransport:
@@ -850,6 +857,41 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
 
 
 @pytest.mark.anyio
+async def test_handle_cancel_cancels_queued_job() -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+
+    async def _noop_run_job(_) -> None:
+        return None
+
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=_noop_run_job)
+    progress_ref = MessageRef(channel_id=123, message_id=55)
+    resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+    await scheduler.enqueue_resume(
+        chat_id=123,
+        user_msg_id=10,
+        text="queued",
+        resume_token=resume,
+        progress_ref=progress_ref,
+    )
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/cancel",
+        reply_to_message_id=progress_ref.message_id,
+        reply_to_text=None,
+        sender_id=123,
+    )
+
+    await handle_cancel(cfg, msg, {}, scheduler)
+
+    assert transport.edit_calls
+    assert "cancelled" in transport.edit_calls[0]["message"].text.lower()
+    assert await scheduler.cancel_queued(123, progress_ref.message_id) is None
+
+
+@pytest.mark.anyio
 async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
     payload = b"hello"
 
@@ -996,6 +1038,42 @@ async def test_handle_callback_cancel_cancels_running_task() -> None:
     bot = cast(_FakeBot, cfg.bot)
     assert bot.callback_calls
     assert bot.callback_calls[-1]["text"] == "cancelling..."
+
+
+@pytest.mark.anyio
+async def test_handle_callback_cancel_cancels_queued_job() -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+
+    async def _noop_run_job(_) -> None:
+        return None
+
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=_noop_run_job)
+    progress_ref = MessageRef(channel_id=123, message_id=77)
+    resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+    await scheduler.enqueue_resume(
+        chat_id=123,
+        user_msg_id=10,
+        text="queued",
+        resume_token=resume,
+        progress_ref=progress_ref,
+    )
+    query = TelegramCallbackQuery(
+        transport="telegram",
+        chat_id=123,
+        message_id=progress_ref.message_id,
+        callback_query_id="cbq-queued",
+        data="takopi:cancel",
+        sender_id=123,
+    )
+
+    await handle_callback_cancel(cfg, query, {}, scheduler)
+
+    assert transport.edit_calls
+    assert "cancelled" in transport.edit_calls[0]["message"].text.lower()
+    bot = cast(_FakeBot, cfg.bot)
+    assert bot.callback_calls
+    assert bot.callback_calls[-1]["text"] == "dropped from queue."
 
 
 @pytest.mark.anyio
@@ -1249,6 +1327,7 @@ async def test_send_with_resume_waits_for_token() -> None:
             RunContext | None,
             int | None,
             tuple[int, int | None] | None,
+            MessageRef | None,
         ]
     ] = []
 
@@ -1260,9 +1339,19 @@ async def test_send_with_resume_waits_for_token() -> None:
         context: RunContext | None,
         thread_id: int | None,
         session_key: tuple[int, int | None] | None,
+        progress_ref: MessageRef | None,
     ) -> None:
         sent.append(
-            (chat_id, user_msg_id, text, resume, context, thread_id, session_key)
+            (
+                chat_id,
+                user_msg_id,
+                text,
+                resume,
+                context,
+                thread_id,
+                session_key,
+                progress_ref,
+            )
         )
 
     running_task = RunningTask()
@@ -1285,18 +1374,19 @@ async def test_send_with_resume_waits_for_token() -> None:
             "hello",
         )
 
-    assert sent == [
-        (
-            123,
-            10,
-            "hello",
-            ResumeToken(engine=CODEX_ENGINE, value="abc123"),
-            None,
-            None,
-            None,
-        )
-    ]
-    assert transport.send_calls == []
+    assert len(sent) == 1
+    assert sent[0][:7] == (
+        123,
+        10,
+        "hello",
+        ResumeToken(engine=CODEX_ENGINE, value="abc123"),
+        None,
+        None,
+        None,
+    )
+    assert sent[0][7] == transport.send_calls[0]["ref"]
+    assert transport.send_calls
+    assert "queued" in transport.send_calls[0]["message"].text.lower()
 
 
 @pytest.mark.anyio
@@ -1312,6 +1402,7 @@ async def test_send_with_resume_reports_when_missing() -> None:
             RunContext | None,
             int | None,
             tuple[int, int | None] | None,
+            MessageRef | None,
         ]
     ] = []
 
@@ -1323,9 +1414,19 @@ async def test_send_with_resume_reports_when_missing() -> None:
         context: RunContext | None,
         thread_id: int | None,
         session_key: tuple[int, int | None] | None,
+        progress_ref: MessageRef | None,
     ) -> None:
         sent.append(
-            (chat_id, user_msg_id, text, resume, context, thread_id, session_key)
+            (
+                chat_id,
+                user_msg_id,
+                text,
+                resume,
+                context,
+                thread_id,
+                session_key,
+                progress_ref,
+            )
         )
 
     running_task = RunningTask()

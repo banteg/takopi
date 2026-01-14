@@ -107,6 +107,7 @@ async def _run_engine(
     engine_override: EngineId | None = None,
     thread_id: int | None = None,
     show_resume_line: bool = True,
+    progress_ref: MessageRef | None = None,
 ) -> None:
     reply = partial(
         send_plain,
@@ -176,6 +177,7 @@ async def _run_engine(
                 strip_resume_line=runtime.is_resume_line,
                 running_tasks=running_tasks,
                 on_thread_known=on_thread_known,
+                progress_ref=progress_ref,
             )
         finally:
             reset_run_base_dir(run_base_token)

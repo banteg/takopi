@@ -244,11 +244,11 @@ async def send_initial_progress(
     reply_to: MessageRef,
     label: str,
     tracker: ProgressTracker,
+    progress_ref: MessageRef | None = None,
     resume_formatter: Callable[[ResumeToken], str] | None = None,
     context_line: str | None = None,
     thread_id: ThreadId | None = None,
 ) -> ProgressMessageState:
-    progress_ref: MessageRef | None = None
     last_rendered: RenderedMessage | None = None
 
     state = tracker.snapshot(
@@ -260,27 +260,26 @@ async def send_initial_progress(
         elapsed_s=0.0,
         label=label,
     )
-    logger.debug(
-        "transport.send_message",
-        channel_id=channel_id,
-        reply_to_message_id=reply_to.message_id,
-        rendered=initial_rendered.text,
-    )
-    progress_ref = await cfg.transport.send(
+    sent_ref, _ = await _send_or_edit_message(
+        cfg.transport,
         channel_id=channel_id,
         message=initial_rendered,
-        options=SendOptions(reply_to=reply_to, notify=False, thread_id=thread_id),
+        edit_ref=progress_ref,
+        reply_to=reply_to,
+        notify=False,
+        replace_ref=progress_ref,
+        thread_id=thread_id,
     )
-    if progress_ref is not None:
+    if sent_ref is not None:
         last_rendered = initial_rendered
         logger.debug(
             "progress.sent",
-            channel_id=progress_ref.channel_id,
-            message_id=progress_ref.message_id,
+            channel_id=sent_ref.channel_id,
+            message_id=sent_ref.message_id,
         )
 
     return ProgressMessageState(
-        ref=progress_ref,
+        ref=sent_ref,
         last_rendered=last_rendered,
     )
 
@@ -396,6 +395,7 @@ async def handle_message(
     running_tasks: RunningTasks | None = None,
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
     | None = None,
+    progress_ref: MessageRef | None = None,
     clock: Callable[[], float] = time.monotonic,
 ) -> None:
     logger.info(
@@ -422,6 +422,7 @@ async def handle_message(
         reply_to=user_ref,
         label="starting",
         tracker=progress_tracker,
+        progress_ref=progress_ref,
         resume_formatter=runner.format_resume,
         context_line=context_line,
         thread_id=incoming.thread_id,
