@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from ..config import ConfigError
 from ..context import RunContext
+from ..settings import TelegramTopicsSettings
 from ..transport_runtime import TransportRuntime
+from .client import BotClient
 from .topic_state import TopicStateStore, TopicThreadSnapshot
 from .types import TelegramIncomingMessage
 
@@ -28,18 +31,25 @@ __all__ = [
 _TOPICS_COMMANDS = {"ctx", "new", "topic"}
 
 
-def _resolve_topics_scope(cfg: TelegramBridgeConfig) -> tuple[str, frozenset[int]]:
-    scope = cfg.topics.scope
-    project_ids = set(cfg.runtime.project_chat_ids())
+def _resolve_topics_scope_raw(
+    scope: str, chat_id: int, project_chat_ids: Iterable[int]
+) -> tuple[str, frozenset[int]]:
+    project_ids = set(project_chat_ids)
     if scope == "auto":
         scope = "projects" if project_ids else "main"
     if scope == "main":
-        return scope, frozenset({cfg.chat_id})
+        return scope, frozenset({chat_id})
     if scope == "projects":
         return scope, frozenset(project_ids)
     if scope == "all":
-        return scope, frozenset({cfg.chat_id, *project_ids})
-    raise ValueError(f"Invalid topics.scope: {cfg.topics.scope!r}")
+        return scope, frozenset({chat_id, *project_ids})
+    raise ValueError(f"Invalid topics.scope: {scope!r}")
+
+
+def _resolve_topics_scope(cfg: TelegramBridgeConfig) -> tuple[str, frozenset[int]]:
+    return _resolve_topics_scope_raw(
+        cfg.topics.scope, cfg.chat_id, cfg.runtime.project_chat_ids()
+    )
 
 
 def _topics_scope_label(cfg: TelegramBridgeConfig) -> str:
@@ -182,13 +192,28 @@ async def _maybe_update_topic_context(
 
 
 async def _validate_topics_setup(cfg: TelegramBridgeConfig) -> None:
-    if not cfg.topics.enabled:
+    await _validate_topics_setup_for(
+        bot=cfg.bot,
+        topics=cfg.topics,
+        chat_id=cfg.chat_id,
+        project_chat_ids=cfg.runtime.project_chat_ids(),
+    )
+
+
+async def _validate_topics_setup_for(
+    *,
+    bot: BotClient,
+    topics: TelegramTopicsSettings,
+    chat_id: int,
+    project_chat_ids: Iterable[int],
+) -> None:
+    if not topics.enabled:
         return
-    me = await cfg.bot.get_me()
+    me = await bot.get_me()
     if me is None:
         raise ConfigError("failed to fetch bot id for topics validation.")
     bot_id = me.id
-    scope, chat_ids = _resolve_topics_scope(cfg)
+    scope, chat_ids = _resolve_topics_scope_raw(topics.scope, chat_id, project_chat_ids)
     if scope == "projects" and not chat_ids:
         raise ConfigError(
             "topics enabled but no project chats are configured; "
@@ -196,7 +221,7 @@ async def _validate_topics_setup(cfg: TelegramBridgeConfig) -> None:
         )
 
     for chat_id in chat_ids:
-        chat = await cfg.bot.get_chat(chat_id)
+        chat = await bot.get_chat(chat_id)
         if chat is None:
             raise ConfigError(
                 f"failed to fetch chat info for topics validation ({chat_id})."
@@ -211,7 +236,7 @@ async def _validate_topics_setup(cfg: TelegramBridgeConfig) -> None:
                 "topics enabled but chat does not have topics enabled "
                 f"(chat_id={chat_id}); turn on topics in group settings."
             )
-        member = await cfg.bot.get_chat_member(chat_id, bot_id)
+        member = await bot.get_chat_member(chat_id, bot_id)
         if member is None:
             raise ConfigError(
                 "failed to fetch bot permissions "

@@ -4,7 +4,7 @@ import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 import anyio
 import questionary
@@ -31,10 +31,16 @@ from ..config import (
 )
 from ..engines import list_backends
 from ..logging import suppress_logs
-from ..settings import HOME_CONFIG_PATH, load_settings, require_telegram
+from ..settings import (
+    HOME_CONFIG_PATH,
+    TelegramTopicsSettings,
+    load_settings,
+    require_telegram,
+)
 from ..transports import SetupResult
 from .api_models import User
 from .client import TelegramClient, TelegramRetryAfter
+from .topics import _validate_topics_setup_for
 
 __all__ = [
     "ChatInfo",
@@ -44,6 +50,8 @@ __all__ = [
     "get_bot_info",
     "wait_for_chat",
 ]
+
+TopicScope = Literal["auto", "main", "projects", "all"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,12 +206,12 @@ async def wait_for_chat(token: str) -> ChatInfo:
         await bot.close()
 
 
-async def _send_confirmation(token: str, chat_id: int) -> bool:
+async def _send_confirmation(token: str, chat_id: int, text: str) -> bool:
     bot = TelegramClient(token)
     try:
         res = await bot.send_message(
             chat_id=chat_id,
-            text="takopi is configured and ready.",
+            text=text,
         )
         return res is not None
     finally:
@@ -229,6 +237,162 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
         )
     console.print(table)
     return rows
+
+
+def _render_session_mode_table(console: Console) -> None:
+    table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
+    table.add_column("mode")
+    table.add_column("what happens")
+    table.add_column("how to continue")
+    table.add_row(
+        "chat (auto-resume)",
+        "new messages continue the current thread",
+        "send another message, or `/new` to reset",
+    )
+    table.add_row(
+        "stateless (reply)",
+        "each message starts fresh",
+        "reply to a message with a resume line",
+    )
+    console.print(table)
+
+
+def _prompt_session_mode(console: Console) -> str | None:
+    console.print(
+        "Takopi can treat follow-up messages in two different ways:\n"
+        "- chat mode is the easiest way to work day-to-day\n"
+        "- stateless mode keeps each message isolated unless you reply"
+    )
+    console.print("")
+    _render_session_mode_table(console)
+    console.print("")
+    return questionary.select(
+        "choose conversation mode:",
+        choices=[
+            questionary.Choice(
+                "chat mode (auto-resume; use /new to start fresh)",
+                value="chat",
+            ),
+            questionary.Choice(
+                "stateless (reply-to-continue)",
+                value="stateless",
+            ),
+        ],
+    ).ask()
+
+
+def _prompt_topics(console: Console, chat: ChatInfo) -> str | None:
+    console.print("")
+    console.print("forum topics let you bind threads to a project + branch.")
+    console.print("they require a forum-enabled supergroup and bot admin permission.")
+    if not chat.is_group:
+        console.print(
+            "  note: you captured a private chat; topics require a forum group."
+        )
+    console.print("")
+    return questionary.select(
+        "will you use topics?",
+        choices=[
+            questionary.Choice("no, keep topics off", value="disabled"),
+            questionary.Choice("yes, in the main chat (this chat_id)", value="main"),
+            questionary.Choice(
+                "yes, in project chats (projects.<alias>.chat_id)", value="projects"
+            ),
+            questionary.Choice("yes, in both main and project chats", value="all"),
+        ],
+    ).ask()
+
+
+def _prompt_resume_lines(console: Console) -> bool | None:
+    console.print("")
+    console.print("resume lines let you reply to any earlier message to branch.")
+    console.print(
+        "when chat sessions or topics are enabled, resume lines are hidden only "
+        "when a project context is set."
+    )
+    console.print("")
+    return questionary.select(
+        "show resume lines in messages?",
+        choices=[
+            questionary.Choice(
+                "hide resume lines (cleaner chat; use /new to reset)",
+                value=False,
+            ),
+            questionary.Choice(
+                "show resume lines (best for reply-to-continue)",
+                value=True,
+            ),
+        ],
+    ).ask()
+
+
+def _build_confirmation_message(
+    *,
+    session_mode: str,
+    topics_enabled: bool,
+    show_resume_line: bool,
+) -> str:
+    lines: list[str] = ["takopi is configured and ready.", ""]
+    if session_mode == "chat":
+        lines.extend(
+            [
+                "chat mode tips:",
+                "- send a message to start",
+                "- send another message to continue",
+                "- use /new to start a fresh thread",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "reply-to-continue tips:",
+                "- send a message to start",
+                "- reply to a message with a resume line to continue",
+            ]
+        )
+    if topics_enabled:
+        lines.extend(
+            [
+                "",
+                "topics:",
+                "- use /topic <project> @branch to create/bind a topic",
+                "- use /ctx to show or update the binding",
+                "- use /new to reset the topic session",
+            ]
+        )
+    if (session_mode == "chat" or topics_enabled) and not show_resume_line:
+        lines.extend(
+            [
+                "",
+                "resume lines are hidden in stateful chats; "
+                "set show_resume_line = true to re-enable them.",
+            ]
+        )
+    return "\n".join(lines)
+
+
+async def _validate_topics_onboarding(
+    token: str,
+    chat_id: int,
+    scope: TopicScope,
+    project_chat_ids: tuple[int, ...],
+) -> ConfigError | None:
+    bot = TelegramClient(token)
+    try:
+        settings = TelegramTopicsSettings(enabled=True, scope=scope)
+        await _validate_topics_setup_for(
+            bot=bot,
+            topics=settings,
+            chat_id=chat_id,
+            project_chat_ids=project_chat_ids,
+        )
+        return None
+    except ConfigError as exc:
+        return exc
+    except Exception as exc:  # noqa: BLE001
+        return ConfigError(f"topics validation failed: {exc}")
+    finally:
+        await bot.close()
 
 
 @contextmanager
@@ -412,13 +576,43 @@ def interactive_setup(*, force: bool) -> bool:
             return False
         console.print(f"  got chat_id {chat.chat_id} from {chat.display}")
 
-        sent = anyio.run(_send_confirmation, token, chat.chat_id)
-        if sent:
-            console.print("  sent confirmation message")
-        else:
-            console.print("  could not send confirmation message")
+        console.print("\nstep 2: conversation mode\n")
+        session_mode = _prompt_session_mode(console)
+        if session_mode is None:
+            return False
 
-        console.print("\nstep 2: agent cli tools")
+        console.print("\nstep 3: topics (optional)")
+        topics_choice = _prompt_topics(console, chat)
+        if topics_choice is None:
+            return False
+        topics_enabled = topics_choice != "disabled"
+        topics_scope: TopicScope = "auto"
+        if topics_enabled:
+            topics_scope = cast(TopicScope, topics_choice)
+
+        show_resume_line = True
+        if session_mode == "chat" or topics_enabled:
+            resume_choice = _prompt_resume_lines(console)
+            if resume_choice is None:
+                return False
+            show_resume_line = resume_choice
+
+        if topics_enabled and topics_scope in {"main", "all"}:
+            console.print("  validating topics setup...")
+            issue = anyio.run(
+                _validate_topics_onboarding,
+                token,
+                chat.chat_id,
+                topics_scope,
+                (),
+            )
+            if issue is not None:
+                console.print(f"[yellow]warning:[/] {issue}")
+                console.print(
+                    "  takopi will fail to start with topics until this is fixed."
+                )
+
+        console.print("\nstep 4: agent cli tools")
         rows = _render_engine_table(console)
         installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
 
@@ -444,10 +638,16 @@ def interactive_setup(*, force: bool) -> bool:
             "telegram": {
                 "bot_token": mask_token(token),
                 "chat_id": chat.chat_id,
+                "session_mode": session_mode,
+                "show_resume_line": show_resume_line,
+                "topics": {
+                    "enabled": topics_enabled,
+                    "scope": topics_scope,
+                },
             }
         }
         config_preview = dump_toml(preview_config).rstrip()
-        console.print("\nstep 3: save configuration\n")
+        console.print("\nstep 5: save configuration\n")
         console.print(f"  {_display_path(config_path)}\n")
         for line in config_preview.splitlines():
             console.print(f"  {line}")
@@ -489,10 +689,31 @@ def interactive_setup(*, force: bool) -> bool:
         )
         telegram["bot_token"] = token
         telegram["chat_id"] = chat.chat_id
+        telegram["session_mode"] = session_mode
+        telegram["show_resume_line"] = show_resume_line
+        topics = ensure_table(
+            telegram,
+            "topics",
+            config_path=config_path,
+            label="transports.telegram.topics",
+        )
+        topics["enabled"] = topics_enabled
+        topics["scope"] = topics_scope
         merged.pop("bot_token", None)
         merged.pop("chat_id", None)
         write_config(merged, config_path)
         console.print(f"  config saved to {_display_path(config_path)}")
+
+        confirmation_text = _build_confirmation_message(
+            session_mode=session_mode,
+            topics_enabled=topics_enabled,
+            show_resume_line=show_resume_line,
+        )
+        sent = anyio.run(_send_confirmation, token, chat.chat_id, confirmation_text)
+        if sent:
+            console.print("  sent confirmation message")
+        else:
+            console.print("  could not send confirmation message")
 
         done_panel = Panel(
             "setup complete. starting takopi...",

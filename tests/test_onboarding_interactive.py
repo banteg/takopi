@@ -88,7 +88,11 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary, "password", _queue(["123456789:ABCdef"])
     )
-    monkeypatch.setattr(onboarding.questionary, "select", _queue(["codex"]))
+    monkeypatch.setattr(
+        onboarding.questionary,
+        "select",
+        _queue(["chat", "disabled", False, "codex"]),
+    )
 
     def _fake_run(func, *args, **kwargs):
         if func is onboarding.get_bot_info:
@@ -114,6 +118,10 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
     assert "[transports.telegram]" in saved
     assert 'bot_token = "123456789:ABCdef"' in saved
     assert "chat_id = 123" in saved
+    assert 'session_mode = "chat"' in saved
+    assert "show_resume_line = false" in saved
+    assert "[transports.telegram.topics]" in saved
+    assert "enabled = false" in saved
     assert 'default_engine = "codex"' in saved
 
 
@@ -133,7 +141,11 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary, "password", _queue(["123456789:ABCdef"])
     )
-    monkeypatch.setattr(onboarding.questionary, "select", _queue(["codex"]))
+    monkeypatch.setattr(
+        onboarding.questionary,
+        "select",
+        _queue(["chat", "disabled", False, "codex"]),
+    )
 
     def _fake_run(func, *args, **kwargs):
         if func is onboarding.get_bot_info:
@@ -170,6 +182,11 @@ def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(onboarding, "_confirm", _queue_values([True, False]))
     monkeypatch.setattr(
         onboarding.questionary, "password", _queue(["123456789:ABCdef"])
+    )
+    monkeypatch.setattr(
+        onboarding.questionary,
+        "select",
+        _queue(["chat", "disabled", False]),
     )
 
     def _fake_run(func, *args, **kwargs):
@@ -208,7 +225,11 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
     monkeypatch.setattr(
         onboarding.questionary, "password", _queue(["123456789:ABCdef"])
     )
-    monkeypatch.setattr(onboarding.questionary, "select", _queue(["codex"]))
+    monkeypatch.setattr(
+        onboarding.questionary,
+        "select",
+        _queue(["chat", "disabled", False, "codex"]),
+    )
 
     def _fake_run(func, *args, **kwargs):
         if func is onboarding.get_bot_info:

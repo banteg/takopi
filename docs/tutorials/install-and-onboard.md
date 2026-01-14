@@ -2,7 +2,7 @@
 
 This tutorial walks you through installing Takopi, creating a Telegram bot, and generating your config file.
 
-**What you'll have at the end:** A working `~/.takopi/takopi.toml` with your bot token, chat ID, and default engine.
+**What you'll have at the end:** A working `~/.takopi/takopi.toml` with your bot token, chat ID, conversation mode, and default engine.
 
 ## 1. Install Python 3.14 and uv
 
@@ -150,12 +150,51 @@ Open Telegram and send `/start` (or any message) to your bot. Takopi will captur
 !!! tip "Using Takopi in a group"
     You can also send a message in a group where the bot is a member. Takopi will capture that group's chat ID instead. This is useful if you want multiple people to share the same bot.
 
-## 8. Choose your default engine
+## 8. Choose a conversation mode
+
+Takopi asks how you want follow-up messages to behave:
+
+```
+? choose conversation mode:
+ ❯ chat mode (auto-resume; use /new to start fresh)
+   stateless (reply-to-continue)
+```
+
+**Chat mode** keeps one active thread per chat (per sender in groups). New messages continue automatically.  
+**Stateless** makes every message start fresh unless you reply to a resume line.
+
+## 9. (Optional) Enable Topics
+
+If you plan to use Telegram **forum topics**, Takopi will ask:
+
+```
+? will you use topics?
+ ❯ no, keep topics off
+   yes, in the main chat (this chat_id)
+   yes, in project chats (projects.<alias>.chat_id)
+   yes, in both main and project chats
+```
+
+Topics require a **forum-enabled supergroup** and the bot must have **Manage Topics** permission.
+
+## 10. Choose resume line visibility
+
+If you picked chat mode or enabled topics, Takopi asks whether to show resume lines:
+
+```
+? show resume lines in messages?
+ ❯ hide resume lines (cleaner chat; use /new to reset)
+   show resume lines (best for reply-to-continue)
+```
+
+Resume lines let you reply to older messages to branch a conversation.
+
+## 11. Choose your default engine
 
 Takopi scans your PATH for installed agent CLIs:
 
 ```
-step 2: agent cli tools
+step 4: agent cli tools
 
   agent     status         install command
   ───────────────────────────────────────────
@@ -171,12 +210,12 @@ step 2: agent cli tools
 
 Pick whichever you prefer. You can always switch engines per-message later.
 
-## 9. Save your config
+## 12. Save your config
 
 Takopi shows you a preview of what it will save:
 
 ```
-step 3: save configuration
+step 5: save configuration
 
   ~/.takopi/takopi.toml
 
@@ -186,6 +225,12 @@ step 3: save configuration
   [transports.telegram]
   bot_token = "123456789:ABC..."
   chat_id = 123456789
+  session_mode = "chat"
+  show_resume_line = false
+
+  [transports.telegram.topics]
+  enabled = false
+  scope = "auto"
 
 ? save this config to ~/.takopi/takopi.toml? (yes/no)
 ```
@@ -194,6 +239,7 @@ Press **Enter** to save. You'll see:
 
 ```
   config saved to ~/.takopi/takopi.toml
+  sent confirmation message
 
 setup complete. starting takopi...
 ```
@@ -211,6 +257,12 @@ transport = "telegram"   # how Takopi talks to you
 [transports.telegram]
 bot_token = "..."        # your bot's API key
 chat_id = 123456789      # where to send messages
+session_mode = "chat"
+show_resume_line = false
+
+[transports.telegram.topics]
+enabled = false
+scope = "auto"
 ```
 
 This config file controls all of Takopi's behavior. You'll edit it directly for advanced features.
