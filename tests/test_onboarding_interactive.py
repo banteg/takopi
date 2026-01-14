@@ -91,7 +91,7 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", "disabled", False, "codex"]),
+        _queue(["chat", False, "codex"]),
     )
 
     def _fake_run(func, *args, **kwargs):
@@ -144,7 +144,7 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", "disabled", False, "codex"]),
+        _queue(["chat", False, "codex"]),
     )
 
     def _fake_run(func, *args, **kwargs):
@@ -186,7 +186,7 @@ def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", "disabled", False]),
+        _queue(["chat", False]),
     )
 
     def _fake_run(func, *args, **kwargs):
@@ -228,7 +228,7 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", "disabled", False, "codex"]),
+        _queue(["chat", False, "codex"]),
     )
 
     def _fake_run(func, *args, **kwargs):

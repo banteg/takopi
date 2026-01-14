@@ -154,7 +154,7 @@ def _render_chat_capture(
 
 
 def _render_conversation_style(console: Console) -> None:
-    _render_step(console, 2, "threads (how follow-ups work)")
+    _render_step(console, 2, "how follow-ups work")
     with _patched_select(console):
         ob._prompt_session_mode(console)
 
@@ -176,7 +176,7 @@ def _render_topics_validation_warning(console: Console) -> None:
     _section(console, "topics validation warning")
     console.print("  validating topics setup...", markup=False)
     console.print(
-        "[yellow]warning:[/] topics aren't ready in this chat: missing admin rights"
+        "[yellow]warning:[/] topics can't be enabled yet: bot is missing admin rights"
     )
     console.print(
         "  fix:\n"
@@ -325,7 +325,7 @@ def main() -> None:
         display='group "takopi devs"',
     )
 
-    _section(console, "step 2: threads (how follow-ups work)")
+    _section(console, "step 2: how follow-ups work")
     _render_conversation_style(console)
 
     private_chat = ob.ChatInfo(
@@ -344,7 +344,7 @@ def main() -> None:
         last_name=None,
         chat_type="supergroup",
     )
-    _render_topics(console, "step 3: topics prompt (private chat)", private_chat)
+    _render_topics(console, "step 3: topics prompt (private chat; skipped)", private_chat)
     _render_topics(console, "step 3: topics prompt (group chat)", group_chat)
     _section(console, "step 3: topics tip (project chats)")
     console.print("  tip: bind a project chat with:", markup=False)

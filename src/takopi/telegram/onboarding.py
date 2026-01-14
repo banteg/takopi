@@ -390,6 +390,17 @@ def _prompt_session_mode(console: Console) -> str | None:
 
 def _prompt_topics(console: Console, chat: ChatInfo) -> str | None:
     console.print("")
+    if not chat.is_group:
+        console.print(
+            "  note: you captured a private chat. topics require a forum group. "
+            "skipping."
+        )
+        console.print(
+            "  to enable later: add the bot to a forum group and rerun "
+            "takopi --onboard"
+        )
+        console.print("")
+        return "disabled"
     console.print("forum topics turn each topic into its own workspace.")
     console.print(
         "takopi can bind each topic to a project + branch and remember the thread there."
@@ -398,11 +409,6 @@ def _prompt_topics(console: Console, chat: ChatInfo) -> str | None:
     console.print(
         "requires: forum-enabled supergroup + bot admin permission (manage topics)"
     )
-    if not chat.is_group:
-        console.print(
-            "  note: you captured a private chat. topics only work in forum groups."
-            " you can enable them later in a group."
-        )
     console.print("")
     return questionary.select(
         "will you use topics?",
@@ -432,11 +438,11 @@ def _prompt_resume_lines(console: Console) -> bool | None:
         "show resume footers in messages?",
         choices=[
             questionary.Choice(
-                "auto-hide in project chats (cleaner; still auto-continues)",
+                "hide (cleaner; still auto-continues)",
                 value=False,
             ),
             questionary.Choice(
-                "always show resume lines (best for branching and terminal resume)",
+                "show (useful for branching or terminal resume)",
                 value=True,
             ),
         ],
@@ -457,6 +463,7 @@ def _build_confirmation_message(
                 "- send a message to start",
                 "- send another message to continue",
                 "- try: explain what this repo does",
+                "- reply to an older message to branch from there",
                 "- use /new to start a fresh thread",
             ]
         )
@@ -465,7 +472,7 @@ def _build_confirmation_message(
             [
                 "reply-to-continue tips:",
                 "- send a message to start",
-                "- reply to any takopi message that ends with a resume line",
+                "- reply to any takopi message to continue that thread",
             ]
         )
     if topics_enabled:
@@ -482,8 +489,8 @@ def _build_confirmation_message(
         lines.extend(
             [
                 "",
-                "resume lines are hidden in project chats; "
-                "set show_resume_line = true to re-enable them.",
+                "resume lines are hidden. "
+                "set show_resume_line = true to show them.",
             ]
         )
     return "\n".join(lines)
@@ -710,7 +717,7 @@ def interactive_setup(*, force: bool) -> bool:
         )
 
         console.print("")
-        console.print(Text("step 2: threads (how follow-ups work)", style="bold yellow"))
+        console.print(Text("step 2: how follow-ups work", style="bold yellow"))
         console.print("")
         session_mode = _prompt_session_mode(console)
         if session_mode is None:
@@ -736,7 +743,9 @@ def interactive_setup(*, force: bool) -> bool:
                 (),
             )
             if issue is not None:
-                console.print(f"[yellow]warning:[/] {issue}")
+                console.print(
+                    f"[yellow]warning:[/] topics can't be enabled yet: {issue}"
+                )
                 console.print(
                     "  fix:\n"
                     "  - promote the bot to admin\n"
