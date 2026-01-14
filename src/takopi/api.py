@@ -25,6 +25,7 @@ from .model import (
     StartedEvent,
 )
 from .presenter import Presenter
+from .progress import ActionState, ProgressState, ProgressTracker
 from .router import RunnerUnavailableError
 from .runner import BaseRunner, JsonlSubprocessRunner, Runner
 from .runner_bridge import (
@@ -72,6 +73,9 @@ __all__ = [
     "MessageRef",
     "DirectiveError",
     "Presenter",
+    "ProgressState",
+    "ProgressTracker",
+    "ActionState",
     "RenderedMessage",
     "ResumeToken",
     "RunMode",
