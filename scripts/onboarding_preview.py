@@ -83,16 +83,16 @@ class ScriptedUI:
             return
         self._console.print(text, markup=markup)
 
-    def confirm(self, prompt: str, default: bool = True) -> bool | None:
+    async def confirm(self, prompt: str, default: bool = True) -> bool | None:
         render_confirm(self._console, prompt)
         return next_value(self._confirms, "confirm")
 
-    def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None:
+    async def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None:
         rendered = [label for label, _value in choices]
         render_select(self._console, prompt, rendered)
         return next_value(self._selects, "select")
 
-    def password(self, prompt: str) -> str | None:
+    async def password(self, prompt: str) -> str | None:
         render_password(self._console, prompt)
         return next_value(self._passwords, "password")
 
@@ -118,9 +118,7 @@ class ScriptedServices:
     ) -> ConfigError | None:
         return self.topics_issue
 
-    async def send_confirmation(
-        self, _token: str, _chat_id: int, _text: str
-    ) -> bool:
+    async def send_confirmation(self, _token: str, _chat_id: int, _text: str) -> bool:
         return self.send_confirmation_result
 
     def list_engines(self) -> list[tuple[str, bool, str | None]]:
@@ -248,7 +246,9 @@ def main() -> None:
         ("stateless", False, True),
     ]
     for session_mode, topics_enabled, show_resume_line in variants:
-        title = f"mode={session_mode}, topics={topics_enabled}, resume={show_resume_line}"
+        title = (
+            f"mode={session_mode}, topics={topics_enabled}, resume={show_resume_line}"
+        )
         console.print("")
         console.print(Text(title, style="bold"))
         message = ob.build_confirmation_message(

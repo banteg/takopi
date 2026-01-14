@@ -156,9 +156,11 @@ class UI(Protocol):
 
     def step(self, title: str, *, number: int) -> None: ...
     def print(self, text: object = "", *, markup: bool | None = None) -> None: ...
-    def confirm(self, prompt: str, default: bool = True) -> bool | None: ...
-    def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None: ...
-    def password(self, prompt: str) -> str | None: ...
+    async def confirm(self, prompt: str, default: bool = True) -> bool | None: ...
+    async def select(
+        self, prompt: str, choices: list[tuple[str, Any]]
+    ) -> Any | None: ...
+    async def password(self, prompt: str) -> str | None: ...
 
 
 class Services(Protocol):
@@ -349,7 +351,7 @@ def render_topics_group_instructions(bot_ref: str) -> Text:
     return Text.assemble(
         "  set up a topics group:\n",
         "  1. create a group and enable topics (settings → topics)\n",
-        f"  2. add {bot_ref} as admin with \"manage topics\"\n",
+        f'  2. add {bot_ref} as admin with "manage topics"\n',
         "  3. send any message in the group\n",
     )
 
@@ -367,6 +369,7 @@ def render_botfather_instructions() -> Text:
         "  2. send /newbot and follow the prompts or use the mini app\n",
         "  3. copy the token (looks like 123456789:ABCdef...)\n\n",
     )
+
 
 def render_topics_validation_warning(issue: ConfigError) -> Text:
     return Text.assemble(
@@ -517,11 +520,11 @@ def render_persona_preview(ui: UI) -> None:
     ui.print("")
 
 
-def prompt_persona(ui: UI) -> Persona | None:
+async def prompt_persona(ui: UI) -> Persona | None:
     render_persona_preview(ui)
     return cast(
         Persona,
-        ui.select(
+        await ui.select(
             "how will you use takopi?",
             choices=[
                 ("assistant (ongoing chat, /new to reset)", "assistant"),
@@ -615,7 +618,7 @@ def suppress_logging():
         yield
 
 
-def confirm_prompt(message: str, *, default: bool = True) -> bool | None:
+async def confirm_prompt(message: str, *, default: bool = True) -> bool | None:
     merged_style = merge_styles_default([None])
     status = {"answer": None, "complete": False}
 
@@ -670,7 +673,7 @@ def confirm_prompt(message: str, *, default: bool = True) -> bool | None:
     question = Question(
         PromptSession(get_prompt_tokens, key_bindings=bindings, style=merged_style).app
     )
-    return question.ask()
+    return await question.ask_async()
 
 
 class InteractiveUI:
@@ -702,19 +705,19 @@ class InteractiveUI:
             return
         self._console.print(text, markup=markup)
 
-    def confirm(self, prompt: str, default: bool = True) -> bool | None:
-        return confirm_prompt(prompt, default=default)
+    async def confirm(self, prompt: str, default: bool = True) -> bool | None:
+        return await confirm_prompt(prompt, default=default)
 
-    def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None:
-        return questionary.select(
+    async def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None:
+        return await questionary.select(
             prompt,
             choices=[
                 questionary.Choice(label, value=value) for label, value in choices
             ],
-        ).ask()
+        ).ask_async()
 
-    def password(self, prompt: str) -> str | None:
-        return questionary.password(prompt).ask()
+    async def password(self, prompt: str) -> str | None:
+        return await questionary.password(prompt).ask_async()
 
 
 class LiveServices:
@@ -749,7 +752,7 @@ class LiveServices:
 
 async def prompt_token(ui: UI, svc: Services) -> tuple[str, User]:
     while True:
-        token = require_value(ui.password("paste your bot token:"))
+        token = require_value(await ui.password("paste your bot token:"))
         token = token.strip()
         if not token:
             ui.print("  token cannot be empty")
@@ -764,7 +767,7 @@ async def prompt_token(ui: UI, svc: Services) -> tuple[str, User]:
                 ui.print(f"  connected to {name}")
             return token, info
         ui.print("  failed to connect, check the token and try again")
-        retry = ui.confirm("try again?", default=True)
+        retry = await ui.confirm("try again?", default=True)
         if not retry:
             raise OnboardingCancelled()
 
@@ -855,9 +858,9 @@ async def capture_chat(
     ui.print("  listening...")
     try:
         chat = await svc.wait_for_chat(state.token)
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as exc:
         ui.print("  cancelled")
-        raise OnboardingCancelled()
+        raise OnboardingCancelled() from exc
     if chat is None:
         ui.print("  cancelled")
         raise OnboardingCancelled()
@@ -871,7 +874,7 @@ async def capture_chat(
 async def step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> None:
     ui.print("")
     have_token = require_value(
-        ui.confirm("do you already have a bot token from @BotFather?")
+        await ui.confirm("do you already have a bot token from @BotFather?")
     )
     if not have_token:
         ui.print(render_botfather_instructions(), markup=False)
@@ -884,7 +887,7 @@ async def step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> N
 
 async def step_persona(ui: UI, _svc: Services, state: OnboardingState) -> None:
     ui.print("")
-    persona = prompt_persona(ui)
+    persona = await prompt_persona(ui)
     state.persona = require_value(persona)
     if state.persona == "workspace":
         state.session_mode = "chat"
@@ -926,7 +929,7 @@ async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> No
         )
         if issue is not None:
             ui.print(render_topics_validation_warning(issue), markup=False)
-            disable = ui.confirm(
+            disable = await ui.confirm(
                 "switch to assistant mode for now? (recommended)",
                 default=True,
             )
@@ -937,9 +940,7 @@ async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> No
                 state.topics_enabled = False
                 state.topics_scope = "auto"
             else:
-                ui.print(
-                    "  takopi will fail to start with topics until this is fixed."
-                )
+                ui.print("  takopi will fail to start with topics until this is fixed.")
         if state.topics_enabled:
             ui.print("")
             ui.print(render_project_chat_tip(), markup=False)
@@ -953,15 +954,13 @@ async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> No
 
 
 async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> None:
-    ui.print(
-        "takopi runs these agents on your computer. switch anytime with /agent."
-    )
+    ui.print("takopi runs these agents on your computer. switch anytime with /agent.")
     rows = svc.list_engines()
     render_engine_table(ui, rows)
     installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
 
     if installed_ids:
-        default_engine = ui.select(
+        default_engine = await ui.select(
             "choose default agent:",
             choices=[(engine_id, engine_id) for engine_id in installed_ids],
         )
@@ -969,7 +968,7 @@ async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> 
         return
 
     ui.print("no agents found. install one and rerun --onboard.")
-    save_anyway = ui.confirm("save config anyway?", default=False)
+    save_anyway = await ui.confirm("save config anyway?", default=False)
     if not save_anyway:
         raise OnboardingCancelled()
 
@@ -983,7 +982,7 @@ async def step_save_config(ui: UI, svc: Services, state: OnboardingState) -> Non
         ui.print(f"  {line}", markup=False)
     ui.print("")
 
-    save = ui.confirm(
+    save = await ui.confirm(
         f"save this config to {display_path(state.config_path)}?",
         default=True,
     )
@@ -1115,7 +1114,7 @@ async def interactive_setup(*, force: bool) -> bool:
         return True
 
     if state.config_path.exists() and force:
-        overwrite = ui.confirm(
+        overwrite = await ui.confirm(
             f"update existing config at {display_path(state.config_path)}?",
             default=False,
         )

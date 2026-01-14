@@ -49,6 +49,9 @@ class FakeQuestion:
     def ask(self):
         return self._value
 
+    async def ask_async(self):
+        return self._value
+
 
 def queue_answers(values):
     it = iter(values)
@@ -62,7 +65,7 @@ def queue_answers(values):
 def queue_values(values):
     it = iter(values)
 
-    def _next(*_args, **_kwargs):
+    async def _next(*_args, **_kwargs):
         return next(it)
 
     return _next
