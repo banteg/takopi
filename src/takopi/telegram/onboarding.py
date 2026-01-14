@@ -339,22 +339,17 @@ def append_dialogue(
 
 def render_private_chat_instructions(bot_ref: str) -> Text:
     return Text.assemble(
-        "  set up a private chat:\n",
         f"  1. open a chat with {bot_ref}\n",
         "  2. send /start\n",
-        "  3. we'll capture that chat id\n",
     )
 
 
 def render_topics_group_instructions(bot_ref: str) -> Text:
     return Text.assemble(
-        "  set up a group with topics:\n",
-        "  1. create a group\n",
-        "  2. convert it to a supergroup\n",
-        "  3. enable topics\n",
-        f"  4. add {bot_ref}\n",
-        "  5. make it admin with only \"manage topics\"\n",
-        "  6. send a message in the group\n",
+        "  set up a topics group:\n",
+        "  1. create a group and enable topics (settings → topics)\n",
+        f"  2. add {bot_ref} as admin with \"manage topics\"\n",
+        "  3. send any message in the group\n",
     )
 
 
@@ -375,11 +370,8 @@ def render_botfather_instructions() -> Text:
 def render_topics_validation_warning(issue: ConfigError) -> Text:
     return Text.assemble(
         ("warning: ", "yellow"),
-        f"topics can't be enabled yet: {issue}\n",
-        "  fix:\n",
-        "  - promote the bot to admin\n",
-        '  - enable "manage topics"\n',
-        "  - rerun takopi --onboard",
+        f"topics validation failed: {issue}\n",
+        '  ensure the bot is admin with "manage topics" permission.',
     )
 
 
@@ -400,11 +392,9 @@ def render_backup_failed_warning(error: OSError) -> Text:
 
 def render_persona_prompt() -> Text:
     return Text.assemble(
-        "  workspace — work on multiple projects; each topic becomes a "
-        "project/branch workspace\n",
-        "  assistant — ongoing chat in one place (recommended)\n",
-        "  handoff — each message starts fresh; reply to continue; easy terminal <-> "
-        "takopi switching",
+        "  workspace — each topic is a project/branch workspace with its own memory\n",
+        "  assistant — messages auto-continue; one ongoing conversation (recommended)\n",
+        "  handoff — every message starts fresh; reply or use terminal to continue",
     )
 
 
@@ -846,8 +836,7 @@ async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> No
 
 async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> None:
     ui.print(
-        "takopi runs these agents on your computer. "
-        "you can easily switch between them in the chat."
+        "takopi runs these agents on your computer. switch anytime with /agent."
     )
     rows = svc.list_engines()
     render_engine_table(ui, rows)
@@ -861,7 +850,7 @@ async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> 
         state.default_engine = require_value(default_engine)
         return
 
-    ui.print("no agents found. install one to continue.")
+    ui.print("no agents found. install one and rerun --onboard.")
     save_anyway = ui.confirm("save config anyway?", default=False)
     if not save_anyway:
         raise OnboardingCancelled()
@@ -938,11 +927,11 @@ class OnboardingStep:
 
 
 STEPS: list[OnboardingStep] = [
-    OnboardingStep("telegram bot setup", 1, step_token_and_bot),
-    OnboardingStep("choose your mode", 2, step_persona),
+    OnboardingStep("bot token", 1, step_token_and_bot),
+    OnboardingStep("choose mode", 2, step_persona),
     OnboardingStep("connect chat", 3, step_capture_chat),
-    OnboardingStep("default engine", 4, step_default_engine),
-    OnboardingStep("save configuration", 5, step_save_config),
+    OnboardingStep("default agent", 4, step_default_engine),
+    OnboardingStep("save config", 5, step_save_config),
 ]
 
 
