@@ -633,7 +633,8 @@ def interactive_setup(*, force: bool) -> bool:
         )
         console.print(panel)
 
-        console.print("step 1: telegram bot setup\n")
+        console.print(Text("step: telegram bot setup", style="bold yellow"))
+        console.print("")
         have_token = _confirm("do you have a telegram bot token?")
         if have_token is None:
             return False
@@ -662,12 +663,15 @@ def interactive_setup(*, force: bool) -> bool:
             return False
         console.print(f"  got chat_id {chat.chat_id} from {chat.display}")
 
-        console.print("\nstep 2: conversation style\n")
+        console.print("")
+        console.print(Text("step: conversation style", style="bold yellow"))
+        console.print("")
         session_mode = _prompt_session_mode(console)
         if session_mode is None:
             return False
 
-        console.print("\nstep 3: topics (optional)")
+        console.print("")
+        console.print(Text("step: topics (optional)", style="bold yellow"))
         topics_choice = _prompt_topics(console, chat)
         if topics_choice is None:
             return False
@@ -698,7 +702,8 @@ def interactive_setup(*, force: bool) -> bool:
                     "  takopi will fail to start with topics until this is fixed."
                 )
 
-        console.print("\nstep 4: agent cli tools")
+        console.print("")
+        console.print(Text("step: agent cli tools", style="bold yellow"))
         rows = _render_engine_table(console)
         installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
 
@@ -733,7 +738,9 @@ def interactive_setup(*, force: bool) -> bool:
             }
         }
         config_preview = dump_toml(preview_config).rstrip()
-        console.print("\nstep 5: save configuration\n")
+        console.print("")
+        console.print(Text("step: save configuration", style="bold yellow"))
+        console.print("")
         console.print(f"  {_display_path(config_path)}\n")
         for line in config_preview.splitlines():
             console.print(f"  {line}")
