@@ -54,8 +54,9 @@ session_mode = "chat" # or "stateless"
 
 Behavior:
 
-- Stores one resume token per chat (per sender in group chats).
+- Stores one resume token per engine per chat (per sender in group chats).
 - Auto-resumes when no explicit resume token is present.
+- Reply resume lines always take precedence and update the stored session for that engine.
 - Reset with `/new`.
 
 State is stored in `telegram_chat_sessions_state.json` alongside the config file.

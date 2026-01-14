@@ -9,12 +9,15 @@ Takopi supports three ways to continue a thread:
 1. **Reply-to-continue** (always available)
    - Reply to any bot message that contains a resume line in the footer.
    - Takopi extracts the resume token and resumes that engine thread.
+   - Reply resume lines always take precedence over chat sessions or topic storage.
+   - The resumed run updates the stored session for that engine when the token is known.
 2. **Forum topics** (optional)
    - Topics can store resume tokens per topic and auto-resume new messages in that topic.
    - Topic state is stored in `telegram_topics_state.json`.
    - Reset with `/new`.
 3. **Chat sessions** (optional)
    - Set `session_mode = "chat"` to store one resume token per chat (per sender in groups).
+   - Stored sessions are per engine; resuming a different engine does not overwrite others.
    - State is stored in `telegram_chat_sessions_state.json`.
    - Reset with `/new`.
 

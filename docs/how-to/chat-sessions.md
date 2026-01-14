@@ -1,6 +1,6 @@
 # Chat sessions
 
-Chat sessions store one resume token per chat (per sender in group chats), so new messages can auto-resume without replying.
+Chat sessions store one resume token per engine per chat (per sender in group chats), so new messages can auto-resume without replying. Reply-to-continue still works and updates the stored session for that engine.
 
 ## Enable chat sessions
 

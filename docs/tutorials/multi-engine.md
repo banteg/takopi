@@ -130,6 +130,16 @@ When Takopi picks an engine, it checks (highest to lowest):
 
 This means: resume lines always win, then explicit directives, then the most specific default applies.
 
+!!! note
+    With `session_mode = "chat"`, stored sessions are per engine. Replying to a resume line for another engine runs that engine and updates its stored session without overwriting other engines.
+
+!!! example
+    Chat sessions with two engines (assume default engine is `codex`):
+
+    1. You send: `fix the failing tests` -> bot replies with `codex resume A` (stores Codex session A).
+    2. You reply to an older Claude message containing `claude --resume B` -> runs Claude and stores Claude session B.
+    3. You send a new message (not a reply) -> auto-resumes Codex session A (default engine), Claude session B remains stored for future replies or defaults.
+
 ## 7. Practical patterns
 
 **Pattern: Quick questions vs. deep work**
