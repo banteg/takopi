@@ -239,38 +239,33 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
     return rows
 
 
-def _render_session_mode_table(console: Console) -> None:
-    table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
-    table.add_column("mode")
-    table.add_column("what happens")
-    table.add_column("how to continue")
-    table.add_row(
-        "chat (auto-resume)",
-        "new messages continue the current thread",
-        "send another message, or `/new` to reset",
-    )
-    table.add_row(
-        "stateless (reply)",
-        "each message starts fresh",
-        "reply to a message with a resume line",
-    )
-    console.print(table)
+def _render_session_mode_examples(console: Console) -> None:
+    console.print("  takopi can work two ways:\n")
+    console.print("  chat mode (default)")
+    console.print("    takopi remembers your session. new messages auto-continue.")
+    console.print("    good for: ongoing work, natural conversation flow.\n")
+    console.print("    [you] polish the octopus mascot")
+    console.print("    [bot] done · codex · 8s")
+    console.print("    [you] now add a tiny top hat  ← no reply needed")
+    console.print("    [bot] done · codex · 5s")
+    console.print("    [you] /new  ← reset when done\n")
+    console.print("  stateless")
+    console.print("    every message starts fresh unless you reply to continue.")
+    console.print("    good for: quick isolated tasks, explicit control.\n")
+    console.print("    [you] fix the flaky test")
+    console.print("    [bot] done · codex · 8s")
+    console.print("    [you] (reply) now add a retry")
+    console.print("    [bot] done · codex · 5s")
 
 
 def _prompt_session_mode(console: Console) -> str | None:
-    console.print(
-        "Takopi can treat follow-up messages in two different ways:\n"
-        "- chat mode is the easiest way to work day-to-day\n"
-        "- stateless mode keeps each message isolated unless you reply"
-    )
-    console.print("")
-    _render_session_mode_table(console)
+    _render_session_mode_examples(console)
     console.print("")
     return questionary.select(
-        "choose conversation mode:",
+        "choose conversation style (chat / stateless):",
         choices=[
             questionary.Choice(
-                "chat mode (auto-resume; use /new to start fresh)",
+                "chat mode (default; auto-continue)",
                 value="chat",
             ),
             questionary.Choice(
@@ -576,7 +571,7 @@ def interactive_setup(*, force: bool) -> bool:
             return False
         console.print(f"  got chat_id {chat.chat_id} from {chat.display}")
 
-        console.print("\nstep 2: conversation mode\n")
+        console.print("\nstep 2: conversation style\n")
         session_mode = _prompt_session_mode(console)
         if session_mode is None:
             return False
