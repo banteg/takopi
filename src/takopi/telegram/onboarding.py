@@ -390,25 +390,15 @@ def render_backup_failed_warning(error: OSError) -> Text:
     return Text.assemble(("warning: ", "yellow"), f"failed to back up config: {error}")
 
 
-def render_persona_prompt() -> Text:
-    return Text.assemble(
-        "  workspace — each topic is a project/branch workspace with its own memory\n",
-        "  assistant — messages auto-continue; one ongoing conversation (recommended)\n",
-        "  handoff — every message starts fresh; reply or use terminal to continue",
-    )
-
-
 def prompt_persona(ui: UI) -> Persona | None:
-    ui.print(render_persona_prompt(), markup=False)
-    ui.print("")
     return cast(
         Persona,
         ui.select(
             "how will you use takopi?",
             choices=[
-                ("workspace", "workspace"),
-                ("assistant (recommended)", "assistant"),
-                ("handoff", "handoff"),
+                ("assistant (ongoing chat, /new to reset)", "assistant"),
+                ("handoff (reply to continue, terminal resume)", "handoff"),
+                ("workspace (projects + branches, i'll set those up)", "workspace"),
             ],
         ),
     )
