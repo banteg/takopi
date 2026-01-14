@@ -57,6 +57,7 @@ Takopi’s CLI is an auto-router by default; engine subcommands override the def
 | `takopi init <alias>` | Register the current repo as a project. |
 | `takopi chat-id` | Capture the current chat id. |
 | `takopi chat-id --project <alias>` | Save the captured chat id to a project. |
+| `takopi doctor` | Validate Telegram connectivity and related config. |
 | `takopi plugins` | List discovered plugins without loading them. |
 | `takopi plugins --load` | Load each plugin to validate types and surface import errors. |
 
@@ -68,4 +69,3 @@ Takopi’s CLI is an auto-router by default; engine subcommands override the def
 | `--transport <id>` | Override the configured transport backend id. |
 | `--debug` | Write debug logs to `debug.log`. |
 | `--final-notify/--no-final-notify` | Send the final response as a new message vs an edit. |
-
