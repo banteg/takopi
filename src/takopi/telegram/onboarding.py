@@ -338,6 +338,24 @@ def append_dialogue(
     text.append("\n")
 
 
+def render_chat_mode_panel() -> Text:
+    return Text.assemble(
+        "new messages pick up where you left off. no reply needed.\n",
+        "good for: iterative work, natural conversation.\n\n",
+        ("[you] ", "bold cyan"),
+        "store artifacts forever\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 8s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        "also shrink them\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 8s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        ("/new ", "bold green"),
+        ("← clears stored context ", "yellow"),
+    )
+
+
 def render_session_mode_examples(ui: UI) -> None:
     ui.print(
         "  choose how takopi should continue your work in this chat:\n",
