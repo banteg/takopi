@@ -492,7 +492,7 @@ def render_persona_preview(ui: UI) -> None:
     handoff_panel = Panel(
         render_handoff_preview(),
         title=Text("handoff", style="bold"),
-        subtitle="reply to continue · terminal",
+        subtitle="reply · terminal resume",
         border_style="magenta",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -510,7 +510,7 @@ def render_persona_preview(ui: UI) -> None:
     ui.print("")
     ui.print(
         Columns(
-            [assistant_panel, handoff_panel, workspace_panel],
+            [assistant_panel, workspace_panel, handoff_panel],
             expand=False,
             equal=True,
             padding=(0, 2),
@@ -528,8 +528,8 @@ async def prompt_persona(ui: UI) -> Persona | None:
             "how will you use takopi?",
             choices=[
                 ("assistant (ongoing chat, /new to reset)", "assistant"),
-                ("handoff (reply to continue, terminal resume)", "handoff"),
                 ("workspace (projects + branches, i'll set those up)", "workspace"),
+                ("handoff (reply to continue, terminal resume)", "handoff"),
             ],
         ),
     )
@@ -581,8 +581,7 @@ def build_confirmation_message(
         lines.extend(
             [
                 "",
-                "resume line is hidden when a project is bound. "
-                "set show_resume_line = true to show it.",
+                "resume lines are hidden. set show_resume_line = true to show them.",
             ]
         )
     return "\n".join(lines)
@@ -929,6 +928,7 @@ async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> No
         )
         if issue is not None:
             ui.print(render_topics_validation_warning(issue), markup=False)
+            ui.print("  takopi will fail to start with topics until this is fixed.")
             disable = await ui.confirm(
                 "switch to assistant mode for now? (recommended)",
                 default=True,
@@ -939,8 +939,6 @@ async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> No
                 state.persona = "assistant"
                 state.topics_enabled = False
                 state.topics_scope = "auto"
-            else:
-                ui.print("  takopi will fail to start with topics until this is fixed.")
         if state.topics_enabled:
             ui.print("")
             ui.print(render_project_chat_tip(), markup=False)
