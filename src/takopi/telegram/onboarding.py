@@ -362,10 +362,11 @@ def render_stateless_mode_panel() -> Text:
         "store artifacts forever\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 8s\n", "dim"),
-        ("      codex resume id  ", "green"),
+        ("      codex resume ...  ", "dim"),
         ("← reply to this message\n", "yellow"),
         ("[you] ", "bold cyan"),
-        "(reply) also shrink them\n",
+        ("(reply) ", "bold green"),
+        "also shrink them\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 5s", "dim"),
     )
