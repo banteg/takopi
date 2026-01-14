@@ -2,11 +2,21 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from collections.abc import Iterable
 
 import anyio
 
+from .. import __version__
 from ..backends import EngineBackend
+from ..ids import RESERVED_COMMAND_IDS, RESERVED_ENGINE_IDS
 from ..logging import get_logger
+from ..plugins import (
+    COMMAND_GROUP,
+    ENGINE_GROUP,
+    TRANSPORT_GROUP,
+    entrypoint_distribution_name,
+    list_entrypoints,
+)
 from ..runner_bridge import ExecBridgeConfig
 from ..settings import TelegramTransportSettings
 from ..transport_runtime import TransportRuntime
@@ -27,6 +37,59 @@ def _expect_transport_settings(transport_config: object) -> TelegramTransportSet
     if isinstance(transport_config, TelegramTransportSettings):
         return transport_config
     raise TypeError("transport_config must be TelegramTransportSettings")
+
+
+def _format_plugins(runtime: TransportRuntime) -> str:
+    allowlist = runtime.allowlist
+
+    def _plugin_name(ep) -> str | None:
+        dist = entrypoint_distribution_name(ep)
+        if dist:
+            return dist
+        module = ep.value.split(":", 1)[0]
+        if not module:
+            return None
+        return module.split(".", 1)[0] or None
+
+    def _list_external(
+        group: str,
+        *,
+        reserved_ids: Iterable[str] | None = None,
+    ) -> list[str]:
+        entrypoints = list_entrypoints(
+            group,
+            allowlist=allowlist,
+            reserved_ids=reserved_ids,
+        )
+        external: list[str] = []
+        seen: set[str] = set()
+        for ep in entrypoints:
+            name = _plugin_name(ep)
+            if not name:
+                continue
+            lowered = name.lower()
+            if lowered == "takopi":
+                continue
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            external.append(name)
+        return external
+
+    engine_ids = _list_external(ENGINE_GROUP, reserved_ids=RESERVED_ENGINE_IDS)
+    transport_ids = _list_external(TRANSPORT_GROUP)
+    command_ids = _list_external(COMMAND_GROUP, reserved_ids=RESERVED_COMMAND_IDS)
+
+    parts: list[str] = []
+    if engine_ids:
+        parts.append(f"engines={', '.join(engine_ids)}")
+    if transport_ids:
+        parts.append(f"transports={', '.join(transport_ids)}")
+    if command_ids:
+        parts.append(f"commands={', '.join(command_ids)}")
+    if not parts:
+        return "none"
+    return "; ".join(parts)
 
 
 def _build_startup_message(
@@ -52,11 +115,14 @@ def _build_startup_message(
         engine_list = f"{engine_list} ({'; '.join(notes)})"
     project_aliases = sorted(set(runtime.project_aliases()), key=str.lower)
     project_list = ", ".join(project_aliases) if project_aliases else "none"
+    plugins_list = _format_plugins(runtime)
     return (
         f"\N{OCTOPUS} **takopi is ready**\n\n"
+        f"version: `{__version__}`  \n"
         f"default: `{runtime.default_engine}`  \n"
         f"agents: `{engine_list}`  \n"
         f"projects: `{project_list}`  \n"
+        f"plugins: `{plugins_list}`  \n"
         f"working in: `{startup_pwd}`"
     )
 
