@@ -17,7 +17,6 @@ from questionary.constants import DEFAULT_QUESTION_PREFIX
 from questionary.question import Question
 from questionary.styles import merge_styles_default
 from rich import box
-from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -57,7 +56,7 @@ __all__ = [
 
 TopicScope = Literal["auto", "main", "projects", "all"]
 SessionMode = Literal["chat", "stateless"]
-ChatSetupMode = Literal["private", "topics"]
+Persona = Literal["workspace", "assistant", "handoff"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +113,7 @@ class OnboardingState:
     bot_username: str | None = None
     bot_name: str | None = None
     chat: ChatInfo | None = None
-    chat_setup: ChatSetupMode | None = None
+    persona: Persona | None = None
 
     session_mode: SessionMode | None = None
     topics_enabled: bool = False
@@ -338,42 +337,6 @@ def append_dialogue(
     text.append("\n")
 
 
-def render_chat_mode_panel() -> Text:
-    return Text.assemble(
-        "new messages pick up where you left off. no reply needed.\n",
-        "good for: iterative work, natural conversation.\n\n",
-        ("[you] ", "bold cyan"),
-        "store artifacts forever\n",
-        ("[bot] ", "bold magenta"),
-        ("done · codex · 8s\n", "dim"),
-        ("[you] ", "bold cyan"),
-        "also shrink them\n",
-        ("[bot] ", "bold magenta"),
-        ("done · codex · 8s\n", "dim"),
-        ("[you] ", "bold cyan"),
-        ("/new ", "bold green"),
-        ("← clears stored context ", "yellow"),
-    )
-
-
-def render_stateless_mode_panel() -> Text:
-    return Text.assemble(
-        "every message starts fresh. replies continue a session.\n",
-        "good for: one-off tasks, juggling many things.\n\n",
-        ("[you] ", "bold cyan"),
-        "store artifacts forever\n",
-        ("[bot] ", "bold magenta"),
-        ("done · codex · 8s\n", "dim"),
-        ("      codex resume ...  ", "dim"),
-        ("← reply to this message\n", "yellow"),
-        ("[you] ", "bold cyan"),
-        ("(reply) ", "bold green"),
-        "also shrink them\n",
-        ("[bot] ", "bold magenta"),
-        ("done · codex · 5s", "dim"),
-    )
-
-
 def render_private_chat_instructions(bot_ref: str) -> Text:
     return Text.assemble(
         "  set up a private chat:\n",
@@ -402,30 +365,12 @@ def render_generic_capture_prompt(bot_ref: str) -> Text:
     )
 
 
-def render_resume_line_explainer() -> Text:
-    return Text.assemble(
-        "the resume line is a small footer at the end of messages "
-        "(like 'codex resume ...').\n",
-        "reply to it to continue that conversation.\n",
-        "copy it to the terminal to pick up the work there.\n\n",
-        "since you enabled chat sessions or topics, the line can be hidden.",
-    )
-
-
 def render_botfather_instructions() -> Text:
     return Text.assemble(
         "  1. open telegram and message @BotFather\n",
         "  2. send /newbot and follow the prompts or use the mini app\n",
         "  3. copy the token (looks like 123456789:ABCdef...)\n\n",
     )
-
-
-def render_stateless_resume_note() -> Text:
-    return Text.assemble(
-        "  reply-to-continue needs the resume line to work.\n",
-        "  if you enable topics later, you can choose to hide it.\n",
-    )
-
 
 def render_topics_validation_warning(issue: ConfigError) -> Text:
     return Text.assemble(
@@ -453,83 +398,27 @@ def render_backup_failed_warning(error: OSError) -> Text:
     return Text.assemble(("warning: ", "yellow"), f"failed to back up config: {error}")
 
 
-def render_session_mode_examples(ui: UI) -> None:
-    ui.print(
-        "  how should conversations continue?\n",
-        markup=False,
-    )
-    chat_panel = Panel(
-        render_chat_mode_panel(),
-        title=Text("chat sessions (recommended)", style="bold"),
-        border_style="cyan",
-        box=box.ROUNDED,
-        padding=(0, 1),
-        expand=True,
-    )
-    stateless_panel = Panel(
-        render_stateless_mode_panel(),
-        title=Text("reply-to-continue (stateless)", style="bold"),
-        border_style="magenta",
-        box=box.ROUNDED,
-        padding=(0, 1),
-        expand=True,
-    )
-    ui.print(
-        Columns(
-            [chat_panel, stateless_panel],
-            expand=False,
-            equal=True,
-            padding=(0, 2),
-        ),
-        markup=False,
+def render_persona_prompt() -> Text:
+    return Text.assemble(
+        "  workspace — work on multiple projects; each topic becomes a "
+        "project/branch workspace\n",
+        "  assistant — ongoing chat in one place (recommended)\n",
+        "  handoff — each message starts fresh; reply to continue; easy terminal <-> "
+        "takopi switching",
     )
 
 
-def prompt_session_mode(ui: UI) -> SessionMode | None:
-    render_session_mode_examples(ui)
+def prompt_persona(ui: UI) -> Persona | None:
+    ui.print(render_persona_prompt(), markup=False)
     ui.print("")
     return cast(
-        SessionMode,
+        Persona,
         ui.select(
-            "choose a mode:",
+            "how will you use takopi?",
             choices=[
-                ("chat sessions", "chat"),
-                ("reply-to-continue (stateless)", "stateless"),
-            ],
-        ),
-    )
-
-
-def prompt_chat_setup(ui: UI) -> ChatSetupMode | None:
-    return cast(
-        ChatSetupMode,
-        ui.select(
-            "where should takopi run?",
-            choices=[
-                ("private chat (bot dm)", "private"),
-                ("group with topics", "topics"),
-            ],
-        ),
-    )
-
-
-def prompt_resume_lines(ui: UI) -> bool | None:
-    ui.print("")
-    ui.print(render_resume_line_explainer(), markup=False)
-    ui.print("")
-    return cast(
-        bool | None,
-        ui.select(
-            "show resume line in messages?",
-            choices=[
-                (
-                    "hide when possible",
-                    False,
-                ),
-                (
-                    "always show",
-                    True,
-                ),
+                ("workspace", "workspace"),
+                ("assistant (recommended)", "assistant"),
+                ("handoff", "handoff"),
             ],
         ),
     )
@@ -885,78 +774,74 @@ async def step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> N
     state.bot_name = info.first_name
 
 
-async def step_chat_setup(ui: UI, svc: Services, state: OnboardingState) -> None:
+async def step_persona(ui: UI, _svc: Services, state: OnboardingState) -> None:
     ui.print("")
-    chat_setup = prompt_chat_setup(ui)
-    state.chat_setup = require_value(chat_setup)
-    if state.chat_setup == "private":
+    persona = prompt_persona(ui)
+    state.persona = require_value(persona)
+    if state.persona == "workspace":
+        state.session_mode = "chat"
+        state.topics_enabled = True
+        state.topics_scope = "auto"
+        state.show_resume_line = False
+        return
+    if state.persona == "assistant":
+        state.session_mode = "chat"
         state.topics_enabled = False
         state.topics_scope = "auto"
+        state.show_resume_line = False
+        return
+    state.session_mode = "stateless"
+    state.topics_enabled = False
+    state.topics_scope = "auto"
+    state.show_resume_line = True
+
+
+async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
+    if state.persona is None:
+        raise RuntimeError("onboarding state missing persona")
+    if state.persona == "workspace":
         await capture_chat(
             ui,
             svc,
             state,
-            prompt=render_private_chat_instructions(state.bot_ref),
+            prompt=render_topics_group_instructions(state.bot_ref),
         )
+        if state.token is None:
+            raise RuntimeError("onboarding state missing token")
+        if state.chat is None:
+            raise RuntimeError("onboarding state missing chat")
+        ui.print("  validating topics setup...")
+        issue = await svc.validate_topics(
+            state.token,
+            state.chat.chat_id,
+            state.topics_scope,
+        )
+        if issue is not None:
+            ui.print(render_topics_validation_warning(issue), markup=False)
+            disable = ui.confirm(
+                "switch to assistant mode for now? (recommended)",
+                default=True,
+            )
+            if disable is None:
+                raise OnboardingCancelled()
+            if disable:
+                state.persona = "assistant"
+                state.topics_enabled = False
+                state.topics_scope = "auto"
+            else:
+                ui.print(
+                    "  takopi will fail to start with topics until this is fixed."
+                )
+        if state.topics_enabled:
+            ui.print("")
+            ui.print(render_project_chat_tip(), markup=False)
         return
-
-    state.topics_enabled = True
-    state.topics_scope = "auto"
     await capture_chat(
         ui,
         svc,
         state,
-        prompt=render_topics_group_instructions(state.bot_ref),
+        prompt=render_private_chat_instructions(state.bot_ref),
     )
-    if state.token is None:
-        raise RuntimeError("onboarding state missing token")
-    if state.chat is None:
-        raise RuntimeError("onboarding state missing chat")
-    ui.print("  validating topics setup...")
-    issue = await svc.validate_topics(
-        state.token,
-        state.chat.chat_id,
-        state.topics_scope,
-    )
-    if issue is not None:
-        ui.print(render_topics_validation_warning(issue), markup=False)
-        disable = ui.confirm("disable topics for now? (recommended)", default=True)
-        if disable is None:
-            raise OnboardingCancelled()
-        if disable:
-            state.topics_enabled = False
-            state.topics_scope = "auto"
-        else:
-            ui.print("  takopi will fail to start with topics until this is fixed.")
-    if state.topics_enabled:
-        state.session_mode = "chat"
-        ui.print("")
-        ui.print(render_project_chat_tip(), markup=False)
-
-
-async def step_session_mode(ui: UI, _svc: Services, state: OnboardingState) -> None:
-    ui.print("")
-    session_mode = prompt_session_mode(ui)
-    state.session_mode = require_value(session_mode)
-    if state.session_mode == "stateless":
-        ui.print("")
-        ui.print(render_stateless_resume_note(), markup=False)
-
-
-def session_mode_applies(state: OnboardingState) -> bool:
-    return state.session_mode is None
-
-
-def resume_applies(state: OnboardingState) -> bool:
-    if not state.is_stateful:
-        state.show_resume_line = True
-        return False
-    return state.show_resume_line is None
-
-
-async def step_resume_footer(ui: UI, _svc: Services, state: OnboardingState) -> None:
-    resume_choice = prompt_resume_lines(ui)
-    state.show_resume_line = require_value(resume_choice)
 
 
 async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> None:
@@ -1054,14 +939,8 @@ class OnboardingStep:
 
 STEPS: list[OnboardingStep] = [
     OnboardingStep("telegram bot setup", 1, step_token_and_bot),
-    OnboardingStep("chat setup", 2, step_chat_setup),
-    OnboardingStep(
-        "how follow-ups work",
-        3,
-        step_session_mode,
-        applies=session_mode_applies,
-    ),
-    OnboardingStep(None, None, step_resume_footer, applies=resume_applies),
+    OnboardingStep("choose your mode", 2, step_persona),
+    OnboardingStep("connect chat", 3, step_capture_chat),
     OnboardingStep("default engine", 4, step_default_engine),
     OnboardingStep("save configuration", 5, step_save_config),
 ]
@@ -1150,7 +1029,7 @@ def debug_onboarding_paths(console: Console | None = None) -> None:
     console = console or Console()
     table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
     table.add_column("#", justify="right", style="dim")
-    table.add_column("chat setup")
+    table.add_column("persona")
     table.add_column("session")
     table.add_column("topics")
     table.add_column("resume footer")
@@ -1167,42 +1046,33 @@ def debug_onboarding_paths(console: Console | None = None) -> None:
     ]
 
     path_count = 0
-    for chat_setup in ("private", "topics"):
-        topics_states = (False,) if chat_setup == "private" else (True, False)
-        for topics_enabled in topics_states:
-            if chat_setup == "topics" and topics_enabled:
-                session_modes = ("chat",)
-            else:
-                session_modes = ("chat", "stateless")
-            for session_mode in session_modes:
-                resume_prompt = session_mode == "chat" or topics_enabled
-                resume_values = (True, False) if resume_prompt else (True,)
-                topics_check = chat_setup == "topics"
-                for show_resume_line in resume_values:
-                    if resume_prompt:
-                        resume_label = "show" if show_resume_line else "hide"
-                    else:
-                        resume_label = "show (fixed)"
-                    for agents_found, save_anyway, save_configs in engine_paths:
-                        for save_config in save_configs:
-                            path_count += 1
-                            agents_label = "found" if agents_found else "none"
-                            save_anyway_label = format_bool(save_anyway)
-                            save_config_label = format_bool(save_config)
-                            outcome = "saved" if save_config else "exit"
-                            topics_label = "on" if topics_enabled else "off"
-                            table.add_row(
-                                str(path_count),
-                                chat_setup,
-                                session_mode,
-                                topics_label,
-                                resume_label,
-                                "run" if topics_check else "skip",
-                                agents_label,
-                                save_anyway_label,
-                                save_config_label,
-                                outcome,
-                            )
+    personas = {
+        "workspace": ("chat", True, "hide"),
+        "assistant": ("chat", False, "hide"),
+        "handoff": ("stateless", False, "show (fixed)"),
+    }
+    for persona, (session_mode, topics_enabled, resume_label) in personas.items():
+        topics_label = "on" if topics_enabled else "off"
+        topics_check = "run" if topics_enabled else "skip"
+        for agents_found, save_anyway, save_configs in engine_paths:
+            for save_config in save_configs:
+                path_count += 1
+                agents_label = "found" if agents_found else "none"
+                save_anyway_label = format_bool(save_anyway)
+                save_config_label = format_bool(save_config)
+                outcome = "saved" if save_config else "exit"
+                table.add_row(
+                    str(path_count),
+                    persona,
+                    session_mode,
+                    topics_label,
+                    resume_label,
+                    topics_check,
+                    agents_label,
+                    save_anyway_label,
+                    save_config_label,
+                    outcome,
+                )
 
     console.print(f"onboarding paths ({path_count})", markup=False)
     console.print(

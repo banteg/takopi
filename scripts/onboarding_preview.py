@@ -178,11 +178,11 @@ def main() -> None:
 
     anyio.run(
         run_flow,
-        "happy path (private chat, chat sessions)",
+        "assistant mode (private chat)",
         ScriptedUI(
             console,
             confirms=[True, True],
-            selects=["private", "chat", False, "codex"],
+            selects=["assistant", "codex"],
             passwords=["123456789:ABCdef"],
         ),
         ScriptedServices(bot=bot, chat=private_chat, engines=engines_installed),
@@ -190,11 +190,11 @@ def main() -> None:
 
     anyio.run(
         run_flow,
-        "private chat (token instructions, stateless)",
+        "handoff mode (token instructions)",
         ScriptedUI(
             console,
             confirms=[False, True],
-            selects=["private", "stateless", "codex"],
+            selects=["handoff", "codex"],
             passwords=["123456789:ABCdef"],
         ),
         ScriptedServices(bot=bot, chat=private_chat, engines=engines_installed),
@@ -202,11 +202,11 @@ def main() -> None:
 
     anyio.run(
         run_flow,
-        "group with topics (auto scope)",
+        "workspace mode (topics)",
         ScriptedUI(
             console,
             confirms=[True, True],
-            selects=["topics", False, "codex"],
+            selects=["workspace", "codex"],
             passwords=["123456789:ABCdef"],
         ),
         ScriptedServices(bot=bot, chat=group_chat, engines=engines_installed),
@@ -218,7 +218,7 @@ def main() -> None:
         ScriptedUI(
             console,
             confirms=[True, False, True],
-            selects=["topics", False, "codex"],
+            selects=["workspace", "codex"],
             passwords=["123456789:ABCdef"],
         ),
         ScriptedServices(
@@ -235,7 +235,7 @@ def main() -> None:
         ScriptedUI(
             console,
             confirms=[True, False],
-            selects=["private", "chat", False],
+            selects=["assistant"],
             passwords=["123456789:ABCdef"],
         ),
         ScriptedServices(bot=bot, chat=private_chat, engines=engines_missing),
