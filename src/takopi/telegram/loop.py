@@ -763,6 +763,7 @@ async def run_main_loop(
                     )
                     if text is None:
                         continue
+                    text = f"(voice transcribed) {text}"
                 topic_key = (
                     _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
                     if topic_store is not None
