@@ -17,6 +17,7 @@ from questionary.constants import DEFAULT_QUESTION_PREFIX
 from questionary.question import Question
 from questionary.styles import merge_styles_default
 from rich import box
+from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -345,13 +346,12 @@ def render_session_mode_examples(ui: UI) -> None:
     chat_text = Text()
     chat_text.append(
         "takopi remembers your thread. new messages auto-continue.\n",
-        style="dim",
+        style=None,
     )
     chat_text.append(
         "good for: ongoing work, natural conversation flow.\n\n",
-        style="dim",
+        style=None,
     )
-    chat_text.append("in group chats, sessions are per person.\n\n", style="dim")
     append_dialogue(
         chat_text,
         "you",
@@ -364,12 +364,10 @@ def render_session_mode_examples(ui: UI) -> None:
         "done · codex · 8s",
         speaker_style="bold magenta",
     )
-    append_dialogue(
-        chat_text,
-        "you",
-        "now add a tiny top hat  ← no reply needed",
-        speaker_style="bold cyan",
-    )
+    chat_text.append("[you] ", style="bold cyan")
+    chat_text.append("add a tiny top hat  ")
+    chat_text.append("← no reply needed", style="yellow")
+    chat_text.append("\n")
     append_dialogue(
         chat_text,
         "bot",
@@ -379,26 +377,22 @@ def render_session_mode_examples(ui: UI) -> None:
     chat_text.append("[you] ", style="bold cyan")
     chat_text.append("/new", style="bold yellow")
     chat_text.append("  ← reset when done\n")
-    ui.print(
-        Panel(
-            chat_text,
-            title=Text("chat sessions (recommended)", style="bold"),
-            border_style="cyan",
-            box=box.ROUNDED,
-            padding=(0, 1),
-            expand=False,
-        ),
-        markup=False,
+    chat_panel = Panel(
+        chat_text,
+        title=Text("chat sessions (recommended)", style="bold"),
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(0, 1),
+        expand=True,
     )
-    ui.print("")
     stateless_text = Text()
     stateless_text.append(
         "every message starts fresh unless you reply to continue.\n",
-        style="dim",
+        style=None,
     )
     stateless_text.append(
         "good for: quick isolated tasks, explicit control.\n\n",
-        style="dim",
+        style=None,
     )
     append_dialogue(
         stateless_text,
@@ -413,9 +407,11 @@ def render_session_mode_examples(ui: UI) -> None:
         speaker_style="bold magenta",
     )
     stateless_text.append(
-        "      codex resume ...  ← reply to this line\n",
-        style="dim",
+        "      codex resume ...  ",
+        style=None,
     )
+    stateless_text.append("← reply to this message", style="yellow")
+    stateless_text.append("\n")
     append_dialogue(
         stateless_text,
         "you",
@@ -428,14 +424,20 @@ def render_session_mode_examples(ui: UI) -> None:
         "done · codex · 5s",
         speaker_style="bold magenta",
     )
+    stateless_panel = Panel(
+        stateless_text,
+        title=Text("reply-to-continue (stateless)", style="bold"),
+        border_style="magenta",
+        box=box.ROUNDED,
+        padding=(0, 1),
+        expand=True,
+    )
     ui.print(
-        Panel(
-            stateless_text,
-            title=Text("reply-to-continue (stateless)", style="bold"),
-            border_style="magenta",
-            box=box.ROUNDED,
-            padding=(0, 1),
+        Columns(
+            [chat_panel, stateless_panel],
             expand=False,
+            equal=True,
+            padding=(0, 2),
         ),
         markup=False,
     )
@@ -504,6 +506,9 @@ def prompt_resume_lines(ui: UI) -> bool | None:
         '(called a "resume line" in config/docs).'
     )
     ui.print("replying to that resume line continues (or branches) that thread.")
+    ui.print(
+        "they're also how you resume a thread from the terminal or another client."
+    )
     ui.print("")
     ui.print(
         "since you enabled chat sessions or topics, takopi can auto-continue "
