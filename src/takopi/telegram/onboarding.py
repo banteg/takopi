@@ -361,7 +361,7 @@ def render_botfather_instructions() -> Text:
     return Text.assemble(
         "  1. open telegram and message @BotFather\n",
         "  2. send /newbot and follow the prompts\n",
-        "  3. copy the token (looks like 123456789:ABCdef...)\n\n",
+        "  3. copy the token (looks like 123456789:ABCdef...)",
     )
 
 
