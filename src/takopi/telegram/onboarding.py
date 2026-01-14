@@ -252,9 +252,9 @@ def _render_session_mode_examples(console: Console) -> None:
     console.print("  stateless")
     console.print("    every message starts fresh unless you reply to continue.")
     console.print("    good for: quick isolated tasks, explicit control.\n")
-    console.print("    [you] fix the flaky test")
+    console.print("    [you] make the octopus blink")
     console.print("    [bot] done · codex · 8s")
-    console.print("    [you] (reply) now add a retry")
+    console.print("    [you] (reply) now add a sparkle trail")
     console.print("    [bot] done · codex · 5s")
 
 
