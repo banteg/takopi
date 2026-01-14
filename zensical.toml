@@ -111,7 +111,6 @@ features = [
   "content.code.copy",
   "content.action.edit",
   "content.action.view",
-  "search.highlight",
 ]
 
 [project.theme.icon]
