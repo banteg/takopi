@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import shutil
 from contextlib import contextmanager
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast
 
 import anyio
 import questionary
@@ -54,6 +55,7 @@ __all__ = [
 ]
 
 TopicScope = Literal["auto", "main", "projects", "all"]
+SessionMode = Literal["chat", "stateless"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +101,75 @@ class ChatInfo:
         if self.chat_type:
             return self.chat_type
         return "unknown chat"
+
+
+@dataclass(slots=True)
+class OnboardingState:
+    config_path: Path
+    force: bool
+
+    token: str | None = None
+    bot_username: str | None = None
+    bot_name: str | None = None
+    chat: ChatInfo | None = None
+
+    session_mode: SessionMode | None = None
+    topics_enabled: bool = False
+    topics_scope: TopicScope = "auto"
+    show_resume_line: bool | None = None
+    default_engine: str | None = None
+
+    @property
+    def is_stateful(self) -> bool:
+        return self.session_mode == "chat" or self.topics_enabled
+
+    @property
+    def bot_ref(self) -> str:
+        if self.bot_username:
+            return f"@{self.bot_username}"
+        if self.bot_name:
+            return self.bot_name
+        return "your bot"
+
+
+class OnboardingCancelled(Exception):
+    pass
+
+
+def _require(value: Any) -> Any:
+    if value is None:
+        raise OnboardingCancelled()
+    return value
+
+
+class UI(Protocol):
+    def panel(
+        self,
+        title: str | None,
+        body: str,
+        *,
+        border_style: str = "yellow",
+    ) -> None: ...
+
+    def step(self, title: str, *, number: int) -> None: ...
+    def print(self, text: object = "", *, markup: bool | None = None) -> None: ...
+    def confirm(self, prompt: str, default: bool = True) -> bool | None: ...
+    def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None: ...
+    def password(self, prompt: str) -> str | None: ...
+
+
+class Services(Protocol):
+    async def get_bot_info(self, token: str) -> User | None: ...
+    async def wait_for_chat(self, token: str) -> ChatInfo: ...
+
+    async def validate_topics(
+        self, token: str, chat_id: int, scope: TopicScope
+    ) -> ConfigError | None: ...
+
+    async def send_confirmation(self, token: str, chat_id: int, text: str) -> bool: ...
+    def list_engines(self) -> list[tuple[str, bool, str | None]]: ...
+    def read_config(self, path: Path) -> dict[str, Any]: ...
+    def write_config(self, path: Path, data: dict[str, Any]) -> None: ...
 
 
 def _display_path(path: Path) -> str:
@@ -236,25 +307,21 @@ async def _send_confirmation(token: str, chat_id: int, text: str) -> bool:
         await bot.close()
 
 
-def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]:
-    backends = list_backends()
-    rows: list[tuple[str, bool, str | None]] = []
+def _render_engine_table(
+    ui: UI, rows: list[tuple[str, bool, str | None]]
+) -> None:
     table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
     table.add_column("engine")
     table.add_column("status")
     table.add_column("install command")
-    for backend in backends:
-        cmd = backend.cli_cmd or backend.id
-        installed = shutil.which(cmd) is not None
+    for engine_id, installed, install_cmd in rows:
         status = "[green]✓ installed[/]" if installed else "[dim]✗ not found[/]"
-        rows.append((backend.id, installed, backend.install_cmd))
         table.add_row(
-            backend.id,
+            engine_id,
             status,
-            "" if installed else (backend.install_cmd or "-"),
+            "" if installed else (install_cmd or "-"),
         )
-    console.print(table)
-    return rows
+    ui.print(table)
 
 
 def _append_dialogue(
@@ -270,8 +337,8 @@ def _append_dialogue(
     text.append("\n")
 
 
-def _render_session_mode_examples(console: Console) -> None:
-    console.print(
+def _render_session_mode_examples(ui: UI) -> None:
+    ui.print(
         "  choose how takopi should continue your work in this chat:\n",
         markup=False,
     )
@@ -312,7 +379,7 @@ def _render_session_mode_examples(console: Console) -> None:
     chat_text.append("[you] ", style="bold cyan")
     chat_text.append("/new", style="bold yellow")
     chat_text.append("  ← reset when done\n")
-    console.print(
+    ui.print(
         Panel(
             chat_text,
             title=Text("chat sessions (recommended)", style="bold"),
@@ -323,7 +390,7 @@ def _render_session_mode_examples(console: Console) -> None:
         ),
         markup=False,
     )
-    console.print("")
+    ui.print("")
     stateless_text = Text()
     stateless_text.append(
         "every message starts fresh unless you reply to continue.\n",
@@ -361,7 +428,7 @@ def _render_session_mode_examples(console: Console) -> None:
         "done · codex · 5s",
         speaker_style="bold magenta",
     )
-    console.print(
+    ui.print(
         Panel(
             stateless_text,
             title=Text("reply-to-continue (stateless)", style="bold"),
@@ -374,95 +441,91 @@ def _render_session_mode_examples(console: Console) -> None:
     )
 
 
-def _prompt_session_mode(console: Console) -> str | None:
-    _render_session_mode_examples(console)
-    console.print("")
-    return questionary.select(
-        "choose how follow-ups should work:",
-        choices=[
-            questionary.Choice(
-                "chat sessions",
-                value="chat",
-            ),
-            questionary.Choice(
-                "reply-to-continue (stateless)",
-                value="stateless",
-            ),
-        ],
-    ).ask()
+def _prompt_session_mode(ui: UI) -> SessionMode | None:
+    _render_session_mode_examples(ui)
+    ui.print("")
+    return cast(
+        SessionMode,
+        ui.select(
+            "choose how follow-ups should work:",
+            choices=[
+                ("chat sessions", "chat"),
+                ("reply-to-continue (stateless)", "stateless"),
+            ],
+        ),
+    )
 
 
-def _prompt_topics(console: Console, chat: ChatInfo) -> str | None:
-    console.print("")
+def _prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
+    ui.print("")
     if not chat.is_group:
-        console.print(
+        ui.print(
             "  note: you captured a private chat. topics require a forum group."
         )
-        console.print(
-            "  to enable later: add the bot to a forum group and rerun "
-            "takopi --onboard"
+        ui.print(
+            "  to enable later: add the bot to a forum group and rerun takopi --onboard"
         )
-        console.print("")
-        return questionary.select(
+        ui.print("")
+        return ui.select(
             "will you use topics?",
             choices=[
-                questionary.Choice("no (topics off)", value="disabled"),
-                questionary.Choice(
+                ("no (topics off)", "disabled"),
+                (
                     "yes, in project chats (i'll bind chats per project later)",
-                    value="projects",
+                    "projects",
                 ),
             ],
-        ).ask()
-    console.print("forum topics turn each topic into its own workspace.")
-    console.print(
+        )
+    ui.print("forum topics turn each topic into its own workspace.")
+    ui.print(
         "takopi can bind each topic to a project + branch and remember the thread there."
     )
-    console.print("best for: team supergroups where each topic maps to a repo/branch.")
-    console.print("")
-    console.print(
+    ui.print("best for: team supergroups where each topic maps to a repo/branch.")
+    ui.print("")
+    ui.print(
         "requires: forum-enabled supergroup + bot admin permission (manage topics)"
     )
-    console.print("")
-    return questionary.select(
+    ui.print("")
+    return ui.select(
         "will you use topics?",
         choices=[
-            questionary.Choice("no (topics off)", value="disabled"),
-            questionary.Choice("yes, in this chat", value="main"),
-            questionary.Choice(
-                "yes, in project chats (i'll bind chats per project later)",
-                value="projects",
-            ),
-            questionary.Choice("yes, both", value="all"),
+            ("no (topics off)", "disabled"),
+            ("yes, in this chat", "main"),
+            ("yes, in project chats (i'll bind chats per project later)", "projects"),
+            ("yes, both", "all"),
         ],
-    ).ask()
+    )
 
 
-def _prompt_resume_lines(console: Console) -> bool | None:
-    console.print("")
-    console.print(
-        'resume footers add a small line at the end of takopi messages '
+def _prompt_resume_lines(ui: UI) -> bool | None:
+    ui.print("")
+    ui.print(
+        "resume footers add a small line at the end of takopi messages "
         '(called a "resume line" in config/docs).'
     )
-    console.print("replying to that resume line continues (or branches) that thread.")
-    console.print("")
-    console.print(
+    ui.print("replying to that resume line continues (or branches) that thread.")
+    ui.print("")
+    ui.print(
         "since you enabled chat sessions or topics, takopi can auto-continue "
         "without showing resume footers."
     )
-    console.print("")
-    return questionary.select(
-        "show resume footers in messages?",
-        choices=[
-            questionary.Choice(
-                "auto-hide when a project is active (cleaner; still auto-continues)",
-                value=False,
-            ),
-            questionary.Choice(
-                "always show resume footers (best for branching or terminal resume)",
-                value=True,
-            ),
-        ],
-    ).ask()
+    ui.print("")
+    return cast(
+        bool | None,
+        ui.select(
+            "show resume footers in messages?",
+            choices=[
+                (
+                    "auto-hide when a project is active (cleaner; still auto-continues)",
+                    False,
+                ),
+                (
+                    "always show resume footers (best for branching or terminal resume)",
+                    True,
+                ),
+            ],
+        ),
+    )
 
 
 def _build_confirmation_message(
@@ -602,335 +665,463 @@ def _confirm(message: str, *, default: bool = True) -> bool | None:
     return question.ask()
 
 
-def _prompt_token(console: Console) -> tuple[str, User] | None:
+class InteractiveUI:
+    def __init__(self, console: Console) -> None:
+        self._console = console
+
+    def panel(
+        self,
+        title: str | None,
+        body: str,
+        *,
+        border_style: str = "yellow",
+    ) -> None:
+        panel = Panel(
+            body,
+            title=title,
+            border_style=border_style,
+            padding=(1, 2),
+            expand=False,
+        )
+        self._console.print(panel)
+
+    def step(self, title: str, *, number: int) -> None:
+        self._console.print(Text(f"step {number}: {title}", style="bold yellow"))
+
+    def print(self, text: object = "", *, markup: bool | None = None) -> None:
+        if markup is None:
+            self._console.print(text)
+            return
+        self._console.print(text, markup=markup)
+
+    def confirm(self, prompt: str, default: bool = True) -> bool | None:
+        return _confirm(prompt, default=default)
+
+    def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None:
+        return questionary.select(
+            prompt,
+            choices=[questionary.Choice(label, value=value) for label, value in choices],
+        ).ask()
+
+    def password(self, prompt: str) -> str | None:
+        return questionary.password(prompt).ask()
+
+
+class LiveServices:
+    async def get_bot_info(self, token: str) -> User | None:
+        return await get_bot_info(token)
+
+    async def wait_for_chat(self, token: str) -> ChatInfo:
+        return await wait_for_chat(token)
+
+    async def validate_topics(
+        self, token: str, chat_id: int, scope: TopicScope
+    ) -> ConfigError | None:
+        return await _validate_topics_onboarding(token, chat_id, scope, ())
+
+    async def send_confirmation(self, token: str, chat_id: int, text: str) -> bool:
+        return await _send_confirmation(token, chat_id, text)
+
+    def list_engines(self) -> list[tuple[str, bool, str | None]]:
+        rows: list[tuple[str, bool, str | None]] = []
+        for backend in list_backends():
+            cmd = backend.cli_cmd or backend.id
+            installed = shutil.which(cmd) is not None
+            rows.append((backend.id, installed, backend.install_cmd))
+        return rows
+
+    def read_config(self, path: Path) -> dict[str, Any]:
+        return read_config(path)
+
+    def write_config(self, path: Path, data: dict[str, Any]) -> None:
+        write_config(data, path)
+
+
+async def _prompt_token(ui: UI, svc: Services) -> tuple[str, User]:
     while True:
-        token = questionary.password("paste your bot token:").ask()
-        if token is None:
-            return None
+        token = _require(ui.password("paste your bot token:"))
         token = token.strip()
         if not token:
-            console.print("  token cannot be empty")
+            ui.print("  token cannot be empty")
             continue
-        console.print("  validating...")
-        info = anyio.run(get_bot_info, token)
+        ui.print("  validating...")
+        info = await svc.get_bot_info(token)
         if info:
             if info.username:
-                console.print(f"  connected to @{info.username}")
+                ui.print(f"  connected to @{info.username}")
             else:
                 name = info.first_name or "your bot"
-                console.print(f"  connected to {name}")
+                ui.print(f"  connected to {name}")
             return token, info
-        console.print("  failed to connect, check the token and try again")
-        retry = _confirm("try again?", default=True)
+        ui.print("  failed to connect, check the token and try again")
+        retry = ui.confirm("try again?", default=True)
         if not retry:
-            return None
+            raise OnboardingCancelled()
 
 
-def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
-    console = Console()
-    with _suppress_logging():
-        if token is not None:
-            token = token.strip()
-            if not token:
-                console.print("  token cannot be empty")
-                return None
-            console.print("  validating...")
-            info = anyio.run(get_bot_info, token)
-            if not info:
-                console.print("  failed to connect, check the token and try again")
-                return None
-        else:
-            token_info = _prompt_token(console)
-            if token_info is None:
-                return None
-            token, info = token_info
+def _build_transport_patch(
+    state: OnboardingState, *, bot_token: str
+) -> dict[str, Any]:
+    if state.chat is None:
+        raise RuntimeError("onboarding state missing chat")
+    if state.session_mode is None:
+        raise RuntimeError("onboarding state missing session mode")
+    if state.show_resume_line is None:
+        raise RuntimeError("onboarding state missing resume choice")
+    return {
+        "bot_token": bot_token,
+        "chat_id": state.chat.chat_id,
+        "session_mode": state.session_mode,
+        "show_resume_line": state.show_resume_line,
+        "topics": {
+            "enabled": state.topics_enabled,
+            "scope": state.topics_scope,
+        },
+    }
 
-        bot_ref = f"@{info.username}"
-        console.print("")
-        console.print(
-            f"  send /start to {bot_ref} in the chat you want takopi to use "
-            "(dm or group)"
+
+def build_config_patch(state: OnboardingState, *, bot_token: str) -> dict[str, Any]:
+    patch: dict[str, Any] = {
+        "transport": "telegram",
+        "transports": {"telegram": _build_transport_patch(state, bot_token=bot_token)},
+    }
+    if state.default_engine is not None:
+        patch["default_engine"] = state.default_engine
+    return patch
+
+
+def build_preview_config(state: OnboardingState) -> dict[str, Any]:
+    if state.token is None:
+        raise RuntimeError("onboarding state missing token")
+    return build_config_patch(state, bot_token=mask_token(state.token))
+
+
+def merge_config(
+    existing: dict[str, Any],
+    patch: dict[str, Any],
+    *,
+    config_path: Path,
+) -> dict[str, Any]:
+    merged = dict(existing)
+    if "default_engine" in patch:
+        merged["default_engine"] = patch["default_engine"]
+    merged["transport"] = patch["transport"]
+    transports = ensure_table(merged, "transports", config_path=config_path)
+    telegram = ensure_table(
+        transports,
+        "telegram",
+        config_path=config_path,
+        label="transports.telegram",
+    )
+    telegram_patch = patch["transports"]["telegram"]
+    telegram["bot_token"] = telegram_patch["bot_token"]
+    telegram["chat_id"] = telegram_patch["chat_id"]
+    telegram["session_mode"] = telegram_patch["session_mode"]
+    telegram["show_resume_line"] = telegram_patch["show_resume_line"]
+    topics = ensure_table(
+        telegram,
+        "topics",
+        config_path=config_path,
+        label="transports.telegram.topics",
+    )
+    topics_patch = telegram_patch["topics"]
+    topics["enabled"] = topics_patch["enabled"]
+    topics["scope"] = topics_patch["scope"]
+    merged.pop("bot_token", None)
+    merged.pop("chat_id", None)
+    return merged
+
+
+async def _capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
+    if state.token is None:
+        raise RuntimeError("onboarding state missing token")
+    ui.print("")
+    ui.print(
+        f"  send /start to {state.bot_ref} in the chat you want takopi to use "
+        "(dm or group)"
+    )
+    ui.print("  waiting...")
+    try:
+        chat = await svc.wait_for_chat(state.token)
+    except KeyboardInterrupt:
+        ui.print("  cancelled")
+        raise OnboardingCancelled()
+    if chat is None:
+        ui.print("  cancelled")
+        raise OnboardingCancelled()
+    if chat.is_group or chat.chat_type == "channel":
+        ui.print(f"  got chat_id {chat.chat_id} for {chat.kind}")
+    else:
+        ui.print(f"  got chat_id {chat.chat_id} for {chat.display} ({chat.kind})")
+    state.chat = chat
+
+
+async def _step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> None:
+    ui.print("")
+    have_token = _require(
+        ui.confirm("do you already have a bot token from @BotFather?")
+    )
+    if not have_token:
+        ui.print("  1. open telegram and message @BotFather")
+        ui.print("  2. send /newbot and follow the prompts")
+        ui.print("  3. copy the token (looks like 123456789:ABCdef...)")
+        ui.print("")
+        ui.print("  keep this token secret - it grants full control of your bot.")
+        ui.print("")
+    token, info = await _prompt_token(ui, svc)
+    state.token = token
+    state.bot_username = info.username
+    state.bot_name = info.first_name
+
+
+async def _step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
+    await _capture_chat(ui, svc, state)
+
+
+async def _step_session_mode(ui: UI, _svc: Services, state: OnboardingState) -> None:
+    ui.print("")
+    session_mode = _prompt_session_mode(ui)
+    state.session_mode = _require(session_mode)
+    if state.session_mode == "stateless":
+        ui.print("")
+        ui.print("  reply-to-continue requires resume footers.")
+        ui.print("  if you enable topics later, you can choose to hide them.")
+
+
+async def _step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
+    if state.chat is None:
+        raise RuntimeError("onboarding state missing chat")
+    topics_choice = _prompt_topics(ui, state.chat)
+    topics_choice = _require(topics_choice)
+    state.topics_enabled = topics_choice != "disabled"
+    state.topics_scope = (
+        cast(TopicScope, topics_choice) if state.topics_enabled else "auto"
+    )
+
+    if state.topics_enabled and state.topics_scope in {"main", "all"}:
+        ui.print("  validating topics setup...")
+        if state.token is None:
+            raise RuntimeError("onboarding state missing token")
+        issue = await svc.validate_topics(
+            state.token,
+            state.chat.chat_id,
+            state.topics_scope,
         )
-        console.print("  waiting...")
-        try:
-            chat = anyio.run(wait_for_chat, token)
-        except KeyboardInterrupt:
-            console.print("  cancelled")
-            return None
-        if chat is None:
-            console.print("  cancelled")
-            return None
-        if chat.is_group or chat.chat_type == "channel":
-            console.print(f"  got chat_id {chat.chat_id} for {chat.kind}")
-        else:
-            console.print(
-                f"  got chat_id {chat.chat_id} for {chat.display} ({chat.kind})"
+        if issue is not None:
+            ui.print(f"[yellow]warning:[/] topics can't be enabled yet: {issue}")
+            ui.print(
+                "  fix:\n"
+                "  - promote the bot to admin\n"
+                '  - enable "manage topics"\n'
+                "  - rerun takopi --onboard"
             )
-        return chat
+            disable = ui.confirm("disable topics for now? (recommended)", default=True)
+            if disable is None:
+                raise OnboardingCancelled()
+            if disable:
+                state.topics_enabled = False
+                state.topics_scope = "auto"
+            else:
+                ui.print(
+                    "  takopi will fail to start with topics until this is fixed."
+                )
+
+    if state.topics_enabled and state.topics_scope in {"projects", "all"}:
+        ui.print("")
+        ui.print("  tip: bind a project chat with:")
+        ui.print("  takopi chat-id --project <alias>")
 
 
-def interactive_setup(*, force: bool) -> bool:
-    console = Console()
-    config_path = HOME_CONFIG_PATH
+def _resume_applies(state: OnboardingState) -> bool:
+    if not state.is_stateful:
+        state.show_resume_line = True
+        return False
+    return state.show_resume_line is None
 
-    if config_path.exists() and not force:
-        console.print(
-            f"config already exists at {_display_path(config_path)}. "
+
+async def _step_resume_footer(ui: UI, _svc: Services, state: OnboardingState) -> None:
+    resume_choice = _prompt_resume_lines(ui)
+    state.show_resume_line = _require(resume_choice)
+
+
+async def _step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> None:
+    ui.print(
+        "takopi runs one of these engine CLIs on your machine. "
+        "you can switch per message later."
+    )
+    rows = svc.list_engines()
+    _render_engine_table(ui, rows)
+    installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
+
+    if installed_ids:
+        default_engine = ui.select(
+            "choose default engine:",
+            choices=[(engine_id, engine_id) for engine_id in installed_ids],
+        )
+        state.default_engine = _require(default_engine)
+        return
+
+    ui.print("no engines found on PATH. install one to continue.")
+    save_anyway = ui.confirm("save config anyway?", default=False)
+    if not save_anyway:
+        raise OnboardingCancelled()
+
+
+async def _step_save_config(ui: UI, svc: Services, state: OnboardingState) -> None:
+    preview_config = build_preview_config(state)
+    config_preview = dump_toml(preview_config).rstrip()
+    ui.print("")
+    ui.print(f"  {_display_path(state.config_path)}\n")
+    for line in config_preview.splitlines():
+        ui.print(f"  {line}", markup=False)
+    ui.print("")
+    ui.print("  note: your bot token will be saved in plain text.")
+    ui.print("")
+
+    save = ui.confirm(
+        f"save this config to {_display_path(state.config_path)}?",
+        default=True,
+    )
+    if not save:
+        raise OnboardingCancelled()
+
+    raw_config: dict[str, Any] = {}
+    if state.config_path.exists():
+        try:
+            raw_config = svc.read_config(state.config_path)
+        except ConfigError as exc:
+            ui.print(f"[yellow]warning:[/] config is malformed: {exc}")
+            backup = state.config_path.with_suffix(".toml.bak")
+            try:
+                shutil.copyfile(state.config_path, backup)
+            except OSError as copy_exc:
+                ui.print(f"[yellow]warning:[/] failed to back up config: {copy_exc}")
+            else:
+                ui.print(f"  backed up to {_display_path(backup)}")
+            raw_config = {}
+    if state.token is None:
+        raise RuntimeError("onboarding state missing token")
+    patch = build_config_patch(state, bot_token=state.token)
+    merged = merge_config(raw_config, patch, config_path=state.config_path)
+    svc.write_config(state.config_path, merged)
+    ui.print(f"  config saved to {_display_path(state.config_path)}")
+
+    if state.session_mode is None:
+        raise RuntimeError("onboarding state missing session mode")
+    confirmation_text = _build_confirmation_message(
+        session_mode=state.session_mode,
+        topics_enabled=state.topics_enabled,
+        show_resume_line=state.show_resume_line is True,
+    )
+    if state.chat is None:
+        raise RuntimeError("onboarding state missing chat")
+    sent = await svc.send_confirmation(
+        state.token, state.chat.chat_id, confirmation_text
+    )
+    if sent:
+        ui.print("  sent confirmation message")
+    else:
+        ui.print("  could not send confirmation message")
+
+    ui.print("\n")
+    ui.panel(None, "setup complete. starting takopi...", border_style="green")
+
+
+def _always(_state: OnboardingState) -> bool:
+    return True
+
+
+@dataclass(frozen=True, slots=True)
+class OnboardingStep:
+    title: str | None
+    number: int | None
+    run: Callable[[UI, Services, OnboardingState], Awaitable[None]]
+    applies: Callable[[OnboardingState], bool] = _always
+
+
+STEPS: list[OnboardingStep] = [
+    OnboardingStep("telegram bot setup", 1, _step_token_and_bot),
+    OnboardingStep(None, None, _step_capture_chat),
+    OnboardingStep("how follow-ups work", 2, _step_session_mode),
+    OnboardingStep("topics (optional)", 3, _step_topics),
+    OnboardingStep(None, None, _step_resume_footer, applies=_resume_applies),
+    OnboardingStep("default engine", 4, _step_default_engine),
+    OnboardingStep("save configuration", 5, _step_save_config),
+]
+
+
+async def run_onboarding(ui: UI, svc: Services, state: OnboardingState) -> bool:
+    try:
+        for step in STEPS:
+            if not step.applies(state):
+                continue
+            if step.title and step.number is not None:
+                ui.step(step.title, number=step.number)
+            await step.run(ui, svc, state)
+    except OnboardingCancelled:
+        return False
+    return True
+
+
+async def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
+    ui = InteractiveUI(Console())
+    svc = LiveServices()
+    state = OnboardingState(config_path=HOME_CONFIG_PATH, force=False)
+    with _suppress_logging():
+        try:
+            if token is not None:
+                token = token.strip()
+                if not token:
+                    ui.print("  token cannot be empty")
+                    return None
+                ui.print("  validating...")
+                info = await svc.get_bot_info(token)
+                if not info:
+                    ui.print("  failed to connect, check the token and try again")
+                    return None
+                state.token = token
+                state.bot_username = info.username
+                state.bot_name = info.first_name
+            else:
+                token, info = await _prompt_token(ui, svc)
+                state.token = token
+                state.bot_username = info.username
+                state.bot_name = info.first_name
+
+            await _capture_chat(ui, svc, state)
+            return state.chat
+        except OnboardingCancelled:
+            return None
+
+
+async def interactive_setup(*, force: bool) -> bool:
+    ui = InteractiveUI(Console())
+    svc = LiveServices()
+    state = OnboardingState(config_path=HOME_CONFIG_PATH, force=force)
+
+    if state.config_path.exists() and not force:
+        ui.print(
+            f"config already exists at {_display_path(state.config_path)}. "
             "use --onboard to reconfigure."
         )
         return True
 
-    if config_path.exists() and force:
-        overwrite = _confirm(
-            f"update existing config at {_display_path(config_path)}?",
+    if state.config_path.exists() and force:
+        overwrite = ui.confirm(
+            f"update existing config at {_display_path(state.config_path)}?",
             default=False,
         )
         if not overwrite:
             return False
 
     with _suppress_logging():
-        panel = Panel(
-            f"let's set up your telegram bot.\nwe'll write {_display_path(config_path)}.",
-            title="welcome to takopi!",
+        ui.panel(
+            "welcome to takopi!",
+            f"let's set up your telegram bot.\n"
+            f"we'll write {_display_path(state.config_path)}.",
             border_style="yellow",
-            padding=(1, 2),
-            expand=False,
         )
-        console.print(panel)
-
-        console.print(Text("step 1: telegram bot setup", style="bold yellow"))
-        console.print("")
-        have_token = _confirm("do you already have a bot token from @BotFather?")
-        if have_token is None:
-            return False
-        if not have_token:
-            console.print("  1. open telegram and message @BotFather")
-            console.print("  2. send /newbot and follow the prompts")
-            console.print("  3. copy the token (looks like 123456789:ABCdef...)")
-            console.print("")
-            console.print(
-                "  keep this token secret - it grants full control of your bot."
-            )
-            console.print("")
-
-        token_info = _prompt_token(console)
-        if token_info is None:
-            return False
-        token, info = token_info
-        bot_ref = f"@{info.username}"
-
-        console.print("")
-        console.print(
-            f"  send /start to {bot_ref} in the chat you want takopi to use "
-            "(dm or group)"
-        )
-        console.print("  waiting...")
-        try:
-            chat = anyio.run(wait_for_chat, token)
-        except KeyboardInterrupt:
-            console.print("  cancelled")
-            return False
-        if chat is None:
-            console.print("  cancelled")
-            return False
-        if chat.is_group or chat.chat_type == "channel":
-            console.print(f"  got chat_id {chat.chat_id} for {chat.kind}")
-        else:
-            console.print(
-                f"  got chat_id {chat.chat_id} for {chat.display} ({chat.kind})"
-            )
-
-        console.print("")
-        console.print(Text("step 2: how follow-ups work", style="bold yellow"))
-        console.print("")
-        session_mode = _prompt_session_mode(console)
-        if session_mode is None:
-            return False
-
-        show_resume_line = True
-        prompted_resume = False
-        if session_mode == "chat":
-            resume_choice = _prompt_resume_lines(console)
-            if resume_choice is None:
-                return False
-            show_resume_line = resume_choice
-            prompted_resume = True
-        else:
-            console.print("")
-            console.print("  reply-to-continue requires resume footers.")
-            console.print("  if you enable topics later, you can choose to hide them.")
-
-        console.print("")
-        console.print(Text("step 3: topics (optional)", style="bold yellow"))
-        topics_choice = _prompt_topics(console, chat)
-        if topics_choice is None:
-            return False
-        topics_enabled = topics_choice != "disabled"
-        topics_scope: TopicScope = "auto"
-        if topics_enabled:
-            topics_scope = cast(TopicScope, topics_choice)
-
-        if topics_enabled and topics_scope in {"main", "all"}:
-            console.print("  validating topics setup...")
-            issue = anyio.run(
-                _validate_topics_onboarding,
-                token,
-                chat.chat_id,
-                topics_scope,
-                (),
-            )
-            if issue is not None:
-                console.print(
-                    f"[yellow]warning:[/] topics can't be enabled yet: {issue}"
-                )
-                console.print(
-                    "  fix:\n"
-                    "  - promote the bot to admin\n"
-                    "  - enable \"manage topics\"\n"
-                    "  - rerun takopi --onboard"
-                )
-                disable = _confirm("disable topics for now? (recommended)", default=True)
-                if disable is None:
-                    return False
-                if disable:
-                    topics_enabled = False
-                    topics_scope = "auto"
-                else:
-                    console.print(
-                        "  takopi will fail to start with topics until this is fixed."
-                    )
-
-        if topics_enabled and topics_scope in {"projects", "all"}:
-            console.print("")
-            console.print("  tip: bind a project chat with:")
-            console.print("  takopi chat-id --project <alias>")
-        if topics_enabled and not prompted_resume:
-            resume_choice = _prompt_resume_lines(console)
-            if resume_choice is None:
-                return False
-            show_resume_line = resume_choice
-
-        console.print("")
-        console.print(Text("step 4: default engine", style="bold yellow"))
-        console.print(
-            "takopi runs one of these engine CLIs on your machine. "
-            "you can switch per message later."
-        )
-        rows = _render_engine_table(console)
-        installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
-
-        default_engine: str | None = None
-        if installed_ids:
-            default_engine = questionary.select(
-                "choose default engine:",
-                choices=installed_ids,
-            ).ask()
-            if default_engine is None:
-                return False
-        else:
-            console.print("no engines found on PATH. install one to continue.")
-            save_anyway = _confirm("save config anyway?", default=False)
-            if not save_anyway:
-                return False
-
-        preview_config: dict[str, Any] = {}
-        if default_engine is not None:
-            preview_config["default_engine"] = default_engine
-        preview_config["transport"] = "telegram"
-        preview_config["transports"] = {
-            "telegram": {
-                "bot_token": mask_token(token),
-                "chat_id": chat.chat_id,
-                "session_mode": session_mode,
-                "show_resume_line": show_resume_line,
-                "topics": {
-                    "enabled": topics_enabled,
-                    "scope": topics_scope,
-                },
-            }
-        }
-        config_preview = dump_toml(preview_config).rstrip()
-        console.print("")
-        console.print(Text("step 5: save configuration", style="bold yellow"))
-        console.print("")
-        console.print(f"  {_display_path(config_path)}\n")
-        for line in config_preview.splitlines():
-            console.print(f"  {line}")
-        console.print("")
-        console.print("  note: your bot token will be saved in plain text.")
-        console.print("")
-
-        save = _confirm(
-            f"save this config to {_display_path(config_path)}?",
-            default=True,
-        )
-        if not save:
-            return False
-
-        raw_config: dict[str, Any] = {}
-        if config_path.exists():
-            try:
-                raw_config = read_config(config_path)
-            except ConfigError as exc:
-                console.print(f"[yellow]warning:[/] config is malformed: {exc}")
-                backup = config_path.with_suffix(".toml.bak")
-                try:
-                    shutil.copyfile(config_path, backup)
-                except OSError as copy_exc:
-                    console.print(
-                        f"[yellow]warning:[/] failed to back up config: {copy_exc}"
-                    )
-                else:
-                    console.print(f"  backed up to {_display_path(backup)}")
-                raw_config = {}
-        merged = dict(raw_config)
-        if default_engine is not None:
-            merged["default_engine"] = default_engine
-        merged["transport"] = "telegram"
-        transports = ensure_table(merged, "transports", config_path=config_path)
-        telegram = ensure_table(
-            transports,
-            "telegram",
-            config_path=config_path,
-            label="transports.telegram",
-        )
-        telegram["bot_token"] = token
-        telegram["chat_id"] = chat.chat_id
-        telegram["session_mode"] = session_mode
-        telegram["show_resume_line"] = show_resume_line
-        topics = ensure_table(
-            telegram,
-            "topics",
-            config_path=config_path,
-            label="transports.telegram.topics",
-        )
-        topics["enabled"] = topics_enabled
-        topics["scope"] = topics_scope
-        merged.pop("bot_token", None)
-        merged.pop("chat_id", None)
-        write_config(merged, config_path)
-        console.print(f"  config saved to {_display_path(config_path)}")
-
-        confirmation_text = _build_confirmation_message(
-            session_mode=session_mode,
-            topics_enabled=topics_enabled,
-            show_resume_line=show_resume_line,
-        )
-        sent = anyio.run(_send_confirmation, token, chat.chat_id, confirmation_text)
-        if sent:
-            console.print("  sent confirmation message")
-        else:
-            console.print("  could not send confirmation message")
-
-        done_panel = Panel(
-            "setup complete. starting takopi...",
-            border_style="green",
-            padding=(1, 2),
-            expand=False,
-        )
-        console.print("\n")
-        console.print(done_panel)
-        return True
+        return await run_onboarding(ui, svc, state)
 
 
 def debug_onboarding_paths(console: Console | None = None) -> None:

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import anyio
+from functools import partial
+
 from takopi.backends import EngineBackend
 from takopi.config import dump_toml
 from takopi.telegram import onboarding
@@ -65,6 +68,34 @@ def _queue_values(values):
     return _next
 
 
+def _patch_live_services(
+    monkeypatch,
+    *,
+    bot: User,
+    chat: onboarding.ChatInfo,
+    send_confirmation: bool = True,
+    topics_issue=None,
+) -> None:
+    async def _get_bot_info(self, _token: str):
+        return bot
+
+    async def _wait_for_chat(self, _token: str):
+        return chat
+
+    async def _send_confirmation(self, _token: str, _chat_id: int, _text: str):
+        return send_confirmation
+
+    async def _validate_topics(self, _token: str, _chat_id: int, _scope):
+        return topics_issue
+
+    monkeypatch.setattr(onboarding.LiveServices, "get_bot_info", _get_bot_info)
+    monkeypatch.setattr(onboarding.LiveServices, "wait_for_chat", _wait_for_chat)
+    monkeypatch.setattr(
+        onboarding.LiveServices, "send_confirmation", _send_confirmation
+    )
+    monkeypatch.setattr(onboarding.LiveServices, "validate_topics", _validate_topics)
+
+
 def test_interactive_setup_skips_when_config_exists(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "takopi.toml"
     config_path.write_text(
@@ -73,7 +104,7 @@ def test_interactive_setup_skips_when_config_exists(monkeypatch, tmp_path) -> No
         encoding="utf-8",
     )
     monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", config_path)
-    assert onboarding.interactive_setup(force=False) is True
+    assert anyio.run(partial(onboarding.interactive_setup, force=False)) is True
 
 
 def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
@@ -91,28 +122,22 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", False, "disabled", "codex"]),
+        _queue(["chat", "disabled", False, "codex"]),
+    )
+    _patch_live_services(
+        monkeypatch,
+        bot=User(id=1, username="my_bot"),
+        chat=onboarding.ChatInfo(
+            chat_id=123,
+            username="alice",
+            title=None,
+            first_name="Alice",
+            last_name=None,
+            chat_type="private",
+        ),
     )
 
-    def _fake_run(func, *args, **kwargs):
-        if func is onboarding.get_bot_info:
-            return User(id=1, username="my_bot")
-        if func is onboarding.wait_for_chat:
-            return onboarding.ChatInfo(
-                chat_id=123,
-                username="alice",
-                title=None,
-                first_name="Alice",
-                last_name=None,
-                chat_type="private",
-            )
-        if func is onboarding._send_confirmation:
-            return True
-        raise AssertionError(f"unexpected anyio.run target: {func}")
-
-    monkeypatch.setattr(onboarding.anyio, "run", _fake_run)
-
-    assert onboarding.interactive_setup(force=False) is True
+    assert anyio.run(partial(onboarding.interactive_setup, force=False)) is True
     saved = config_path.read_text(encoding="utf-8")
     assert 'transport = "telegram"' in saved
     assert "[transports.telegram]" in saved
@@ -144,28 +169,22 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", False, "disabled", "codex"]),
+        _queue(["chat", "disabled", False, "codex"]),
+    )
+    _patch_live_services(
+        monkeypatch,
+        bot=User(id=1, username="my_bot"),
+        chat=onboarding.ChatInfo(
+            chat_id=123,
+            username="alice",
+            title=None,
+            first_name="Alice",
+            last_name=None,
+            chat_type="private",
+        ),
     )
 
-    def _fake_run(func, *args, **kwargs):
-        if func is onboarding.get_bot_info:
-            return User(id=1, username="my_bot")
-        if func is onboarding.wait_for_chat:
-            return onboarding.ChatInfo(
-                chat_id=123,
-                username="alice",
-                title=None,
-                first_name="Alice",
-                last_name=None,
-                chat_type="private",
-            )
-        if func is onboarding._send_confirmation:
-            return True
-        raise AssertionError(f"unexpected anyio.run target: {func}")
-
-    monkeypatch.setattr(onboarding.anyio, "run", _fake_run)
-
-    assert onboarding.interactive_setup(force=True) is True
+    assert anyio.run(partial(onboarding.interactive_setup, force=True)) is True
     saved = config_path.read_text(encoding="utf-8")
     assert "[projects.z80]" in saved
     assert 'path = "/tmp/repo"' in saved
@@ -186,28 +205,22 @@ def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", False, "disabled"]),
+        _queue(["chat", "disabled", False]),
+    )
+    _patch_live_services(
+        monkeypatch,
+        bot=User(id=1, username="my_bot"),
+        chat=onboarding.ChatInfo(
+            chat_id=123,
+            username="alice",
+            title=None,
+            first_name="Alice",
+            last_name=None,
+            chat_type="private",
+        ),
     )
 
-    def _fake_run(func, *args, **kwargs):
-        if func is onboarding.get_bot_info:
-            return User(id=1, username="my_bot")
-        if func is onboarding.wait_for_chat:
-            return onboarding.ChatInfo(
-                chat_id=123,
-                username="alice",
-                title=None,
-                first_name="Alice",
-                last_name=None,
-                chat_type="private",
-            )
-        if func is onboarding._send_confirmation:
-            return True
-        raise AssertionError(f"unexpected anyio.run target: {func}")
-
-    monkeypatch.setattr(onboarding.anyio, "run", _fake_run)
-
-    assert onboarding.interactive_setup(force=False) is False
+    assert anyio.run(partial(onboarding.interactive_setup, force=False)) is False
     assert not config_path.exists()
 
 
@@ -228,28 +241,22 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", False, "disabled", "codex"]),
+        _queue(["chat", "disabled", False, "codex"]),
+    )
+    _patch_live_services(
+        monkeypatch,
+        bot=User(id=1, username="my_bot"),
+        chat=onboarding.ChatInfo(
+            chat_id=123,
+            username="alice",
+            title=None,
+            first_name="Alice",
+            last_name=None,
+            chat_type="private",
+        ),
     )
 
-    def _fake_run(func, *args, **kwargs):
-        if func is onboarding.get_bot_info:
-            return User(id=1, username="my_bot")
-        if func is onboarding.wait_for_chat:
-            return onboarding.ChatInfo(
-                chat_id=123,
-                username="alice",
-                title=None,
-                first_name="Alice",
-                last_name=None,
-                chat_type="private",
-            )
-        if func is onboarding._send_confirmation:
-            return True
-        raise AssertionError(f"unexpected anyio.run target: {func}")
-
-    monkeypatch.setattr(onboarding.anyio, "run", _fake_run)
-
-    assert onboarding.interactive_setup(force=True) is True
+    assert anyio.run(partial(onboarding.interactive_setup, force=True)) is True
     backup = config_path.with_suffix(".toml.bak")
     assert backup.exists()
     assert backup.read_text(encoding="utf-8") == bad_toml
@@ -259,50 +266,44 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
 
 
 def test_capture_chat_id_with_token(monkeypatch) -> None:
-    def _fake_run(func, *args, **kwargs):
-        if func is onboarding.get_bot_info:
-            return User(id=1, username="my_bot")
-        if func is onboarding.wait_for_chat:
-            return onboarding.ChatInfo(
-                chat_id=456,
-                username=None,
-                title="takopi",
-                first_name=None,
-                last_name=None,
-                chat_type="supergroup",
-            )
-        raise AssertionError(f"unexpected anyio.run target: {func}")
+    _patch_live_services(
+        monkeypatch,
+        bot=User(id=1, username="my_bot"),
+        chat=onboarding.ChatInfo(
+            chat_id=456,
+            username=None,
+            title="takopi",
+            first_name=None,
+            last_name=None,
+            chat_type="supergroup",
+        ),
+    )
 
-    monkeypatch.setattr(onboarding.anyio, "run", _fake_run)
-
-    chat = onboarding.capture_chat_id(token="123456789:ABCdef")
+    chat = anyio.run(partial(onboarding.capture_chat_id, token="123456789:ABCdef"))
 
     assert chat is not None
     assert chat.chat_id == 456
 
 
 def test_capture_chat_id_prompts_for_token(monkeypatch) -> None:
-    monkeypatch.setattr(
-        onboarding,
-        "_prompt_token",
-        lambda _console: ("token", User(id=1, username="bot")),
+    async def _prompt_token(_ui, _svc):
+        return ("token", User(id=1, username="bot"))
+
+    monkeypatch.setattr(onboarding, "_prompt_token", _prompt_token)
+    _patch_live_services(
+        monkeypatch,
+        bot=User(id=1, username="bot"),
+        chat=onboarding.ChatInfo(
+            chat_id=789,
+            username="alice",
+            title=None,
+            first_name="Alice",
+            last_name=None,
+            chat_type="private",
+        ),
     )
 
-    def _fake_run(func, *args, **kwargs):
-        if func is onboarding.wait_for_chat:
-            return onboarding.ChatInfo(
-                chat_id=789,
-                username="alice",
-                title=None,
-                first_name="Alice",
-                last_name=None,
-                chat_type="private",
-            )
-        raise AssertionError(f"unexpected anyio.run target: {func}")
-
-    monkeypatch.setattr(onboarding.anyio, "run", _fake_run)
-
-    chat = onboarding.capture_chat_id()
+    chat = anyio.run(onboarding.capture_chat_id)
 
     assert chat is not None
     assert chat.chat_id == 789

@@ -12,7 +12,7 @@ class DummyTransport:
     def check_setup(self, *args, **kwargs):
         raise NotImplementedError
 
-    def interactive_setup(self, *, force: bool) -> bool:
+    async def interactive_setup(self, *, force: bool) -> bool:
         raise NotImplementedError
 
     def lock_token(self, *, transport_config: object, _config_path):

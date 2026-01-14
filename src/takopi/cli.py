@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Literal
 
 import anyio
+from functools import partial
 import typer
 
 from . import __version__
@@ -272,7 +273,7 @@ def _run_auto_router(
         if not _should_run_interactive():
             typer.echo("error: --onboard requires a TTY", err=True)
             raise typer.Exit(code=1)
-        if not transport_backend.interactive_setup(force=True):
+        if not anyio.run(partial(transport_backend.interactive_setup, force=True)):
             raise typer.Exit(code=1)
         (
             settings_hint,
@@ -294,7 +295,9 @@ def _run_auto_router(
                     f"{transport_backend.id}, run onboarding now?",
                     default=False,
                 )
-                if run_onboard and transport_backend.interactive_setup(force=True):
+                if run_onboard and anyio.run(
+                    partial(transport_backend.interactive_setup, force=True)
+                ):
                     (
                         settings_hint,
                         config_hint,
@@ -306,7 +309,7 @@ def _run_auto_router(
                         engine_backend,
                         transport_override=transport_override,
                     )
-            elif transport_backend.interactive_setup(force=False):
+            elif anyio.run(partial(transport_backend.interactive_setup, force=False)):
                 (
                     settings_hint,
                     config_hint,
@@ -486,7 +489,7 @@ def chat_id(
         if settings is not None:
             tg = settings.transports.telegram
             token = tg.bot_token or None
-    chat = onboarding.capture_chat_id(token=token)
+    chat = anyio.run(partial(onboarding.capture_chat_id, token=token))
     if chat is None:
         raise typer.Exit(code=1)
     if project:

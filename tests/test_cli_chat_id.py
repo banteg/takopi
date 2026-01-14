@@ -16,7 +16,7 @@ def test_chat_id_command_updates_project_chat_id(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("takopi.config.HOME_CONFIG_PATH", config_path)
     monkeypatch.setattr(cli, "_load_settings_optional", lambda: (None, None))
 
-    def _capture(*, token: str | None = None):
+    async def _capture(*, token: str | None = None):
         assert token == "token"
         return onboarding.ChatInfo(
             chat_id=123,
@@ -50,7 +50,7 @@ def test_chat_id_command_uses_config_token(monkeypatch) -> None:
     )
     monkeypatch.setattr(cli, "_load_settings_optional", lambda: (settings, Path("x")))
 
-    def _capture(*, token: str | None = None):
+    async def _capture(*, token: str | None = None):
         assert token == "config-token"
         return onboarding.ChatInfo(
             chat_id=321,
