@@ -308,9 +308,7 @@ async def send_confirmation(token: str, chat_id: int, text: str) -> bool:
         await bot.close()
 
 
-def render_engine_table(
-    ui: UI, rows: list[tuple[str, bool, str | None]]
-) -> None:
+def render_engine_table(ui: UI, rows: list[tuple[str, bool, str | None]]) -> None:
     table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
     table.add_column("engine")
     table.add_column("status")
@@ -356,94 +354,38 @@ def render_chat_mode_panel() -> Text:
     )
 
 
+def render_stateless_mode_panel() -> Text:
+    return Text.assemble(
+        "every message starts fresh. replies continue a session.\n",
+        "good for: one-off tasks, juggling many things.\n\n",
+        ("[you] ", "bold cyan"),
+        "store artifacts forever\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 8s\n", "dim"),
+        ("      codex resume id  ", "green"),
+        ("← reply to this message\n", "yellow"),
+        ("[you] ", "bold cyan"),
+        "(reply) also shrink them\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 5s", "dim"),
+    )
+
+
 def render_session_mode_examples(ui: UI) -> None:
     ui.print(
-        "  choose how takopi should continue your work in this chat:\n",
+        "  how should conversations continue?\n",
         markup=False,
     )
-    chat_text = Text()
-    chat_text.append(
-        "takopi remembers your thread. new messages auto-continue.\n",
-        style=None,
-    )
-    chat_text.append(
-        "good for: ongoing work, natural conversation flow.\n\n",
-        style=None,
-    )
-    append_dialogue(
-        chat_text,
-        "you",
-        "polish the octopus mascot",
-        speaker_style="bold cyan",
-    )
-    append_dialogue(
-        chat_text,
-        "bot",
-        "done · codex · 8s",
-        speaker_style="bold magenta",
-    )
-    chat_text.append("[you] ", style="bold cyan")
-    chat_text.append("add a tiny top hat  ")
-    chat_text.append("← no reply needed", style="yellow")
-    chat_text.append("\n")
-    append_dialogue(
-        chat_text,
-        "bot",
-        "done · codex · 5s",
-        speaker_style="bold magenta",
-    )
-    chat_text.append("[you] ", style="bold cyan")
-    chat_text.append("/new", style="bold yellow")
-    chat_text.append("  ← reset when done\n")
     chat_panel = Panel(
-        chat_text,
+        render_chat_mode_panel(),
         title=Text("chat sessions (recommended)", style="bold"),
         border_style="cyan",
         box=box.ROUNDED,
         padding=(0, 1),
         expand=True,
     )
-    stateless_text = Text()
-    stateless_text.append(
-        "every message starts fresh unless you reply to continue.\n",
-        style=None,
-    )
-    stateless_text.append(
-        "good for: quick isolated tasks, explicit control.\n\n",
-        style=None,
-    )
-    append_dialogue(
-        stateless_text,
-        "you",
-        "make the octopus blink",
-        speaker_style="bold cyan",
-    )
-    append_dialogue(
-        stateless_text,
-        "bot",
-        "done · codex · 8s",
-        speaker_style="bold magenta",
-    )
-    stateless_text.append(
-        "      codex resume ...  ",
-        style=None,
-    )
-    stateless_text.append("← reply to this message", style="yellow")
-    stateless_text.append("\n")
-    append_dialogue(
-        stateless_text,
-        "you",
-        "(reply) now add a sparkle trail",
-        speaker_style="bold cyan",
-    )
-    append_dialogue(
-        stateless_text,
-        "bot",
-        "done · codex · 5s",
-        speaker_style="bold magenta",
-    )
     stateless_panel = Panel(
-        stateless_text,
+        render_stateless_mode_panel(),
         title=Text("reply-to-continue (stateless)", style="bold"),
         border_style="magenta",
         box=box.ROUNDED,
@@ -467,7 +409,7 @@ def prompt_session_mode(ui: UI) -> SessionMode | None:
     return cast(
         SessionMode,
         ui.select(
-            "choose how follow-ups should work:",
+            "choose a mode:",
             choices=[
                 ("chat sessions", "chat"),
                 ("reply-to-continue (stateless)", "stateless"),
@@ -480,14 +422,14 @@ def prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
     ui.print("")
     if not chat.is_group:
         ui.print(
-            "  note: you captured a private chat. topics require a forum group."
+            "  note: you selected a private chat. topics only work in forum groups."
         )
         ui.print(
             "  to enable later: add the bot to a forum group and rerun takopi --onboard"
         )
         ui.print("")
         return ui.select(
-            "will you use topics?",
+            "enable topics?",
             choices=[
                 ("no (topics off)", "disabled"),
                 (
@@ -496,18 +438,14 @@ def prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
                 ),
             ],
         )
-    ui.print("forum topics turn each topic into its own workspace.")
-    ui.print(
-        "takopi can bind each topic to a project + branch and remember the thread there."
-    )
-    ui.print("best for: team supergroups where each topic maps to a repo/branch.")
+    ui.print("each forum topic becomes its own workspace with separate memory.")
+    ui.print("you can bind a topic to a project + branch, so work stays organized.")
+    ui.print("best for: team chats where each topic is a different repo or branch.")
     ui.print("")
-    ui.print(
-        "requires: forum-enabled supergroup + bot admin permission (manage topics)"
-    )
+    ui.print("requires: forum-enabled group + bot has 'manage topics' permission")
     ui.print("")
     return ui.select(
-        "will you use topics?",
+        "enable topics?",
         choices=[
             ("no (topics off)", "disabled"),
             ("yes, in this chat", "main"),
@@ -520,30 +458,27 @@ def prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
 def prompt_resume_lines(ui: UI) -> bool | None:
     ui.print("")
     ui.print(
-        "resume footers add a small line at the end of takopi messages "
-        '(called a "resume line" in config/docs).'
+        "the resume line is a small footer at the end of messages "
+        "(like 'codex resume abc123...')."
     )
-    ui.print("replying to that resume line continues (or branches) that thread.")
-    ui.print(
-        "they're also how you resume a thread from the terminal or another client."
-    )
+    ui.print("reply to it to continue (or branch) that conversation.")
+    ui.print("it's also used to resume from terminal or another chat.")
     ui.print("")
     ui.print(
-        "since you enabled chat sessions or topics, takopi can auto-continue "
-        "without showing resume footers."
+        "since you enabled auto-continue, the line can be hidden when a project is bound."
     )
     ui.print("")
     return cast(
         bool | None,
         ui.select(
-            "show resume footers in messages?",
+            "show resume line in messages?",
             choices=[
                 (
-                    "auto-hide when a project is active (cleaner; still auto-continues)",
+                    "hide when working in a bound project (cleaner)",
                     False,
                 ),
                 (
-                    "always show resume footers (best for branching or terminal resume)",
+                    "always show (needed for branching or terminal resume)",
                     True,
                 ),
             ],
@@ -567,7 +502,6 @@ def build_confirmation_message(
                 "- try: explain what this repo does",
                 "- reply to an older message to branch from there",
                 "- use /new to start a fresh thread",
-                "- tip: /agent set claude (sets the default engine for this chat)",
             ]
         )
     else:
@@ -586,15 +520,20 @@ def build_confirmation_message(
                 "- use /topic <project> @<branch> (example: /topic myproj @main)",
                 "- use /ctx to show or update the binding",
                 "- use /new to reset the topic thread",
-                "- tip: /agent set claude (sets the default engine for this topic)",
             ]
         )
+    lines.extend(
+        [
+            "",
+            "tip: /agent set <engine> sets the default for this chat or topic",
+        ]
+    )
     if (session_mode == "chat" or topics_enabled) and not show_resume_line:
         lines.extend(
             [
                 "",
-                "resume lines are hidden when a project is active. "
-                "set show_resume_line = true to show them.",
+                "resume line is hidden when a project is bound. "
+                "set show_resume_line = true to show it.",
             ]
         )
     return "\n".join(lines)
@@ -723,7 +662,9 @@ class InteractiveUI:
     def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None:
         return questionary.select(
             prompt,
-            choices=[questionary.Choice(label, value=value) for label, value in choices],
+            choices=[
+                questionary.Choice(label, value=value) for label, value in choices
+            ],
         ).ask()
 
     def password(self, prompt: str) -> str | None:
@@ -782,9 +723,7 @@ async def prompt_token(ui: UI, svc: Services) -> tuple[str, User]:
             raise OnboardingCancelled()
 
 
-def build_transport_patch(
-    state: OnboardingState, *, bot_token: str
-) -> dict[str, Any]:
+def build_transport_patch(state: OnboardingState, *, bot_token: str) -> dict[str, Any]:
     if state.chat is None:
         raise RuntimeError("onboarding state missing chat")
     if state.session_mode is None:
@@ -861,9 +800,9 @@ async def capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
     ui.print("")
     ui.print(
         f"  send /start to {state.bot_ref} in the chat you want takopi to use "
-        "(dm or group)"
+        "(private chat or group)"
     )
-    ui.print("  waiting...")
+    ui.print("  listening...")
     try:
         chat = await svc.wait_for_chat(state.token)
     except KeyboardInterrupt:
@@ -907,8 +846,8 @@ async def step_session_mode(ui: UI, _svc: Services, state: OnboardingState) -> N
     state.session_mode = require_value(session_mode)
     if state.session_mode == "stateless":
         ui.print("")
-        ui.print("  reply-to-continue requires resume footers.")
-        ui.print("  if you enable topics later, you can choose to hide them.")
+        ui.print("  reply-to-continue needs the resume line to work.")
+        ui.print("  if you enable topics later, you can choose to hide it.")
 
 
 async def step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
@@ -945,9 +884,7 @@ async def step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
                 state.topics_enabled = False
                 state.topics_scope = "auto"
             else:
-                ui.print(
-                    "  takopi will fail to start with topics until this is fixed."
-                )
+                ui.print("  takopi will fail to start with topics until this is fixed.")
 
     if state.topics_enabled and state.topics_scope in {"projects", "all"}:
         ui.print("")
