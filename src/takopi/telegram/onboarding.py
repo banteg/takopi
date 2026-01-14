@@ -374,36 +374,34 @@ def render_stateless_mode_panel() -> Text:
 
 def render_topics_private_note() -> Text:
     return Text.assemble(
-        "  note: you selected a private chat. topics only work in forum groups.\n",
+        "  note: you selected a private chat. topics only work in groups.\n",
         "  to enable later: add the bot to a forum group and rerun takopi --onboard",
     )
 
 
 def render_topics_group_intro() -> Text:
     return Text.assemble(
-        "each forum topic becomes its own workspace with separate memory.\n",
+        "each topic becomes its own workspace with separate memory.\n",
         "you can bind a topic to a project + branch, so work stays organized.\n",
-        "best for: team chats where each topic is a different repo or branch.\n\n",
-        "requires: forum-enabled group + bot has 'manage topics' permission",
+        "requires: group with enabled topics + bot as admin with 'manage topics' permission",
     )
 
 
 def render_resume_line_explainer() -> Text:
     return Text.assemble(
         "the resume line is a small footer at the end of messages "
-        "(like 'codex resume abc123...').\n",
-        "reply to it to continue (or branch) that conversation.\n",
-        "it's also used to resume from terminal or another chat.\n\n",
-        "since you enabled auto-continue, the line can be hidden when a project is bound.",
+        "(like 'codex resume ...').\n",
+        "reply to it to continue that conversation.\n",
+        "copy it to the terminal to pick up the work there.\n\n",
+        "since you enabled chat mode, the line can be hidden.",
     )
 
 
 def render_botfather_instructions() -> Text:
     return Text.assemble(
         "  1. open telegram and message @BotFather\n",
-        "  2. send /newbot and follow the prompts\n",
+        "  2. send /newbot and follow the prompts or use the mini app\n",
         "  3. copy the token (looks like 123456789:ABCdef...)\n\n",
-        "  keep this token secret - it grants full control of your bot.",
     )
 
 
@@ -420,7 +418,7 @@ def render_topics_validation_warning(issue: ConfigError) -> Text:
         f"topics can't be enabled yet: {issue}\n",
         "  fix:\n",
         "  - promote the bot to admin\n",
-        "  - enable \"manage topics\"\n",
+        '  - enable "manage topics"\n',
         "  - rerun takopi --onboard",
     )
 
@@ -432,20 +430,12 @@ def render_project_chat_tip() -> Text:
     )
 
 
-def render_token_save_note() -> Text:
-    return Text.assemble(
-        "  note: your bot token will be saved in plain text.",
-    )
-
-
 def render_config_malformed_warning(error: ConfigError) -> Text:
     return Text.assemble(("warning: ", "yellow"), f"config is malformed: {error}")
 
 
 def render_backup_failed_warning(error: OSError) -> Text:
-    return Text.assemble(
-        ("warning: ", "yellow"), f"failed to back up config: {error}"
-    )
+    return Text.assemble(("warning: ", "yellow"), f"failed to back up config: {error}")
 
 
 def render_session_mode_examples(ui: UI) -> None:
@@ -533,11 +523,11 @@ def prompt_resume_lines(ui: UI) -> bool | None:
             "show resume line in messages?",
             choices=[
                 (
-                    "hide when working in a bound project (cleaner)",
+                    "hide when possible",
                     False,
                 ),
                 (
-                    "always show (needed for branching or terminal resume)",
+                    "always show",
                     True,
                 ),
             ],
@@ -560,7 +550,7 @@ def build_confirmation_message(
                 "- send another message to continue",
                 "- try: explain what this repo does",
                 "- reply to an older message to branch from there",
-                "- use /new to start a fresh thread",
+                "- use /new to start a fresh session",
             ]
         )
     else:
@@ -576,7 +566,7 @@ def build_confirmation_message(
             [
                 "",
                 "topics:",
-                "- use /topic <project> @<branch> (example: /topic myproj @main)",
+                "- use /topic <project> @<branch> (example: /topic takopi @master)",
                 "- use /ctx to show or update the binding",
                 "- use /new to reset the topic thread",
             ]
@@ -584,7 +574,7 @@ def build_confirmation_message(
     lines.extend(
         [
             "",
-            "tip: /agent set <engine> sets the default for this chat or topic",
+            "tip: /agent set <engine> sets the default agent for this chat or topic",
         ]
     )
     if (session_mode == "chat" or topics_enabled) and not show_resume_line:
@@ -953,8 +943,8 @@ async def step_resume_footer(ui: UI, _svc: Services, state: OnboardingState) -> 
 
 async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> None:
     ui.print(
-        "takopi runs one of these engine CLIs on your machine. "
-        "you can switch per message later."
+        "takopi runs these agents on your computer. "
+        "you can easily switch between them in the chat."
     )
     rows = svc.list_engines()
     render_engine_table(ui, rows)
@@ -962,13 +952,13 @@ async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> 
 
     if installed_ids:
         default_engine = ui.select(
-            "choose default engine:",
+            "choose default agent:",
             choices=[(engine_id, engine_id) for engine_id in installed_ids],
         )
         state.default_engine = require_value(default_engine)
         return
 
-    ui.print("no engines found on PATH. install one to continue.")
+    ui.print("no agents found. install one to continue.")
     save_anyway = ui.confirm("save config anyway?", default=False)
     if not save_anyway:
         raise OnboardingCancelled()
@@ -981,8 +971,6 @@ async def step_save_config(ui: UI, svc: Services, state: OnboardingState) -> Non
     ui.print(f"  {display_path(state.config_path)}\n")
     for line in config_preview.splitlines():
         ui.print(f"  {line}", markup=False)
-    ui.print("")
-    ui.print(render_token_save_note(), markup=False)
     ui.print("")
 
     save = ui.confirm(
