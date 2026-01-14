@@ -136,7 +136,7 @@ class OnboardingCancelled(Exception):
     pass
 
 
-def _require(value: Any) -> Any:
+def require_value(value: Any) -> Any:
     if value is None:
         raise OnboardingCancelled()
     return value
@@ -172,7 +172,7 @@ class Services(Protocol):
     def write_config(self, path: Path, data: dict[str, Any]) -> None: ...
 
 
-def _display_path(path: Path) -> str:
+def display_path(path: Path) -> str:
     home = Path.home()
     try:
         return f"~/{path.relative_to(home)}"
@@ -185,7 +185,7 @@ _CONFIGURE_TELEGRAM_TITLE = "configure telegram"
 
 
 def config_issue(path: Path, *, title: str) -> SetupIssue:
-    return SetupIssue(title, (f"   {_display_path(path)}",))
+    return SetupIssue(title, (f"   {display_path(path)}",))
 
 
 def check_setup(
@@ -295,7 +295,7 @@ async def wait_for_chat(token: str) -> ChatInfo:
         await bot.close()
 
 
-async def _send_confirmation(token: str, chat_id: int, text: str) -> bool:
+async def send_confirmation(token: str, chat_id: int, text: str) -> bool:
     bot = TelegramClient(token)
     try:
         res = await bot.send_message(
@@ -307,7 +307,7 @@ async def _send_confirmation(token: str, chat_id: int, text: str) -> bool:
         await bot.close()
 
 
-def _render_engine_table(
+def render_engine_table(
     ui: UI, rows: list[tuple[str, bool, str | None]]
 ) -> None:
     table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
@@ -324,7 +324,7 @@ def _render_engine_table(
     ui.print(table)
 
 
-def _append_dialogue(
+def append_dialogue(
     text: Text,
     speaker: str,
     message: str,
@@ -337,7 +337,7 @@ def _append_dialogue(
     text.append("\n")
 
 
-def _render_session_mode_examples(ui: UI) -> None:
+def render_session_mode_examples(ui: UI) -> None:
     ui.print(
         "  choose how takopi should continue your work in this chat:\n",
         markup=False,
@@ -352,25 +352,25 @@ def _render_session_mode_examples(ui: UI) -> None:
         style="dim",
     )
     chat_text.append("in group chats, sessions are per person.\n\n", style="dim")
-    _append_dialogue(
+    append_dialogue(
         chat_text,
         "you",
         "polish the octopus mascot",
         speaker_style="bold cyan",
     )
-    _append_dialogue(
+    append_dialogue(
         chat_text,
         "bot",
         "done · codex · 8s",
         speaker_style="bold magenta",
     )
-    _append_dialogue(
+    append_dialogue(
         chat_text,
         "you",
         "now add a tiny top hat  ← no reply needed",
         speaker_style="bold cyan",
     )
-    _append_dialogue(
+    append_dialogue(
         chat_text,
         "bot",
         "done · codex · 5s",
@@ -400,13 +400,13 @@ def _render_session_mode_examples(ui: UI) -> None:
         "good for: quick isolated tasks, explicit control.\n\n",
         style="dim",
     )
-    _append_dialogue(
+    append_dialogue(
         stateless_text,
         "you",
         "make the octopus blink",
         speaker_style="bold cyan",
     )
-    _append_dialogue(
+    append_dialogue(
         stateless_text,
         "bot",
         "done · codex · 8s",
@@ -416,13 +416,13 @@ def _render_session_mode_examples(ui: UI) -> None:
         "      codex resume ...  ← reply to this line\n",
         style="dim",
     )
-    _append_dialogue(
+    append_dialogue(
         stateless_text,
         "you",
         "(reply) now add a sparkle trail",
         speaker_style="bold cyan",
     )
-    _append_dialogue(
+    append_dialogue(
         stateless_text,
         "bot",
         "done · codex · 5s",
@@ -441,8 +441,8 @@ def _render_session_mode_examples(ui: UI) -> None:
     )
 
 
-def _prompt_session_mode(ui: UI) -> SessionMode | None:
-    _render_session_mode_examples(ui)
+def prompt_session_mode(ui: UI) -> SessionMode | None:
+    render_session_mode_examples(ui)
     ui.print("")
     return cast(
         SessionMode,
@@ -456,7 +456,7 @@ def _prompt_session_mode(ui: UI) -> SessionMode | None:
     )
 
 
-def _prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
+def prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
     ui.print("")
     if not chat.is_group:
         ui.print(
@@ -497,7 +497,7 @@ def _prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
     )
 
 
-def _prompt_resume_lines(ui: UI) -> bool | None:
+def prompt_resume_lines(ui: UI) -> bool | None:
     ui.print("")
     ui.print(
         "resume footers add a small line at the end of takopi messages "
@@ -528,7 +528,7 @@ def _prompt_resume_lines(ui: UI) -> bool | None:
     )
 
 
-def _build_confirmation_message(
+def build_confirmation_message(
     *,
     session_mode: str,
     topics_enabled: bool,
@@ -577,7 +577,7 @@ def _build_confirmation_message(
     return "\n".join(lines)
 
 
-async def _validate_topics_onboarding(
+async def validate_topics_onboarding(
     token: str,
     chat_id: int,
     scope: TopicScope,
@@ -602,12 +602,12 @@ async def _validate_topics_onboarding(
 
 
 @contextmanager
-def _suppress_logging():
+def suppress_logging():
     with suppress_logs():
         yield
 
 
-def _confirm(message: str, *, default: bool = True) -> bool | None:
+def confirm_prompt(message: str, *, default: bool = True) -> bool | None:
     merged_style = merge_styles_default([None])
     status = {"answer": None, "complete": False}
 
@@ -695,7 +695,7 @@ class InteractiveUI:
         self._console.print(text, markup=markup)
 
     def confirm(self, prompt: str, default: bool = True) -> bool | None:
-        return _confirm(prompt, default=default)
+        return confirm_prompt(prompt, default=default)
 
     def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None:
         return questionary.select(
@@ -717,10 +717,10 @@ class LiveServices:
     async def validate_topics(
         self, token: str, chat_id: int, scope: TopicScope
     ) -> ConfigError | None:
-        return await _validate_topics_onboarding(token, chat_id, scope, ())
+        return await validate_topics_onboarding(token, chat_id, scope, ())
 
     async def send_confirmation(self, token: str, chat_id: int, text: str) -> bool:
-        return await _send_confirmation(token, chat_id, text)
+        return await send_confirmation(token, chat_id, text)
 
     def list_engines(self) -> list[tuple[str, bool, str | None]]:
         rows: list[tuple[str, bool, str | None]] = []
@@ -737,9 +737,9 @@ class LiveServices:
         write_config(data, path)
 
 
-async def _prompt_token(ui: UI, svc: Services) -> tuple[str, User]:
+async def prompt_token(ui: UI, svc: Services) -> tuple[str, User]:
     while True:
-        token = _require(ui.password("paste your bot token:"))
+        token = require_value(ui.password("paste your bot token:"))
         token = token.strip()
         if not token:
             ui.print("  token cannot be empty")
@@ -759,7 +759,7 @@ async def _prompt_token(ui: UI, svc: Services) -> tuple[str, User]:
             raise OnboardingCancelled()
 
 
-def _build_transport_patch(
+def build_transport_patch(
     state: OnboardingState, *, bot_token: str
 ) -> dict[str, Any]:
     if state.chat is None:
@@ -783,7 +783,7 @@ def _build_transport_patch(
 def build_config_patch(state: OnboardingState, *, bot_token: str) -> dict[str, Any]:
     patch: dict[str, Any] = {
         "transport": "telegram",
-        "transports": {"telegram": _build_transport_patch(state, bot_token=bot_token)},
+        "transports": {"telegram": build_transport_patch(state, bot_token=bot_token)},
     }
     if state.default_engine is not None:
         patch["default_engine"] = state.default_engine
@@ -832,7 +832,7 @@ def merge_config(
     return merged
 
 
-async def _capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
+async def capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
     if state.token is None:
         raise RuntimeError("onboarding state missing token")
     ui.print("")
@@ -856,9 +856,9 @@ async def _capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
     state.chat = chat
 
 
-async def _step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> None:
+async def step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> None:
     ui.print("")
-    have_token = _require(
+    have_token = require_value(
         ui.confirm("do you already have a bot token from @BotFather?")
     )
     if not have_token:
@@ -868,31 +868,31 @@ async def _step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> 
         ui.print("")
         ui.print("  keep this token secret - it grants full control of your bot.")
         ui.print("")
-    token, info = await _prompt_token(ui, svc)
+    token, info = await prompt_token(ui, svc)
     state.token = token
     state.bot_username = info.username
     state.bot_name = info.first_name
 
 
-async def _step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
-    await _capture_chat(ui, svc, state)
+async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
+    await capture_chat(ui, svc, state)
 
 
-async def _step_session_mode(ui: UI, _svc: Services, state: OnboardingState) -> None:
+async def step_session_mode(ui: UI, _svc: Services, state: OnboardingState) -> None:
     ui.print("")
-    session_mode = _prompt_session_mode(ui)
-    state.session_mode = _require(session_mode)
+    session_mode = prompt_session_mode(ui)
+    state.session_mode = require_value(session_mode)
     if state.session_mode == "stateless":
         ui.print("")
         ui.print("  reply-to-continue requires resume footers.")
         ui.print("  if you enable topics later, you can choose to hide them.")
 
 
-async def _step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
+async def step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
     if state.chat is None:
         raise RuntimeError("onboarding state missing chat")
-    topics_choice = _prompt_topics(ui, state.chat)
-    topics_choice = _require(topics_choice)
+    topics_choice = prompt_topics(ui, state.chat)
+    topics_choice = require_value(topics_choice)
     state.topics_enabled = topics_choice != "disabled"
     state.topics_scope = (
         cast(TopicScope, topics_choice) if state.topics_enabled else "auto"
@@ -932,25 +932,25 @@ async def _step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
         ui.print("  takopi chat-id --project <alias>")
 
 
-def _resume_applies(state: OnboardingState) -> bool:
+def resume_applies(state: OnboardingState) -> bool:
     if not state.is_stateful:
         state.show_resume_line = True
         return False
     return state.show_resume_line is None
 
 
-async def _step_resume_footer(ui: UI, _svc: Services, state: OnboardingState) -> None:
-    resume_choice = _prompt_resume_lines(ui)
-    state.show_resume_line = _require(resume_choice)
+async def step_resume_footer(ui: UI, _svc: Services, state: OnboardingState) -> None:
+    resume_choice = prompt_resume_lines(ui)
+    state.show_resume_line = require_value(resume_choice)
 
 
-async def _step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> None:
+async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> None:
     ui.print(
         "takopi runs one of these engine CLIs on your machine. "
         "you can switch per message later."
     )
     rows = svc.list_engines()
-    _render_engine_table(ui, rows)
+    render_engine_table(ui, rows)
     installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
 
     if installed_ids:
@@ -958,7 +958,7 @@ async def _step_default_engine(ui: UI, svc: Services, state: OnboardingState) ->
             "choose default engine:",
             choices=[(engine_id, engine_id) for engine_id in installed_ids],
         )
-        state.default_engine = _require(default_engine)
+        state.default_engine = require_value(default_engine)
         return
 
     ui.print("no engines found on PATH. install one to continue.")
@@ -967,11 +967,11 @@ async def _step_default_engine(ui: UI, svc: Services, state: OnboardingState) ->
         raise OnboardingCancelled()
 
 
-async def _step_save_config(ui: UI, svc: Services, state: OnboardingState) -> None:
+async def step_save_config(ui: UI, svc: Services, state: OnboardingState) -> None:
     preview_config = build_preview_config(state)
     config_preview = dump_toml(preview_config).rstrip()
     ui.print("")
-    ui.print(f"  {_display_path(state.config_path)}\n")
+    ui.print(f"  {display_path(state.config_path)}\n")
     for line in config_preview.splitlines():
         ui.print(f"  {line}", markup=False)
     ui.print("")
@@ -979,7 +979,7 @@ async def _step_save_config(ui: UI, svc: Services, state: OnboardingState) -> No
     ui.print("")
 
     save = ui.confirm(
-        f"save this config to {_display_path(state.config_path)}?",
+        f"save this config to {display_path(state.config_path)}?",
         default=True,
     )
     if not save:
@@ -997,18 +997,18 @@ async def _step_save_config(ui: UI, svc: Services, state: OnboardingState) -> No
             except OSError as copy_exc:
                 ui.print(f"[yellow]warning:[/] failed to back up config: {copy_exc}")
             else:
-                ui.print(f"  backed up to {_display_path(backup)}")
+                ui.print(f"  backed up to {display_path(backup)}")
             raw_config = {}
     if state.token is None:
         raise RuntimeError("onboarding state missing token")
     patch = build_config_patch(state, bot_token=state.token)
     merged = merge_config(raw_config, patch, config_path=state.config_path)
     svc.write_config(state.config_path, merged)
-    ui.print(f"  config saved to {_display_path(state.config_path)}")
+    ui.print(f"  config saved to {display_path(state.config_path)}")
 
     if state.session_mode is None:
         raise RuntimeError("onboarding state missing session mode")
-    confirmation_text = _build_confirmation_message(
+    confirmation_text = build_confirmation_message(
         session_mode=state.session_mode,
         topics_enabled=state.topics_enabled,
         show_resume_line=state.show_resume_line is True,
@@ -1027,7 +1027,7 @@ async def _step_save_config(ui: UI, svc: Services, state: OnboardingState) -> No
     ui.panel(None, "setup complete. starting takopi...", border_style="green")
 
 
-def _always(_state: OnboardingState) -> bool:
+def always_true(_state: OnboardingState) -> bool:
     return True
 
 
@@ -1036,17 +1036,17 @@ class OnboardingStep:
     title: str | None
     number: int | None
     run: Callable[[UI, Services, OnboardingState], Awaitable[None]]
-    applies: Callable[[OnboardingState], bool] = _always
+    applies: Callable[[OnboardingState], bool] = always_true
 
 
 STEPS: list[OnboardingStep] = [
-    OnboardingStep("telegram bot setup", 1, _step_token_and_bot),
-    OnboardingStep(None, None, _step_capture_chat),
-    OnboardingStep("how follow-ups work", 2, _step_session_mode),
-    OnboardingStep("topics (optional)", 3, _step_topics),
-    OnboardingStep(None, None, _step_resume_footer, applies=_resume_applies),
-    OnboardingStep("default engine", 4, _step_default_engine),
-    OnboardingStep("save configuration", 5, _step_save_config),
+    OnboardingStep("telegram bot setup", 1, step_token_and_bot),
+    OnboardingStep(None, None, step_capture_chat),
+    OnboardingStep("how follow-ups work", 2, step_session_mode),
+    OnboardingStep("topics (optional)", 3, step_topics),
+    OnboardingStep(None, None, step_resume_footer, applies=resume_applies),
+    OnboardingStep("default engine", 4, step_default_engine),
+    OnboardingStep("save configuration", 5, step_save_config),
 ]
 
 
@@ -1067,7 +1067,7 @@ async def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
     ui = InteractiveUI(Console())
     svc = LiveServices()
     state = OnboardingState(config_path=HOME_CONFIG_PATH, force=False)
-    with _suppress_logging():
+    with suppress_logging():
         try:
             if token is not None:
                 token = token.strip()
@@ -1083,12 +1083,12 @@ async def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
                 state.bot_username = info.username
                 state.bot_name = info.first_name
             else:
-                token, info = await _prompt_token(ui, svc)
+                token, info = await prompt_token(ui, svc)
                 state.token = token
                 state.bot_username = info.username
                 state.bot_name = info.first_name
 
-            await _capture_chat(ui, svc, state)
+            await capture_chat(ui, svc, state)
             return state.chat
         except OnboardingCancelled:
             return None
@@ -1101,24 +1101,24 @@ async def interactive_setup(*, force: bool) -> bool:
 
     if state.config_path.exists() and not force:
         ui.print(
-            f"config already exists at {_display_path(state.config_path)}. "
+            f"config already exists at {display_path(state.config_path)}. "
             "use --onboard to reconfigure."
         )
         return True
 
     if state.config_path.exists() and force:
         overwrite = ui.confirm(
-            f"update existing config at {_display_path(state.config_path)}?",
+            f"update existing config at {display_path(state.config_path)}?",
             default=False,
         )
         if not overwrite:
             return False
 
-    with _suppress_logging():
+    with suppress_logging():
         ui.panel(
             "welcome to takopi!",
             f"let's set up your telegram bot.\n"
-            f"we'll write {_display_path(state.config_path)}.",
+            f"we'll write {display_path(state.config_path)}.",
             border_style="yellow",
         )
         return await run_onboarding(ui, svc, state)
@@ -1160,8 +1160,8 @@ def debug_onboarding_paths(console: Console | None = None) -> None:
                     for save_config in save_configs:
                         path_count += 1
                         agents_label = "found" if agents_found else "none"
-                        save_anyway_label = _format_bool(save_anyway)
-                        save_config_label = _format_bool(save_config)
+                        save_anyway_label = format_bool(save_anyway)
+                        save_config_label = format_bool(save_config)
                         outcome = "saved" if save_config else "exit"
                         table.add_row(
                             str(path_count),
@@ -1185,7 +1185,7 @@ def debug_onboarding_paths(console: Console | None = None) -> None:
     console.print(table)
 
 
-def _format_bool(value: bool | None) -> str:
+def format_bool(value: bool | None) -> str:
     if value is None:
         return "n/a"
     return "yes" if value else "no"

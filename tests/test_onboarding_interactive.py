@@ -42,7 +42,7 @@ def test_render_config_escapes() -> None:
     assert config.endswith("\n")
 
 
-class _FakeQuestion:
+class FakeQuestion:
     def __init__(self, value):
         self._value = value
 
@@ -50,16 +50,16 @@ class _FakeQuestion:
         return self._value
 
 
-def _queue(values):
+def queue_answers(values):
     it = iter(values)
 
     def _make(*_args, **_kwargs):
-        return _FakeQuestion(next(it))
+        return FakeQuestion(next(it))
 
     return _make
 
 
-def _queue_values(values):
+def queue_values(values):
     it = iter(values)
 
     def _next(*_args, **_kwargs):
@@ -68,7 +68,7 @@ def _queue_values(values):
     return _next
 
 
-def _patch_live_services(
+def patch_live_services(
     monkeypatch,
     *,
     bot: User,
@@ -115,16 +115,16 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(onboarding, "list_backends", lambda: [backend])
     monkeypatch.setattr(onboarding.shutil, "which", lambda _cmd: "/usr/bin/codex")
 
-    monkeypatch.setattr(onboarding, "_confirm", _queue_values([True, True]))
+    monkeypatch.setattr(onboarding, "confirm_prompt", queue_values([True, True]))
     monkeypatch.setattr(
-        onboarding.questionary, "password", _queue(["123456789:ABCdef"])
+        onboarding.questionary, "password", queue_answers(["123456789:ABCdef"])
     )
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", "disabled", False, "codex"]),
+        queue_answers(["chat", "disabled", False, "codex"]),
     )
-    _patch_live_services(
+    patch_live_services(
         monkeypatch,
         bot=User(id=1, username="my_bot"),
         chat=onboarding.ChatInfo(
@@ -162,16 +162,16 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(onboarding, "list_backends", lambda: [backend])
     monkeypatch.setattr(onboarding.shutil, "which", lambda _cmd: "/usr/bin/codex")
 
-    monkeypatch.setattr(onboarding, "_confirm", _queue_values([True, True, True]))
+    monkeypatch.setattr(onboarding, "confirm_prompt", queue_values([True, True, True]))
     monkeypatch.setattr(
-        onboarding.questionary, "password", _queue(["123456789:ABCdef"])
+        onboarding.questionary, "password", queue_answers(["123456789:ABCdef"])
     )
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", "disabled", False, "codex"]),
+        queue_answers(["chat", "disabled", False, "codex"]),
     )
-    _patch_live_services(
+    patch_live_services(
         monkeypatch,
         bot=User(id=1, username="my_bot"),
         chat=onboarding.ChatInfo(
@@ -198,16 +198,16 @@ def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(onboarding, "list_backends", lambda: [backend])
     monkeypatch.setattr(onboarding.shutil, "which", lambda _cmd: None)
 
-    monkeypatch.setattr(onboarding, "_confirm", _queue_values([True, False]))
+    monkeypatch.setattr(onboarding, "confirm_prompt", queue_values([True, False]))
     monkeypatch.setattr(
-        onboarding.questionary, "password", _queue(["123456789:ABCdef"])
+        onboarding.questionary, "password", queue_answers(["123456789:ABCdef"])
     )
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", "disabled", False]),
+        queue_answers(["chat", "disabled", False]),
     )
-    _patch_live_services(
+    patch_live_services(
         monkeypatch,
         bot=User(id=1, username="my_bot"),
         chat=onboarding.ChatInfo(
@@ -234,16 +234,16 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
     monkeypatch.setattr(onboarding, "list_backends", lambda: [backend])
     monkeypatch.setattr(onboarding.shutil, "which", lambda _cmd: "/usr/bin/codex")
 
-    monkeypatch.setattr(onboarding, "_confirm", _queue_values([True, True, True]))
+    monkeypatch.setattr(onboarding, "confirm_prompt", queue_values([True, True, True]))
     monkeypatch.setattr(
-        onboarding.questionary, "password", _queue(["123456789:ABCdef"])
+        onboarding.questionary, "password", queue_answers(["123456789:ABCdef"])
     )
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        _queue(["chat", "disabled", False, "codex"]),
+        queue_answers(["chat", "disabled", False, "codex"]),
     )
-    _patch_live_services(
+    patch_live_services(
         monkeypatch,
         bot=User(id=1, username="my_bot"),
         chat=onboarding.ChatInfo(
@@ -266,7 +266,7 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
 
 
 def test_capture_chat_id_with_token(monkeypatch) -> None:
-    _patch_live_services(
+    patch_live_services(
         monkeypatch,
         bot=User(id=1, username="my_bot"),
         chat=onboarding.ChatInfo(
@@ -289,8 +289,8 @@ def test_capture_chat_id_prompts_for_token(monkeypatch) -> None:
     async def _prompt_token(_ui, _svc):
         return ("token", User(id=1, username="bot"))
 
-    monkeypatch.setattr(onboarding, "_prompt_token", _prompt_token)
-    _patch_live_services(
+    monkeypatch.setattr(onboarding, "prompt_token", _prompt_token)
+    patch_live_services(
         monkeypatch,
         bot=User(id=1, username="bot"),
         chat=onboarding.ChatInfo(

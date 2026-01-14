@@ -13,27 +13,27 @@ from takopi.telegram import onboarding as ob
 from takopi.telegram.api_models import User
 
 
-def _section(console: Console, title: str) -> None:
+def section(console: Console, title: str) -> None:
     console.print("")
     console.print(f"=== {title} ===", markup=False)
 
 
-def _render_confirm(console: Console, prompt: str) -> None:
+def render_confirm(console: Console, prompt: str) -> None:
     console.print(f"? {prompt} (yes/no)", markup=False)
 
 
-def _render_password(console: Console, prompt: str) -> None:
+def render_password(console: Console, prompt: str) -> None:
     console.print(f"? {prompt} {'*' * 28}", markup=False)
 
 
-def _render_select(console: Console, prompt: str, choices: list[str]) -> None:
+def render_select(console: Console, prompt: str, choices: list[str]) -> None:
     console.print(f"? {prompt} (Use arrow keys)", markup=False)
     for index, choice in enumerate(choices):
         marker = ">" if index == 0 else " "
         console.print(f"{marker} {choice}", markup=False)
 
 
-def _next_value(values: Iterator[Any], label: str) -> Any:
+def next_value(values: Iterator[Any], label: str) -> Any:
     try:
         return next(values)
     except StopIteration as exc:
@@ -84,17 +84,17 @@ class ScriptedUI:
         self._console.print(text, markup=markup)
 
     def confirm(self, prompt: str, default: bool = True) -> bool | None:
-        _render_confirm(self._console, prompt)
-        return _next_value(self._confirms, "confirm")
+        render_confirm(self._console, prompt)
+        return next_value(self._confirms, "confirm")
 
     def select(self, prompt: str, choices: list[tuple[str, Any]]) -> Any | None:
         rendered = [label for label, _value in choices]
-        _render_select(self._console, prompt, rendered)
-        return _next_value(self._selects, "select")
+        render_select(self._console, prompt, rendered)
+        return next_value(self._selects, "select")
 
     def password(self, prompt: str) -> str | None:
-        _render_password(self._console, prompt)
-        return _next_value(self._passwords, "password")
+        render_password(self._console, prompt)
+        return next_value(self._passwords, "password")
 
 
 @dataclass
@@ -133,12 +133,12 @@ class ScriptedServices:
         self.written_config = data
 
 
-async def _run_flow(title: str, ui: ScriptedUI, svc: ScriptedServices) -> None:
-    _section(ui.console, title)
+async def run_flow(title: str, ui: ScriptedUI, svc: ScriptedServices) -> None:
+    section(ui.console, title)
     ui.panel(
         "welcome to takopi!",
         f"let's set up your telegram bot.\n"
-        f"we'll write {ob._display_path(ob.HOME_CONFIG_PATH)}.",
+        f"we'll write {ob.display_path(ob.HOME_CONFIG_PATH)}.",
         border_style="yellow",
     )
     state = ob.OnboardingState(config_path=ob.HOME_CONFIG_PATH, force=False)
@@ -177,7 +177,7 @@ def main() -> None:
     ]
 
     anyio.run(
-        _run_flow,
+        run_flow,
         "happy path (group chat, topics off)",
         ScriptedUI(
             console,
@@ -189,7 +189,7 @@ def main() -> None:
     )
 
     anyio.run(
-        _run_flow,
+        run_flow,
         "private chat (topics projects, token instructions)",
         ScriptedUI(
             console,
@@ -201,7 +201,7 @@ def main() -> None:
     )
 
     anyio.run(
-        _run_flow,
+        run_flow,
         "topics validation warning",
         ScriptedUI(
             console,
@@ -218,7 +218,7 @@ def main() -> None:
     )
 
     anyio.run(
-        _run_flow,
+        run_flow,
         "no engines installed",
         ScriptedUI(
             console,
@@ -229,7 +229,7 @@ def main() -> None:
         ScriptedServices(bot=bot, chat=group_chat, engines=engines_missing),
     )
 
-    _section(console, "telegram confirmation messages")
+    section(console, "telegram confirmation messages")
     variants = [
         ("chat", False, True),
         ("chat", True, False),
@@ -240,7 +240,7 @@ def main() -> None:
         title = f"mode={session_mode}, topics={topics_enabled}, resume={show_resume_line}"
         console.print("")
         console.print(Text(title, style="bold"))
-        message = ob._build_confirmation_message(
+        message = ob.build_confirmation_message(
             session_mode=session_mode,
             topics_enabled=topics_enabled,
             show_resume_line=show_resume_line,
