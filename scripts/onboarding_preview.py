@@ -150,7 +150,10 @@ def _render_chat_capture(
         markup=False,
     )
     console.print("  waiting...", markup=False)
-    console.print(f"  got chat_id {chat_id} ({kind}) from {display}", markup=False)
+    if kind.startswith("supergroup") or kind.startswith("channel"):
+        console.print(f"  got chat_id {chat_id} for {kind}", markup=False)
+    else:
+        console.print(f"  got chat_id {chat_id} for {display} ({kind})", markup=False)
 
 
 def _render_conversation_style(console: Console) -> None:
@@ -161,13 +164,12 @@ def _render_conversation_style(console: Console) -> None:
 
 def _render_topics(console: Console, label: str, chat: ob.ChatInfo) -> None:
     _section(console, label)
-    _render_step(console, 3, "topics & resume footer")
+    _render_step(console, 3, "topics (optional)")
     with _patched_select(console):
         ob._prompt_topics(console, chat)
 
 
 def _render_resume_lines(console: Console) -> None:
-    _section(console, "resume footer prompt")
     with _patched_select(console):
         ob._prompt_resume_lines(console)
 
@@ -188,9 +190,9 @@ def _render_topics_validation_warning(console: Console) -> None:
 
 
 def _render_engine_table(console: Console, installed_ids: set[str]) -> None:
-    _render_step(console, 4, "default agent")
+    _render_step(console, 4, "default engine")
     console.print(
-        "takopi runs one of these agent CLIs on your machine. "
+        "takopi runs one of these engine CLIs on your machine. "
         "you can switch per message later.",
         markup=False,
     )
@@ -199,11 +201,11 @@ def _render_engine_table(console: Console, installed_ids: set[str]) -> None:
 
 
 def _render_choose_default_agent(console: Console) -> None:
-    _render_select(console, "choose default agent:", ["codex", "claude", "opencode"])
+    _render_select(console, "choose default engine:", ["codex", "claude", "opencode"])
 
 
 def _render_no_agents(console: Console) -> None:
-    console.print("no agents found on PATH. install one to continue.", markup=False)
+    console.print("no engines found on PATH. install one to continue.", markup=False)
     _render_confirm(console, "save config anyway?")
 
 
@@ -327,6 +329,14 @@ def main() -> None:
 
     _section(console, "step 2: how follow-ups work")
     _render_conversation_style(console)
+    _section(console, "step 2: resume footer prompt (chat sessions)")
+    _render_resume_lines(console)
+    _section(console, "step 2: reply-to-continue note")
+    console.print("  reply-to-continue requires resume footers.", markup=False)
+    console.print(
+        "  if you enable topics later, you can choose to hide them.",
+        markup=False,
+    )
 
     private_chat = ob.ChatInfo(
         chat_id=462722,
@@ -344,26 +354,21 @@ def main() -> None:
         last_name=None,
         chat_type="supergroup",
     )
-    _render_topics(console, "step 3: topics prompt (private chat; skipped)", private_chat)
+    _render_topics(console, "step 3: topics prompt (private chat)", private_chat)
     _render_topics(console, "step 3: topics prompt (group chat)", group_chat)
     _section(console, "step 3: topics tip (project chats)")
     console.print("  tip: bind a project chat with:", markup=False)
     console.print("  takopi chat-id --project <alias>", markup=False)
 
-    _section(console, "step 3: resume footer prompt")
+    _section(console, "step 3: resume footer prompt (topics enabled)")
     _render_resume_lines(console)
-    _section(console, "step 3: reply-to-continue note")
-    console.print(
-        "  reply-to-continue requires resume lines. we'll keep them on.",
-        markup=False,
-    )
     _render_topics_validation_warning(console)
 
-    _section(console, "step 4: agents found")
+    _section(console, "step 4: engines found")
     _render_engine_table(console, {"codex", "claude"})
     _render_choose_default_agent(console)
 
-    _section(console, "step 4: no agents")
+    _section(console, "step 4: no engines")
     _render_engine_table(console, set())
     _render_no_agents(console)
 

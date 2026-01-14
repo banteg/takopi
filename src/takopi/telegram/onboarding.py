@@ -240,7 +240,7 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
     backends = list_backends()
     rows: list[tuple[str, bool, str | None]] = []
     table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
-    table.add_column("agent")
+    table.add_column("engine")
     table.add_column("status")
     table.add_column("install command")
     for backend in backends:
@@ -345,6 +345,10 @@ def _render_session_mode_examples(console: Console) -> None:
         "done · codex · 8s",
         speaker_style="bold magenta",
     )
+    stateless_text.append(
+        "      codex resume ...  ← reply to this line\n",
+        style="dim",
+    )
     _append_dialogue(
         stateless_text,
         "you",
@@ -392,19 +396,28 @@ def _prompt_topics(console: Console, chat: ChatInfo) -> str | None:
     console.print("")
     if not chat.is_group:
         console.print(
-            "  note: you captured a private chat. topics require a forum group. "
-            "skipping."
+            "  note: you captured a private chat. topics require a forum group."
         )
         console.print(
             "  to enable later: add the bot to a forum group and rerun "
             "takopi --onboard"
         )
         console.print("")
-        return "disabled"
+        return questionary.select(
+            "will you use topics?",
+            choices=[
+                questionary.Choice("no (topics off)", value="disabled"),
+                questionary.Choice(
+                    "yes, in project chats (i'll bind chats per project later)",
+                    value="projects",
+                ),
+            ],
+        ).ask()
     console.print("forum topics turn each topic into its own workspace.")
     console.print(
         "takopi can bind each topic to a project + branch and remember the thread there."
     )
+    console.print("best for: team supergroups where each topic maps to a repo/branch.")
     console.print("")
     console.print(
         "requires: forum-enabled supergroup + bot admin permission (manage topics)"
@@ -426,7 +439,10 @@ def _prompt_topics(console: Console, chat: ChatInfo) -> str | None:
 
 def _prompt_resume_lines(console: Console) -> bool | None:
     console.print("")
-    console.print('resume footers add a small line like: "codex resume ..."')
+    console.print(
+        'resume footers add a small line at the end of takopi messages '
+        '(called a "resume line" in config/docs).'
+    )
     console.print("replying to that resume line continues (or branches) that thread.")
     console.print("")
     console.print(
@@ -438,11 +454,11 @@ def _prompt_resume_lines(console: Console) -> bool | None:
         "show resume footers in messages?",
         choices=[
             questionary.Choice(
-                "hide (cleaner; still auto-continues)",
+                "auto-hide when a project is active (cleaner; still auto-continues)",
                 value=False,
             ),
             questionary.Choice(
-                "show (useful for branching or terminal resume)",
+                "always show resume footers (best for branching or terminal resume)",
                 value=True,
             ),
         ],
@@ -465,6 +481,7 @@ def _build_confirmation_message(
                 "- try: explain what this repo does",
                 "- reply to an older message to branch from there",
                 "- use /new to start a fresh thread",
+                "- tip: /agent set claude (sets the default engine for this chat)",
             ]
         )
     else:
@@ -480,16 +497,17 @@ def _build_confirmation_message(
             [
                 "",
                 "topics:",
-                "- use /topic myproj @main to create/bind a topic",
+                "- use /topic <project> @<branch> (example: /topic myproj @main)",
                 "- use /ctx to show or update the binding",
                 "- use /new to reset the topic thread",
+                "- tip: /agent set claude (sets the default engine for this topic)",
             ]
         )
     if (session_mode == "chat" or topics_enabled) and not show_resume_line:
         lines.extend(
             [
                 "",
-                "resume lines are hidden. "
+                "resume lines are hidden when a project is active. "
                 "set show_resume_line = true to show them.",
             ]
         )
@@ -642,9 +660,12 @@ def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
         if chat is None:
             console.print("  cancelled")
             return None
-        console.print(
-            f"  got chat_id {chat.chat_id} ({chat.kind}) from {chat.display}"
-        )
+        if chat.is_group or chat.chat_type == "channel":
+            console.print(f"  got chat_id {chat.chat_id} for {chat.kind}")
+        else:
+            console.print(
+                f"  got chat_id {chat.chat_id} for {chat.display} ({chat.kind})"
+            )
         return chat
 
 
@@ -712,9 +733,12 @@ def interactive_setup(*, force: bool) -> bool:
         if chat is None:
             console.print("  cancelled")
             return False
-        console.print(
-            f"  got chat_id {chat.chat_id} ({chat.kind}) from {chat.display}"
-        )
+        if chat.is_group or chat.chat_type == "channel":
+            console.print(f"  got chat_id {chat.chat_id} for {chat.kind}")
+        else:
+            console.print(
+                f"  got chat_id {chat.chat_id} for {chat.display} ({chat.kind})"
+            )
 
         console.print("")
         console.print(Text("step 2: how follow-ups work", style="bold yellow"))
@@ -723,8 +747,21 @@ def interactive_setup(*, force: bool) -> bool:
         if session_mode is None:
             return False
 
+        show_resume_line = True
+        prompted_resume = False
+        if session_mode == "chat":
+            resume_choice = _prompt_resume_lines(console)
+            if resume_choice is None:
+                return False
+            show_resume_line = resume_choice
+            prompted_resume = True
+        else:
+            console.print("")
+            console.print("  reply-to-continue requires resume footers.")
+            console.print("  if you enable topics later, you can choose to hide them.")
+
         console.print("")
-        console.print(Text("step 3: topics & resume footer", style="bold yellow"))
+        console.print(Text("step 3: topics (optional)", style="bold yellow"))
         topics_choice = _prompt_topics(console, chat)
         if topics_choice is None:
             return False
@@ -767,23 +804,16 @@ def interactive_setup(*, force: bool) -> bool:
             console.print("")
             console.print("  tip: bind a project chat with:")
             console.print("  takopi chat-id --project <alias>")
-
-        show_resume_line = True
-        if session_mode == "chat" or topics_enabled:
+        if topics_enabled and not prompted_resume:
             resume_choice = _prompt_resume_lines(console)
             if resume_choice is None:
                 return False
             show_resume_line = resume_choice
-        else:
-            console.print("")
-            console.print(
-                "  reply-to-continue requires resume lines. we'll keep them on."
-            )
 
         console.print("")
-        console.print(Text("step 4: default agent", style="bold yellow"))
+        console.print(Text("step 4: default engine", style="bold yellow"))
         console.print(
-            "takopi runs one of these agent CLIs on your machine. "
+            "takopi runs one of these engine CLIs on your machine. "
             "you can switch per message later."
         )
         rows = _render_engine_table(console)
@@ -792,13 +822,13 @@ def interactive_setup(*, force: bool) -> bool:
         default_engine: str | None = None
         if installed_ids:
             default_engine = questionary.select(
-                "choose default agent:",
+                "choose default engine:",
                 choices=installed_ids,
             ).ask()
             if default_engine is None:
                 return False
         else:
-            console.print("no agents found on PATH. install one to continue.")
+            console.print("no engines found on PATH. install one to continue.")
             save_anyway = _confirm("save config anyway?", default=False)
             if not save_anyway:
                 return False
@@ -911,7 +941,7 @@ def debug_onboarding_paths(console: Console | None = None) -> None:
     table.add_column("topics")
     table.add_column("resume footer")
     table.add_column("topics check")
-    table.add_column("agents")
+    table.add_column("engines")
     table.add_column("save anyway")
     table.add_column("save config")
     table.add_column("outcome")
