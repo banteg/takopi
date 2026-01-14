@@ -17,7 +17,8 @@ from questionary.constants import DEFAULT_QUESTION_PREFIX
 from questionary.question import Question
 from questionary.styles import merge_styles_default
 from rich import box
-from rich.console import Console
+from rich.columns import Columns
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -390,7 +391,134 @@ def render_backup_failed_warning(error: OSError) -> Text:
     return Text.assemble(("warning: ", "yellow"), f"failed to back up config: {error}")
 
 
+def render_persona_tabs() -> Table:
+    active_label = "happian @memory-box"
+    inactive_label = "takopi @master"
+    grid = Table.grid(padding=(0, 2))
+    grid.pad_edge = False
+    grid.add_column()
+    grid.add_column()
+    grid.add_row(Text(active_label, style="cyan"), Text(inactive_label, style="dim"))
+    grid.add_row(Text("─" * len(active_label), style="cyan"), Text(""))
+    return grid
+
+
+def render_workspace_preview() -> Text:
+    return Text.assemble(
+        ("[you] ", "bold cyan"),
+        "store artifacts forever\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 10s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        "also freeze them\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 6s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        "automatically adjust size\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 6s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        "add a yellow star button",
+    )
+
+
+def render_assistant_preview() -> Text:
+    return Text.assemble(
+        ("[you] ", "bold cyan"),
+        "make happy wings fit\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 8s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        "carry heavy creatures\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 12s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        ("/new", "bold green"),
+        ("  ← start fresh\n", "yellow"),
+        ("[you] ", "bold cyan"),
+        "add flower pin\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 6s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        "make wearer appear as flower\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 4s", "dim"),
+    )
+
+
+def render_handoff_preview() -> Text:
+    return Text.assemble(
+        ("[you] ", "bold cyan"),
+        "make it go back in time\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 8s\n", "dim"),
+        ("      codex resume ", "dim"),
+        ("abc123 ", "cyan"),
+        ("← reply\n", "yellow"),
+        ("[you] ", "bold cyan"),
+        "add reconciliation ribbon\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 3s\n", "dim"),
+        ("      codex resume ", "dim"),
+        ("def456\n", "green"),
+        ("[you] ", "bold cyan"),
+        ("(reply) ", "bold green"),
+        "more than once\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 8s\n", "dim"),
+        ("      codex resume ", "dim"),
+        ("abc123", "cyan"),
+    )
+
+
+def render_persona_preview(ui: UI) -> None:
+    panel_width = 40
+    workspace_layout = Group(
+        render_persona_tabs(),
+        render_workspace_preview(),
+    )
+    workspace_panel = Panel(
+        workspace_layout,
+        title=Text("workspace", style="bold"),
+        subtitle="project/branch workspaces",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(0, 1),
+        width=panel_width,
+    )
+    assistant_panel = Panel(
+        render_assistant_preview(),
+        title=Text("assistant", style="bold"),
+        subtitle="ongoing chat (recommended)",
+        border_style="green",
+        box=box.ROUNDED,
+        padding=(0, 1),
+        width=panel_width,
+    )
+    handoff_panel = Panel(
+        render_handoff_preview(),
+        title=Text("handoff", style="bold"),
+        subtitle="reply to continue · terminal",
+        border_style="magenta",
+        box=box.ROUNDED,
+        padding=(0, 1),
+        width=panel_width,
+    )
+    ui.print("")
+    ui.print(
+        Columns(
+            [workspace_panel, assistant_panel, handoff_panel],
+            expand=False,
+            equal=True,
+            padding=(0, 2),
+        ),
+        markup=False,
+    )
+    ui.print("")
+
+
 def prompt_persona(ui: UI) -> Persona | None:
+    render_persona_preview(ui)
     return cast(
         Persona,
         ui.select(
