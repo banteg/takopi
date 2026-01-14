@@ -525,6 +525,12 @@ def chat_id(
     typer.echo(f"chat_id = {chat.chat_id}")
 
 
+def onboarding_paths() -> None:
+    """Print all possible onboarding paths."""
+    setup_logging(debug=False, cache_logger_on_first_use=False)
+    onboarding.debug_onboarding_paths()
+
+
 def doctor() -> None:
     """Run configuration checks for the active transport."""
     setup_logging(debug=False, cache_logger_on_first_use=False)
@@ -768,6 +774,7 @@ def create_app() -> typer.Typer:
     app.command(name="init")(init)
     app.command(name="chat-id")(chat_id)
     app.command(name="doctor")(doctor)
+    app.command(name="onboarding-paths")(onboarding_paths)
     app.command(name="plugins")(plugins_cmd)
     app.callback()(app_main)
     for engine_id in _engine_ids_for_cli():

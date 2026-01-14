@@ -46,6 +46,7 @@ from .topics import _validate_topics_setup_for
 __all__ = [
     "ChatInfo",
     "check_setup",
+    "debug_onboarding_paths",
     "interactive_setup",
     "mask_token",
     "get_bot_info",
@@ -817,3 +818,70 @@ def interactive_setup(*, force: bool) -> bool:
         console.print("\n")
         console.print(done_panel)
         return True
+
+
+def debug_onboarding_paths(console: Console | None = None) -> None:
+    console = console or Console()
+    table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
+    table.add_column("#", justify="right", style="dim")
+    table.add_column("session")
+    table.add_column("topics")
+    table.add_column("resume lines")
+    table.add_column("topics check")
+    table.add_column("agents")
+    table.add_column("save anyway")
+    table.add_column("save config")
+    table.add_column("outcome")
+
+    engine_paths: list[tuple[bool, bool | None, tuple[bool | None, ...]]] = [
+        (True, None, (True, False)),
+        (False, False, (None,)),
+        (False, True, (True, False)),
+    ]
+
+    topics_choices = ("disabled", "main", "projects", "all")
+    path_count = 0
+    for session_mode in ("chat", "stateless"):
+        for topics_choice in topics_choices:
+            topics_enabled = topics_choice != "disabled"
+            resume_prompt = session_mode == "chat" or topics_enabled
+            resume_values = (True, False) if resume_prompt else (True,)
+            topics_check = topics_enabled and topics_choice in {"main", "all"}
+            for show_resume_line in resume_values:
+                if resume_prompt:
+                    resume_label = "show" if show_resume_line else "hide"
+                else:
+                    resume_label = "show (fixed)"
+                for agents_found, save_anyway, save_configs in engine_paths:
+                    for save_config in save_configs:
+                        path_count += 1
+                        agents_label = "found" if agents_found else "none"
+                        save_anyway_label = _format_bool(save_anyway)
+                        save_config_label = _format_bool(save_config)
+                        outcome = "saved" if save_config else "exit"
+                        table.add_row(
+                            str(path_count),
+                            session_mode,
+                            topics_choice,
+                            resume_label,
+                            "run" if topics_check else "skip",
+                            agents_label,
+                            save_anyway_label,
+                            save_config_label,
+                            outcome,
+                        )
+
+    console.print(f"onboarding paths ({path_count})", markup=False)
+    console.print(
+        "assumes config is missing or --onboard was confirmed; "
+        "cancellations/timeouts are omitted.",
+        markup=False,
+    )
+    console.print("")
+    console.print(table)
+
+
+def _format_bool(value: bool | None) -> str:
+    if value is None:
+        return "n/a"
+    return "yes" if value else "no"
