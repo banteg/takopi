@@ -38,9 +38,21 @@ from .transport import MessageRef, RenderedMessage, SendOptions, Transport
 from .transport_runtime import ResolvedMessage, ResolvedRunner, TransportRuntime
 from .transports import SetupResult, TransportBackend
 
+# Plugin utilities
+from .config import HOME_CONFIG_PATH, read_config, write_config
+from .ids import RESERVED_COMMAND_IDS
+from .logging import bind_run_context, clear_context, get_logger, suppress_logs
+from .utils.paths import reset_run_base_dir, set_run_base_dir
+from .scheduler import ThreadJob, ThreadScheduler
+from .commands import get_command, list_command_ids
+from .engines import list_backends
+from .settings import load_settings
+from .backends_helpers import install_issue
+
 TAKOPI_PLUGIN_API_VERSION = 1
 
 __all__ = [
+    # Core types
     "Action",
     "ActionEvent",
     "BaseRunner",
@@ -81,4 +93,29 @@ __all__ = [
     "TransportBackend",
     "TransportRuntime",
     "handle_message",
+    # Plugin utilities
+    # -- Constants
+    "HOME_CONFIG_PATH",
+    "RESERVED_COMMAND_IDS",
+    # -- Config
+    "read_config",
+    "write_config",
+    # -- Logging
+    "get_logger",
+    "bind_run_context",
+    "clear_context",
+    "suppress_logs",
+    # -- Path context
+    "set_run_base_dir",
+    "reset_run_base_dir",
+    # -- Scheduler
+    "ThreadJob",
+    "ThreadScheduler",
+    # -- Commands
+    "get_command",
+    "list_command_ids",
+    # -- Discovery
+    "list_backends",
+    "load_settings",
+    "install_issue",
 ]
