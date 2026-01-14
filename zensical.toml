@@ -154,6 +154,9 @@ emoji_index = "zensical.extensions.emoji.twemoji"
 emoji_generator = "zensical.extensions.emoji.to_svg"
 options.custom_icons = ["docs/overrides/.icons"]
 
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true
+
 [project.markdown_extensions.toc]
 permalink = true
 
