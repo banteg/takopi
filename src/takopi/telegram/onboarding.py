@@ -372,6 +372,82 @@ def render_stateless_mode_panel() -> Text:
     )
 
 
+def render_topics_private_note() -> Text:
+    return Text.assemble(
+        "  note: you selected a private chat. topics only work in forum groups.\n",
+        "  to enable later: add the bot to a forum group and rerun takopi --onboard",
+    )
+
+
+def render_topics_group_intro() -> Text:
+    return Text.assemble(
+        "each forum topic becomes its own workspace with separate memory.\n",
+        "you can bind a topic to a project + branch, so work stays organized.\n",
+        "best for: team chats where each topic is a different repo or branch.\n\n",
+        "requires: forum-enabled group + bot has 'manage topics' permission",
+    )
+
+
+def render_resume_line_explainer() -> Text:
+    return Text.assemble(
+        "the resume line is a small footer at the end of messages "
+        "(like 'codex resume abc123...').\n",
+        "reply to it to continue (or branch) that conversation.\n",
+        "it's also used to resume from terminal or another chat.\n\n",
+        "since you enabled auto-continue, the line can be hidden when a project is bound.",
+    )
+
+
+def render_botfather_instructions() -> Text:
+    return Text.assemble(
+        "  1. open telegram and message @BotFather\n",
+        "  2. send /newbot and follow the prompts\n",
+        "  3. copy the token (looks like 123456789:ABCdef...)\n\n",
+        "  keep this token secret - it grants full control of your bot.",
+    )
+
+
+def render_stateless_resume_note() -> Text:
+    return Text.assemble(
+        "  reply-to-continue needs the resume line to work.\n",
+        "  if you enable topics later, you can choose to hide it.\n",
+    )
+
+
+def render_topics_validation_warning(issue: ConfigError) -> Text:
+    return Text.assemble(
+        ("warning: ", "yellow"),
+        f"topics can't be enabled yet: {issue}\n",
+        "  fix:\n",
+        "  - promote the bot to admin\n",
+        "  - enable \"manage topics\"\n",
+        "  - rerun takopi --onboard",
+    )
+
+
+def render_project_chat_tip() -> Text:
+    return Text.assemble(
+        "  tip: bind a project chat with:\n",
+        "  takopi chat-id --project <alias>",
+    )
+
+
+def render_token_save_note() -> Text:
+    return Text.assemble(
+        "  note: your bot token will be saved in plain text.",
+    )
+
+
+def render_config_malformed_warning(error: ConfigError) -> Text:
+    return Text.assemble(("warning: ", "yellow"), f"config is malformed: {error}")
+
+
+def render_backup_failed_warning(error: OSError) -> Text:
+    return Text.assemble(
+        ("warning: ", "yellow"), f"failed to back up config: {error}"
+    )
+
+
 def render_session_mode_examples(ui: UI) -> None:
     ui.print(
         "  how should conversations continue?\n",
@@ -422,12 +498,7 @@ def prompt_session_mode(ui: UI) -> SessionMode | None:
 def prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
     ui.print("")
     if not chat.is_group:
-        ui.print(
-            "  note: you selected a private chat. topics only work in forum groups."
-        )
-        ui.print(
-            "  to enable later: add the bot to a forum group and rerun takopi --onboard"
-        )
+        ui.print(render_topics_private_note(), markup=False)
         ui.print("")
         return ui.select(
             "enable topics?",
@@ -439,11 +510,7 @@ def prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
                 ),
             ],
         )
-    ui.print("each forum topic becomes its own workspace with separate memory.")
-    ui.print("you can bind a topic to a project + branch, so work stays organized.")
-    ui.print("best for: team chats where each topic is a different repo or branch.")
-    ui.print("")
-    ui.print("requires: forum-enabled group + bot has 'manage topics' permission")
+    ui.print(render_topics_group_intro(), markup=False)
     ui.print("")
     return ui.select(
         "enable topics?",
@@ -458,16 +525,7 @@ def prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
 
 def prompt_resume_lines(ui: UI) -> bool | None:
     ui.print("")
-    ui.print(
-        "the resume line is a small footer at the end of messages "
-        "(like 'codex resume abc123...')."
-    )
-    ui.print("reply to it to continue (or branch) that conversation.")
-    ui.print("it's also used to resume from terminal or another chat.")
-    ui.print("")
-    ui.print(
-        "since you enabled auto-continue, the line can be hidden when a project is bound."
-    )
+    ui.print(render_resume_line_explainer(), markup=False)
     ui.print("")
     return cast(
         bool | None,
@@ -825,11 +883,7 @@ async def step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> N
         ui.confirm("do you already have a bot token from @BotFather?")
     )
     if not have_token:
-        ui.print("  1. open telegram and message @BotFather")
-        ui.print("  2. send /newbot and follow the prompts")
-        ui.print("  3. copy the token (looks like 123456789:ABCdef...)")
-        ui.print("")
-        ui.print("  keep this token secret - it grants full control of your bot.")
+        ui.print(render_botfather_instructions(), markup=False)
         ui.print("")
     token, info = await prompt_token(ui, svc)
     state.token = token
@@ -847,8 +901,7 @@ async def step_session_mode(ui: UI, _svc: Services, state: OnboardingState) -> N
     state.session_mode = require_value(session_mode)
     if state.session_mode == "stateless":
         ui.print("")
-        ui.print("  reply-to-continue needs the resume line to work.")
-        ui.print("  if you enable topics later, you can choose to hide it.")
+        ui.print(render_stateless_resume_note(), markup=False)
 
 
 async def step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
@@ -871,13 +924,7 @@ async def step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
             state.topics_scope,
         )
         if issue is not None:
-            ui.print(f"[yellow]warning:[/] topics can't be enabled yet: {issue}")
-            ui.print(
-                "  fix:\n"
-                "  - promote the bot to admin\n"
-                '  - enable "manage topics"\n'
-                "  - rerun takopi --onboard"
-            )
+            ui.print(render_topics_validation_warning(issue), markup=False)
             disable = ui.confirm("disable topics for now? (recommended)", default=True)
             if disable is None:
                 raise OnboardingCancelled()
@@ -889,8 +936,7 @@ async def step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
 
     if state.topics_enabled and state.topics_scope in {"projects", "all"}:
         ui.print("")
-        ui.print("  tip: bind a project chat with:")
-        ui.print("  takopi chat-id --project <alias>")
+        ui.print(render_project_chat_tip(), markup=False)
 
 
 def resume_applies(state: OnboardingState) -> bool:
@@ -936,7 +982,7 @@ async def step_save_config(ui: UI, svc: Services, state: OnboardingState) -> Non
     for line in config_preview.splitlines():
         ui.print(f"  {line}", markup=False)
     ui.print("")
-    ui.print("  note: your bot token will be saved in plain text.")
+    ui.print(render_token_save_note(), markup=False)
     ui.print("")
 
     save = ui.confirm(
@@ -951,12 +997,12 @@ async def step_save_config(ui: UI, svc: Services, state: OnboardingState) -> Non
         try:
             raw_config = svc.read_config(state.config_path)
         except ConfigError as exc:
-            ui.print(f"[yellow]warning:[/] config is malformed: {exc}")
+            ui.print(render_config_malformed_warning(exc), markup=False)
             backup = state.config_path.with_suffix(".toml.bak")
             try:
                 shutil.copyfile(state.config_path, backup)
             except OSError as copy_exc:
-                ui.print(f"[yellow]warning:[/] failed to back up config: {copy_exc}")
+                ui.print(render_backup_failed_warning(copy_exc), markup=False)
             else:
                 ui.print(f"  backed up to {display_path(backup)}")
             raw_config = {}
