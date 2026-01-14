@@ -240,46 +240,107 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
     return rows
 
 
+def _append_dialogue(
+    text: Text,
+    speaker: str,
+    message: str,
+    *,
+    speaker_style: str,
+    message_style: str | None = None,
+) -> None:
+    text.append(f"[{speaker}] ", style=speaker_style)
+    text.append(message, style=message_style)
+    text.append("\n")
+
+
 def _render_session_mode_examples(console: Console) -> None:
     console.print("  takopi can work two ways:\n", markup=False)
-    chat_text = "\n".join(
-        [
-            "takopi remembers your session. new messages auto-continue.",
-            "good for: ongoing work, natural conversation flow.",
-            "",
-            "[you] polish the octopus mascot",
-            "[bot] done · codex · 8s",
-            "[you] now add a tiny top hat  ← no reply needed",
-            "[bot] done · codex · 5s",
-            "[you] /new  ← reset when done",
-        ]
+    chat_text = Text()
+    chat_text.append(
+        "takopi remembers your session. new messages auto-continue.\n",
+        style="dim",
     )
+    chat_text.append(
+        "good for: ongoing work, natural conversation flow.\n\n",
+        style="dim",
+    )
+    _append_dialogue(
+        chat_text,
+        "you",
+        "polish the octopus mascot",
+        speaker_style="bold cyan",
+    )
+    _append_dialogue(
+        chat_text,
+        "bot",
+        "done · codex · 8s",
+        speaker_style="bold magenta",
+    )
+    _append_dialogue(
+        chat_text,
+        "you",
+        "now add a tiny top hat  ← no reply needed",
+        speaker_style="bold cyan",
+    )
+    _append_dialogue(
+        chat_text,
+        "bot",
+        "done · codex · 5s",
+        speaker_style="bold magenta",
+    )
+    chat_text.append("[you] ", style="bold cyan")
+    chat_text.append("/new", style="bold yellow")
+    chat_text.append("  ← reset when done\n")
     console.print(
         Panel(
-            Text(chat_text),
-            title="chat mode (default)",
-            box=box.SIMPLE,
+            chat_text,
+            title=Text("chat mode (default)", style="bold"),
+            border_style="cyan",
+            box=box.ROUNDED,
             padding=(0, 1),
         ),
         markup=False,
     )
     console.print("")
-    stateless_text = "\n".join(
-        [
-            "every message starts fresh unless you reply to continue.",
-            "good for: quick isolated tasks, explicit control.",
-            "",
-            "[you] make the octopus blink",
-            "[bot] done · codex · 8s",
-            "[you] (reply) now add a sparkle trail",
-            "[bot] done · codex · 5s",
-        ]
+    stateless_text = Text()
+    stateless_text.append(
+        "every message starts fresh unless you reply to continue.\n",
+        style="dim",
+    )
+    stateless_text.append(
+        "good for: quick isolated tasks, explicit control.\n\n",
+        style="dim",
+    )
+    _append_dialogue(
+        stateless_text,
+        "you",
+        "make the octopus blink",
+        speaker_style="bold cyan",
+    )
+    _append_dialogue(
+        stateless_text,
+        "bot",
+        "done · codex · 8s",
+        speaker_style="bold magenta",
+    )
+    _append_dialogue(
+        stateless_text,
+        "you",
+        "(reply) now add a sparkle trail",
+        speaker_style="bold cyan",
+    )
+    _append_dialogue(
+        stateless_text,
+        "bot",
+        "done · codex · 5s",
+        speaker_style="bold magenta",
     )
     console.print(
         Panel(
-            Text(stateless_text),
-            title="stateless",
-            box=box.SIMPLE,
+            stateless_text,
+            title=Text("stateless", style="bold"),
+            border_style="magenta",
+            box=box.ROUNDED,
             padding=(0, 1),
         ),
         markup=False,
