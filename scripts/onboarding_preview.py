@@ -27,7 +27,7 @@ def render_password(console: Console, prompt: str) -> None:
 
 
 def render_select(console: Console, prompt: str, choices: list[str]) -> None:
-    console.print(f"? {prompt} (Use arrow keys)", markup=False)
+    console.print(f"? {prompt} (use arrow keys)", markup=False)
     for index, choice in enumerate(choices):
         marker = ">" if index == 0 else " "
         console.print(f"{marker} {choice}", markup=False)
@@ -75,7 +75,9 @@ class ScriptedUI:
         self._console.print(panel)
 
     def step(self, title: str, *, number: int) -> None:
+        self._console.print("")
         self._console.print(Text(f"step {number}: {title}", style="bold yellow"))
+        self._console.print("")
 
     def print(self, text: object = "", *, markup: bool | None = None) -> None:
         if markup is None:
@@ -103,7 +105,6 @@ class ScriptedServices:
     chat: ob.ChatInfo
     engines: list[tuple[str, bool, str | None]]
     topics_issue: ConfigError | None = None
-    send_confirmation_result: bool = True
     existing_config: dict[str, Any] | None = None
     written_config: dict[str, Any] | None = None
 
@@ -118,9 +119,6 @@ class ScriptedServices:
     ) -> ConfigError | None:
         return self.topics_issue
 
-    async def send_confirmation(self, _token: str, _chat_id: int, _text: str) -> bool:
-        return self.send_confirmation_result
-
     def list_engines(self) -> list[tuple[str, bool, str | None]]:
         return self.engines
 
@@ -133,12 +131,7 @@ class ScriptedServices:
 
 async def run_flow(title: str, ui: ScriptedUI, svc: ScriptedServices) -> None:
     section(ui.console, title)
-    ui.panel(
-        "welcome to takopi!",
-        f"let's set up your telegram bot.\n"
-        f"we'll write {ob.display_path(ob.HOME_CONFIG_PATH)}.",
-        border_style="yellow",
-    )
+    ui.print(ob.render_welcome_blurb())
     state = ob.OnboardingState(config_path=ob.HOME_CONFIG_PATH, force=False)
     await ob.run_onboarding(ui, svc, state)
 
@@ -215,8 +208,8 @@ def main() -> None:
         "topics validation warning",
         ScriptedUI(
             console,
-            confirms=[True, False, True],
-            selects=["workspace", "codex"],
+            confirms=[True, True],
+            selects=["workspace", "assistant", "codex"],
             passwords=["123456789:ABCdef"],
         ),
         ScriptedServices(
@@ -238,27 +231,6 @@ def main() -> None:
         ),
         ScriptedServices(bot=bot, chat=private_chat, engines=engines_missing),
     )
-
-    section(console, "telegram confirmation messages")
-    variants = [
-        ("chat", False, True),
-        ("chat", True, False),
-        ("stateless", False, True),
-    ]
-    for session_mode, topics_enabled, show_resume_line in variants:
-        title = (
-            f"mode={session_mode}, topics={topics_enabled}, resume={show_resume_line}"
-        )
-        console.print("")
-        console.print(Text(title, style="bold"))
-        message = ob.build_confirmation_message(
-            session_mode=session_mode,
-            topics_enabled=topics_enabled,
-            show_resume_line=show_resume_line,
-        )
-        for line in message.splitlines():
-            console.print(f"  {line}", markup=False)
-
 
 if __name__ == "__main__":
     main()

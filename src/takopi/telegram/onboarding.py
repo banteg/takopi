@@ -27,7 +27,6 @@ from ..backends import EngineBackend, SetupIssue
 from ..backends_helpers import install_issue
 from ..config import (
     ConfigError,
-    dump_toml,
     ensure_table,
     read_config,
     write_config,
@@ -171,7 +170,6 @@ class Services(Protocol):
         self, token: str, chat_id: int, scope: TopicScope
     ) -> ConfigError | None: ...
 
-    async def send_confirmation(self, token: str, chat_id: int, text: str) -> bool: ...
     def list_engines(self) -> list[tuple[str, bool, str | None]]: ...
     def read_config(self, path: Path) -> dict[str, Any]: ...
     def write_config(self, path: Path, data: dict[str, Any]) -> None: ...
@@ -300,18 +298,6 @@ async def wait_for_chat(token: str) -> ChatInfo:
         await bot.close()
 
 
-async def send_confirmation(token: str, chat_id: int, text: str) -> bool:
-    bot = TelegramClient(token)
-    try:
-        res = await bot.send_message(
-            chat_id=chat_id,
-            text=text,
-        )
-        return res is not None
-    finally:
-        await bot.close()
-
-
 def render_engine_table(ui: UI, rows: list[tuple[str, bool, str | None]]) -> None:
     table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
     table.add_column("engine")
@@ -363,10 +349,18 @@ def render_generic_capture_prompt(bot_ref: str) -> Text:
     )
 
 
+def render_welcome_blurb() -> Text:
+    return Text.assemble(
+        ("takopi", "bold cyan"),
+        " connects coding agents to telegram.\n",
+        "request code changes from your phone, get results in seconds.",
+    )
+
+
 def render_botfather_instructions() -> Text:
     return Text.assemble(
         "  1. open telegram and message @BotFather\n",
-        "  2. send /newbot and follow the prompts or use the mini app\n",
+        "  2. send /newbot and follow the prompts\n",
         "  3. copy the token (looks like 123456789:ABCdef...)\n\n",
     )
 
@@ -376,13 +370,6 @@ def render_topics_validation_warning(issue: ConfigError) -> Text:
         ("warning: ", "yellow"),
         f"topics validation failed: {issue}\n",
         '  ensure the bot is admin with "manage topics" permission.',
-    )
-
-
-def render_project_chat_tip() -> Text:
-    return Text.assemble(
-        "  tip: bind a project chat with:\n",
-        "  takopi chat-id --project <alias>",
     )
 
 
@@ -436,7 +423,7 @@ def render_assistant_preview() -> Text:
         ("[bot] ", "bold magenta"),
         ("done · codex · 12s\n", "dim"),
         ("[you] ", "bold cyan"),
-        ("/new", "bold green"),
+        ("/new", "green"),
         ("  ← start fresh\n", "yellow"),
         ("[you] ", "bold cyan"),
         "add flower pin\n",
@@ -463,9 +450,9 @@ def render_handoff_preview() -> Text:
         ("[bot] ", "bold magenta"),
         ("done · codex · 3s\n", "dim"),
         ("      codex resume ", "dim"),
-        ("def456\n", "green"),
+        ("def456\n", "blue"),
         ("[you] ", "bold cyan"),
-        ("(reply) ", "bold green"),
+        ("(reply) ", "green"),
         "more than once\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 8s\n", "dim"),
@@ -507,7 +494,6 @@ def render_persona_preview(ui: UI) -> None:
         padding=(0, 1),
         width=panel_width,
     )
-    ui.print("")
     ui.print(
         Columns(
             [assistant_panel, workspace_panel, handoff_panel],
@@ -517,11 +503,11 @@ def render_persona_preview(ui: UI) -> None:
         ),
         markup=False,
     )
-    ui.print("")
 
 
 async def prompt_persona(ui: UI) -> Persona | None:
     render_persona_preview(ui)
+    ui.print("")
     return cast(
         Persona,
         await ui.select(
@@ -533,58 +519,6 @@ async def prompt_persona(ui: UI) -> Persona | None:
             ],
         ),
     )
-
-
-def build_confirmation_message(
-    *,
-    session_mode: str,
-    topics_enabled: bool,
-    show_resume_line: bool,
-) -> str:
-    lines: list[str] = ["takopi is configured and ready.", ""]
-    if session_mode == "chat":
-        lines.extend(
-            [
-                "chat sessions tips:",
-                "- send a message to start",
-                "- send another message to continue",
-                "- try: explain what this repo does",
-                "- reply to an older message to branch from there",
-                "- use /new to start a fresh session",
-            ]
-        )
-    else:
-        lines.extend(
-            [
-                "reply-to-continue tips:",
-                "- send a message to start",
-                "- reply to any takopi message to continue that thread",
-            ]
-        )
-    if topics_enabled:
-        lines.extend(
-            [
-                "",
-                "topics:",
-                "- use /topic <project> @<branch> (example: /topic takopi @master)",
-                "- use /ctx to show or update the binding",
-                "- use /new to reset the topic thread",
-            ]
-        )
-    lines.extend(
-        [
-            "",
-            "tip: /agent set <engine> sets the default agent for this chat or topic",
-        ]
-    )
-    if (session_mode == "chat" or topics_enabled) and not show_resume_line:
-        lines.extend(
-            [
-                "",
-                "resume lines are hidden. set show_resume_line = true to show them.",
-            ]
-        )
-    return "\n".join(lines)
 
 
 async def validate_topics_onboarding(
@@ -696,7 +630,9 @@ class InteractiveUI:
         self._console.print(panel)
 
     def step(self, title: str, *, number: int) -> None:
+        self._console.print("")
         self._console.print(Text(f"step {number}: {title}", style="bold yellow"))
+        self._console.print("")
 
     def print(self, text: object = "", *, markup: bool | None = None) -> None:
         if markup is None:
@@ -713,6 +649,7 @@ class InteractiveUI:
             choices=[
                 questionary.Choice(label, value=value) for label, value in choices
             ],
+            instruction="(use arrow keys)",
         ).ask_async()
 
     async def password(self, prompt: str) -> str | None:
@@ -731,9 +668,6 @@ class LiveServices:
     ) -> ConfigError | None:
         return await validate_topics_onboarding(token, chat_id, scope, ())
 
-    async def send_confirmation(self, token: str, chat_id: int, text: str) -> bool:
-        return await send_confirmation(token, chat_id, text)
-
     def list_engines(self) -> list[tuple[str, bool, str | None]]:
         rows: list[tuple[str, bool, str | None]] = []
         for backend in list_backends():
@@ -751,6 +685,7 @@ class LiveServices:
 
 async def prompt_token(ui: UI, svc: Services) -> tuple[str, User]:
     while True:
+        ui.print("")
         token = require_value(await ui.password("paste your bot token:"))
         token = token.strip()
         if not token:
@@ -766,6 +701,7 @@ async def prompt_token(ui: UI, svc: Services) -> tuple[str, User]:
                 ui.print(f"  connected to {name}")
             return token, info
         ui.print("  failed to connect, check the token and try again")
+        ui.print("")
         retry = await ui.confirm("try again?", default=True)
         if not retry:
             raise OnboardingCancelled()
@@ -798,12 +734,6 @@ def build_config_patch(state: OnboardingState, *, bot_token: str) -> dict[str, A
     if state.default_engine is not None:
         patch["default_engine"] = state.default_engine
     return patch
-
-
-def build_preview_config(state: OnboardingState) -> dict[str, Any]:
-    if state.token is None:
-        raise RuntimeError("onboarding state missing token")
-    return build_config_patch(state, bot_token=mask_token(state.token))
 
 
 def merge_config(
@@ -851,10 +781,9 @@ async def capture_chat(
 ) -> None:
     if state.token is None:
         raise RuntimeError("onboarding state missing token")
-    ui.print("")
     if prompt is not None:
         ui.print(prompt, markup=False)
-    ui.print("  listening...")
+    ui.print("  waiting for message...")
     try:
         chat = await svc.wait_for_chat(state.token)
     except KeyboardInterrupt as exc:
@@ -871,13 +800,13 @@ async def capture_chat(
 
 
 async def step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> None:
-    ui.print("")
     have_token = require_value(
         await ui.confirm("do you already have a bot token from @BotFather?")
     )
     if not have_token:
         ui.print(render_botfather_instructions(), markup=False)
-        ui.print("")
+    else:
+        ui.print("  token looks like 123456789:ABCdef...")
     token, info = await prompt_token(ui, svc)
     state.token = token
     state.bot_username = info.username
@@ -885,7 +814,6 @@ async def step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> N
 
 
 async def step_persona(ui: UI, _svc: Services, state: OnboardingState) -> None:
-    ui.print("")
     persona = await prompt_persona(ui)
     state.persona = require_value(persona)
     if state.persona == "workspace":
@@ -920,28 +848,31 @@ async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> No
             raise RuntimeError("onboarding state missing token")
         if state.chat is None:
             raise RuntimeError("onboarding state missing chat")
-        ui.print("  validating topics setup...")
-        issue = await svc.validate_topics(
-            state.token,
-            state.chat.chat_id,
-            state.topics_scope,
-        )
-        if issue is not None:
-            ui.print(render_topics_validation_warning(issue), markup=False)
-            ui.print("  takopi will fail to start with topics until this is fixed.")
-            disable = await ui.confirm(
-                "switch to assistant mode for now? (recommended)",
-                default=True,
+        while True:
+            ui.print("  validating topics setup...")
+            issue = await svc.validate_topics(
+                state.token,
+                state.chat.chat_id,
+                state.topics_scope,
             )
-            if disable is None:
+            if issue is None:
+                break
+            ui.print(render_topics_validation_warning(issue), markup=False)
+            ui.print("")
+            choice = await ui.select(
+                "how to proceed?",
+                choices=[
+                    ("retry validation", "retry"),
+                    ("switch to assistant mode", "assistant"),
+                ],
+            )
+            if choice is None:
                 raise OnboardingCancelled()
-            if disable:
+            if choice == "assistant":
                 state.persona = "assistant"
                 state.topics_enabled = False
                 state.topics_scope = "auto"
-        if state.topics_enabled:
-            ui.print("")
-            ui.print(render_project_chat_tip(), markup=False)
+                break
         return
     await capture_chat(
         ui,
@@ -958,6 +889,7 @@ async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> 
     installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
 
     if installed_ids:
+        ui.print("")
         default_engine = await ui.select(
             "choose default agent:",
             choices=[(engine_id, engine_id) for engine_id in installed_ids],
@@ -966,22 +898,15 @@ async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> 
         return
 
     ui.print("no agents found. install one and rerun --onboard.")
+    ui.print("")
     save_anyway = await ui.confirm("save config anyway?", default=False)
     if not save_anyway:
         raise OnboardingCancelled()
 
 
 async def step_save_config(ui: UI, svc: Services, state: OnboardingState) -> None:
-    preview_config = build_preview_config(state)
-    config_preview = dump_toml(preview_config).rstrip()
-    ui.print("")
-    ui.print(f"  {display_path(state.config_path)}\n")
-    for line in config_preview.splitlines():
-        ui.print(f"  {line}", markup=False)
-    ui.print("")
-
     save = await ui.confirm(
-        f"save this config to {display_path(state.config_path)}?",
+        f"save config to {display_path(state.config_path)}?",
         default=True,
     )
     if not save:
@@ -1006,27 +931,8 @@ async def step_save_config(ui: UI, svc: Services, state: OnboardingState) -> Non
     patch = build_config_patch(state, bot_token=state.token)
     merged = merge_config(raw_config, patch, config_path=state.config_path)
     svc.write_config(state.config_path, merged)
-    ui.print(f"  config saved to {display_path(state.config_path)}")
-
-    if state.session_mode is None:
-        raise RuntimeError("onboarding state missing session mode")
-    confirmation_text = build_confirmation_message(
-        session_mode=state.session_mode,
-        topics_enabled=state.topics_enabled,
-        show_resume_line=state.show_resume_line is True,
-    )
-    if state.chat is None:
-        raise RuntimeError("onboarding state missing chat")
-    sent = await svc.send_confirmation(
-        state.token, state.chat.chat_id, confirmation_text
-    )
-    if sent:
-        ui.print("  sent confirmation message")
-    else:
-        ui.print("  could not send confirmation message")
-
-    ui.print("\n")
-    ui.panel(None, "setup complete. starting takopi...", border_style="green")
+    ui.print("")
+    ui.print(Text("✓ setup complete. starting takopi...", style="green"))
 
 
 def always_true(_state: OnboardingState) -> bool:
@@ -1043,7 +949,7 @@ class OnboardingStep:
 
 STEPS: list[OnboardingStep] = [
     OnboardingStep("bot token", 1, step_token_and_bot),
-    OnboardingStep("choose mode", 2, step_persona),
+    OnboardingStep("pick your workflow", 2, step_persona),
     OnboardingStep("connect chat", 3, step_capture_chat),
     OnboardingStep("default agent", 4, step_default_engine),
     OnboardingStep("save config", 5, step_save_config),
@@ -1120,12 +1026,7 @@ async def interactive_setup(*, force: bool) -> bool:
             return False
 
     with suppress_logging():
-        ui.panel(
-            "welcome to takopi!",
-            f"let's set up your telegram bot.\n"
-            f"we'll write {display_path(state.config_path)}.",
-            border_style="yellow",
-        )
+        ui.print(render_welcome_blurb())
         return await run_onboarding(ui, svc, state)
 
 

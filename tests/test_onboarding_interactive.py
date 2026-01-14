@@ -76,7 +76,6 @@ def patch_live_services(
     *,
     bot: User,
     chat: onboarding.ChatInfo,
-    send_confirmation: bool = True,
     topics_issue=None,
 ) -> None:
     async def _get_bot_info(self, _token: str):
@@ -85,17 +84,11 @@ def patch_live_services(
     async def _wait_for_chat(self, _token: str):
         return chat
 
-    async def _send_confirmation(self, _token: str, _chat_id: int, _text: str):
-        return send_confirmation
-
     async def _validate_topics(self, _token: str, _chat_id: int, _scope):
         return topics_issue
 
     monkeypatch.setattr(onboarding.LiveServices, "get_bot_info", _get_bot_info)
     monkeypatch.setattr(onboarding.LiveServices, "wait_for_chat", _wait_for_chat)
-    monkeypatch.setattr(
-        onboarding.LiveServices, "send_confirmation", _send_confirmation
-    )
     monkeypatch.setattr(onboarding.LiveServices, "validate_topics", _validate_topics)
 
 
