@@ -1,149 +1,107 @@
 # Takopi documentation
 
-Takopi runs coding agents on your computer and bridges them to Telegram. Send tasks from anywhere, watch progress in real time, pick up where you left off when back at the terminal.
+Takopi runs coding agents on your computer and bridges them to Telegram. Send tasks from anywhere, watch progress stream in real time, pick up where you left off.
 
-## Workflows
+## Quick start
 
-During setup, you pick one of three workflows:
+```bash
+uv tool install -U takopi
+takopi --onboard
+```
+
+Onboarding walks you through bot setup and asks how you want to work.
+
+## Pick your workflow
 
 <div class="grid cards" markdown>
 -   :lucide-message-circle:{ .lg } **Assistant**
 
     ---
 
-    Ongoing chat with auto-resume. Best for solo developers.
+    Ongoing chat. New messages auto-continue; `/new` to reset.
 
-    - [First run](tutorials/first-run.md)
-    - [Chat sessions](how-to/chat-sessions.md)
+    Best for: solo work, natural conversation flow.
+
+    [Get started →](tutorials/first-run.md)
 
 -   :lucide-folder-kanban:{ .lg } **Workspace**
 
     ---
 
-    Forum topics bound to repos/branches. Best for teams.
+    Forum topics bound to projects and branches.
 
-    - [Topics](how-to/topics.md)
-    - [Projects and branches](tutorials/projects-and-branches.md)
+    Best for: teams, organized multi-repo workflows.
+
+    [Set up topics →](how-to/topics.md)
 
 -   :lucide-terminal:{ .lg } **Handoff**
 
     ---
 
-    Reply-to-continue with terminal resume lines.
+    Reply-to-continue. Copy resume lines to your terminal.
 
-    - [Conversation modes](tutorials/conversation-modes.md)
-    - [First run](tutorials/first-run.md)
+    Best for: explicit control, terminal-first workflow.
 
-</div>
-
-## Choose your path
-
-<div class="grid cards" markdown>
--   :lucide-sparkles:{ .lg } **I’m new / I want to get it running**
-    
-    ---
-
-    Start with [Tutorials](tutorials/index.md).
-
-    - [Install & onboard](tutorials/install-and-onboard.md)
-    - [Conversation modes](tutorials/conversation-modes.md)
-    - [First run](tutorials/first-run.md)
-
--   :lucide-compass:{ .lg } **I know what I want to do**
-
-    ---
-
-    Use [How-to guides](how-to/index.md).
-
-    - [Projects](how-to/projects.md) and [Worktrees](how-to/worktrees.md)
-    - [Topics](how-to/topics.md) and [Route by chat](how-to/route-by-chat.md)
-    - [File transfer](how-to/file-transfer.md) and [Voice notes](how-to/voice-notes.md)
-
--   :lucide-book:{ .lg } **I need exact knobs, defaults, and contracts**
-
-    ---
-
-    Go straight to [Reference](reference/index.md).
-
-    - [Commands & directives](reference/commands-and-directives.md)
-    - [Configuration](reference/config.md)
-    - [Specification](reference/specification.md) (normative behavior)
-
--   :lucide-lightbulb:{ .lg } **I'm trying to understand the design**
-
-    ---
-
-    Read [Explanation](explanation/index.md).
-
-    - [Architecture](explanation/architecture.md)
-    - [Routing & sessions](explanation/routing-and-sessions.md)
-    - [Plugin system](explanation/plugin-system.md)
+    [Learn more →](explanation/routing-and-sessions.md)
 
 </div>
 
-## Quick start
+You can change workflows later by editing `~/.takopi/takopi.toml`.
 
-If you just want to see it work end-to-end:
+## Tutorials
 
-```bash
-# Install
-uv tool install -U takopi
+Step-by-step guides for new users:
 
-# Configure Telegram + defaults
-takopi --onboard
+1. [Install & onboard](tutorials/install-and-onboard.md) — set up Takopi and your bot
+2. [First run](tutorials/first-run.md) — send a task, watch it stream, continue the conversation
+3. [Projects & branches](tutorials/projects-and-branches.md) — target repos from anywhere, run on feature branches
+4. [Multi-engine](tutorials/multi-engine.md) — use different agents for different tasks
 
-# Run in a repo
-cd /path/to/your/repo
-takopi
-```
+## How-to guides
 
-Then open Telegram and send a task to your bot.
+Goal-oriented recipes:
+
+| Daily use | Extras | Extending |
+|-----------|--------|-----------|
+| [Chat sessions](how-to/chat-sessions.md) | [Voice notes](how-to/voice-notes.md) | [Write a plugin](how-to/write-a-plugin.md) |
+| [Topics](how-to/topics.md) | [File transfer](how-to/file-transfer.md) | [Add a runner](how-to/add-a-runner.md) |
+| [Projects](how-to/projects.md) | [Schedule tasks](how-to/schedule-tasks.md) | [Dev setup](how-to/dev-setup.md) |
+| [Worktrees](how-to/worktrees.md) | | |
+
+## Reference
+
+Exact options, defaults, and contracts:
+
+- [Commands & directives](reference/commands-and-directives.md)
+- [Configuration](reference/config.md)
+- [Specification](reference/specification.md) — normative behavior
 
 ## Core concepts
 
-* **Engine**: the CLI that actually does the work (e.g. `codex`, `claude`, `opencode`, `pi`).
-* **Project**: a named alias for a repo path (so you can run from anywhere).
-* **Worktree / branch selection**: pick where work should happen (`@branch`).
-* **Continuation**: how Takopi safely “continues” a run:
+| Term | Meaning |
+|------|---------|
+| **Engine** | The CLI that does the work (`codex`, `claude`, `opencode`, `pi`) |
+| **Project** | A named alias for a repo path |
+| **Worktree** | A branch checkout in a separate directory (`@branch`) |
+| **Resume line** | The `codex resume ...` footer that enables continuation |
 
-  * reply-to-continue (always available)
-  * forum topics (thread-bound continuation)
-  * chat sessions (auto-resume)
-* **Contract**: the stable rules (resume lines, event ordering, rendering expectations) in the
-  [Specification](reference/specification.md) and runner contract tests.
+## Troubleshooting
+
+| Problem | Where to look |
+|---------|---------------|
+| Wrong repo/branch? | [Context resolution](reference/context-resolution.md) |
+| Didn't continue? | [Commands & directives](reference/commands-and-directives.md) |
+| Telegram weirdness? | [Telegram transport](reference/transports/telegram.md) |
+| Why is it built this way? | [Architecture](explanation/architecture.md) |
 
 ## For plugin authors
 
-Start here:
-
-* [Plugin API](reference/plugin-api.md) — **stable** `takopi.api` surface for plugins
-* [Write a plugin](how-to/write-a-plugin.md)
-* [Add a runner](how-to/add-a-runner.md)
-
-If you’re contributing to core:
-
-* [Dev setup](how-to/dev-setup.md)
-* [Module map](explanation/module-map.md)
+- [Plugin API](reference/plugin-api.md) — stable `takopi.api` surface
+- [Write a plugin](how-to/write-a-plugin.md)
+- [Add a runner](how-to/add-a-runner.md)
 
 ## For LLM agents
 
-In the docs, start here:
-
-* [Reference: For agents](reference/agents/index.md)
-* [Repo map](reference/agents/repo-map.md)
-* [Invariants](reference/agents/invariants.md)
-
-## Where to look when something feels “off”
-
-* “Why didn’t it route to the right repo/branch?” → [Context resolution](reference/context-resolution.md)
-* “Why didn’t it continue where I left off?” → [Commands & directives](reference/commands-and-directives.md) and [Specification](reference/specification.md)
-* “Why did Telegram messages behave weirdly?” → [Telegram transport](reference/transports/telegram.md)
-* “Why is it built this way?” → [Architecture](explanation/architecture.md)
-
-## Legacy portals
-
-These pages remain as curated pointers to preserve old links:
-
-- [User guide](user-guide.md)
-- [Plugins](plugins.md)
-- [Developing](developing.md)
+- [Reference: For agents](reference/agents/index.md)
+- [Repo map](reference/agents/repo-map.md)
+- [Invariants](reference/agents/invariants.md)
