@@ -18,7 +18,10 @@ _MAX_BOT_COMMANDS = 100
 
 
 def build_bot_commands(
-    runtime: TransportRuntime, *, include_file: bool = True
+    runtime: TransportRuntime,
+    *,
+    include_file: bool = True,
+    include_topics: bool = False,
 ) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -67,6 +70,23 @@ def build_bot_commands(
         description = backend.description or f"command: {cmd}"
         commands.append({"command": cmd, "description": description})
         seen.add(cmd)
+    for cmd, description in [
+        ("new", "start a new thread"),
+        ("agent", "set default agent"),
+    ]:
+        if cmd in seen:
+            continue
+        commands.append({"command": cmd, "description": description})
+        seen.add(cmd)
+    if include_topics:
+        for cmd, description in [
+            ("topic", "create or bind a topic"),
+            ("ctx", "show or update topic context"),
+        ]:
+            if cmd in seen:
+                continue
+            commands.append({"command": cmd, "description": description})
+            seen.add(cmd)
     if include_file and "file" not in seen:
         commands.append({"command": "file", "description": "upload or fetch files"})
         seen.add("file")
@@ -93,7 +113,11 @@ def _reserved_commands(runtime: TransportRuntime) -> set[str]:
 
 
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
-    commands = build_bot_commands(cfg.runtime, include_file=cfg.files.enabled)
+    commands = build_bot_commands(
+        cfg.runtime,
+        include_file=cfg.files.enabled,
+        include_topics=cfg.topics.enabled,
+    )
     if not commands:
         return
     try:

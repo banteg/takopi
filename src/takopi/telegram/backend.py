@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 import anyio
 
 from ..backends import EngineBackend
 from ..logging import get_logger
 from ..runner_bridge import ExecBridgeConfig
-from ..settings import TelegramTransportSettings
+from ..settings import TelegramTopicsSettings, TelegramTransportSettings
 from ..transport_runtime import TransportRuntime
 from ..transports import SetupResult, TransportBackend
 from .bridge import (
@@ -19,6 +20,7 @@ from .bridge import (
 )
 from .client import TelegramClient
 from .onboarding import check_setup, interactive_setup
+from .topics import _resolve_topics_scope_raw
 
 logger = get_logger(__name__)
 
@@ -33,6 +35,10 @@ def _build_startup_message(
     runtime: TransportRuntime,
     *,
     startup_pwd: str,
+    chat_id: int,
+    session_mode: Literal["stateless", "chat"],
+    show_resume_line: bool,
+    topics: TelegramTopicsSettings,
 ) -> str:
     available_engines = list(runtime.available_engine_ids())
     missing_engines = list(runtime.missing_engine_ids())
@@ -52,11 +58,24 @@ def _build_startup_message(
         engine_list = f"{engine_list} ({'; '.join(notes)})"
     project_aliases = sorted(set(runtime.project_aliases()), key=str.lower)
     project_list = ", ".join(project_aliases) if project_aliases else "none"
+    resume_label = "shown" if show_resume_line else "hidden"
+    topics_label = "disabled"
+    if topics.enabled:
+        resolved_scope, _ = _resolve_topics_scope_raw(
+            topics.scope, chat_id, runtime.project_chat_ids()
+        )
+        scope_label = (
+            f"auto ({resolved_scope})" if topics.scope == "auto" else resolved_scope
+        )
+        topics_label = f"enabled (scope={scope_label})"
     return (
         f"\N{OCTOPUS} **takopi is ready**\n\n"
         f"default: `{runtime.default_engine}`  \n"
         f"agents: `{engine_list}`  \n"
         f"projects: `{project_list}`  \n"
+        f"mode: `{session_mode}`  \n"
+        f"topics: `{topics_label}`  \n"
+        f"resume lines: `{resume_label}`  \n"
         f"working in: `{startup_pwd}`"
     )
 
@@ -95,6 +114,10 @@ class TelegramBackend(TransportBackend):
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),
+            chat_id=chat_id,
+            session_mode=settings.session_mode,
+            show_resume_line=settings.show_resume_line,
+            topics=settings.topics,
         )
         bot = TelegramClient(token)
         transport = TelegramTransport(bot)

@@ -14,7 +14,7 @@ from .config_migrations import migrate_config
 from .commands import get_command
 from .backends import EngineBackend
 from .engines import get_backend, list_backend_ids
-from .ids import RESERVED_COMMAND_IDS, RESERVED_ENGINE_IDS
+from .ids import RESERVED_CHAT_COMMANDS, RESERVED_COMMAND_IDS, RESERVED_ENGINE_IDS
 from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
 from .logging import get_logger, setup_logging
 from .runtime_loader import build_runtime_spec, resolve_plugins_allowlist
@@ -246,7 +246,7 @@ def _run_auto_router(
             settings=settings,
             config_path=config_path,
             default_engine_override=default_engine_override,
-            reserved=("cancel",),
+            reserved=RESERVED_CHAT_COMMANDS,
         )
         if settings.transport == "telegram":
             transport_config = settings.transports.telegram

@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping
 from .backends import EngineBackend
 from .config import ConfigError, ProjectsConfig
 from .engines import get_backend, list_backend_ids
+from .ids import RESERVED_CHAT_COMMANDS
 from .logging import get_logger
 from .router import AutoRouter, EngineStatus, RunnerEntry
 from .settings import TakopiSettings
@@ -171,7 +172,7 @@ def build_runtime_spec(
     settings: TakopiSettings,
     config_path: Path,
     default_engine_override: str | None = None,
-    reserved: Iterable[str] = ("cancel",),
+    reserved: Iterable[str] = RESERVED_CHAT_COMMANDS,
 ) -> RuntimeSpec:
     allowlist = resolve_plugins_allowlist(settings)
     engine_ids = list_backend_ids(allowlist=allowlist)

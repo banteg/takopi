@@ -310,10 +310,19 @@ async def send_plain(
     )
 
 
-def build_bot_commands(runtime: TransportRuntime, *, include_file: bool = True):
+def build_bot_commands(
+    runtime: TransportRuntime,
+    *,
+    include_file: bool = True,
+    include_topics: bool = False,
+):
     from .commands import build_bot_commands as _build
 
-    return _build(runtime, include_file=include_file)
+    return _build(
+        runtime,
+        include_file=include_file,
+        include_topics=include_topics,
+    )
 
 
 def is_cancel_command(text: str) -> bool:

@@ -376,6 +376,8 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
 
     assert {"command": "cancel", "description": "cancel run"} in commands
     assert {"command": "file", "description": "upload or fetch files"} in commands
+    assert {"command": "new", "description": "start a new thread"} in commands
+    assert {"command": "agent", "description": "set default agent"} in commands
     assert any(cmd["command"] == "codex" for cmd in commands)
 
 
@@ -405,6 +407,21 @@ def test_build_bot_commands_includes_projects() -> None:
 
     assert any(cmd["command"] == "good" for cmd in commands)
     assert not any(cmd["command"] == "bad-name" for cmd in commands)
+
+
+def test_build_bot_commands_includes_topics_when_enabled() -> None:
+    runner = ScriptRunner(
+        [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+    )
+
+    commands = build_bot_commands(runtime, include_topics=True)
+
+    assert {"command": "topic", "description": "create or bind a topic"} in commands
+    assert {"command": "ctx", "description": "show or update topic context"} in commands
 
 
 def test_build_bot_commands_includes_command_plugins(monkeypatch) -> None:

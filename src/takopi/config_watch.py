@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from watchfiles import awatch
 
 from .config import ConfigError
+from .ids import RESERVED_CHAT_COMMANDS
 from .logging import get_logger
 from .runtime_loader import RuntimeSpec, build_runtime_spec
 from .settings import TakopiSettings, load_settings
@@ -71,7 +72,7 @@ async def watch_config(
     config_path: Path,
     runtime: TransportRuntime,
     default_engine_override: str | None = None,
-    reserved: Iterable[str] = ("cancel",),
+    reserved: Iterable[str] = RESERVED_CHAT_COMMANDS,
     on_reload: Callable[[ConfigReload], Awaitable[None]] | None = None,
 ) -> None:
     reserved_tuple = tuple(reserved)
