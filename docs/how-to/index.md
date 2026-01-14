@@ -11,8 +11,8 @@ If you need exact options and defaults, use **[Reference](../reference/index.md)
 - [Projects](projects.md) (register repos + run from anywhere)
 - [Worktrees](worktrees.md) (run work on `@branch` without switching your main checkout)
 - [Route by chat](route-by-chat.md) (dedicated chats per project)
-- [Topics](topics.md) (forum threads bound to repo/branch + auto-resume)
-- [Chat sessions](topics.md#chat-sessions) (auto-resume without replying)
+- [Topics](topics.md) (forum threads bound to repo/branch + per-topic defaults)
+- [Chat sessions](chat-sessions.md) (auto-resume without replying)
 
 ## Messaging extras
 

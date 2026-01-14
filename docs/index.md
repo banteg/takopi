@@ -4,6 +4,29 @@
 
 Takopi lets you run an engine CLI in a local repo while controlling it from Telegram: send a task, stream updates, and continue safely (reply-to-continue, topics, or sessions).
 
+## Workflows
+
+<div class="grid cards" markdown>
+-   :lucide-message-circle:{ .lg } **Solo chat workflow**
+
+    ---
+
+    For a single developer in a private chat.
+
+    - [Conversation modes](tutorials/conversation-modes.md)
+    - [First run](tutorials/first-run.md)
+
+-   :lucide-users:{ .lg } **Team topics workflow**
+
+    ---
+
+    For teams using forum topics and per-topic defaults.
+
+    - [Topics](how-to/topics.md)
+    - [Projects and branches](tutorials/projects-and-branches.md)
+
+</div>
+
 ## Choose your path
 
 <div class="grid cards" markdown>
@@ -14,6 +37,7 @@ Takopi lets you run an engine CLI in a local repo while controlling it from Tele
     Start with [Tutorials](tutorials/index.md).
 
     - [Install & onboard](tutorials/install-and-onboard.md)
+    - [Conversation modes](tutorials/conversation-modes.md)
     - [First run](tutorials/first-run.md)
 
 -   :lucide-compass:{ .lg } **I know what I want to do**

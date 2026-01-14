@@ -21,6 +21,9 @@ Takopi keeps running in your terminal. In Telegram, your bot will post a startup
     default: codex<br>
     agents: codex, claude<br>
     projects: none<br>
+    mode: chat<br>
+    topics: disabled<br>
+    resume lines: hidden<br>
     working in: /Users/you/dev/your-project
 
 The engines/projects list reflects your setup. This tells you:
@@ -76,7 +79,16 @@ That last line is the **resume line**—it's how Takopi knows which conversation
 
 ## 5. Continue the conversation
 
-To follow up, **reply** to the bot's message:
+How you continue depends on your mode.
+
+**If you're in chat mode:** just send another message (no reply needed).
+
+!!! user "You"
+    now add tests for the API
+
+Use `/new` any time you want a fresh thread.
+
+**If you're in stateless mode:** **reply** to a message that has a resume line.
 
 !!! takopi "Takopi"
     done · codex · 11s · step 5
@@ -84,25 +96,14 @@ To follow up, **reply** to the bot's message:
     !!! user "You"
         what command line arguments does it support?
 
-Takopi extracts the resume token from the message you replied to and continues the same agent session. The agent remembers everything from before.
+Takopi extracts the resume token from the message you replied to and continues the same agent session.
 
-!!! takopi "Takopi"
-    done · codex · 47s · step 11
+!!! tip "Reply-to-continue still works in chat mode"
+    If resume lines are visible, replying to any older message branches the conversation from that point.
+    Use `show_resume_line = true` if you want this behavior all the time.
 
-    CLI Args
-
-    - Global/auto-router (when you run just takopi): --version, --final-notify/--no-final-notify, --onboard/--no-onboard, --transport <id>, --debug/--no-debug. This is the same option set used by engine subcommands.
-    - init [alias]: optional positional alias, plus --default to set the project as default_project.
-    - chat-id: --token <bot_token>, --project <alias> to store a captured chat id into the project config.
-    - plugins: --load/--no-load to validate plugin imports.
-    - Engine subcommands: one per engine id; built-ins are codex, claude, opencode, pi, plus any plugin engines. Each accepts --final-notify, --onboard, --transport, --debug.
-
-    If you want, I can also summarize takopi --help output verbatim for your local build.
-
-    codex resume 019bb89b-1b0b-7e90-96e4-c33181b49714
-
-!!! tip "You can reply to any message with a resume line"
-    The resume line doesn't have to be in the most recent message. Reply to any earlier message to "branch" the conversation from that point.
+!!! tip "Reset with /new"
+    `/new` clears stored sessions for the current chat or topic.
 
 ## 6. Cancel a run
 
@@ -139,6 +140,9 @@ This uses Claude Code for just this message. The resume line will show `claude -
 
 Available prefixes depend on what you have installed: `/codex`, `/claude`, `/opencode`, `/pi`.
 
+!!! tip "Set a default engine"
+    Use `/agent set claude` to make this chat (or topic) use Claude by default. Run `/agent` to see what's set.
+
 ## What just happened
 
 Key points:
@@ -147,7 +151,7 @@ Key points:
 - The agent streams JSONL events (tool calls, progress, answer)
 - Takopi renders these as an editable progress message
 - When done, the progress message is replaced with the final answer
-- The resume line lets you continue the conversation
+- Chat mode auto-resumes; resume lines let you reply to branch
 
 ## The core loop
 
@@ -156,7 +160,8 @@ You now know the three fundamental interactions:
 | Action | How |
 |--------|-----|
 | **Start** | Send a message to your bot |
-| **Continue** | Reply to any message with a resume line |
+| **Continue** | Chat mode: send another message. Stateless: reply to a resume line. |
+| **Reset** | `/new` |
 | **Cancel** | Tap **cancel** on a progress message |
 
 Everything else in Takopi builds on this loop.
@@ -177,7 +182,7 @@ Check that Takopi is still running in your terminal. You should also see a start
 
 **Resume doesn't work (starts a new conversation)**
 
-Make sure you're **replying** to a message, not sending a new one. The reply must be to a message that contains a resume line.
+Make sure you're **replying** to a message that contains a resume line. If you hid resume lines (`show_resume_line = false`), turn them on or use chat mode to continue by sending another message.
 
 ## Next
 

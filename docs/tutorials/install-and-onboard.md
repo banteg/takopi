@@ -297,6 +297,6 @@ You can only run one Takopi instance per bot token. Find and stop the other proc
 
 ## Next
 
-Now that Takopi is configured, let's send your first task.
+Next, learn how conversation modes affect follow-ups.
 
-[First run →](first-run.md)
+[Conversation modes →](conversation-modes.md)

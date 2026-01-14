@@ -1,6 +1,19 @@
 # Topics
 
-Topics bind Telegram forum threads to a specific project/branch context. They can also store resume tokens and a default agent per topic.
+Topics bind Telegram **forum threads** to a project/branch context. Each topic keeps its own session and default agent, which is ideal for teams or multi-project work.
+
+## Why use topics
+
+- Keep each thread tied to a repo + branch
+- Avoid context collisions in busy team chats
+- Set a default agent per topic with `/agent set`
+
+## Requirements checklist
+
+- The chat is a **forum-enabled supergroup**
+- **Topics are enabled** in the group settings
+- The bot is an **admin** with **Manage Topics** permission
+- If you want topics in project chats, set `projects.<alias>.chat_id`
 
 ## Enable topics
 
@@ -10,44 +23,65 @@ enabled = true
 scope = "auto" # auto | main | projects | all
 ```
 
-Your bot needs **Manage Topics** permission in the group.
+### Scope explained
 
-If any `projects.<alias>.chat_id` are configured, topics are managed in those project chats; otherwise topics are managed in the main chat.
+- `auto` (default): uses `projects` if any project chats exist, otherwise `main`
+- `main`: topics only in the main `chat_id`
+- `projects`: topics only in project chats (`projects.<alias>.chat_id`)
+- `all`: topics available in both the main chat and project chats
 
-## Topic commands
+## Create and bind a topic
 
-Run these inside a topic thread:
+Run this inside a forum topic thread:
 
-| Command | Description |
-|---------|-------------|
-| `/topic <project> @branch` | Create a new topic bound to context |
-| `/ctx` | Show the current binding |
-| `/ctx set <project> @branch` | Update the binding |
-| `/ctx clear` | Remove the binding |
-| `/new` | Clear stored sessions for this topic |
-
-In project chats, omit the project: `/topic @branch` or `/ctx set @branch`.
-
-## Chat sessions
-
-Chat sessions store one resume token per chat (per sender in groups) so new messages can auto-resume without replying.
-
-Enable:
-
-```toml
-[transports.telegram]
-session_mode = "chat" # stateless | chat
+```
+/topic <project> @branch
 ```
 
-Reset the stored session with `/new`.
+Examples:
+
+- In the main chat: `/topic backend @feat/api`
+- In a project chat: `/topic @feat/api` (project is implied)
+
+Takopi will bind the topic and rename it to match the context.
+
+## Inspect or change the binding
+
+- `/ctx` shows the current binding
+- `/ctx set <project> @branch` updates it
+- `/ctx clear` removes it
+
+## Reset a topic session
+
+Use `/new` inside the topic to clear stored sessions for that thread.
+
+## Set a default agent per topic
+
+Use `/agent set` inside the topic:
+
+```
+/agent set claude
+```
 
 ## State files
 
-- Topic state: `telegram_topics_state.json`
-- Chat sessions state: `telegram_chat_sessions_state.json`
-- Chat defaults (e.g. `/agent`): `telegram_chat_prefs_state.json`
+Topic bindings and sessions live in:
+
+- `telegram_topics_state.json`
+
+## Common issues and fixes
+
+- **"topics commands are only available..."**
+  - Your `scope` does not include this chat. Update `topics.scope`.
+- **"chat is not a supergroup" / "topics enabled but chat does not have topics"**
+  - Convert the group to a supergroup and enable topics.
+- **"bot lacks manage topics permission"**
+  - Promote the bot to admin and grant Manage Topics.
 
 ## Related
 
+- [Projects and branches](../tutorials/projects-and-branches.md)
+- [Route by chat](route-by-chat.md)
+- [Chat sessions](chat-sessions.md)
+- [Multi-engine workflows](../tutorials/multi-engine.md)
 - [Switch engines](switch-engines.md)
-- [Commands & directives](../reference/commands-and-directives.md)

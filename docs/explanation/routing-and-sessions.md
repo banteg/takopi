@@ -39,6 +39,7 @@ The precise invariants are specified in the [Specification](../reference/specifi
 
 ## Related
 
+- [Conversation modes](../tutorials/conversation-modes.md)
+- [Chat sessions](../how-to/chat-sessions.md)
 - [Commands & directives](../reference/commands-and-directives.md)
 - [Context resolution](../reference/context-resolution.md)
-
