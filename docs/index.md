@@ -1,8 +1,6 @@
 # Takopi documentation
 
-> Telegram bridge for coding agents (Codex, Claude Code, OpenCode, Pi).
-
-Takopi lets you run an engine CLI in a local repo while controlling it from Telegram: send a task, stream updates, and continue safely (reply-to-continue, topics, or sessions).
+Takopi runs coding agents on your computer and bridges them to Telegram. Send tasks from anywhere, watch progress in real time, pick up where you left off when back at the terminal.
 
 ## Workflows
 
