@@ -19,6 +19,7 @@ from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from ..backends import EngineBackend, SetupIssue
 from ..backends_helpers import install_issue
@@ -241,39 +242,48 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
 
 def _render_session_mode_examples(console: Console) -> None:
     console.print("  takopi can work two ways:\n", markup=False)
-    console.print("  chat mode (default)", markup=False)
-    console.print(
-        "    takopi remembers your session. new messages auto-continue.",
-        markup=False,
+    chat_text = "\n".join(
+        [
+            "takopi remembers your session. new messages auto-continue.",
+            "good for: ongoing work, natural conversation flow.",
+            "",
+            "[you] polish the octopus mascot",
+            "[bot] done · codex · 8s",
+            "[you] now add a tiny top hat  ← no reply needed",
+            "[bot] done · codex · 5s",
+            "[you] /new  ← reset when done",
+        ]
     )
     console.print(
-        "    good for: ongoing work, natural conversation flow.\n",
+        Panel(
+            Text(chat_text),
+            title="chat mode (default)",
+            box=box.SIMPLE,
+            padding=(0, 1),
+        ),
         markup=False,
     )
-    console.print("    [you] polish the octopus mascot", markup=False)
-    console.print("    [bot] done · codex · 8s", markup=False)
+    console.print("")
+    stateless_text = "\n".join(
+        [
+            "every message starts fresh unless you reply to continue.",
+            "good for: quick isolated tasks, explicit control.",
+            "",
+            "[you] make the octopus blink",
+            "[bot] done · codex · 8s",
+            "[you] (reply) now add a sparkle trail",
+            "[bot] done · codex · 5s",
+        ]
+    )
     console.print(
-        "    [you] now add a tiny top hat  ← no reply needed",
+        Panel(
+            Text(stateless_text),
+            title="stateless",
+            box=box.SIMPLE,
+            padding=(0, 1),
+        ),
         markup=False,
     )
-    console.print("    [bot] done · codex · 5s", markup=False)
-    console.print("    [you] /new  ← reset when done\n", markup=False)
-    console.print("  stateless", markup=False)
-    console.print(
-        "    every message starts fresh unless you reply to continue.",
-        markup=False,
-    )
-    console.print(
-        "    good for: quick isolated tasks, explicit control.\n",
-        markup=False,
-    )
-    console.print("    [you] make the octopus blink", markup=False)
-    console.print("    [bot] done · codex · 8s", markup=False)
-    console.print(
-        "    [you] (reply) now add a sparkle trail",
-        markup=False,
-    )
-    console.print("    [bot] done · codex · 5s", markup=False)
 
 
 def _prompt_session_mode(console: Console) -> str | None:
