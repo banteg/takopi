@@ -294,7 +294,7 @@ def _render_session_mode_examples(console: Console) -> None:
     console.print(
         Panel(
             chat_text,
-            title=Text("chat mode (default)", style="bold"),
+            title=Text("chat mode", style="bold"),
             border_style="cyan",
             box=box.ROUNDED,
             padding=(0, 1),
@@ -353,14 +353,14 @@ def _prompt_session_mode(console: Console) -> str | None:
     _render_session_mode_examples(console)
     console.print("")
     return questionary.select(
-        "choose conversation style (chat / stateless):",
+        "choose conversation style:",
         choices=[
             questionary.Choice(
-                "chat mode (default; auto-continue)",
+                "chat mode",
                 value="chat",
             ),
             questionary.Choice(
-                "stateless (reply-to-continue)",
+                "stateless",
                 value="stateless",
             ),
         ],
