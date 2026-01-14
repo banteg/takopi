@@ -178,23 +178,11 @@ def main() -> None:
 
     anyio.run(
         run_flow,
-        "happy path (group chat, topics off)",
+        "happy path (private chat, chat sessions)",
         ScriptedUI(
             console,
             confirms=[True, True],
-            selects=["chat", "disabled", False, "codex"],
-            passwords=["123456789:ABCdef"],
-        ),
-        ScriptedServices(bot=bot, chat=group_chat, engines=engines_installed),
-    )
-
-    anyio.run(
-        run_flow,
-        "private chat (topics projects, token instructions)",
-        ScriptedUI(
-            console,
-            confirms=[False, True],
-            selects=["stateless", "projects", True, "codex"],
+            selects=["private", "chat", False, "codex"],
             passwords=["123456789:ABCdef"],
         ),
         ScriptedServices(bot=bot, chat=private_chat, engines=engines_installed),
@@ -202,11 +190,35 @@ def main() -> None:
 
     anyio.run(
         run_flow,
+        "private chat (token instructions, stateless)",
+        ScriptedUI(
+            console,
+            confirms=[False, True],
+            selects=["private", "stateless", "codex"],
+            passwords=["123456789:ABCdef"],
+        ),
+        ScriptedServices(bot=bot, chat=private_chat, engines=engines_installed),
+    )
+
+    anyio.run(
+        run_flow,
+        "group with topics (auto scope)",
+        ScriptedUI(
+            console,
+            confirms=[True, True],
+            selects=["topics", False, "codex"],
+            passwords=["123456789:ABCdef"],
+        ),
+        ScriptedServices(bot=bot, chat=group_chat, engines=engines_installed),
+    )
+
+    anyio.run(
+        run_flow,
         "topics validation warning",
         ScriptedUI(
             console,
-            confirms=[True, True, True],
-            selects=["chat", "main", False, "codex"],
+            confirms=[True, False, True],
+            selects=["topics", False, "codex"],
             passwords=["123456789:ABCdef"],
         ),
         ScriptedServices(
@@ -223,10 +235,10 @@ def main() -> None:
         ScriptedUI(
             console,
             confirms=[True, False],
-            selects=["chat", "disabled", False],
+            selects=["private", "chat", False],
             passwords=["123456789:ABCdef"],
         ),
-        ScriptedServices(bot=bot, chat=group_chat, engines=engines_missing),
+        ScriptedServices(bot=bot, chat=private_chat, engines=engines_missing),
     )
 
     section(console, "telegram confirmation messages")
@@ -234,7 +246,6 @@ def main() -> None:
         ("chat", False, True),
         ("chat", True, False),
         ("stateless", False, True),
-        ("stateless", True, True),
     ]
     for session_mode, topics_enabled, show_resume_line in variants:
         title = f"mode={session_mode}, topics={topics_enabled}, resume={show_resume_line}"

@@ -122,7 +122,7 @@ def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        queue_answers(["chat", "disabled", False, "codex"]),
+        queue_answers(["private", "chat", False, "codex"]),
     )
     patch_live_services(
         monkeypatch,
@@ -169,7 +169,7 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        queue_answers(["chat", "disabled", False, "codex"]),
+        queue_answers(["private", "chat", False, "codex"]),
     )
     patch_live_services(
         monkeypatch,
@@ -205,7 +205,7 @@ def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        queue_answers(["chat", "disabled", False]),
+        queue_answers(["private", "chat", False]),
     )
     patch_live_services(
         monkeypatch,
@@ -241,7 +241,7 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
     monkeypatch.setattr(
         onboarding.questionary,
         "select",
-        queue_answers(["chat", "disabled", False, "codex"]),
+        queue_answers(["private", "chat", False, "codex"]),
     )
     patch_live_services(
         monkeypatch,

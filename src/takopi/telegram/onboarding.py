@@ -57,6 +57,7 @@ __all__ = [
 
 TopicScope = Literal["auto", "main", "projects", "all"]
 SessionMode = Literal["chat", "stateless"]
+ChatSetupMode = Literal["private", "topics"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +114,7 @@ class OnboardingState:
     bot_username: str | None = None
     bot_name: str | None = None
     chat: ChatInfo | None = None
+    chat_setup: ChatSetupMode | None = None
 
     session_mode: SessionMode | None = None
     topics_enabled: bool = False
@@ -372,18 +374,31 @@ def render_stateless_mode_panel() -> Text:
     )
 
 
-def render_topics_private_note() -> Text:
+def render_private_chat_instructions(bot_ref: str) -> Text:
     return Text.assemble(
-        "  note: you selected a private chat. topics only work in groups.\n",
-        "  to enable later: add the bot to a forum group and rerun takopi --onboard",
+        "  set up a private chat:\n",
+        f"  1. open a chat with {bot_ref}\n",
+        "  2. send /start\n",
+        "  3. we'll capture that chat id\n",
     )
 
 
-def render_topics_group_intro() -> Text:
+def render_topics_group_instructions(bot_ref: str) -> Text:
     return Text.assemble(
-        "each topic becomes its own workspace with separate memory.\n",
-        "you can bind a topic to a project + branch, so work stays organized.\n",
-        "requires: group with enabled topics + bot as admin with 'manage topics' permission",
+        "  set up a group with topics:\n",
+        "  1. create a group\n",
+        "  2. convert it to a supergroup\n",
+        "  3. enable topics\n",
+        f"  4. add {bot_ref}\n",
+        "  5. make it admin with only \"manage topics\"\n",
+        "  6. send a message in the group\n",
+    )
+
+
+def render_generic_capture_prompt(bot_ref: str) -> Text:
+    return Text.assemble(
+        f"  send /start to {bot_ref} in the chat you want takopi to use "
+        "(private chat or group)"
     )
 
 
@@ -393,7 +408,7 @@ def render_resume_line_explainer() -> Text:
         "(like 'codex resume ...').\n",
         "reply to it to continue that conversation.\n",
         "copy it to the terminal to pick up the work there.\n\n",
-        "since you enabled chat mode, the line can be hidden.",
+        "since you enabled chat sessions or topics, the line can be hidden.",
     )
 
 
@@ -485,31 +500,16 @@ def prompt_session_mode(ui: UI) -> SessionMode | None:
     )
 
 
-def prompt_topics(ui: UI, chat: ChatInfo) -> str | None:
-    ui.print("")
-    if not chat.is_group:
-        ui.print(render_topics_private_note(), markup=False)
-        ui.print("")
-        return ui.select(
-            "enable topics?",
+def prompt_chat_setup(ui: UI) -> ChatSetupMode | None:
+    return cast(
+        ChatSetupMode,
+        ui.select(
+            "where should takopi run?",
             choices=[
-                ("no (topics off)", "disabled"),
-                (
-                    "yes, in project chats (i'll bind chats per project later)",
-                    "projects",
-                ),
+                ("private chat (bot dm)", "private"),
+                ("group with topics", "topics"),
             ],
-        )
-    ui.print(render_topics_group_intro(), markup=False)
-    ui.print("")
-    return ui.select(
-        "enable topics?",
-        choices=[
-            ("no (topics off)", "disabled"),
-            ("yes, in this chat", "main"),
-            ("yes, in project chats (i'll bind chats per project later)", "projects"),
-            ("yes, both", "all"),
-        ],
+        ),
     )
 
 
@@ -843,14 +843,18 @@ def merge_config(
     return merged
 
 
-async def capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
+async def capture_chat(
+    ui: UI,
+    svc: Services,
+    state: OnboardingState,
+    *,
+    prompt: Text | None = None,
+) -> None:
     if state.token is None:
         raise RuntimeError("onboarding state missing token")
     ui.print("")
-    ui.print(
-        f"  send /start to {state.bot_ref} in the chat you want takopi to use "
-        "(private chat or group)"
-    )
+    if prompt is not None:
+        ui.print(prompt, markup=False)
     ui.print("  listening...")
     try:
         chat = await svc.wait_for_chat(state.token)
@@ -881,8 +885,53 @@ async def step_token_and_bot(ui: UI, svc: Services, state: OnboardingState) -> N
     state.bot_name = info.first_name
 
 
-async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> None:
-    await capture_chat(ui, svc, state)
+async def step_chat_setup(ui: UI, svc: Services, state: OnboardingState) -> None:
+    ui.print("")
+    chat_setup = prompt_chat_setup(ui)
+    state.chat_setup = require_value(chat_setup)
+    if state.chat_setup == "private":
+        state.topics_enabled = False
+        state.topics_scope = "auto"
+        await capture_chat(
+            ui,
+            svc,
+            state,
+            prompt=render_private_chat_instructions(state.bot_ref),
+        )
+        return
+
+    state.topics_enabled = True
+    state.topics_scope = "auto"
+    await capture_chat(
+        ui,
+        svc,
+        state,
+        prompt=render_topics_group_instructions(state.bot_ref),
+    )
+    if state.token is None:
+        raise RuntimeError("onboarding state missing token")
+    if state.chat is None:
+        raise RuntimeError("onboarding state missing chat")
+    ui.print("  validating topics setup...")
+    issue = await svc.validate_topics(
+        state.token,
+        state.chat.chat_id,
+        state.topics_scope,
+    )
+    if issue is not None:
+        ui.print(render_topics_validation_warning(issue), markup=False)
+        disable = ui.confirm("disable topics for now? (recommended)", default=True)
+        if disable is None:
+            raise OnboardingCancelled()
+        if disable:
+            state.topics_enabled = False
+            state.topics_scope = "auto"
+        else:
+            ui.print("  takopi will fail to start with topics until this is fixed.")
+    if state.topics_enabled:
+        state.session_mode = "chat"
+        ui.print("")
+        ui.print(render_project_chat_tip(), markup=False)
 
 
 async def step_session_mode(ui: UI, _svc: Services, state: OnboardingState) -> None:
@@ -894,39 +943,8 @@ async def step_session_mode(ui: UI, _svc: Services, state: OnboardingState) -> N
         ui.print(render_stateless_resume_note(), markup=False)
 
 
-async def step_topics(ui: UI, svc: Services, state: OnboardingState) -> None:
-    if state.chat is None:
-        raise RuntimeError("onboarding state missing chat")
-    topics_choice = prompt_topics(ui, state.chat)
-    topics_choice = require_value(topics_choice)
-    state.topics_enabled = topics_choice != "disabled"
-    state.topics_scope = (
-        cast(TopicScope, topics_choice) if state.topics_enabled else "auto"
-    )
-
-    if state.topics_enabled and state.topics_scope in {"main", "all"}:
-        ui.print("  validating topics setup...")
-        if state.token is None:
-            raise RuntimeError("onboarding state missing token")
-        issue = await svc.validate_topics(
-            state.token,
-            state.chat.chat_id,
-            state.topics_scope,
-        )
-        if issue is not None:
-            ui.print(render_topics_validation_warning(issue), markup=False)
-            disable = ui.confirm("disable topics for now? (recommended)", default=True)
-            if disable is None:
-                raise OnboardingCancelled()
-            if disable:
-                state.topics_enabled = False
-                state.topics_scope = "auto"
-            else:
-                ui.print("  takopi will fail to start with topics until this is fixed.")
-
-    if state.topics_enabled and state.topics_scope in {"projects", "all"}:
-        ui.print("")
-        ui.print(render_project_chat_tip(), markup=False)
+def session_mode_applies(state: OnboardingState) -> bool:
+    return state.session_mode is None
 
 
 def resume_applies(state: OnboardingState) -> bool:
@@ -1036,9 +1054,13 @@ class OnboardingStep:
 
 STEPS: list[OnboardingStep] = [
     OnboardingStep("telegram bot setup", 1, step_token_and_bot),
-    OnboardingStep(None, None, step_capture_chat),
-    OnboardingStep("how follow-ups work", 2, step_session_mode),
-    OnboardingStep("topics (optional)", 3, step_topics),
+    OnboardingStep("chat setup", 2, step_chat_setup),
+    OnboardingStep(
+        "how follow-ups work",
+        3,
+        step_session_mode,
+        applies=session_mode_applies,
+    ),
     OnboardingStep(None, None, step_resume_footer, applies=resume_applies),
     OnboardingStep("default engine", 4, step_default_engine),
     OnboardingStep("save configuration", 5, step_save_config),
@@ -1083,7 +1105,12 @@ async def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
                 state.bot_username = info.username
                 state.bot_name = info.first_name
 
-            await capture_chat(ui, svc, state)
+            await capture_chat(
+                ui,
+                svc,
+                state,
+                prompt=render_generic_capture_prompt(state.bot_ref),
+            )
             return state.chat
         except OnboardingCancelled:
             return None
@@ -1123,6 +1150,7 @@ def debug_onboarding_paths(console: Console | None = None) -> None:
     console = console or Console()
     table = Table(show_header=True, header_style="bold", box=box.SIMPLE)
     table.add_column("#", justify="right", style="dim")
+    table.add_column("chat setup")
     table.add_column("session")
     table.add_column("topics")
     table.add_column("resume footer")
@@ -1138,37 +1166,43 @@ def debug_onboarding_paths(console: Console | None = None) -> None:
         (False, True, (True, False)),
     ]
 
-    topics_choices = ("disabled", "main", "projects", "all")
     path_count = 0
-    for session_mode in ("chat", "stateless"):
-        for topics_choice in topics_choices:
-            topics_enabled = topics_choice != "disabled"
-            resume_prompt = session_mode == "chat" or topics_enabled
-            resume_values = (True, False) if resume_prompt else (True,)
-            topics_check = topics_enabled and topics_choice in {"main", "all"}
-            for show_resume_line in resume_values:
-                if resume_prompt:
-                    resume_label = "show" if show_resume_line else "hide"
-                else:
-                    resume_label = "show (fixed)"
-                for agents_found, save_anyway, save_configs in engine_paths:
-                    for save_config in save_configs:
-                        path_count += 1
-                        agents_label = "found" if agents_found else "none"
-                        save_anyway_label = format_bool(save_anyway)
-                        save_config_label = format_bool(save_config)
-                        outcome = "saved" if save_config else "exit"
-                        table.add_row(
-                            str(path_count),
-                            session_mode,
-                            topics_choice,
-                            resume_label,
-                            "run" if topics_check else "skip",
-                            agents_label,
-                            save_anyway_label,
-                            save_config_label,
-                            outcome,
-                        )
+    for chat_setup in ("private", "topics"):
+        topics_states = (False,) if chat_setup == "private" else (True, False)
+        for topics_enabled in topics_states:
+            if chat_setup == "topics" and topics_enabled:
+                session_modes = ("chat",)
+            else:
+                session_modes = ("chat", "stateless")
+            for session_mode in session_modes:
+                resume_prompt = session_mode == "chat" or topics_enabled
+                resume_values = (True, False) if resume_prompt else (True,)
+                topics_check = chat_setup == "topics"
+                for show_resume_line in resume_values:
+                    if resume_prompt:
+                        resume_label = "show" if show_resume_line else "hide"
+                    else:
+                        resume_label = "show (fixed)"
+                    for agents_found, save_anyway, save_configs in engine_paths:
+                        for save_config in save_configs:
+                            path_count += 1
+                            agents_label = "found" if agents_found else "none"
+                            save_anyway_label = format_bool(save_anyway)
+                            save_config_label = format_bool(save_config)
+                            outcome = "saved" if save_config else "exit"
+                            topics_label = "on" if topics_enabled else "off"
+                            table.add_row(
+                                str(path_count),
+                                chat_setup,
+                                session_mode,
+                                topics_label,
+                                resume_label,
+                                "run" if topics_check else "skip",
+                                agents_label,
+                                save_anyway_label,
+                                save_config_label,
+                                outcome,
+                            )
 
     console.print(f"onboarding paths ({path_count})", markup=False)
     console.print(
