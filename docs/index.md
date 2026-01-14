@@ -1,6 +1,6 @@
 # Takopi documentation
 
-Takopi runs coding agents on your computer and bridges them to Telegram. Send tasks from anywhere, watch progress stream in real time, pick up where you left off.
+Takopi runs coding agents on your computer and bridges them to Telegram. Send tasks from anywhere, watch progress stream in real time, pick up where you left off when back at the terminal.
 
 ## Quick start
 
@@ -59,14 +59,9 @@ Step-by-step guides for new users:
 
 ## How-to guides
 
-Goal-oriented recipes:
-
-| Daily use | Extras | Extending |
-|-----------|--------|-----------|
-| [Chat sessions](how-to/chat-sessions.md) | [Voice notes](how-to/voice-notes.md) | [Write a plugin](how-to/write-a-plugin.md) |
-| [Topics](how-to/topics.md) | [File transfer](how-to/file-transfer.md) | [Add a runner](how-to/add-a-runner.md) |
-| [Projects](how-to/projects.md) | [Schedule tasks](how-to/schedule-tasks.md) | [Dev setup](how-to/dev-setup.md) |
-| [Worktrees](how-to/worktrees.md) | | |
+- [Chat sessions](how-to/chat-sessions.md), [Topics](how-to/topics.md), [Projects](how-to/projects.md), [Worktrees](how-to/worktrees.md)
+- [Voice notes](how-to/voice-notes.md), [File transfer](how-to/file-transfer.md), [Schedule tasks](how-to/schedule-tasks.md)
+- [Write a plugin](how-to/write-a-plugin.md), [Add a runner](how-to/add-a-runner.md), [Dev setup](how-to/dev-setup.md)
 
 ## Reference
 
@@ -78,21 +73,17 @@ Exact options, defaults, and contracts:
 
 ## Core concepts
 
-| Term | Meaning |
-|------|---------|
-| **Engine** | The CLI that does the work (`codex`, `claude`, `opencode`, `pi`) |
-| **Project** | A named alias for a repo path |
-| **Worktree** | A branch checkout in a separate directory (`@branch`) |
-| **Resume line** | The `codex resume ...` footer that enables continuation |
+- **Engine** — the CLI that does the work (`codex`, `claude`, `opencode`, `pi`)
+- **Project** — a named alias for a repo path
+- **Worktree** — a branch checkout in a separate directory (`@branch`)
+- **Resume line** — the `codex resume ...` footer that enables continuation
 
 ## Troubleshooting
 
-| Problem | Where to look |
-|---------|---------------|
-| Wrong repo/branch? | [Context resolution](reference/context-resolution.md) |
-| Didn't continue? | [Commands & directives](reference/commands-and-directives.md) |
-| Telegram weirdness? | [Telegram transport](reference/transports/telegram.md) |
-| Why is it built this way? | [Architecture](explanation/architecture.md) |
+- Wrong repo/branch? → [Context resolution](reference/context-resolution.md)
+- Didn't continue? → [Commands & directives](reference/commands-and-directives.md)
+- Telegram weirdness? → [Telegram transport](reference/transports/telegram.md)
+- Why is it built this way? → [Architecture](explanation/architecture.md)
 
 ## For plugin authors
 
