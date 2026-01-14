@@ -1,6 +1,6 @@
 # Takopi documentation
 
-Takopi runs coding agents on your computer and bridges them to Telegram. Send tasks from anywhere, watch progress stream in real time, pick up where you left off when back at the terminal.
+Takopi runs coding agents on your computer and bridges them to Telegram. Send tasks from anywhere, watch progress stream in real time, pick up where you left off when back at the terminal. Supports simple handoffs or full multi-project workflows with agents working in parallel worktrees. Branches are neatly organized in their own topics.
 
 ## Quick start
 
@@ -70,29 +70,3 @@ Exact options, defaults, and contracts:
 - [Commands & directives](reference/commands-and-directives.md)
 - [Configuration](reference/config.md)
 - [Specification](reference/specification.md) — normative behavior
-
-## Core concepts
-
-- **Engine** — the CLI that does the work (`codex`, `claude`, `opencode`, `pi`)
-- **Project** — a named alias for a repo path
-- **Worktree** — a branch checkout in a separate directory (`@branch`)
-- **Resume line** — the `codex resume ...` footer that enables continuation
-
-## Troubleshooting
-
-- Wrong repo/branch? → [Context resolution](reference/context-resolution.md)
-- Didn't continue? → [Commands & directives](reference/commands-and-directives.md)
-- Telegram weirdness? → [Telegram transport](reference/transports/telegram.md)
-- Why is it built this way? → [Architecture](explanation/architecture.md)
-
-## For plugin authors
-
-- [Plugin API](reference/plugin-api.md) — stable `takopi.api` surface
-- [Write a plugin](how-to/write-a-plugin.md)
-- [Add a runner](how-to/add-a-runner.md)
-
-## For LLM agents
-
-- [Reference: For agents](reference/agents/index.md)
-- [Repo map](reference/agents/repo-map.md)
-- [Invariants](reference/agents/invariants.md)
