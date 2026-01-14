@@ -12,6 +12,7 @@ from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
 from ..transport_runtime import TransportRuntime
 from ..context import RunContext
 from ..model import ResumeToken
+from ..scheduler import ThreadScheduler
 from ..settings import (
     TelegramFilesSettings,
     TelegramTopicsSettings,
@@ -326,7 +327,7 @@ async def handle_cancel(
     cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
     running_tasks: RunningTasks,
-    scheduler: "ThreadScheduler | None" = None,
+    scheduler: ThreadScheduler | None = None,
 ) -> None:
     from .commands import handle_cancel as _handle_cancel
 
@@ -337,7 +338,7 @@ async def handle_callback_cancel(
     cfg: TelegramBridgeConfig,
     query: TelegramCallbackQuery,
     running_tasks: RunningTasks,
-    scheduler: "ThreadScheduler | None" = None,
+    scheduler: ThreadScheduler | None = None,
 ) -> None:
     from .commands import handle_callback_cancel as _handle_callback_cancel
 

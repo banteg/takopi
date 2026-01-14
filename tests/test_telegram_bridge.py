@@ -865,7 +865,8 @@ async def test_handle_cancel_cancels_queued_job() -> None:
         return None
 
     scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=_noop_run_job)
-    progress_ref = MessageRef(channel_id=123, message_id=55)
+    progress_id = 55
+    progress_ref = MessageRef(channel_id=123, message_id=progress_id)
     resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
     await scheduler.enqueue_resume(
         chat_id=123,
@@ -879,7 +880,7 @@ async def test_handle_cancel_cancels_queued_job() -> None:
         chat_id=123,
         message_id=10,
         text="/cancel",
-        reply_to_message_id=progress_ref.message_id,
+        reply_to_message_id=progress_id,
         reply_to_text=None,
         sender_id=123,
     )
@@ -1049,7 +1050,8 @@ async def test_handle_callback_cancel_cancels_queued_job() -> None:
         return None
 
     scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=_noop_run_job)
-    progress_ref = MessageRef(channel_id=123, message_id=77)
+    progress_id = 77
+    progress_ref = MessageRef(channel_id=123, message_id=progress_id)
     resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
     await scheduler.enqueue_resume(
         chat_id=123,
@@ -1061,7 +1063,7 @@ async def test_handle_callback_cancel_cancels_queued_job() -> None:
     query = TelegramCallbackQuery(
         transport="telegram",
         chat_id=123,
-        message_id=progress_ref.message_id,
+        message_id=progress_id,
         callback_query_id="cbq-queued",
         data="takopi:cancel",
         sender_id=123,
