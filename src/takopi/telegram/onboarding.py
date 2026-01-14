@@ -480,15 +480,6 @@ def render_persona_preview(ui: UI) -> None:
         render_persona_tabs(),
         render_workspace_preview(),
     )
-    workspace_panel = Panel(
-        workspace_layout,
-        title=Text("workspace", style="bold"),
-        subtitle="project/branch workspaces",
-        border_style="cyan",
-        box=box.ROUNDED,
-        padding=(0, 1),
-        width=panel_width,
-    )
     assistant_panel = Panel(
         render_assistant_preview(),
         title=Text("assistant", style="bold"),
@@ -507,10 +498,19 @@ def render_persona_preview(ui: UI) -> None:
         padding=(0, 1),
         width=panel_width,
     )
+    workspace_panel = Panel(
+        workspace_layout,
+        title=Text("workspace", style="bold"),
+        subtitle="project/branch workspaces",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(0, 1),
+        width=panel_width,
+    )
     ui.print("")
     ui.print(
         Columns(
-            [workspace_panel, assistant_panel, handoff_panel],
+            [assistant_panel, handoff_panel, workspace_panel],
             expand=False,
             equal=True,
             padding=(0, 2),
