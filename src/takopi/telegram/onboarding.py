@@ -298,6 +298,7 @@ def _render_session_mode_examples(console: Console) -> None:
             border_style="cyan",
             box=box.ROUNDED,
             padding=(0, 1),
+            expand=False,
         ),
         markup=False,
     )
@@ -342,6 +343,7 @@ def _render_session_mode_examples(console: Console) -> None:
             border_style="magenta",
             box=box.ROUNDED,
             padding=(0, 1),
+            expand=False,
         ),
         markup=False,
     )
