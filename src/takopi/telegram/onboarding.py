@@ -408,6 +408,8 @@ def render_persona_tabs() -> Table:
 
 def render_workspace_preview() -> Text:
     return Text.assemble(
+        ("[bot] ", "bold magenta"),
+        ("topic bound to @memory-box\n", "dim"),
         ("[you] ", "bold cyan"),
         "store artifacts forever\n",
         ("[bot] ", "bold magenta"),
@@ -419,9 +421,7 @@ def render_workspace_preview() -> Text:
         ("[you] ", "bold cyan"),
         "automatically adjust size\n",
         ("[bot] ", "bold magenta"),
-        ("done · codex · 6s\n", "dim"),
-        ("[you] ", "bold cyan"),
-        "add a yellow star button",
+        ("done · codex · 6s", "dim"),
     )
 
 
