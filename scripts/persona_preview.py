@@ -10,8 +10,8 @@ from rich.text import Text
 
 def render_topic_tabs() -> Table:
     """Horizontal tabs showing different topics."""
-    active_label = "backend @feat/api"
-    inactive_label = "happy-gadgets"
+    active_label = "happian @memory-box"
+    inactive_label = "takopi @master"
     grid = Table.grid(padding=(0, 2))
     grid.pad_edge = False
     grid.add_column()
@@ -25,17 +25,19 @@ def render_topic_conversation() -> Text:
     """Conversation inside the selected topic."""
     return Text.assemble(
         ("[you] ", "bold cyan"),
-        "/topic backend @feat/api\n",
-        ("[bot] ", "bold magenta"),
-        ("done · codex · 8s\n", "dim"),
-        ("[you] ", "bold cyan"),
-        "review the error handling\n",
+        "store artifacts forever\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 10s\n", "dim"),
         ("[you] ", "bold cyan"),
-        "also add cache invalidation\n",
+        "also freeze them\n",
         ("[bot] ", "bold magenta"),
-        ("done · codex · 6s", "dim"),
+        ("done · codex · 6s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        "automatically adjust size\n",
+        ("[bot] ", "bold magenta"),
+        ("done · codex · 6s\n", "dim"),
+        ("[you] ", "bold cyan"),
+        "add a yellow star button",
     )
 
 
@@ -43,22 +45,22 @@ def render_assistant_preview() -> Text:
     """Assistant: messages auto-continue in one conversation."""
     return Text.assemble(
         ("[you] ", "bold cyan"),
-        "explain what this repo does\n",
+        "make happy wings fit\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 8s\n", "dim"),
         ("[you] ", "bold cyan"),
-        "now add tests\n",
+        "carry heavy creatures\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 12s\n", "dim"),
         ("[you] ", "bold cyan"),
         ("/new", "bold green"),
         ("  ← start fresh\n", "yellow"),
         ("[you] ", "bold cyan"),
-        "review the error handling\n",
+        "add flower pin\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 6s\n", "dim"),
         ("[you] ", "bold cyan"),
-        "implement caching\n",
+        "make wearer appear as flower\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 4s", "dim"),
     )
@@ -68,21 +70,21 @@ def render_handoff_preview() -> Text:
     """Handoff: every message starts fresh, reply to continue."""
     return Text.assemble(
         ("[you] ", "bold cyan"),
-        "explain what this repo does\n",
+        "make it go back in time\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 8s\n", "dim"),
         ("      codex resume ", "dim"),
         ("abc123 ", "cyan"),
         ("← reply\n", "yellow"),
         ("[you] ", "bold cyan"),
-        "add a health check endpoint\n",
+        "add reconciliation ribbon\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 3s\n", "dim"),
         ("      codex resume ", "dim"),
         ("def456\n", "green"),
         ("[you] ", "bold cyan"),
         ("(reply) ", "bold green"),
-        "now add tests\n",
+        "more than once\n",
         ("[bot] ", "bold magenta"),
         ("done · codex · 8s\n", "dim"),
         ("      codex resume ", "dim"),
@@ -90,7 +92,7 @@ def render_handoff_preview() -> Text:
     )
 
 
-PANEL_WIDTH = 42
+PANEL_WIDTH = 40
 
 
 def main():
@@ -98,7 +100,6 @@ def main():
 
     workspace_layout = Group(
         render_topic_tabs(),
-        Text(""),
         render_topic_conversation(),
     )
     workspace_panel = Panel(
