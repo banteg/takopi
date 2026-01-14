@@ -240,22 +240,40 @@ def _render_engine_table(console: Console) -> list[tuple[str, bool, str | None]]
 
 
 def _render_session_mode_examples(console: Console) -> None:
-    console.print("  takopi can work two ways:\n")
-    console.print("  chat mode (default)")
-    console.print("    takopi remembers your session. new messages auto-continue.")
-    console.print("    good for: ongoing work, natural conversation flow.\n")
-    console.print("    [you] polish the octopus mascot")
-    console.print("    [bot] done · codex · 8s")
-    console.print("    [you] now add a tiny top hat  ← no reply needed")
-    console.print("    [bot] done · codex · 5s")
-    console.print("    [you] /new  ← reset when done\n")
-    console.print("  stateless")
-    console.print("    every message starts fresh unless you reply to continue.")
-    console.print("    good for: quick isolated tasks, explicit control.\n")
-    console.print("    [you] make the octopus blink")
-    console.print("    [bot] done · codex · 8s")
-    console.print("    [you] (reply) now add a sparkle trail")
-    console.print("    [bot] done · codex · 5s")
+    console.print("  takopi can work two ways:\n", markup=False)
+    console.print("  chat mode (default)", markup=False)
+    console.print(
+        "    takopi remembers your session. new messages auto-continue.",
+        markup=False,
+    )
+    console.print(
+        "    good for: ongoing work, natural conversation flow.\n",
+        markup=False,
+    )
+    console.print("    [you] polish the octopus mascot", markup=False)
+    console.print("    [bot] done · codex · 8s", markup=False)
+    console.print(
+        "    [you] now add a tiny top hat  ← no reply needed",
+        markup=False,
+    )
+    console.print("    [bot] done · codex · 5s", markup=False)
+    console.print("    [you] /new  ← reset when done\n", markup=False)
+    console.print("  stateless", markup=False)
+    console.print(
+        "    every message starts fresh unless you reply to continue.",
+        markup=False,
+    )
+    console.print(
+        "    good for: quick isolated tasks, explicit control.\n",
+        markup=False,
+    )
+    console.print("    [you] make the octopus blink", markup=False)
+    console.print("    [bot] done · codex · 8s", markup=False)
+    console.print(
+        "    [you] (reply) now add a sparkle trail",
+        markup=False,
+    )
+    console.print("    [bot] done · codex · 5s", markup=False)
 
 
 def _prompt_session_mode(console: Console) -> str | None:
