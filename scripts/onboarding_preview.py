@@ -131,7 +131,6 @@ class ScriptedServices:
 
 async def run_flow(title: str, ui: ScriptedUI, svc: ScriptedServices) -> None:
     section(ui.console, title)
-    ui.print(ob.render_welcome_blurb())
     state = ob.OnboardingState(config_path=ob.HOME_CONFIG_PATH, force=False)
     await ob.run_onboarding(ui, svc, state)
 

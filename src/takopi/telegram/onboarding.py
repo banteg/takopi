@@ -349,14 +349,6 @@ def render_generic_capture_prompt(bot_ref: str) -> Text:
     )
 
 
-def render_welcome_blurb() -> Text:
-    return Text.assemble(
-        ("takopi", "bold cyan"),
-        " connects coding agents to telegram.\n",
-        "request code changes from your phone, get results in seconds.",
-    )
-
-
 def render_botfather_instructions() -> Text:
     return Text.assemble(
         "  1. open telegram and message @BotFather\n",
@@ -1026,7 +1018,6 @@ async def interactive_setup(*, force: bool) -> bool:
             return False
 
     with suppress_logging():
-        ui.print(render_welcome_blurb())
         return await run_onboarding(ui, svc, state)
 
 
