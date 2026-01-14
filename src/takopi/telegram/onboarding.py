@@ -84,6 +84,22 @@ class ChatInfo:
         full_name = " ".join(part for part in [self.first_name, self.last_name] if part)
         return full_name or "private chat"
 
+    @property
+    def kind(self) -> str:
+        if self.chat_type in {None, "private"}:
+            return "private chat"
+        if self.chat_type in {"group", "supergroup"}:
+            if self.title:
+                return f'{self.chat_type} "{self.title}"'
+            return self.chat_type
+        if self.chat_type == "channel":
+            if self.title:
+                return f'channel "{self.title}"'
+            return "channel"
+        if self.chat_type:
+            return self.chat_type
+        return "unknown chat"
+
 
 def _display_path(path: Path) -> str:
     home = Path.home()
@@ -255,16 +271,20 @@ def _append_dialogue(
 
 
 def _render_session_mode_examples(console: Console) -> None:
-    console.print("  takopi can work two ways:\n", markup=False)
+    console.print(
+        "  choose how takopi should continue your work in this chat:\n",
+        markup=False,
+    )
     chat_text = Text()
     chat_text.append(
-        "takopi remembers your session. new messages auto-continue.\n",
+        "takopi remembers your thread. new messages auto-continue.\n",
         style="dim",
     )
     chat_text.append(
         "good for: ongoing work, natural conversation flow.\n\n",
         style="dim",
     )
+    chat_text.append("in group chats, sessions are per person.\n\n", style="dim")
     _append_dialogue(
         chat_text,
         "you",
@@ -295,7 +315,7 @@ def _render_session_mode_examples(console: Console) -> None:
     console.print(
         Panel(
             chat_text,
-            title=Text("chat mode", style="bold"),
+            title=Text("chat sessions (recommended)", style="bold"),
             border_style="cyan",
             box=box.ROUNDED,
             padding=(0, 1),
@@ -340,7 +360,7 @@ def _render_session_mode_examples(console: Console) -> None:
     console.print(
         Panel(
             stateless_text,
-            title=Text("stateless", style="bold"),
+            title=Text("reply-to-continue (stateless)", style="bold"),
             border_style="magenta",
             box=box.ROUNDED,
             padding=(0, 1),
@@ -354,14 +374,14 @@ def _prompt_session_mode(console: Console) -> str | None:
     _render_session_mode_examples(console)
     console.print("")
     return questionary.select(
-        "choose conversation style:",
+        "choose how follow-ups should work:",
         choices=[
             questionary.Choice(
-                "chat mode",
+                "chat sessions",
                 value="chat",
             ),
             questionary.Choice(
-                "stateless",
+                "reply-to-continue (stateless)",
                 value="stateless",
             ),
         ],
@@ -370,43 +390,53 @@ def _prompt_session_mode(console: Console) -> str | None:
 
 def _prompt_topics(console: Console, chat: ChatInfo) -> str | None:
     console.print("")
-    console.print("forum topics let you bind threads to a project + branch.")
-    console.print("they require a forum-enabled supergroup and bot admin permission.")
+    console.print("forum topics turn each topic into its own workspace.")
+    console.print(
+        "takopi can bind each topic to a project + branch and remember the thread there."
+    )
+    console.print("")
+    console.print(
+        "requires: forum-enabled supergroup + bot admin permission (manage topics)"
+    )
     if not chat.is_group:
         console.print(
-            "  note: you captured a private chat; topics require a forum group."
+            "  note: you captured a private chat. topics only work in forum groups."
+            " you can enable them later in a group."
         )
     console.print("")
     return questionary.select(
         "will you use topics?",
         choices=[
-            questionary.Choice("no, keep topics off", value="disabled"),
-            questionary.Choice("yes, in the main chat (this chat_id)", value="main"),
+            questionary.Choice("no (topics off)", value="disabled"),
+            questionary.Choice("yes, in this chat", value="main"),
             questionary.Choice(
-                "yes, in project chats (projects.<alias>.chat_id)", value="projects"
+                "yes, in project chats (i'll bind chats per project later)",
+                value="projects",
             ),
-            questionary.Choice("yes, in both main and project chats", value="all"),
+            questionary.Choice("yes, both", value="all"),
         ],
     ).ask()
 
 
 def _prompt_resume_lines(console: Console) -> bool | None:
     console.print("")
-    console.print("resume lines let you reply to any earlier message to branch.")
+    console.print('resume footers add a small line like: "codex resume ..."')
+    console.print("replying to that resume line continues (or branches) that thread.")
+    console.print("")
     console.print(
-        "when chat sessions or topics are enabled, resume lines are hidden only "
-        "when a project context is set."
+        "since you enabled chat sessions or topics, takopi can auto-continue "
+        "without showing resume footers."
     )
     console.print("")
     return questionary.select(
-        "show resume lines in messages?",
+        "show resume footers in messages?",
         choices=[
             questionary.Choice(
-                "hide resume lines (cleaner chat; use /new to reset)",
+                "auto-hide in project chats (cleaner; still auto-continues)",
                 value=False,
             ),
             questionary.Choice(
-                "show resume lines (best for reply-to-continue)",
+                "always show resume lines (best for branching and terminal resume)",
                 value=True,
             ),
         ],
@@ -423,9 +453,10 @@ def _build_confirmation_message(
     if session_mode == "chat":
         lines.extend(
             [
-                "chat mode tips:",
+                "chat sessions tips:",
                 "- send a message to start",
                 "- send another message to continue",
+                "- try: explain what this repo does",
                 "- use /new to start a fresh thread",
             ]
         )
@@ -434,7 +465,7 @@ def _build_confirmation_message(
             [
                 "reply-to-continue tips:",
                 "- send a message to start",
-                "- reply to a message with a resume line to continue",
+                "- reply to any takopi message that ends with a resume line",
             ]
         )
     if topics_enabled:
@@ -442,16 +473,16 @@ def _build_confirmation_message(
             [
                 "",
                 "topics:",
-                "- use /topic <project> @branch to create/bind a topic",
+                "- use /topic myproj @main to create/bind a topic",
                 "- use /ctx to show or update the binding",
-                "- use /new to reset the topic session",
+                "- use /new to reset the topic thread",
             ]
         )
     if (session_mode == "chat" or topics_enabled) and not show_resume_line:
         lines.extend(
             [
                 "",
-                "resume lines are hidden in stateful chats; "
+                "resume lines are hidden in project chats; "
                 "set show_resume_line = true to re-enable them.",
             ]
         )
@@ -591,7 +622,10 @@ def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
 
         bot_ref = f"@{info.username}"
         console.print("")
-        console.print(f"  send /start to {bot_ref} (works in groups too)")
+        console.print(
+            f"  send /start to {bot_ref} in the chat you want takopi to use "
+            "(dm or group)"
+        )
         console.print("  waiting...")
         try:
             chat = anyio.run(wait_for_chat, token)
@@ -601,7 +635,9 @@ def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
         if chat is None:
             console.print("  cancelled")
             return None
-        console.print(f"  got chat_id {chat.chat_id} from {chat.display}")
+        console.print(
+            f"  got chat_id {chat.chat_id} ({chat.kind}) from {chat.display}"
+        )
         return chat
 
 
@@ -626,7 +662,7 @@ def interactive_setup(*, force: bool) -> bool:
 
     with _suppress_logging():
         panel = Panel(
-            "let's set up your telegram bot.",
+            f"let's set up your telegram bot.\nwe'll write {_display_path(config_path)}.",
             title="welcome to takopi!",
             border_style="yellow",
             padding=(1, 2),
@@ -636,13 +672,17 @@ def interactive_setup(*, force: bool) -> bool:
 
         console.print(Text("step 1: telegram bot setup", style="bold yellow"))
         console.print("")
-        have_token = _confirm("do you have a telegram bot token?")
+        have_token = _confirm("do you already have a bot token from @BotFather?")
         if have_token is None:
             return False
         if not have_token:
             console.print("  1. open telegram and message @BotFather")
             console.print("  2. send /newbot and follow the prompts")
             console.print("  3. copy the token (looks like 123456789:ABCdef...)")
+            console.print("")
+            console.print(
+                "  keep this token secret - it grants full control of your bot."
+            )
             console.print("")
 
         token_info = _prompt_token(console)
@@ -652,7 +692,10 @@ def interactive_setup(*, force: bool) -> bool:
         bot_ref = f"@{info.username}"
 
         console.print("")
-        console.print(f"  send /start to {bot_ref} (works in groups too)")
+        console.print(
+            f"  send /start to {bot_ref} in the chat you want takopi to use "
+            "(dm or group)"
+        )
         console.print("  waiting...")
         try:
             chat = anyio.run(wait_for_chat, token)
@@ -662,17 +705,19 @@ def interactive_setup(*, force: bool) -> bool:
         if chat is None:
             console.print("  cancelled")
             return False
-        console.print(f"  got chat_id {chat.chat_id} from {chat.display}")
+        console.print(
+            f"  got chat_id {chat.chat_id} ({chat.kind}) from {chat.display}"
+        )
 
         console.print("")
-        console.print(Text("step 2: conversation style", style="bold yellow"))
+        console.print(Text("step 2: threads (how follow-ups work)", style="bold yellow"))
         console.print("")
         session_mode = _prompt_session_mode(console)
         if session_mode is None:
             return False
 
         console.print("")
-        console.print(Text("step 3: topics (optional)", style="bold yellow"))
+        console.print(Text("step 3: topics & resume footer", style="bold yellow"))
         topics_choice = _prompt_topics(console, chat)
         if topics_choice is None:
             return False
@@ -680,13 +725,6 @@ def interactive_setup(*, force: bool) -> bool:
         topics_scope: TopicScope = "auto"
         if topics_enabled:
             topics_scope = cast(TopicScope, topics_choice)
-
-        show_resume_line = True
-        if session_mode == "chat" or topics_enabled:
-            resume_choice = _prompt_resume_lines(console)
-            if resume_choice is None:
-                return False
-            show_resume_line = resume_choice
 
         if topics_enabled and topics_scope in {"main", "all"}:
             console.print("  validating topics setup...")
@@ -700,11 +738,45 @@ def interactive_setup(*, force: bool) -> bool:
             if issue is not None:
                 console.print(f"[yellow]warning:[/] {issue}")
                 console.print(
-                    "  takopi will fail to start with topics until this is fixed."
+                    "  fix:\n"
+                    "  - promote the bot to admin\n"
+                    "  - enable \"manage topics\"\n"
+                    "  - rerun takopi --onboard"
                 )
+                disable = _confirm("disable topics for now? (recommended)", default=True)
+                if disable is None:
+                    return False
+                if disable:
+                    topics_enabled = False
+                    topics_scope = "auto"
+                else:
+                    console.print(
+                        "  takopi will fail to start with topics until this is fixed."
+                    )
+
+        if topics_enabled and topics_scope in {"projects", "all"}:
+            console.print("")
+            console.print("  tip: bind a project chat with:")
+            console.print("  takopi chat-id --project <alias>")
+
+        show_resume_line = True
+        if session_mode == "chat" or topics_enabled:
+            resume_choice = _prompt_resume_lines(console)
+            if resume_choice is None:
+                return False
+            show_resume_line = resume_choice
+        else:
+            console.print("")
+            console.print(
+                "  reply-to-continue requires resume lines. we'll keep them on."
+            )
 
         console.print("")
-        console.print(Text("step 4: agent cli tools", style="bold yellow"))
+        console.print(Text("step 4: default agent", style="bold yellow"))
+        console.print(
+            "takopi runs one of these agent CLIs on your machine. "
+            "you can switch per message later."
+        )
         rows = _render_engine_table(console)
         installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
 
@@ -745,6 +817,8 @@ def interactive_setup(*, force: bool) -> bool:
         console.print(f"  {_display_path(config_path)}\n")
         for line in config_preview.splitlines():
             console.print(f"  {line}")
+        console.print("")
+        console.print("  note: your bot token will be saved in plain text.")
         console.print("")
 
         save = _confirm(
@@ -826,7 +900,7 @@ def debug_onboarding_paths(console: Console | None = None) -> None:
     table.add_column("#", justify="right", style="dim")
     table.add_column("session")
     table.add_column("topics")
-    table.add_column("resume lines")
+    table.add_column("resume footer")
     table.add_column("topics check")
     table.add_column("agents")
     table.add_column("save anyway")
