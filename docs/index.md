@@ -6,24 +6,35 @@ Takopi lets you run an engine CLI in a local repo while controlling it from Tele
 
 ## Workflows
 
+During setup, you pick one of three workflows:
+
 <div class="grid cards" markdown>
--   :lucide-message-circle:{ .lg } **Solo chat workflow**
+-   :lucide-message-circle:{ .lg } **Assistant**
 
     ---
 
-    For a single developer in a private chat.
+    Ongoing chat with auto-resume. Best for solo developers.
 
-    - [Conversation modes](tutorials/conversation-modes.md)
     - [First run](tutorials/first-run.md)
+    - [Chat sessions](how-to/chat-sessions.md)
 
--   :lucide-users:{ .lg } **Team topics workflow**
+-   :lucide-folder-kanban:{ .lg } **Workspace**
 
     ---
 
-    For teams using forum topics and per-topic defaults.
+    Forum topics bound to repos/branches. Best for teams.
 
     - [Topics](how-to/topics.md)
     - [Projects and branches](tutorials/projects-and-branches.md)
+
+-   :lucide-terminal:{ .lg } **Handoff**
+
+    ---
+
+    Reply-to-continue with terminal resume lines.
+
+    - [Conversation modes](tutorials/conversation-modes.md)
+    - [First run](tutorials/first-run.md)
 
 </div>
 

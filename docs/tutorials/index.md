@@ -25,17 +25,13 @@ You only need one to get started. Takopi auto-detects what's available.
 
 ### 1. Install and onboard
 
-Set up Takopi, create a Telegram bot, and generate your config.
-
-**Time:** ~5 minutes
+Set up Takopi, create a Telegram bot, pick a workflow, and generate your config.
 
 [Start here →](install-and-onboard.md)
 
 ### 2. Conversation modes
 
-Decide how Takopi should handle follow-up messages: chat mode or reply-to-continue.
-
-**Time:** ~5 minutes
+Understand how chat mode and stateless mode work, and how your workflow choice configured them.
 
 [Continue →](conversation-modes.md)
 
@@ -43,23 +39,17 @@ Decide how Takopi should handle follow-up messages: chat mode or reply-to-contin
 
 Send your first task, watch it stream, and learn the core loop: run → continue → cancel.
 
-**Time:** ~10 minutes
-
 [Continue →](first-run.md)
 
 ### 4. Projects and branches
 
 Register a repo as a project so you can target it from anywhere. Run tasks on feature branches without leaving your main worktree.
 
-**Time:** ~10 minutes
-
 [Continue →](projects-and-branches.md)
 
 ### 5. Multi-engine workflows
 
 Use different agents for different tasks. Set defaults per chat or topic.
-
-**Time:** ~5 minutes
 
 [Continue →](multi-engine.md)
 
@@ -70,7 +60,7 @@ By the end of these tutorials, you'll have:
 ```
 ~/.takopi/takopi.toml
 ├── bot_token + chat_id configured
-├── session_mode chosen
+├── workflow configured (assistant/workspace/handoff)
 ├── default_engine set
 └── projects.your-repo registered
 ```
@@ -78,7 +68,7 @@ By the end of these tutorials, you'll have:
 And you'll know how to:
 
 - Send tasks from Telegram and watch progress stream
-- Continue conversations by replying or sending a new message (chat mode)
+- Continue conversations (auto-resume or reply-to-continue depending on workflow)
 - Cancel runs mid-flight
 - Target specific repos and branches
 - Switch between agents on the fly

@@ -2,7 +2,7 @@
 
 This tutorial walks you through installing Takopi, creating a Telegram bot, and generating your config file.
 
-**What you'll have at the end:** A working `~/.takopi/takopi.toml` with your bot token, chat ID, conversation mode, and default engine.
+**What you'll have at the end:** A working `~/.takopi/takopi.toml` with your bot token, chat ID, workflow settings, and default engine.
 
 ## 1. Install Python 3.14 and uv
 
@@ -131,65 +131,60 @@ Paste your token when prompted:
 
 Takopi validates the token by calling the Telegram API. If it fails, double-check you copied the full token.
 
-## 7. Capture your chat ID
+## 7. Pick your workflow
 
-Takopi needs to know which chat to send messages to. It will listen for a message from you:
-
-```
-  send /start to @my_takopi_bot (works in groups too)
-  waiting...
-```
-
-Open Telegram and send `/start` (or any message) to your bot. Takopi will capture the chat:
+Takopi shows you three workflow previews and asks how you plan to use it:
 
 ```
-  got chat_id 123456789 from @yourusername
-  sent confirmation message
+? how will you use takopi?
+ ❯ assistant (ongoing chat, /new to reset)
+   workspace (projects + branches, i'll set those up)
+   handoff (reply to continue, terminal resume)
 ```
 
-!!! tip "Using Takopi in a group"
-    You can also send a message in a group where the bot is a member. Takopi will capture that group's chat ID instead. This is useful if you want multiple people to share the same bot.
+Each choice automatically configures conversation mode, topics, and resume lines:
 
-## 8. Choose a conversation mode
+| Workflow | Best for | What it does |
+|----------|----------|--------------|
+| **assistant** | Single developer, private chat | Chat mode (auto-resume), topics off, resume lines hidden. Use `/new` to start fresh. |
+| **workspace** | Teams, multiple projects/branches | Chat mode, topics on, resume lines hidden. Each topic binds to a repo/branch. |
+| **handoff** | Terminal-based workflow | Stateless (reply-to-continue), resume lines always shown. Copy resume line to terminal. |
 
-Takopi asks how you want follow-up messages to behave:
+!!! tip "Not sure which to pick?"
+    Start with **assistant** (recommended). You can always change settings later in your config file.
 
-```
-? choose conversation mode:
- ❯ chat mode (auto-resume; use /new to start fresh)
-   stateless (reply-to-continue)
-```
+## 8. Connect your chat
 
-**Chat mode** keeps one active thread per chat (per sender in groups). New messages continue automatically.  
-**Stateless** makes every message start fresh unless you reply to a resume line.
+Depending on your workflow choice, Takopi asks you to send a message to capture the chat:
 
-## 9. (Optional) Enable Topics
-
-If you plan to use Telegram **forum topics**, Takopi will ask:
+**For assistant or handoff:**
 
 ```
-? will you use topics?
- ❯ no, keep topics off
-   yes, in the main chat (this chat_id)
-   yes, in project chats (projects.<alias>.chat_id)
-   yes, in both main and project chats
+  1. open a chat with @my_takopi_bot
+  2. send /start
+  waiting for message...
 ```
 
-Topics require a **forum-enabled supergroup** and the bot must have **Manage Topics** permission.
-
-## 10. Choose resume line visibility
-
-If you picked chat mode or enabled topics, Takopi asks whether to show resume lines:
+**For workspace:**
 
 ```
-? show resume lines in messages?
- ❯ hide resume lines (cleaner chat; use /new to reset)
-   show resume lines (best for reply-to-continue)
+  set up a topics group:
+  1. create a group and enable topics (settings → topics)
+  2. add @my_takopi_bot as admin with "manage topics"
+  3. send any message in the group
+  waiting for message...
 ```
 
-Resume lines let you reply to older messages to branch a conversation.
+Once Takopi receives your message:
 
-## 11. Choose your default engine
+```
+  got chat_id 123456789 for @yourusername (private chat)
+```
+
+!!! warning "Workspace requires a forum group"
+    If you chose workspace and the chat isn't a forum-enabled supergroup with proper bot permissions, Takopi will warn you and offer to switch to assistant mode instead.
+
+## 9. Choose your default engine
 
 Takopi scans your PATH for installed agent CLIs:
 
@@ -210,62 +205,78 @@ step 4: agent cli tools
 
 Pick whichever you prefer. You can always switch engines per-message later.
 
-## 12. Save your config
+## 10. Save your config
 
-Takopi shows you a preview of what it will save:
-
-```
-step 5: save configuration
-
-  ~/.takopi/takopi.toml
-
-  default_engine = "codex"
-  transport = "telegram"
-
-  [transports.telegram]
-  bot_token = "123456789:ABC..."
-  chat_id = 123456789
-  session_mode = "chat"
-  show_resume_line = false
-
-  [transports.telegram.topics]
-  enabled = false
-  scope = "auto"
-
-? save this config to ~/.takopi/takopi.toml? (yes/no)
-```
-
-Press **Enter** to save. You'll see:
+Takopi asks you to confirm saving:
 
 ```
-  config saved to ~/.takopi/takopi.toml
-  sent confirmation message
+? save config to ~/.takopi/takopi.toml? (yes/no)
+```
 
-setup complete. starting takopi...
+Press **y** or **Enter** to save. You'll see:
+
+```
+✓ setup complete. starting takopi...
 ```
 
 Takopi is now running and listening for messages!
 
 ## What just happened
 
-Your config file lives at `~/.takopi/takopi.toml`:
+Your config file lives at `~/.takopi/takopi.toml`. The exact contents depend on your workflow choice:
 
-```toml title="~/.takopi/takopi.toml"
-default_engine = "codex" # new threads use this
-transport = "telegram"   # how Takopi talks to you
+=== "assistant"
 
-[transports.telegram]
-bot_token = "..."        # your bot's API key
-chat_id = 123456789      # where to send messages
-session_mode = "chat"
-show_resume_line = false
+    ```toml title="~/.takopi/takopi.toml"
+    default_engine = "codex"
+    transport = "telegram"
 
-[transports.telegram.topics]
-enabled = false
-scope = "auto"
-```
+    [transports.telegram]
+    bot_token = "..."
+    chat_id = 123456789
+    session_mode = "chat"       # auto-resume
+    show_resume_line = false    # cleaner chat
 
-This config file controls all of Takopi's behavior. You'll edit it directly for advanced features.
+    [transports.telegram.topics]
+    enabled = false
+    scope = "auto"
+    ```
+
+=== "workspace"
+
+    ```toml title="~/.takopi/takopi.toml"
+    default_engine = "codex"
+    transport = "telegram"
+
+    [transports.telegram]
+    bot_token = "..."
+    chat_id = -1001234567890    # forum group
+    session_mode = "chat"
+    show_resume_line = false
+
+    [transports.telegram.topics]
+    enabled = true              # topics on
+    scope = "auto"
+    ```
+
+=== "handoff"
+
+    ```toml title="~/.takopi/takopi.toml"
+    default_engine = "codex"
+    transport = "telegram"
+
+    [transports.telegram]
+    bot_token = "..."
+    chat_id = 123456789
+    session_mode = "stateless"  # reply-to-continue
+    show_resume_line = true     # always show resume lines
+
+    [transports.telegram.topics]
+    enabled = false
+    scope = "auto"
+    ```
+
+This config file controls all of Takopi's behavior. You can edit it directly to change settings or add advanced features.
 
 ## Re-running onboarding
 
@@ -297,6 +308,6 @@ You can only run one Takopi instance per bot token. Find and stop the other proc
 
 ## Next
 
-Next, learn how conversation modes affect follow-ups.
+Learn more about conversation modes and how your workflow choice affects follow-ups.
 
 [Conversation modes →](conversation-modes.md)

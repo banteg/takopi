@@ -1,11 +1,16 @@
 # Conversation modes
 
-Takopi can handle follow-up messages in two ways: **chat mode** (auto-resume) or **stateless** (reply-to-continue). Pick the one that matches how you want Telegram to feel.
+Takopi can handle follow-up messages in two ways: **chat mode** (auto-resume) or **stateless** (reply-to-continue).
 
-## Quick pick
+During [onboarding](install-and-onboard.md), you chose a **workflow** (assistant, workspace, or handoff) that automatically configured this for you:
 
-- **Choose chat mode** if you want a normal chat flow where new messages continue the same thread.
-- **Choose stateless** if you want every message to start clean unless you explicitly reply.
+| Workflow | Session mode | Topics | Resume lines |
+|----------|--------------|--------|--------------|
+| **assistant** | chat | off | hidden |
+| **workspace** | chat | on | hidden |
+| **handoff** | stateless | off | shown |
+
+This page explains what those settings mean and how to change them.
 
 ## Chat mode (auto-resume)
 
@@ -48,14 +53,20 @@ To continue the same session, **reply** to a message with a resume line:
     !!! user "You"
         now add tests
 
-## Where to set it
+## Changing your settings
 
-Onboarding will ask you, or you can set it in config:
+You can manually change these settings in your config file:
 
 ```toml
 [transports.telegram]
-session_mode = "chat" # or "stateless"
-show_resume_line = false # optional, see below
+session_mode = "chat"      # "chat" or "stateless"
+show_resume_line = false   # true or false
+```
+
+Or re-run onboarding to pick a different workflow:
+
+```sh
+takopi --onboard
 ```
 
 ## Resume lines in chat mode

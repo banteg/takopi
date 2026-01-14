@@ -2,6 +2,9 @@
 
 Topics bind Telegram **forum threads** to a project/branch context. Each topic keeps its own session and default agent, which is ideal for teams or multi-project work.
 
+!!! tip "Workspace workflow"
+    If you chose the **workspace** workflow during [onboarding](../tutorials/install-and-onboard.md), topics are already enabled. This guide covers advanced topic configuration and usage.
+
 ## Why use topics
 
 - Keep each thread tied to a repo + branch
@@ -14,6 +17,13 @@ Topics bind Telegram **forum threads** to a project/branch context. Each topic k
 - **Topics are enabled** in the group settings
 - The bot is an **admin** with **Manage Topics** permission
 - If you want topics in project chats, set `projects.<alias>.chat_id`
+
+!!! note "Setting up workspace from scratch"
+    If you didn't choose workspace during onboarding and want to enable topics now:
+
+    1. Create a group and enable topics in group settings
+    2. Add your bot as admin with "Manage Topics" permission
+    3. Update your config to enable topics (see below)
 
 ## Enable topics
 

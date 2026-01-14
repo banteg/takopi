@@ -31,7 +31,18 @@ uv tool install -U takopi
 
 ## setup
 
-run `takopi` and follow the instructions. it will help you create a bot token, set up the default chat, and set the default engine.
+run `takopi` and follow the setup wizard. it will help you:
+
+1. create a bot token via @BotFather
+2. pick a workflow (assistant, workspace, or handoff)
+3. connect your chat
+4. choose a default engine
+
+workflows configure conversation mode, topics, and resume lines automatically:
+
+- **assistant**: ongoing chat with auto-resume (recommended)
+- **workspace**: forum topics bound to repos/branches
+- **handoff**: reply-to-continue with terminal resume lines
 
 ## usage
 

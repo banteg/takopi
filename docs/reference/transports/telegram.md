@@ -42,8 +42,9 @@ ignores it. If your server requires a specific model name, set
 
 ## Chat sessions (optional)
 
-Takopi is stateless by default unless you reply to a bot message containing a resume
-line. If you want auto-resume without replies, enable chat sessions.
+If you chose the **handoff** workflow during onboarding, Takopi uses stateless mode
+where you reply to continue a session. The **assistant** and **workspace** workflows
+use chat mode with auto-resume enabled.
 
 Configuration (under `[transports.telegram]`):
 
@@ -81,8 +82,9 @@ chunks add a "continued (N/M)" header.
 
 ## Forum topics (optional)
 
-Takopi can bind Telegram forum topics to a project/branch and persist resume tokens
-per topic, so replies keep the right context even after restarts.
+If you chose the **workspace** workflow during onboarding, topics are already enabled.
+Topics bind Telegram forum threads to a project/branch and persist resume tokens per
+topic, so replies keep the right context even after restarts.
 
 Configuration (under `[transports.telegram]`):
 
