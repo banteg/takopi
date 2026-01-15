@@ -72,6 +72,26 @@ In group chats, changing trigger mode requires the sender to be an admin.
 State is stored in `telegram_chat_prefs_state.json` (chat default) and
 `telegram_topics_state.json` (topic overrides) alongside the config file.
 
+### Forwarded message coalescing
+
+Telegram sends a "comment + forwards" burst as separate messages, with the comment
+arriving first. Takopi waits briefly so it can attach the forwarded messages and
+run once.
+
+Behavior:
+
+- When a prompt candidate arrives, Takopi waits for `forward_coalesce_s` seconds
+  of quiet for that sender + chat/topic.
+- Forwarded messages arriving during the window are appended to the prompt
+  (separated by blank lines) and do not start their own runs.
+- Forwarded messages by themselves do not start runs.
+
+Configuration (under `[transports.telegram]`):
+
+```toml
+forward_coalesce_s = 1.0 # set 0 to disable the delay
+```
+
 ## Chat sessions (optional)
 
 If you chose the **handoff** workflow during onboarding, Takopi uses stateless mode
