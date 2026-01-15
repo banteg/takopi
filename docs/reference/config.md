@@ -33,8 +33,8 @@ chat_id = 123
 | `voice_transcription` | bool | `false` | Enable voice note transcription. |
 | `voice_max_bytes` | int | `10485760` | Max voice note size (bytes). |
 | `voice_transcription_model` | string | `"gpt-4o-mini-transcribe"` | OpenAI transcription model name. |
-| `session_mode` | `"stateless"`\|`"chat"` | `"stateless"` | Auto-resume mode. |
-| `show_resume_line` | bool | `true` | Show resume line in message footer. |
+| `session_mode` | `"stateless"`\|`"chat"` | `"stateless"` | Auto-resume mode. Onboarding sets `"chat"` for assistant/workspace. |
+| `show_resume_line` | bool | `true` | Show resume line in message footer. Onboarding sets `false` for assistant/workspace. |
 
 ### `transports.telegram.topics`
 

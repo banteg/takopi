@@ -76,16 +76,12 @@ Start Takopi without a config file. It will detect this and launch the setup wiz
 takopi
 ```
 
-You'll see something like:
+You'll see:
 
 ```
-welcome to takopi!
+step 1: bot token
 
-let's set up your telegram bot.
-
-step 1: telegram bot setup
-
-? do you have a telegram bot token? (yes/no)
+? do you already have a bot token from @BotFather? (yes/no)
 ```
 
 If you don't have a bot token yet, answer **n** and Takopi will show you the steps.
@@ -133,9 +129,11 @@ Takopi validates the token by calling the Telegram API. If it fails, double-chec
 
 ## 7. Pick your workflow
 
-Takopi shows you three workflow previews and asks how you plan to use it:
+Takopi shows three workflow previews and asks how you plan to use it:
 
 ```
+step 2: pick your workflow
+
 ? how will you use takopi?
  ❯ assistant (ongoing chat, /new to reset)
    workspace (projects + branches, i'll set those up)
@@ -155,11 +153,13 @@ Each choice automatically configures conversation mode, topics, and resume lines
 
 ## 8. Connect your chat
 
-Depending on your workflow choice, Takopi asks you to send a message to capture the chat:
+Depending on your workflow choice, Takopi shows different instructions:
 
 **For assistant or handoff:**
 
 ```
+step 3: connect chat
+
   1. open a chat with @my_takopi_bot
   2. send /start
   waiting for message...
@@ -168,6 +168,8 @@ Depending on your workflow choice, Takopi asks you to send a message to capture 
 **For workspace:**
 
 ```
+step 3: connect chat
+
   set up a topics group:
   1. create a group and enable topics (settings → topics)
   2. add @my_takopi_bot as admin with "manage topics"
@@ -189,9 +191,11 @@ Once Takopi receives your message:
 Takopi scans your PATH for installed agent CLIs:
 
 ```
-step 4: agent cli tools
+step 4: default agent
 
-  agent     status         install command
+takopi runs these agents on your computer. switch anytime with /agent.
+
+  engine    status         install command
   ───────────────────────────────────────────
   codex     ✓ installed
   claude    ✓ installed
@@ -203,13 +207,13 @@ step 4: agent cli tools
    claude
 ```
 
-Pick whichever you prefer. You can always switch engines per-message later.
+Pick whichever you prefer. You can always switch engines per-message with `/codex`, `/claude`, etc.
 
 ## 10. Save your config
 
-Takopi asks you to confirm saving:
-
 ```
+step 5: save config
+
 ? save config to ~/.takopi/takopi.toml? (yes/no)
 ```
 

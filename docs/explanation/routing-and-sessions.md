@@ -1,6 +1,6 @@
 # Routing & sessions
 
-Takopi is **stateless by default**: each message starts a new engine session unless a resume token is present.
+Takopi supports both **stateless** and **chat** modes for session handling. In stateless mode, each message starts a new session unless you reply to continue. In chat mode, new messages auto-resume the previous session.
 
 ## Continuation (how threads persist)
 
