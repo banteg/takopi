@@ -2373,6 +2373,84 @@ async def test_run_main_loop_ignores_forwarded_without_prompt() -> None:
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_forwarded_document_still_uploads(
+    tmp_path: Path,
+) -> None:
+    payload = b"hello"
+
+    class _UploadBot(_FakeBot):
+        async def get_file(self, file_id: str) -> File | None:
+            _ = file_id
+            return File(file_path="files/hello.txt")
+
+        async def download_file(self, file_path: str) -> bytes | None:
+            _ = file_path
+            return payload
+
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    projects = ProjectsConfig(
+        projects={
+            "proj": ProjectConfig(
+                alias="proj",
+                path=tmp_path,
+                worktrees_dir=Path(".worktrees"),
+            )
+        },
+        default_project="proj",
+    )
+    runtime = TransportRuntime(router=_make_router(runner), projects=projects)
+    transport = _FakeTransport()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=_UploadBot(),
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+        files=TelegramFilesSettings(
+            enabled=True,
+            auto_put=True,
+            auto_put_mode="prompt",
+        ),
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="do thing",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            document=TelegramDocument(
+                file_id="doc-1",
+                file_name="hello.txt",
+                mime_type="text/plain",
+                file_size=len(payload),
+                raw={"file_id": "doc-1"},
+            ),
+            raw={"forward_origin": {"type": "user"}},
+        )
+
+    await run_main_loop(cfg, poller)
+
+    saved_path = tmp_path / "incoming" / "hello.txt"
+    assert saved_path.read_bytes() == payload
+    assert runner.calls
+    prompt_text, _ = runner.calls[0]
+    assert prompt_text.startswith("do thing")
+    assert "[uploaded file: incoming/hello.txt]" in prompt_text
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_prompt_upload_auto_resumes_chat_sessions(
     tmp_path: Path,
 ) -> None:

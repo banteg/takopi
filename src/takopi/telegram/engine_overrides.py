@@ -8,7 +8,6 @@ import msgspec
 OverrideSource = Literal["topic_override", "chat_default", "default"]
 
 REASONING_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
-OPENCODE_REASONING_LEVELS: tuple[str, ...] = ("none", *REASONING_LEVELS)
 REASONING_SUPPORTED_ENGINES = frozenset({"codex"})
 
 
@@ -98,8 +97,7 @@ def resolve_override_value(
 
 
 def allowed_reasoning_levels(engine: str) -> tuple[str, ...]:
-    if engine == "opencode":
-        return OPENCODE_REASONING_LEVELS
+    _ = engine
     return REASONING_LEVELS
 
 

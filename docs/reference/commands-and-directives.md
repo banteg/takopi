@@ -38,6 +38,7 @@ This line is parsed from replies and takes precedence over new directives.
 | `/agent` | Show/set the default agent for the current scope. |
 | `/model` | Show/set the model override for the current scope. |
 | `/reasoning` | Show/set the reasoning override for the current scope. |
+| `/trigger` | Show/set trigger mode (mentions-only vs all). |
 | `/file put <path>` | Upload a document into the repo/worktree (requires file transfer enabled). |
 | `/file get <path>` | Fetch a file or directory back into Telegram. |
 | `/topic <project> @branch` | Create/bind a topic (topics enabled). |

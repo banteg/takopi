@@ -1283,7 +1283,13 @@ async def run_main_loop(
                 reply = make_reply(cfg, msg)
                 text = msg.text
                 is_voice_transcribed = False
-                if _is_forwarded(msg.raw):
+                is_forward_candidate = (
+                    _is_forwarded(msg.raw)
+                    and msg.document is None
+                    and msg.voice is None
+                    and msg.media_group_id is None
+                )
+                if is_forward_candidate:
                     _attach_forward(msg)
                     continue
                 forward_key = _forward_key(msg)

@@ -6,6 +6,7 @@ from ...context import RunContext
 from ...directives import DirectiveError
 from ..chat_prefs import ChatPrefsStore
 from ..engine_defaults import resolve_engine_for_message
+from ..engine_overrides import resolve_override_value
 from ..files import split_command_args
 from ..topic_state import TopicStateStore
 from ..topics import _topic_key
@@ -89,6 +90,40 @@ async def _handle_agent_command(
             "global_default": "global default",
         }
         agent_line = f"agent: {selection.engine} ({source_labels[selection.source]})"
+        topic_override = None
+        if tkey is not None and topic_store is not None:
+            topic_override = await topic_store.get_engine_override(
+                tkey[0], tkey[1], selection.engine
+            )
+        chat_override = None
+        if chat_prefs is not None:
+            chat_override = await chat_prefs.get_engine_override(
+                msg.chat_id, selection.engine
+            )
+        override_labels = {
+            "topic_override": "topic override",
+            "chat_default": "chat default",
+            "default": "no override",
+        }
+        model_resolution = resolve_override_value(
+            topic_override=topic_override,
+            chat_override=chat_override,
+            field="model",
+        )
+        reasoning_resolution = resolve_override_value(
+            topic_override=topic_override,
+            chat_override=chat_override,
+            field="reasoning",
+        )
+        model_value = model_resolution.value or "default"
+        model_line = (
+            f"model: {model_value} ({override_labels[model_resolution.source]})"
+        )
+        reasoning_value = reasoning_resolution.value or "default"
+        reasoning_line = (
+            "reasoning: "
+            f"{reasoning_value} ({override_labels[reasoning_resolution.source]})"
+        )
         topic_default = selection.topic_default or "none"
         if tkey is None:
             topic_default = "none"
@@ -110,7 +145,11 @@ async def _handle_agent_command(
         )
         available = ", ".join(cfg.runtime.engine_ids)
         available_line = f"available: {available}"
-        await reply(text="\n\n".join([agent_line, defaults_line, available_line]))
+        await reply(
+            text="\n\n".join(
+                [agent_line, model_line, reasoning_line, defaults_line, available_line]
+            )
+        )
         return
 
     if action == "set":
