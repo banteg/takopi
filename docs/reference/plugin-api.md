@@ -71,6 +71,7 @@ dependencies = ["takopi>=0.14,<0.15"]
 | `ResumeToken` | Resume token (engine + value) |
 | `StartedEvent` / `ActionEvent` / `CompletedEvent` | Core event types |
 | `Action` | Action metadata for `ActionEvent` |
+| `ActionState` / `ProgressState` / `ProgressTracker` | Progress tracking helpers for presenters |
 | `RunContext` | Project/branch context |
 | `ConfigError` | Configuration error type |
 | `DirectiveError` | Error raised when parsing directives |

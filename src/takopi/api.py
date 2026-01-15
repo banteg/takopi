@@ -39,7 +39,6 @@ from .transport import MessageRef, RenderedMessage, SendOptions, Transport
 from .transport_runtime import ResolvedMessage, ResolvedRunner, TransportRuntime
 from .transports import SetupResult, TransportBackend
 
-# Plugin utilities
 from .config import HOME_CONFIG_PATH, read_config, write_config
 from .ids import RESERVED_COMMAND_IDS
 from .logging import bind_run_context, clear_context, get_logger, suppress_logs

@@ -1,6 +1,6 @@
 # Plugins
 
-Community and first-party plugins that extend takopi.
+Community and third-party plugins that extend takopi.
 
 | Plugin | Type | Description |
 |--------|------|-------------|
