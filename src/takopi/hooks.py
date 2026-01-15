@@ -303,26 +303,51 @@ class HookRegistry:
 
 type HookContext = PreSessionContext | PostSessionContext | OnErrorContext
 
+# Type alias for contexts that can be serialized (includes both legacy and session contexts)
+# Using Any because the session contexts have the same interface via property accessors
+type SerializableContext = Any
 
-def _context_to_json(ctx: HookContext) -> str:
-    """Serialize a context to JSON for shell commands."""
-    if isinstance(ctx, PreSessionContext):
-        data = {
-            "type": "pre_session",
-            "sender_id": ctx.sender_id,
-            "chat_id": ctx.chat_id,
-            "thread_id": ctx.thread_id,
-            "message_text": ctx.message_text,
-            "engine": ctx.engine,
-            "project": ctx.project,
-            "raw_message": ctx.raw_message,
+
+def _has_identity(ctx: SerializableContext) -> bool:
+    """Check if context uses new SessionIdentity structure."""
+    return hasattr(ctx, "identity")
+
+
+def _context_to_json(ctx: SerializableContext) -> str:
+    """Serialize a context to JSON for shell commands.
+
+    Supports both legacy contexts (with direct sender_id/chat_id/thread_id)
+    and new contexts (with SessionIdentity).
+    """
+    # For new contexts with SessionIdentity, include both identity object
+    # and backwards-compatible flat fields
+    if _has_identity(ctx):
+        identity_data = {
+            "transport": ctx.identity.transport,
+            "user_id": ctx.identity.user_id,
+            "channel_id": ctx.identity.channel_id,
+            "thread_id": ctx.identity.thread_id,
         }
-    elif isinstance(ctx, PostSessionContext):
+        # Backwards compat: also include flat fields (uses property accessors)
+        sender_id = ctx.sender_id
+        chat_id = ctx.chat_id
+        thread_id = ctx.thread_id
+    else:
+        identity_data = None
+        sender_id = ctx.sender_id
+        chat_id = ctx.chat_id
+        thread_id = ctx.thread_id
+
+    # Use duck typing to determine context type
+    # Check for unique fields: pre_session has message_text but no duration_ms/error_type
+    # post_session has duration_ms, on_error has error_type
+    if hasattr(ctx, "duration_ms"):
+        # PostSessionContext
         data = {
             "type": "post_session",
-            "sender_id": ctx.sender_id,
-            "chat_id": ctx.chat_id,
-            "thread_id": ctx.thread_id,
+            "sender_id": sender_id,
+            "chat_id": chat_id,
+            "thread_id": thread_id,
             "engine": ctx.engine,
             "project": ctx.project,
             "duration_ms": ctx.duration_ms,
@@ -330,16 +355,17 @@ def _context_to_json(ctx: HookContext) -> str:
             "tokens_out": ctx.tokens_out,
             "status": ctx.status,
             "error": ctx.error,
-            "message_text": ctx.message_text,
-            "response_text": ctx.response_text,
+            "message_text": getattr(ctx, "message_text", None),
+            "response_text": getattr(ctx, "response_text", None),
             "pre_session_metadata": ctx.pre_session_metadata,
         }
-    else:  # OnErrorContext
+    elif hasattr(ctx, "error_type"):
+        # OnErrorContext
         data = {
             "type": "on_error",
-            "sender_id": ctx.sender_id,
-            "chat_id": ctx.chat_id,
-            "thread_id": ctx.thread_id,
+            "sender_id": sender_id,
+            "chat_id": chat_id,
+            "thread_id": thread_id,
             "engine": ctx.engine,
             "project": ctx.project,
             "error_type": ctx.error_type,
@@ -347,6 +373,23 @@ def _context_to_json(ctx: HookContext) -> str:
             "traceback": ctx.traceback,
             "pre_session_metadata": ctx.pre_session_metadata,
         }
+    else:
+        # PreSessionContext
+        data = {
+            "type": "pre_session",
+            "sender_id": sender_id,
+            "chat_id": chat_id,
+            "thread_id": thread_id,
+            "message_text": ctx.message_text,
+            "engine": ctx.engine,
+            "project": ctx.project,
+            "raw_message": ctx.raw_message,
+        }
+
+    # Add identity object for new contexts
+    if identity_data is not None:
+        data["identity"] = identity_data
+
     return json.dumps(data)
 
 

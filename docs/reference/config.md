@@ -124,9 +124,17 @@ Shell hooks receive JSON on stdin with a `type` field indicating the event type.
   "message_text": "hello",
   "engine": "codex",
   "project": "myproject",
-  "raw_message": {}
+  "raw_message": {},
+  "identity": {
+    "transport": "telegram",
+    "user_id": "123",
+    "channel_id": "456",
+    "thread_id": "789"
+  }
 }
 ```
+
+The `identity` object provides transport-agnostic session identifiers. The flat fields (`sender_id`, `chat_id`, `thread_id`) are provided for backwards compatibility.
 
 **Pre-session output:**
 ```json
@@ -156,7 +164,13 @@ Set `"allow": false` to block the session. The `reason` is shown to the user unl
   "error": null,
   "message_text": "What is 2+2?",
   "response_text": "The answer is 4.",
-  "pre_session_metadata": {"key": "value"}
+  "pre_session_metadata": {"key": "value"},
+  "identity": {
+    "transport": "telegram",
+    "user_id": "123",
+    "channel_id": "456",
+    "thread_id": "789"
+  }
 }
 ```
 
@@ -174,22 +188,44 @@ The `message_text` and `response_text` fields contain the original user input an
   "error_type": "RuntimeError",
   "error_message": "Something went wrong",
   "traceback": "...",
-  "pre_session_metadata": {"key": "value"}
+  "pre_session_metadata": {"key": "value"},
+  "identity": {
+    "transport": "telegram",
+    "user_id": "123",
+    "channel_id": "456",
+    "thread_id": "789"
+  }
 }
 ```
 
 Post-session and on_error hooks are fire-and-forget; their output is ignored.
+
+### Transport-agnostic identity
+
+The `identity` object in hook payloads provides transport-agnostic identifiers:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transport` | string | Transport type (e.g., `"telegram"`, `"discord"`, `"cli"`). |
+| `user_id` | string\|null | User identifier as a string. |
+| `channel_id` | string | Channel/chat/room identifier as a string. |
+| `thread_id` | string\|null | Optional thread/topic identifier. |
+
+For backwards compatibility, the flat fields (`sender_id`, `chat_id`, `thread_id`) are also provided with integer values when available. New hooks should prefer using the `identity` object for better portability across transports.
 
 ### Python hooks
 
 Python hooks are classes that implement any combination of `pre_session`, `post_session`, and `on_error` methods:
 
 ```python
-from takopi.hooks import PreSessionContext, PreSessionResult, PostSessionContext, OnErrorContext
+from takopi.hooks import PreSessionResult
+from takopi.session import PreSessionContext, PostSessionContext, OnErrorContext
 
 class MyHook:
     def pre_session(self, ctx: PreSessionContext, config: dict) -> PreSessionResult:
         """Called before session starts. Return allow=False to block."""
+        # Use ctx.identity for transport-agnostic access
+        # Or ctx.sender_id for backwards-compatible integer access
         if ctx.sender_id not in config.get("allowed_users", []):
             return PreSessionResult(allow=False, reason="Not authorized")
         return PreSessionResult(allow=True)
@@ -197,6 +233,7 @@ class MyHook:
     def post_session(self, ctx: PostSessionContext, config: dict) -> None:
         """Called after session completes (fire-and-forget)."""
         # Access the original message and agent response
+        print(f"Transport: {ctx.identity.transport}")
         print(f"User: {ctx.message_text}")
         print(f"Agent: {ctx.response_text}")
         print(f"Completed in {ctx.duration_ms}ms")
@@ -205,6 +242,8 @@ class MyHook:
         """Called when an error occurs (fire-and-forget)."""
         print(f"Error: {ctx.error_type}: {ctx.error_message}")
 ```
+
+Context classes provide both the new `identity` attribute and backwards-compatible properties (`sender_id`, `chat_id`, `thread_id`) for easy migration.
 
 Register via `pyproject.toml`:
 

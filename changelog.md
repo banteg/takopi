@@ -9,6 +9,11 @@
 - pre_session hooks can block execution with custom deny reasons
 - metadata flows from pre_session to post_session and on_error hooks
 - post_session hooks receive `message_text` and `response_text` for chaining workflows
+- **breaking**: refactor hooks to be transport-agnostic via new `takopi.session` module
+  - hook contexts now include `identity` object with transport-agnostic identifiers
+  - backwards-compatible `sender_id`, `chat_id`, `thread_id` properties still available
+  - `ResponseCapture` moved from `telegram.commands.executor` to `takopi.session`
+  - `TelegramHooksManager` is now an alias for the generic `HooksManager`
 
 ## v0.19.0 (2026-01-15)
 

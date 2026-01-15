@@ -9,44 +9,150 @@ import pytest
 
 from takopi import hooks
 from takopi.context import RunContext
+from takopi.session import (
+    HooksManager,
+    OnErrorContext,
+    PostSessionContext,
+    PreSessionContext,
+    SessionIdentity,
+)
 from takopi.settings import HooksSettings
 from takopi.telegram.hooks_integration import (
     TelegramHooksManager,
     create_post_session_context,
     create_pre_session_context,
+    create_telegram_identity,
 )
 from tests.plugin_fixtures import FakeEntryPoint, FakeEntryPoints
 
 
 # -----------------------------------------------------------------------------
-# Hook Context Tests
+# Session Identity Tests
+# -----------------------------------------------------------------------------
+
+
+class TestSessionIdentity:
+    def test_create_basic(self) -> None:
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+            thread_id="789",
+        )
+        assert identity.transport == "telegram"
+        assert identity.user_id == "123"
+        assert identity.channel_id == "456"
+        assert identity.thread_id == "789"
+
+    def test_create_without_thread(self) -> None:
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+        )
+        assert identity.thread_id is None
+
+    def test_create_without_user(self) -> None:
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id=None,
+            channel_id="456",
+        )
+        assert identity.user_id is None
+
+
+class TestCreateTelegramIdentity:
+    def test_full_identity(self) -> None:
+        identity = create_telegram_identity(
+            sender_id=123,
+            chat_id=456,
+            thread_id=789,
+        )
+        assert identity.transport == "telegram"
+        assert identity.user_id == "123"
+        assert identity.channel_id == "456"
+        assert identity.thread_id == "789"
+
+    def test_no_sender(self) -> None:
+        identity = create_telegram_identity(
+            sender_id=None,
+            chat_id=456,
+            thread_id=None,
+        )
+        assert identity.user_id is None
+        assert identity.thread_id is None
+
+
+# -----------------------------------------------------------------------------
+# Hook Context Tests (New Session Module)
 # -----------------------------------------------------------------------------
 
 
 class TestPreSessionContext:
     def test_create_basic(self) -> None:
-        ctx = hooks.PreSessionContext(
-            sender_id=123,
-            chat_id=456,
-            thread_id=789,
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+            thread_id="789",
+        )
+        ctx = PreSessionContext(
+            identity=identity,
             message_text="hello",
             engine="codex",
             project="myproject",
         )
-        assert ctx.sender_id == 123
-        assert ctx.chat_id == 456
-        assert ctx.thread_id == 789
+        assert ctx.identity.user_id == "123"
+        assert ctx.identity.channel_id == "456"
+        assert ctx.identity.thread_id == "789"
         assert ctx.message_text == "hello"
         assert ctx.engine == "codex"
         assert ctx.project == "myproject"
         assert ctx.raw_message == {}
 
-    def test_create_with_raw_message(self) -> None:
-        raw = {"from": {"id": 123, "first_name": "Test"}}
-        ctx = hooks.PreSessionContext(
-            sender_id=123,
-            chat_id=456,
+    def test_backwards_compat_properties(self) -> None:
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+            thread_id="789",
+        )
+        ctx = PreSessionContext(
+            identity=identity,
+            message_text="hello",
+            engine="codex",
+            project="myproject",
+        )
+        # Test backwards compatibility properties
+        assert ctx.sender_id == 123
+        assert ctx.chat_id == 456
+        assert ctx.thread_id == 789
+
+    def test_backwards_compat_none_values(self) -> None:
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id=None,
+            channel_id="456",
             thread_id=None,
+        )
+        ctx = PreSessionContext(
+            identity=identity,
+            message_text="test",
+            engine=None,
+            project=None,
+        )
+        assert ctx.sender_id is None
+        assert ctx.thread_id is None
+
+    def test_create_with_raw_message(self) -> None:
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+        )
+        raw = {"from": {"id": 123, "first_name": "Test"}}
+        ctx = PreSessionContext(
+            identity=identity,
             message_text="test",
             engine=None,
             project=None,
@@ -78,10 +184,14 @@ class TestPreSessionResult:
 
 class TestPostSessionContext:
     def test_create_success(self) -> None:
-        ctx = hooks.PostSessionContext(
-            sender_id=123,
-            chat_id=456,
-            thread_id=789,
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+            thread_id="789",
+        )
+        ctx = PostSessionContext(
+            identity=identity,
             engine="codex",
             project="myproject",
             duration_ms=1500,
@@ -95,10 +205,13 @@ class TestPostSessionContext:
         assert ctx.duration_ms == 1500
 
     def test_create_error(self) -> None:
-        ctx = hooks.PostSessionContext(
-            sender_id=123,
-            chat_id=456,
-            thread_id=None,
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+        )
+        ctx = PostSessionContext(
+            identity=identity,
             engine="claude",
             project=None,
             duration_ms=500,
@@ -113,10 +226,13 @@ class TestPostSessionContext:
         assert ctx.pre_session_metadata == {"request_id": "abc123"}
 
     def test_create_with_message_and_response(self) -> None:
-        ctx = hooks.PostSessionContext(
-            sender_id=123,
-            chat_id=456,
-            thread_id=None,
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+        )
+        ctx = PostSessionContext(
+            identity=identity,
             engine="codex",
             project="myproject",
             duration_ms=2000,
@@ -133,10 +249,14 @@ class TestPostSessionContext:
 
 class TestOnErrorContext:
     def test_create_basic(self) -> None:
-        ctx = hooks.OnErrorContext(
-            sender_id=123,
-            chat_id=456,
-            thread_id=789,
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+            thread_id="789",
+        )
+        ctx = OnErrorContext(
+            identity=identity,
             engine="codex",
             project="myproject",
             error_type="ValueError",
@@ -148,6 +268,48 @@ class TestOnErrorContext:
         assert ctx.error_message == "Something went wrong"
         assert ctx.traceback == "Traceback..."
         assert ctx.pre_session_metadata == {}
+
+
+# -----------------------------------------------------------------------------
+# Legacy Hook Context Tests (from hooks.py)
+# -----------------------------------------------------------------------------
+
+
+class TestLegacyPreSessionContext:
+    def test_create_basic(self) -> None:
+        ctx = hooks.PreSessionContext(
+            sender_id=123,
+            chat_id=456,
+            thread_id=789,
+            message_text="hello",
+            engine="codex",
+            project="myproject",
+        )
+        assert ctx.sender_id == 123
+        assert ctx.chat_id == 456
+        assert ctx.thread_id == 789
+        assert ctx.message_text == "hello"
+        assert ctx.engine == "codex"
+        assert ctx.project == "myproject"
+        assert ctx.raw_message == {}
+
+
+class TestLegacyPostSessionContext:
+    def test_create_success(self) -> None:
+        ctx = hooks.PostSessionContext(
+            sender_id=123,
+            chat_id=456,
+            thread_id=789,
+            engine="codex",
+            project="myproject",
+            duration_ms=1500,
+            tokens_in=100,
+            tokens_out=200,
+            status="success",
+            error=None,
+        )
+        assert ctx.status == "success"
+        assert ctx.duration_ms == 1500
 
 
 # -----------------------------------------------------------------------------
@@ -352,7 +514,8 @@ class TestLoadedHook:
 
 
 class TestContextSerialization:
-    def test_pre_session_to_json(self) -> None:
+    def test_pre_session_to_json_legacy(self) -> None:
+        """Test legacy context serialization (no identity)."""
         ctx = hooks.PreSessionContext(
             sender_id=123,
             chat_id=456,
@@ -372,8 +535,38 @@ class TestContextSerialization:
         assert data["engine"] == "codex"
         assert data["project"] == "myproject"
         assert data["raw_message"] == {"key": "value"}
+        # No identity for legacy contexts
+        assert "identity" not in data
 
-    def test_post_session_to_json(self) -> None:
+    def test_pre_session_to_json_with_identity(self) -> None:
+        """Test new context serialization (with SessionIdentity)."""
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+            thread_id="789",
+        )
+        ctx = PreSessionContext(
+            identity=identity,
+            message_text="hello world",
+            engine="codex",
+            project="myproject",
+            raw_message={"key": "value"},
+        )
+        json_str = hooks._context_to_json(ctx)
+        data = json.loads(json_str)
+        assert data["type"] == "pre_session"
+        # Backwards compat flat fields
+        assert data["sender_id"] == 123
+        assert data["chat_id"] == 456
+        assert data["thread_id"] == 789
+        # New identity object
+        assert data["identity"]["transport"] == "telegram"
+        assert data["identity"]["user_id"] == "123"
+        assert data["identity"]["channel_id"] == "456"
+        assert data["identity"]["thread_id"] == "789"
+
+    def test_post_session_to_json_legacy(self) -> None:
         ctx = hooks.PostSessionContext(
             sender_id=123,
             chat_id=456,
@@ -395,11 +588,14 @@ class TestContextSerialization:
         assert data["duration_ms"] == 1500
         assert data["pre_session_metadata"] == {"request_id": "abc"}
 
-    def test_post_session_to_json_with_message_response(self) -> None:
-        ctx = hooks.PostSessionContext(
-            sender_id=123,
-            chat_id=456,
-            thread_id=None,
+    def test_post_session_to_json_with_identity(self) -> None:
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+        )
+        ctx = PostSessionContext(
+            identity=identity,
             engine="codex",
             project="myproject",
             duration_ms=2000,
@@ -416,8 +612,9 @@ class TestContextSerialization:
         assert data["type"] == "post_session"
         assert data["message_text"] == "Hello world"
         assert data["response_text"] == "Hello! How can I help?"
+        assert data["identity"]["transport"] == "telegram"
 
-    def test_on_error_to_json(self) -> None:
+    def test_on_error_to_json_legacy(self) -> None:
         ctx = hooks.OnErrorContext(
             sender_id=123,
             chat_id=456,
@@ -435,6 +632,25 @@ class TestContextSerialization:
         assert data["error_type"] == "ValueError"
         assert data["error_message"] == "Something failed"
         assert data["traceback"] == "Traceback..."
+
+    def test_on_error_to_json_with_identity(self) -> None:
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="123",
+            channel_id="456",
+        )
+        ctx = OnErrorContext(
+            identity=identity,
+            engine="codex",
+            project="myproject",
+            error_type="RuntimeError",
+            error_message="Something went wrong",
+            traceback="Traceback...",
+        )
+        json_str = hooks._context_to_json(ctx)
+        data = json.loads(json_str)
+        assert data["type"] == "on_error"
+        assert data["identity"]["transport"] == "telegram"
 
 
 class TestPreSessionResultParsing:
@@ -543,6 +759,31 @@ class TestShellHookExecution:
         data = json.loads(output)
         assert data["sender_id"] == 999
         assert data["message_text"] == "test message"
+
+    async def test_run_shell_hook_with_session_context(self) -> None:
+        """Test shell hook with new session context (with identity)."""
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="999",
+            channel_id="456",
+        )
+        ctx = PreSessionContext(
+            identity=identity,
+            message_text="test message",
+            engine="codex",
+            project=None,
+        )
+        output = await hooks._run_shell_hook(
+            "cat",
+            ctx,
+            timeout_ms=5000,
+        )
+        assert output is not None
+        data = json.loads(output)
+        # Should have both flat fields and identity
+        assert data["sender_id"] == 999
+        assert data["identity"]["transport"] == "telegram"
+        assert data["identity"]["user_id"] == "999"
 
 
 # -----------------------------------------------------------------------------
@@ -727,6 +968,45 @@ class TestPreSessionHookExecution:
         assert result.allow is False
         assert result.reason == "async blocked"
 
+    async def test_run_pre_session_with_session_context(self, monkeypatch) -> None:
+        """Test Python hook works with new session context."""
+
+        class AuthHook:
+            def pre_session(self, ctx, config):
+                # Should work with both legacy and session contexts via property
+                if ctx.sender_id == 999:
+                    return hooks.PreSessionResult(allow=False, reason="blocked")
+                return hooks.PreSessionResult(allow=True)
+
+        entrypoints = [
+            FakeEntryPoint(
+                "auth",
+                "some.module:AuthHook",
+                hooks.HOOK_GROUP,
+                loader=AuthHook,
+            ),
+        ]
+        _install_hook_entrypoints(monkeypatch, entrypoints)
+
+        registry = hooks.HookRegistry()
+        config = hooks.HooksConfig.from_dict({"hooks": ["auth"]})
+
+        # Use new session context
+        identity = SessionIdentity(
+            transport="telegram",
+            user_id="999",
+            channel_id="456",
+        )
+        ctx = PreSessionContext(
+            identity=identity,
+            message_text="test",
+            engine="codex",
+            project=None,
+        )
+        result = await hooks.run_pre_session_hooks(registry, config, ctx)
+        assert result.allow is False
+        assert result.reason == "blocked"
+
 
 # -----------------------------------------------------------------------------
 # Post-Session Hook Execution Tests
@@ -868,6 +1148,27 @@ class TestOnErrorHookExecution:
 
 
 # -----------------------------------------------------------------------------
+# Hooks Manager Tests (Transport-agnostic)
+# -----------------------------------------------------------------------------
+
+
+class TestHooksManager:
+    def test_no_hooks_configured(self) -> None:
+        manager = HooksManager(None)
+        assert manager.has_hooks is False
+
+    def test_with_empty_settings(self) -> None:
+        settings = HooksSettings()
+        manager = HooksManager(settings)
+        assert manager.has_hooks is False
+
+    def test_with_hooks_configured(self) -> None:
+        settings = HooksSettings(hooks=["auth", "logger"])
+        manager = HooksManager(settings)
+        assert manager.has_hooks is True
+
+
+# -----------------------------------------------------------------------------
 # Telegram Hooks Integration Tests
 # -----------------------------------------------------------------------------
 
@@ -901,6 +1202,12 @@ class TestContextHelpers:
             context=run_context,
             raw_message={"key": "value"},
         )
+        # Uses identity now
+        assert ctx.identity.transport == "telegram"
+        assert ctx.identity.user_id == "123"
+        assert ctx.identity.channel_id == "456"
+        assert ctx.identity.thread_id == "789"
+        # Backwards compat properties
         assert ctx.sender_id == 123
         assert ctx.chat_id == 456
         assert ctx.thread_id == 789
@@ -935,6 +1242,7 @@ class TestContextHelpers:
             error=None,
             pre_session_metadata={"request_id": "abc"},
         )
+        assert ctx.identity.transport == "telegram"
         assert ctx.sender_id == 123
         assert ctx.duration_ms == 1500
         assert ctx.status == "success"

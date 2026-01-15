@@ -8,6 +8,7 @@ from typing import Any, cast
 import anyio
 
 from ...commands import CommandExecutor, RunMode, RunRequest, RunResult
+from ...session import ResponseCapture
 from ...config import ConfigError
 from ...context import RunContext
 from ...logging import bind_run_context, clear_context, get_logger
@@ -237,13 +238,6 @@ class _CaptureTransport:
 
     async def close(self) -> None:
         return None
-
-
-@dataclass(slots=True)
-class ResponseCapture:
-    """Mutable container to capture the final response text."""
-
-    text: str | None = None
 
 
 class _SpyTransport:

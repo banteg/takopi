@@ -25,7 +25,8 @@ from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
 from .commands.agent import _handle_agent_command
 from .commands.cancel import handle_callback_cancel, handle_cancel
 from .commands.dispatch import _dispatch_command
-from .commands.executor import ResponseCapture, _run_engine, _should_show_resume_line
+from ..session import ResponseCapture
+from .commands.executor import _run_engine, _should_show_resume_line
 from .commands.file_transfer import (
     FILE_PUT_USAGE,
     _handle_file_command,
