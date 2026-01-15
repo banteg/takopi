@@ -139,6 +139,7 @@ class TelegramBackend(TransportBackend):
             voice_max_bytes=int(settings.voice_max_bytes),
             voice_transcription_model=settings.voice_transcription_model,
             forward_coalesce_s=settings.forward_coalesce_s,
+            media_group_debounce_s=settings.media_group_debounce_s,
             topics=settings.topics,
             files=settings.files,
         )

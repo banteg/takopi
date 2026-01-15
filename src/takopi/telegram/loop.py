@@ -73,8 +73,6 @@ logger = get_logger(__name__)
 
 __all__ = ["poll_updates", "run_main_loop", "send_with_resume"]
 
-_MEDIA_GROUP_DEBOUNCE_S = 1.0
-
 ForwardKey = tuple[int, int, int]
 
 
@@ -498,6 +496,7 @@ async def run_main_loop(
     topics_chat_ids: frozenset[int] = frozenset()
     bot_username: str | None = None
     forward_coalesce_s = max(0.0, float(cfg.forward_coalesce_s))
+    media_group_debounce_s = max(0.0, float(cfg.media_group_debounce_s))
 
     def refresh_topics_scope() -> None:
         nonlocal resolved_topics_scope, topics_chat_ids
@@ -1226,7 +1225,7 @@ async def run_main_loop(
                     if state is None:
                         return
                     token = state.token
-                    await anyio.sleep(_MEDIA_GROUP_DEBOUNCE_S)
+                    await anyio.sleep(media_group_debounce_s)
                     state = media_groups.get(key)
                     if state is None:
                         return

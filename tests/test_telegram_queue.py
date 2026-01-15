@@ -241,7 +241,7 @@ async def test_edits_coalesce_latest() -> None:
 @pytest.mark.anyio
 async def test_send_preempts_pending_edit() -> None:
     bot = _FakeBot()
-    client = TelegramClient(client=bot, private_chat_rps=10.0, group_chat_rps=10.0)
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
     await client.edit_message_text(
         chat_id=1,
@@ -259,7 +259,9 @@ async def test_send_preempts_pending_edit() -> None:
     with anyio.fail_after(1):
         await client.send_message(chat_id=1, text="final")
 
-    await anyio.sleep(0.2)
+    with anyio.fail_after(1):
+        while len(bot.calls) < 3:
+            await anyio.sleep(0)
     assert bot.calls[0] == "edit_message_text"
     assert bot.calls[1] == "send_message"
     assert bot.calls[-1] == "edit_message_text"
@@ -268,7 +270,7 @@ async def test_send_preempts_pending_edit() -> None:
 @pytest.mark.anyio
 async def test_delete_drops_pending_edits() -> None:
     bot = _FakeBot()
-    client = TelegramClient(client=bot, private_chat_rps=10.0, group_chat_rps=10.0)
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
     await client.edit_message_text(
         chat_id=1,
@@ -289,7 +291,9 @@ async def test_delete_drops_pending_edits() -> None:
             message_id=1,
         )
 
-    await anyio.sleep(0.2)
+    with anyio.fail_after(1):
+        while not bot.delete_calls:
+            await anyio.sleep(0)
     assert bot.delete_calls == [(1, 1)]
     assert bot.edit_calls == ["first"]
 

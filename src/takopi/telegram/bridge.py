@@ -125,6 +125,7 @@ class TelegramBridgeConfig:
     voice_max_bytes: int = 10 * 1024 * 1024
     voice_transcription_model: str = "gpt-4o-mini-transcribe"
     forward_coalesce_s: float = 1.0
+    media_group_debounce_s: float = 1.0
     files: TelegramFilesSettings = field(default_factory=TelegramFilesSettings)
     chat_ids: tuple[int, ...] | None = None
     topics: TelegramTopicsSettings = field(default_factory=TelegramTopicsSettings)
