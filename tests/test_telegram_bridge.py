@@ -8,6 +8,8 @@ import pytest
 from takopi import commands, plugins
 from takopi.telegram.commands.executor import _CaptureTransport, _run_engine
 from takopi.telegram.commands.file_transfer import _handle_file_get, _handle_file_put
+from takopi.telegram.commands.model import _handle_model_command
+from takopi.telegram.commands.reasoning import _handle_reasoning_command
 from takopi.telegram.commands.topics import _handle_topic_command
 import takopi.telegram.loop as telegram_loop
 import takopi.telegram.topics as telegram_topics
@@ -38,6 +40,7 @@ from takopi.telegram.render import MAX_BODY_CHARS
 from takopi.telegram.topic_state import TopicStateStore, resolve_state_path
 from takopi.telegram.chat_sessions import ChatSessionStore, resolve_sessions_path
 from takopi.telegram.chat_prefs import ChatPrefsStore, resolve_prefs_path
+from takopi.telegram.engine_overrides import EngineOverrides
 from takopi.context import RunContext
 from takopi.config import ProjectConfig, ProjectsConfig
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
@@ -1346,6 +1349,230 @@ async def test_topic_command_recreates_stale_topic(tmp_path: Path) -> None:
     snapshot = await store.get_thread(123, 55)
     assert snapshot is not None
     assert snapshot.context == RunContext(project="takopi", branch="master")
+
+
+@pytest.mark.anyio
+async def test_model_command_show_reports_overrides(tmp_path: Path) -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+    cfg = replace(cfg, topics=TelegramTopicsSettings(enabled=True, scope="main"))
+    chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
+    topic_store = TopicStateStore(tmp_path / "telegram_topics_state.json")
+    await chat_prefs.set_engine_override(
+        123,
+        CODEX_ENGINE,
+        EngineOverrides(model="gpt-4.1-mini", reasoning=None),
+    )
+    await topic_store.set_engine_override(
+        123,
+        77,
+        CODEX_ENGINE,
+        EngineOverrides(model="gpt-4.1", reasoning=None),
+    )
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/model",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+        thread_id=77,
+    )
+
+    await _handle_model_command(
+        cfg,
+        msg,
+        "",
+        ambient_context=None,
+        topic_store=topic_store,
+        chat_prefs=chat_prefs,
+        resolved_scope="main",
+        scope_chat_ids=frozenset({123}),
+    )
+
+    text = transport.send_calls[-1]["message"].text
+    assert "engine: codex (global default)" in text
+    assert "model: gpt-4.1 (topic override)" in text
+    assert "defaults: topic: gpt-4.1, chat: gpt-4.1-mini" in text
+    assert "available engines: codex" in text
+
+
+@pytest.mark.anyio
+async def test_model_command_set_and_clear_chat_override(tmp_path: Path) -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+    chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
+    await chat_prefs.set_engine_override(
+        123,
+        CODEX_ENGINE,
+        EngineOverrides(model=None, reasoning="low"),
+    )
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/model set gpt-4.1-mini",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=456,
+        chat_type="supergroup",
+    )
+
+    await _handle_model_command(
+        cfg,
+        msg,
+        "set gpt-4.1-mini",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+    )
+
+    override = await chat_prefs.get_engine_override(123, CODEX_ENGINE)
+    assert override is not None
+    assert override.model == "gpt-4.1-mini"
+    assert override.reasoning == "low"
+    assert (
+        "chat model override set to gpt-4.1-mini for codex."
+        in transport.send_calls[-1]["message"].text
+    )
+
+    msg_clear = replace(
+        msg,
+        message_id=11,
+        text="/model clear codex",
+    )
+    await _handle_model_command(
+        cfg,
+        msg_clear,
+        "clear codex",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+    )
+
+    override = await chat_prefs.get_engine_override(123, CODEX_ENGINE)
+    assert override is not None
+    assert override.model is None
+    assert override.reasoning == "low"
+    assert "chat model override cleared." in transport.send_calls[-1]["message"].text
+
+
+@pytest.mark.anyio
+async def test_reasoning_command_set_and_clear_topic_override(tmp_path: Path) -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+    cfg = replace(cfg, topics=TelegramTopicsSettings(enabled=True, scope="main"))
+    topic_store = TopicStateStore(tmp_path / "telegram_topics_state.json")
+    await topic_store.set_engine_override(
+        123,
+        77,
+        CODEX_ENGINE,
+        EngineOverrides(model="gpt-4.1-mini", reasoning=None),
+    )
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning set High",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=456,
+        chat_type="supergroup",
+        thread_id=77,
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "set High",
+        ambient_context=None,
+        topic_store=topic_store,
+        chat_prefs=None,
+        resolved_scope="main",
+        scope_chat_ids=frozenset({123}),
+    )
+
+    override = await topic_store.get_engine_override(123, 77, CODEX_ENGINE)
+    assert override is not None
+    assert override.model == "gpt-4.1-mini"
+    assert override.reasoning == "high"
+    assert (
+        "topic reasoning override set to high for codex."
+        in transport.send_calls[-1]["message"].text
+    )
+
+    msg_clear = replace(
+        msg,
+        message_id=11,
+        text="/reasoning clear",
+    )
+    await _handle_reasoning_command(
+        cfg,
+        msg_clear,
+        "clear",
+        ambient_context=None,
+        topic_store=topic_store,
+        chat_prefs=None,
+        resolved_scope="main",
+        scope_chat_ids=frozenset({123}),
+    )
+
+    override = await topic_store.get_engine_override(123, 77, CODEX_ENGINE)
+    assert override is not None
+    assert override.model == "gpt-4.1-mini"
+    assert override.reasoning is None
+    assert (
+        "topic reasoning override cleared (using chat default)."
+        in transport.send_calls[-1]["message"].text
+    )
+
+
+@pytest.mark.anyio
+async def test_reasoning_command_show_reports_overrides(tmp_path: Path) -> None:
+    transport = _FakeTransport()
+    cfg = _make_cfg(transport)
+    cfg = replace(cfg, topics=TelegramTopicsSettings(enabled=True, scope="main"))
+    chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
+    topic_store = TopicStateStore(tmp_path / "telegram_topics_state.json")
+    await chat_prefs.set_engine_override(
+        123,
+        CODEX_ENGINE,
+        EngineOverrides(model=None, reasoning="low"),
+    )
+    await topic_store.set_engine_override(
+        123,
+        88,
+        CODEX_ENGINE,
+        EngineOverrides(model=None, reasoning="high"),
+    )
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+        thread_id=88,
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "",
+        ambient_context=None,
+        topic_store=topic_store,
+        chat_prefs=chat_prefs,
+        resolved_scope="main",
+        scope_chat_ids=frozenset({123}),
+    )
+
+    text = transport.send_calls[-1]["message"].text
+    assert "engine: codex (global default)" in text
+    assert "reasoning: high (topic override)" in text
+    assert "defaults: topic: high, chat: low" in text
+    assert "available levels: minimal, low, medium, high, xhigh" in text
 
 
 @pytest.mark.anyio
