@@ -1,17 +1,107 @@
-/* Animated hero chat widget */
+/* Animated hero chat + terminal widget */
 /* Takopi pink: #F4A5B8, Flower pink: #E87A9F, Teal: #4A9B8E */
+
+.hero-demo {
+  display: flex;
+  gap: 16px;
+  max-width: 800px;
+  margin: 24px auto;
+  align-items: stretch;
+  height: 320px;
+}
+
+@media (max-width: 700px) {
+  .hero-demo {
+    flex-direction: column;
+  }
+}
 
 .hero-chat {
   background: #fff;
-  border-radius: 16px;
-  padding: 16px;
-  max-width: 420px;
-  margin: 24px auto;
-  font-size: 16px;
-  line-height: 1.5;
+  border-radius: 12px;
+  padding: 12px;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.4;
   border: 1px solid #e5e5e5;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-  min-height: 280px;
+  overflow: hidden;
+}
+
+.hero-terminal {
+  background: #1a1b26;
+  border-radius: 12px;
+  padding: 12px;
+  flex: 1;
+  min-width: 0;
+  font-family: var(--md-code-font-family, monospace);
+  font-size: 14px;
+  line-height: 1.4;
+  color: #a9b1d6;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+}
+
+.hero-terminal .terminal-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hero-terminal .prompt.shell {
+  color: #4A9B8E;
+}
+
+.hero-terminal .prompt.shell .prompt-symbol {
+  color: #4A9B8E;
+}
+
+.hero-terminal .prompt.shell .cursor {
+  color: #4A9B8E;
+}
+
+.hero-terminal .cursor {
+  color: #7aa2f7;
+  animation: cursor-blink 1s step-end infinite;
+}
+
+@keyframes cursor-blink {
+  50% { opacity: 0; }
+}
+
+.hero-terminal .codex-output {
+  margin-top: 12px;
+}
+
+.hero-terminal .codex-msg.user {
+  background: #13141c;
+  margin: 0 -12px;
+  padding: 8px 12px;
+}
+
+.hero-terminal .codex-msg.user::before {
+  content: "› ";
+  color: #a9b1d6;
+}
+
+.hero-terminal .codex-msg.assistant {
+  margin-top: 8px;
+}
+
+.hero-terminal .codex-msg.assistant::before {
+  content: "• ";
+  color: #a9b1d6;
+}
+
+.hero-terminal .codex-prompt {
+  background: #13141c;
+  margin: 12px -12px -12px;
+  padding: 8px 12px;
+}
+
+.hero-terminal .codex-prompt::before {
+  content: "› ";
+  color: #a9b1d6;
 }
 
 .hero-chat .chat-messages {
@@ -22,8 +112,8 @@
 
 .hero-chat .msg {
   max-width: 90%;
-  padding: 10px 14px;
-  border-radius: 18px;
+  padding: 8px 12px;
+  border-radius: 14px;
   opacity: 0;
   transform: translateY(10px);
   animation: msg-appear 0.3s ease forwards;
@@ -75,12 +165,17 @@
 }
 
 .hero-chat .msg-bot .tool::before {
-  content: "✓ ";
+  content: "✓";
   color: #4A9B8E;
+  font-family: system-ui, sans-serif;
+  display: inline-block;
+  width: 1.2em;
+  text-align: center;
 }
 
 .hero-chat .msg-bot .tool.running::before {
-  content: "● ";
+  content: "•";
+  font-family: system-ui, sans-serif;
 }
 
 .hero-chat .msg-bot .answer {
@@ -91,10 +186,6 @@
 .hero-chat .msg-bot .resume {
   margin-top: 8px;
   color: #999;
-}
-
-.hero-chat .msg-bot .resume .id {
-  color: #4A9B8E;
 }
 
 .hero-chat .typing-indicator {

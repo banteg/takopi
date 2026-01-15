@@ -1,7 +1,9 @@
-// Animated hero chat widget for Takopi docs
+// Animated hero chat + terminal widget for Takopi docs
 (function() {
-  // Real session data with timing (ms from start)
   const TIME_SCALE = 0.5; // 2x speed
+  const RESUME_ID = '019bb498';
+  const RESUME_CMD = `codex resume ${RESUME_ID}`;
+
   const EVENTS = [
     { time: 2515, thinking: "Listing files for inspection" },
     { time: 2892, cmd: "ls" },
@@ -24,22 +26,37 @@
 
   const ANSWER = `Takopi is a Telegram bridge for agent CLIs like Codex, Claude Code, OpenCode, and Pi. It lets you run agents from chat, stream progress back, manage multiple repos and branches, and resume sessions from either chat or terminal.`;
 
-  async function animateChat(container) {
-    const messages = container.querySelector('.chat-messages');
+  const USER_QUESTION = 'what does this project do?';
+
+  async function typeText(element, text, delay = 30) {
+    for (const char of text) {
+      element.textContent += char;
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+
+  async function animateDemo() {
+    const chat = document.querySelector('.hero-chat');
+    const terminal = document.querySelector('.hero-terminal');
+    if (!chat || !terminal) return;
+
+    const messages = chat.querySelector('.chat-messages');
+    const termContent = terminal.querySelector('.terminal-content');
     messages.innerHTML = '';
+    termContent.innerHTML = '<div class="prompt shell"><span class="prompt-symbol">$</span> <span class="prompt-input"></span><span class="cursor">▋</span></div>';
 
     // User message appears
     await new Promise(r => setTimeout(r, 800 * TIME_SCALE));
     const userMsg = document.createElement('div');
     userMsg.className = 'msg msg-user';
-    userMsg.textContent = 'what does this project do?';
+    userMsg.textContent = USER_QUESTION;
     messages.appendChild(userMsg);
 
     // Bot starts responding
     await new Promise(r => setTimeout(r, 600 * TIME_SCALE));
     const botMsg = document.createElement('div');
     botMsg.className = 'msg msg-bot';
-    botMsg.innerHTML = '<div class="status">starting · codex · 0s</div><div class="tools"></div>';
+    botMsg.innerHTML = `<div class="status">starting · codex · 0s</div><div class="tools"></div><div class="resume">${RESUME_CMD}</div>`;
     messages.appendChild(botMsg);
 
     const statusEl = botMsg.querySelector('.status');
@@ -47,7 +64,6 @@
     const startTime = Date.now();
     const allTools = [];
 
-    // Timer updates every second (real time)
     let step = 0;
     const timerInterval = setInterval(() => {
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -68,52 +84,71 @@
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       statusEl.textContent = `working · codex · ${elapsed}s · step ${step}`;
 
-      // Mark previous tool as done
       const prevRunning = toolsDiv.querySelector('.running');
       if (prevRunning) prevRunning.classList.remove('running');
 
-      // Add event line
       const toolEl = document.createElement('div');
       toolEl.className = event.cmd ? 'tool cmd running' : 'tool running';
       toolEl.textContent = event.thinking || event.cmd;
       allTools.push(toolEl);
       toolsDiv.appendChild(toolEl);
 
-      // Keep only last MAX_VISIBLE
       if (allTools.length > MAX_VISIBLE) {
         const old = allTools.shift();
         old.remove();
       }
     }
 
-    // Mark last tool as done
     const lastRunning = toolsDiv.querySelector('.running');
     if (lastRunning) lastRunning.classList.remove('running');
 
-    // Wait for answer
     const remaining = ANSWER_TIME * TIME_SCALE - (Date.now() - startTime);
     if (remaining > 0) await new Promise(r => setTimeout(r, remaining));
 
-    // Wait for done
     const doneRemaining = DONE_TIME * TIME_SCALE - (Date.now() - startTime);
     if (doneRemaining > 0) await new Promise(r => setTimeout(r, doneRemaining));
 
     clearInterval(timerInterval);
     const finalElapsed = Math.floor((Date.now() - startTime) / 1000);
 
-    // Show done state with answer
+    // Show done state with answer and resume line
     botMsg.innerHTML = `
       <div class="status">done · codex · ${finalElapsed}s · step ${step}</div>
       <div class="answer">${ANSWER}</div>
+      <div class="resume">${RESUME_CMD}</div>
     `;
+
+    // Wait, then animate terminal
+    await new Promise(r => setTimeout(r, 1500));
+
+    // Type resume command in terminal
+    const promptInput = termContent.querySelector('.prompt-input');
+    await typeText(promptInput, RESUME_CMD, 40);
+
+    // Press enter
+    await new Promise(r => setTimeout(r, 300));
+    termContent.querySelector('.cursor').remove();
+    termContent.querySelector('.prompt').classList.add('executed');
+
+    // Show codex output
+    await new Promise(r => setTimeout(r, 500));
+    const output = document.createElement('div');
+    output.className = 'codex-output';
+    output.innerHTML = `<div class="codex-msg user">${USER_QUESTION}</div>
+<div class="codex-msg assistant">${ANSWER}</div>
+<div class="codex-prompt"><span class="codex-input"></span><span class="cursor">▋</span></div>`;
+    termContent.appendChild(output);
+
+    // Type a follow-up message
+    await new Promise(r => setTimeout(r, 800));
+    const codexInput = output.querySelector('.codex-input');
+    await typeText(codexInput, 'omg takopi you are the best', 50);
   }
 
-  // Initialize when DOM is ready
   function init() {
-    const containers = document.querySelectorAll('.hero-chat');
-    containers.forEach(container => {
-      animateChat(container);
-    });
+    if (document.querySelector('.hero-chat') && document.querySelector('.hero-terminal')) {
+      animateDemo();
+    }
   }
 
   if (document.readyState === 'loading') {
