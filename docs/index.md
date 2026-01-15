@@ -9,7 +9,7 @@ uv tool install -U takopi
 takopi --onboard
 ```
 
-Onboarding walks you through bot setup and asks how you want to work.
+Onboarding walks you through bot setup and asks how you want to work. [Full install guide →](tutorials/install.md)
 
 ## Pick your workflow
 
@@ -52,7 +52,7 @@ You can change workflows later by editing `~/.takopi/takopi.toml`.
 
 Step-by-step guides for new users:
 
-1. [Install & onboard](tutorials/install-and-onboard.md) — set up Takopi and your bot
+1. [Install & onboard](tutorials/install.md) — set up Takopi and your bot
 2. [First run](tutorials/first-run.md) — send a task, watch it stream, continue the conversation
 3. [Projects & branches](tutorials/projects-and-branches.md) — target repos from anywhere, run on feature branches
 4. [Multi-engine](tutorials/multi-engine.md) — use different agents for different tasks

@@ -2,7 +2,7 @@
 
 Takopi can handle follow-up messages in two ways: **chat mode** (auto-resume) or **stateless** (reply-to-continue).
 
-During [onboarding](install-and-onboard.md), you chose a **workflow** (assistant, workspace, or handoff) that automatically configured this for you:
+During [onboarding](install.md), you chose a **workflow** (assistant, workspace, or handoff) that automatically configured this for you:
 
 | Workflow | Session mode | Topics | Resume lines |
 |----------|--------------|--------|--------------|

@@ -4,7 +4,7 @@ This guide has been reorganized into smaller Diátaxis pages.
 
 ## Start here
 
-- [Install & onboard](tutorials/install-and-onboard.md)
+- [Install & onboard](tutorials/install.md)
 - [First run](tutorials/first-run.md)
 
 ## Common tasks

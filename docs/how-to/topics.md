@@ -3,7 +3,7 @@
 Topics bind Telegram **forum threads** to a project/branch context. Each topic keeps its own session and default agent, which is ideal for teams or multi-project work.
 
 !!! tip "Workspace workflow"
-    If you chose the **workspace** workflow during [onboarding](../tutorials/install-and-onboard.md), topics are already enabled. This guide covers advanced topic configuration and usage.
+    If you chose the **workspace** workflow during [onboarding](../tutorials/install.md), topics are already enabled. This guide covers advanced topic configuration and usage.
 
 ## Why use topics
 

@@ -3,7 +3,7 @@
 Chat sessions store one resume token per engine per chat (per sender in group chats), so new messages can auto-resume without replying. Reply-to-continue still works and updates the stored session for that engine.
 
 !!! tip "Assistant and workspace workflows"
-    If you chose **assistant** or **workspace** during [onboarding](../tutorials/install-and-onboard.md), chat sessions are already enabled. This guide covers how they work and how to customize them.
+    If you chose **assistant** or **workspace** during [onboarding](../tutorials/install.md), chat sessions are already enabled. This guide covers how they work and how to customize them.
 
 ## Enable chat sessions
 
