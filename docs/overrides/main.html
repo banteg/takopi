@@ -10,7 +10,11 @@
 
 {% block extrahead %}
   {{ super() }}
-  {% set og_title = page.title ~ " - " ~ config.site_name if page and page.title else config.site_name %}
+  {% if page and page.canonical_url and page.canonical_url == config.site_url %}
+    {% set og_title = config.site_name %}
+  {% else %}
+    {% set og_title = page.title ~ " - " ~ config.site_name if page and page.title else config.site_name %}
+  {% endif %}
   {% set og_desc = config.site_description %}
   {% set og_url = page.canonical_url if page and page.canonical_url else config.site_url %}
 
