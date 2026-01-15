@@ -24,6 +24,22 @@ If voice transcription is enabled, takopi downloads the voice payload from Teleg
 transcribes it with OpenAI, and routes the transcript through the same command and
 directive pipeline as typed text.
 
+Configuration (under `[transports.telegram]`):
+
+```toml
+voice_transcription = true
+voice_transcription_model = "gpt-4o-mini-transcribe" # optional
+```
+
+Set `OPENAI_API_KEY` in the environment. If transcription is enabled but the API key
+is missing or the audio download fails, takopi replies with a short error and skips
+the run.
+
+To use a local OpenAI-compatible Whisper server, also set `OPENAI_BASE_URL` (for
+example, `http://localhost:8000/v1`) and a dummy `OPENAI_API_KEY` if your server
+ignores it. If your server requires a specific model name, set
+`voice_transcription_model` (for example, `whisper-1`).
+
 ### Trigger mode (mentions-only)
 
 Telegram’s bot privacy mode stops bots from seeing every message by default, but
@@ -53,22 +69,6 @@ In group chats, changing trigger mode requires the sender to be an admin.
 
 State is stored in `telegram_chat_prefs_state.json` (chat default) and
 `telegram_topics_state.json` (topic overrides) alongside the config file.
-
-Configuration (under `[transports.telegram]`):
-
-```toml
-voice_transcription = true
-voice_transcription_model = "gpt-4o-mini-transcribe" # optional
-```
-
-Set `OPENAI_API_KEY` in the environment. If transcription is enabled but the API key
-is missing or the audio download fails, takopi replies with a short error and skips
-the run.
-
-To use a local OpenAI-compatible Whisper server, also set `OPENAI_BASE_URL` (for
-example, `http://localhost:8000/v1`) and a dummy `OPENAI_API_KEY` if your server
-ignores it. If your server requires a specific model name, set
-`voice_transcription_model` (for example, `whisper-1`).
 
 ## Chat sessions (optional)
 
