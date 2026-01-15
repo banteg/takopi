@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - "master"
-      - "ci/commit-notify"
   pull_request:
 
 concurrency:
@@ -74,7 +73,7 @@ jobs:
     name: notify-commit
     runs-on: ubuntu-latest
     needs: checks
-    if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ci/commit-notify') && needs.checks.result == 'success' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.checks.result == 'success' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
