@@ -20,6 +20,8 @@ This document captures current behavior so transport changes stay intentional.
 
 `parse_incoming_update` accepts text messages and voice notes.
 
+### Voice transcription
+
 If voice transcription is enabled, takopi downloads the voice payload from Telegram,
 transcribes it with OpenAI, and routes the transcript through the same command and
 directive pipeline as typed text.
