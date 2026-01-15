@@ -89,27 +89,20 @@ dependencies = ["takopi>=0.14,<0.15"]
 
 | Symbol | Purpose |
 |--------|---------|
-| **Constants** | |
 | `HOME_CONFIG_PATH` | Canonical config path (`~/.takopi/takopi.toml`) |
 | `RESERVED_COMMAND_IDS` | Set of reserved command IDs |
-| **Config** | |
 | `read_config` | Read and parse TOML config file |
 | `write_config` | Atomically write config to TOML file |
-| **Logging** | |
 | `get_logger` | Get a structured logger for a module |
 | `bind_run_context` | Bind contextual fields to all log entries |
 | `clear_context` | Clear bound log context |
 | `suppress_logs` | Context manager to suppress info-level logs |
-| **Path context** | |
 | `set_run_base_dir` | Set working directory context for path relativization |
 | `reset_run_base_dir` | Reset working directory context |
-| **Scheduler** | |
 | `ThreadJob` | Job dataclass for ThreadScheduler |
 | `ThreadScheduler` | Per-thread message serialization |
-| **Commands** | |
 | `get_command` | Get command backend by ID |
 | `list_command_ids` | Get available command plugin IDs |
-| **Discovery** | |
 | `list_backends` | Discover available engine backends |
 | `load_settings` | Load full TakopiSettings from config |
 | `install_issue` | Create SetupIssue for missing dependency |

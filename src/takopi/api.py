@@ -97,28 +97,20 @@ __all__ = [
     "TransportBackend",
     "TransportRuntime",
     "handle_message",
-    # Plugin utilities
-    # -- Constants
     "HOME_CONFIG_PATH",
     "RESERVED_COMMAND_IDS",
-    # -- Config
     "read_config",
     "write_config",
-    # -- Logging
     "get_logger",
     "bind_run_context",
     "clear_context",
     "suppress_logs",
-    # -- Path context
     "set_run_base_dir",
     "reset_run_base_dir",
-    # -- Scheduler
     "ThreadJob",
     "ThreadScheduler",
-    # -- Commands
     "get_command",
     "list_command_ids",
-    # -- Discovery
     "list_backends",
     "load_settings",
     "install_issue",
