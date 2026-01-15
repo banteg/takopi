@@ -20,6 +20,7 @@ from ..settings import TelegramTransportSettings
 from ..transport import MessageRef, SendOptions
 from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
+from ..ids import RESERVED_CHAT_COMMANDS
 from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
 from .commands.agent import _handle_agent_command
 from .commands.cancel import handle_callback_cancel, handle_cancel
@@ -41,6 +42,7 @@ from .commands.topics import (
     _handle_new_command,
     _handle_topic_command,
 )
+from .commands.trigger import _handle_trigger_command
 from .context import _merge_topic_context, _usage_ctx_set, _usage_topic
 from .topics import (
     _maybe_rename_topic,
@@ -55,6 +57,7 @@ from .chat_prefs import ChatPrefsStore, resolve_prefs_path
 from .chat_sessions import ChatSessionStore, resolve_sessions_path
 from .engine_defaults import resolve_engine_for_message
 from .topic_state import TopicStateStore, resolve_state_path
+from .trigger_mode import resolve_trigger_mode, should_trigger_run
 from .types import (
     TelegramCallbackQuery,
     TelegramIncomingMessage,
@@ -172,6 +175,19 @@ def _dispatch_builtin_command(
     if command_id == "agent":
         handlers["agent"] = partial(
             _handle_agent_command,
+            cfg,
+            msg,
+            args_text,
+            ambient_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
+        )
+
+    if command_id == "trigger":
+        handlers["trigger"] = partial(
+            _handle_trigger_command,
             cfg,
             msg,
             args_text,
@@ -363,6 +379,7 @@ async def run_main_loop(
         for command_id in list_command_ids(allowlist=cfg.runtime.allowlist)
     }
     reserved_commands = _reserved_commands(cfg.runtime)
+    reserved_chat_commands = set(RESERVED_CHAT_COMMANDS)
     transport_snapshot = (
         transport_config.model_dump() if transport_config is not None else None
     )
@@ -372,6 +389,7 @@ async def run_main_loop(
     media_groups: dict[tuple[int, str], _MediaGroupState] = {}
     resolved_topics_scope: str | None = None
     topics_chat_ids: frozenset[int] = frozenset()
+    bot_username: str | None = None
 
     def refresh_topics_scope() -> None:
         nonlocal resolved_topics_scope, topics_chat_ids
@@ -422,6 +440,19 @@ async def run_main_loop(
                 state_path=str(resolve_state_path(config_path)),
             )
         await _set_command_menu(cfg)
+        try:
+            me = await cfg.bot.get_me()
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "trigger_mode.bot_username.failed",
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            me = None
+        if me is not None and me.username:
+            bot_username = me.username.lower()
+        else:
+            logger.info("trigger_mode.bot_username.unavailable")
         async with anyio.create_task_group() as tg:
             config_path = cfg.runtime.config_path
             watch_enabled = bool(watch_config) and config_path is not None
@@ -777,6 +808,25 @@ async def run_main_loop(
                         continue
                     messages = list(state.messages)
                     del media_groups[key]
+                    if not messages:
+                        return
+                    trigger_mode = await resolve_trigger_mode(
+                        chat_id=messages[0].chat_id,
+                        thread_id=messages[0].thread_id,
+                        chat_prefs=chat_prefs,
+                        topic_store=topic_store,
+                    )
+                    if trigger_mode == "mentions" and not any(
+                        should_trigger_run(
+                            msg,
+                            bot_username=bot_username,
+                            runtime=cfg.runtime,
+                            command_ids=command_ids,
+                            reserved_chat_commands=reserved_chat_commands,
+                        )
+                        for msg in messages
+                    ):
+                        return
                     await _handle_media_group(
                         cfg,
                         messages,
@@ -809,18 +859,20 @@ async def run_main_loop(
                 reply = make_reply(cfg, msg)
                 text = msg.text
                 is_voice_transcribed = False
-                if msg.voice is not None:
-                    text = await transcribe_voice(
-                        bot=cfg.bot,
-                        msg=msg,
-                        enabled=cfg.voice_transcription,
-                        model=cfg.voice_transcription_model,
-                        max_bytes=cfg.voice_max_bytes,
-                        reply=reply,
-                    )
-                    if text is None:
-                        continue
-                    is_voice_transcribed = True
+                if (
+                    cfg.files.enabled
+                    and msg.document is not None
+                    and msg.media_group_id is not None
+                ):
+                    key = (chat_id, msg.media_group_id)
+                    state = media_groups.get(key)
+                    if state is None:
+                        state = _MediaGroupState(messages=[])
+                        media_groups[key] = state
+                        tg.start_soon(flush_media_group, key)
+                    state.messages.append(msg)
+                    state.token += 1
+                    continue
                 topic_key = (
                     _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
                     if topic_store is not None
@@ -839,21 +891,6 @@ async def run_main_loop(
                 ambient_context = _merge_topic_context(
                     chat_project=chat_project, bound=bound_context
                 )
-
-                if (
-                    cfg.files.enabled
-                    and msg.document is not None
-                    and msg.media_group_id is not None
-                ):
-                    key = (chat_id, msg.media_group_id)
-                    state = media_groups.get(key)
-                    if state is None:
-                        state = _MediaGroupState(messages=[])
-                        media_groups[key] = state
-                        tg.start_soon(flush_media_group, key)
-                    state.messages.append(msg)
-                    state.token += 1
-                    continue
 
                 if is_cancel_command(text):
                     tg.start_soon(handle_cancel, cfg, msg, running_tasks, scheduler)
@@ -908,6 +945,34 @@ async def run_main_loop(
                     task_group=tg,
                 ):
                     continue
+
+                trigger_mode = await resolve_trigger_mode(
+                    chat_id=chat_id,
+                    thread_id=msg.thread_id,
+                    chat_prefs=chat_prefs,
+                    topic_store=topic_store,
+                )
+                if trigger_mode == "mentions" and not should_trigger_run(
+                    msg,
+                    bot_username=bot_username,
+                    runtime=cfg.runtime,
+                    command_ids=command_ids,
+                    reserved_chat_commands=reserved_chat_commands,
+                ):
+                    continue
+
+                if msg.voice is not None:
+                    text = await transcribe_voice(
+                        bot=cfg.bot,
+                        msg=msg,
+                        enabled=cfg.voice_transcription,
+                        model=cfg.voice_transcription_model,
+                        max_bytes=cfg.voice_max_bytes,
+                        reply=reply,
+                    )
+                    if text is None:
+                        continue
+                    is_voice_transcribed = True
                 if msg.document is not None:
                     if cfg.files.enabled and cfg.files.auto_put:
                         caption_text = text.strip()

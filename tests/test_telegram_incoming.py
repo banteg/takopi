@@ -13,7 +13,11 @@ def test_parse_incoming_update_maps_fields() -> None:
             "text": "hello",
             "chat": {"id": 123, "type": "supergroup", "is_forum": True},
             "from": {"id": 99},
-            "reply_to_message": {"message_id": 5, "text": "prev"},
+            "reply_to_message": {
+                "message_id": 5,
+                "text": "prev",
+                "from": {"id": 77, "is_bot": True, "username": "ReplyBot"},
+            },
         },
     }
 
@@ -26,6 +30,8 @@ def test_parse_incoming_update_maps_fields() -> None:
     assert msg.text == "hello"
     assert msg.reply_to_message_id == 5
     assert msg.reply_to_text == "prev"
+    assert msg.reply_to_is_bot is True
+    assert msg.reply_to_username == "ReplyBot"
     assert msg.sender_id == 99
     assert msg.thread_id is None
     assert msg.is_topic_message is None

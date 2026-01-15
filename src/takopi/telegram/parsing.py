@@ -167,6 +167,8 @@ def _parse_incoming_message(
     reply = msg.get("reply_to_message")
     reply_to_message_id = None
     reply_to_text = None
+    reply_to_is_bot = None
+    reply_to_username = None
     if isinstance(reply, dict):
         reply_to_message_id = (
             reply.get("message_id")
@@ -176,6 +178,14 @@ def _parse_incoming_message(
         reply_to_text = (
             reply.get("text") if isinstance(reply.get("text"), str) else None
         )
+        reply_from = reply.get("from")
+        if isinstance(reply_from, dict):
+            is_bot = reply_from.get("is_bot")
+            if isinstance(is_bot, bool):
+                reply_to_is_bot = is_bot
+            username = reply_from.get("username")
+            if isinstance(username, str):
+                reply_to_username = username
     sender = msg.get("from")
     sender_id = (
         sender.get("id")
@@ -198,6 +208,8 @@ def _parse_incoming_message(
         text=text,
         reply_to_message_id=reply_to_message_id,
         reply_to_text=reply_to_text,
+        reply_to_is_bot=reply_to_is_bot,
+        reply_to_username=reply_to_username,
         sender_id=sender_id,
         media_group_id=media_group_id,
         thread_id=thread_id,

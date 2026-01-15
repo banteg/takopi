@@ -73,6 +73,7 @@ def build_bot_commands(
     for cmd, description in [
         ("new", "start a new thread"),
         ("agent", "set default agent"),
+        ("trigger", "set trigger mode"),
     ]:
         if cmd in seen:
             continue

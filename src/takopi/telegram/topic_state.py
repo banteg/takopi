@@ -40,6 +40,7 @@ class _ThreadState(msgspec.Struct, forbid_unknown_fields=False):
     sessions: dict[str, _SessionState] = msgspec.field(default_factory=dict)
     topic_title: str | None = None
     default_engine: str | None = None
+    trigger_mode: str | None = None
 
 
 class _TopicState(msgspec.Struct, forbid_unknown_fields=False):
@@ -60,6 +61,17 @@ def _normalize_text(value: str | None) -> str | None:
         return None
     value = value.strip()
     return value or None
+
+
+def _normalize_trigger_mode(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip().lower()
+    if value == "mentions":
+        return "mentions"
+    if value == "all":
+        return None
+    return None
 
 
 def _context_from_state(state: _ContextState | None) -> RunContext | None:
@@ -161,6 +173,14 @@ class TopicStateStore(JsonStateStore[_TopicState]):
                 return None
             return _normalize_text(thread.default_engine)
 
+    async def get_trigger_mode(self, chat_id: int, thread_id: int) -> str | None:
+        async with self._lock:
+            self._reload_locked_if_needed()
+            thread = self._get_thread_locked(chat_id, thread_id)
+            if thread is None:
+                return None
+            return _normalize_trigger_mode(thread.trigger_mode)
+
     async def set_default_engine(
         self, chat_id: int, thread_id: int, engine: str | None
     ) -> None:
@@ -173,6 +193,19 @@ class TopicStateStore(JsonStateStore[_TopicState]):
 
     async def clear_default_engine(self, chat_id: int, thread_id: int) -> None:
         await self.set_default_engine(chat_id, thread_id, None)
+
+    async def set_trigger_mode(
+        self, chat_id: int, thread_id: int, mode: str | None
+    ) -> None:
+        normalized = _normalize_trigger_mode(mode)
+        async with self._lock:
+            self._reload_locked_if_needed()
+            thread = self._ensure_thread_locked(chat_id, thread_id)
+            thread.trigger_mode = normalized
+            self._save_locked()
+
+    async def clear_trigger_mode(self, chat_id: int, thread_id: int) -> None:
+        await self.set_trigger_mode(chat_id, thread_id, None)
 
     async def set_session_resume(
         self, chat_id: int, thread_id: int, token: ResumeToken

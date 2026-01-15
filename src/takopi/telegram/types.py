@@ -31,6 +31,8 @@ class TelegramIncomingMessage:
     reply_to_message_id: int | None
     reply_to_text: str | None
     sender_id: int | None
+    reply_to_is_bot: bool | None = None
+    reply_to_username: str | None = None
     media_group_id: str | None = None
     thread_id: int | None = None
     is_topic_message: bool | None = None

@@ -37,6 +37,7 @@ from takopi.telegram.client import BotClient
 from takopi.telegram.render import MAX_BODY_CHARS
 from takopi.telegram.topic_state import TopicStateStore, resolve_state_path
 from takopi.telegram.chat_sessions import ChatSessionStore, resolve_sessions_path
+from takopi.telegram.chat_prefs import ChatPrefsStore, resolve_prefs_path
 from takopi.context import RunContext
 from takopi.config import ProjectConfig, ProjectsConfig
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
@@ -2922,3 +2923,97 @@ async def test_run_main_loop_refreshes_command_ids(monkeypatch) -> None:
 
     assert calls["count"] >= 2
     assert transport.send_calls[-1]["message"].text == "late"
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_mentions_only_skips_voice_and_files(
+    monkeypatch, tmp_path
+) -> None:
+    calls = {"voice": 0, "file": 0}
+
+    async def fake_transcribe_voice(**kwargs):
+        _ = kwargs
+        calls["voice"] += 1
+        return "hello"
+
+    async def fake_handle_file_put_default(*args, **kwargs):
+        _ = args, kwargs
+        calls["file"] += 1
+        return None
+
+    monkeypatch.setattr(telegram_loop, "transcribe_voice", fake_transcribe_voice)
+    monkeypatch.setattr(
+        telegram_loop, "_handle_file_put_default", fake_handle_file_put_default
+    )
+
+    transport = _FakeTransport()
+    bot = _FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    config_path = tmp_path / "takopi.toml"
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+        config_path=config_path,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        voice_transcription=True,
+        files=TelegramFilesSettings(enabled=True, auto_put=True),
+    )
+
+    prefs = ChatPrefsStore(resolve_prefs_path(config_path))
+    await prefs.set_trigger_mode(123, "mentions")
+
+    voice = TelegramVoice(
+        file_id="voice-id",
+        mime_type="audio/ogg",
+        file_size=5,
+        duration=1,
+        raw={},
+    )
+    document = TelegramDocument(
+        file_id="doc-id",
+        file_name="doc.txt",
+        mime_type="text/plain",
+        file_size=5,
+        raw={},
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            voice=voice,
+            raw={},
+        )
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=2,
+            text="",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            document=document,
+            raw={},
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert calls["voice"] == 0
+    assert calls["file"] == 0
+    assert runner.calls == []

@@ -12,6 +12,7 @@ async def test_topic_state_store_roundtrip(tmp_path) -> None:
     context = RunContext(project="proj", branch="feat/topic")
     await store.set_context(1, 10, context)
     await store.set_default_engine(1, 10, "claude")
+    await store.set_trigger_mode(1, 10, "mentions")
     await store.set_session_resume(1, 10, ResumeToken(engine="codex", value="abc123"))
 
     snapshot = await store.get_thread(1, 10)
@@ -19,6 +20,7 @@ async def test_topic_state_store_roundtrip(tmp_path) -> None:
     assert snapshot.context == context
     assert snapshot.sessions == {"codex": "abc123"}
     assert snapshot.default_engine == "claude"
+    assert await store.get_trigger_mode(1, 10) == "mentions"
 
     store2 = TopicStateStore(path)
     snapshot2 = await store2.get_thread(1, 10)
@@ -26,6 +28,7 @@ async def test_topic_state_store_roundtrip(tmp_path) -> None:
     assert snapshot2.context == context
     assert snapshot2.sessions == {"codex": "abc123"}
     assert snapshot2.default_engine == "claude"
+    assert await store2.get_trigger_mode(1, 10) == "mentions"
 
 
 @pytest.mark.anyio
@@ -54,6 +57,8 @@ async def test_topic_state_store_clear_and_find(tmp_path) -> None:
     snapshot = await store.get_thread(2, 20)
     assert snapshot is not None
     assert snapshot.default_engine is None
+    await store.clear_trigger_mode(2, 20)
+    assert await store.get_trigger_mode(2, 20) is None
 
 
 @pytest.mark.anyio

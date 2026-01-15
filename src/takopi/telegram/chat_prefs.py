@@ -15,6 +15,7 @@ STATE_FILENAME = "telegram_chat_prefs_state.json"
 
 class _ChatPrefs(msgspec.Struct, forbid_unknown_fields=False):
     default_engine: str | None = None
+    trigger_mode: str | None = None
 
 
 class _ChatPrefsState(msgspec.Struct, forbid_unknown_fields=False):
@@ -35,6 +36,17 @@ def _normalize_text(value: str | None) -> str | None:
         return None
     value = value.strip()
     return value or None
+
+
+def _normalize_trigger_mode(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip().lower()
+    if value == "mentions":
+        return "mentions"
+    if value == "all":
+        return None
+    return None
 
 
 def _new_state() -> _ChatPrefsState:
@@ -64,9 +76,14 @@ class ChatPrefsStore(JsonStateStore[_ChatPrefsState]):
         normalized = _normalize_text(engine)
         async with self._lock:
             self._reload_locked_if_needed()
+            chat = self._get_chat_locked(chat_id)
             if normalized is None:
-                if self._remove_chat_locked(chat_id):
-                    self._save_locked()
+                if chat is None:
+                    return
+                chat.default_engine = None
+                if self._chat_is_empty(chat):
+                    self._remove_chat_locked(chat_id)
+                self._save_locked()
                 return
             chat = self._ensure_chat_locked(chat_id)
             chat.default_engine = normalized
@@ -74,6 +91,34 @@ class ChatPrefsStore(JsonStateStore[_ChatPrefsState]):
 
     async def clear_default_engine(self, chat_id: int) -> None:
         await self.set_default_engine(chat_id, None)
+
+    async def get_trigger_mode(self, chat_id: int) -> str | None:
+        async with self._lock:
+            self._reload_locked_if_needed()
+            chat = self._get_chat_locked(chat_id)
+            if chat is None:
+                return None
+            return _normalize_trigger_mode(chat.trigger_mode)
+
+    async def set_trigger_mode(self, chat_id: int, mode: str | None) -> None:
+        normalized = _normalize_trigger_mode(mode)
+        async with self._lock:
+            self._reload_locked_if_needed()
+            chat = self._get_chat_locked(chat_id)
+            if normalized is None:
+                if chat is None:
+                    return
+                chat.trigger_mode = None
+                if self._chat_is_empty(chat):
+                    self._remove_chat_locked(chat_id)
+                self._save_locked()
+                return
+            chat = self._ensure_chat_locked(chat_id)
+            chat.trigger_mode = normalized
+            self._save_locked()
+
+    async def clear_trigger_mode(self, chat_id: int) -> None:
+        await self.set_trigger_mode(chat_id, None)
 
     def _get_chat_locked(self, chat_id: int) -> _ChatPrefs | None:
         return self._state.chats.get(_chat_key(chat_id))
@@ -86,6 +131,12 @@ class ChatPrefsStore(JsonStateStore[_ChatPrefsState]):
         entry = _ChatPrefs()
         self._state.chats[key] = entry
         return entry
+
+    def _chat_is_empty(self, chat: _ChatPrefs) -> bool:
+        return (
+            _normalize_text(chat.default_engine) is None
+            and _normalize_trigger_mode(chat.trigger_mode) is None
+        )
 
     def _remove_chat_locked(self, chat_id: int) -> bool:
         key = _chat_key(chat_id)
