@@ -80,6 +80,149 @@ chat_id = -1001234567890
 
 Legacy config note: top-level `bot_token` / `chat_id` are auto-migrated into `[transports.telegram]` on startup.
 
+## Hooks
+
+Lifecycle hooks run at key points in the session lifecycle: before execution (pre_session), after completion (post_session), and on errors (on_error).
+
+```toml
+[hooks]
+hooks = ["auth", "logger", "/path/to/script.sh"]
+pre_session_timeout_ms = 1000
+post_session_timeout_ms = 5000
+on_error_timeout_ms = 5000
+fail_closed = false
+```
+
+| Key | Type | Default | Notes |
+|-----|------|---------|-------|
+| `hooks` | string\|string[] | `[]` | Hooks to run. Order defines execution order. |
+| `pre_session_timeout_ms` | int | `1000` | Timeout for blocking pre_session hooks. |
+| `post_session_timeout_ms` | int | `5000` | Timeout for fire-and-forget post_session hooks. |
+| `on_error_timeout_ms` | int | `5000` | Timeout for fire-and-forget on_error hooks. |
+| `fail_closed` | bool | `false` | Block session if a hook fails to load. |
+
+Each hook in the list can handle any combination of events (pre_session, post_session, on_error). Hooks only receive events for the methods they implement.
+
+### Hook references
+
+A hook can be:
+
+- **Shell command**: Any string containing spaces or starting with `/` or `./` (e.g., `/usr/bin/python hook.py`)
+- **Python plugin**: A plugin id registered via the `takopi.hooks` entrypoint group
+
+### Shell hooks
+
+Shell hooks receive JSON on stdin with a `type` field indicating the event type. They should output JSON on stdout for pre_session events.
+
+**Pre-session input:**
+```json
+{
+  "type": "pre_session",
+  "sender_id": 123,
+  "chat_id": 456,
+  "thread_id": 789,
+  "message_text": "hello",
+  "engine": "codex",
+  "project": "myproject",
+  "raw_message": {}
+}
+```
+
+**Pre-session output:**
+```json
+{
+  "allow": true,
+  "reason": null,
+  "silent": false,
+  "metadata": {"key": "value"}
+}
+```
+
+Set `"allow": false` to block the session. The `reason` is shown to the user unless `silent` is `true`. The `metadata` object is passed to post_session and on_error hooks.
+
+**Post-session input:**
+```json
+{
+  "type": "post_session",
+  "sender_id": 123,
+  "chat_id": 456,
+  "thread_id": 789,
+  "engine": "codex",
+  "project": "myproject",
+  "duration_ms": 1500,
+  "tokens_in": 100,
+  "tokens_out": 200,
+  "status": "success",
+  "error": null,
+  "message_text": "What is 2+2?",
+  "response_text": "The answer is 4.",
+  "pre_session_metadata": {"key": "value"}
+}
+```
+
+The `message_text` and `response_text` fields contain the original user input and the agent's final response, enabling post-processing workflows like chaining, review, or summarization.
+
+**On-error input:**
+```json
+{
+  "type": "on_error",
+  "sender_id": 123,
+  "chat_id": 456,
+  "thread_id": 789,
+  "engine": "codex",
+  "project": "myproject",
+  "error_type": "RuntimeError",
+  "error_message": "Something went wrong",
+  "traceback": "...",
+  "pre_session_metadata": {"key": "value"}
+}
+```
+
+Post-session and on_error hooks are fire-and-forget; their output is ignored.
+
+### Python hooks
+
+Python hooks are classes that implement any combination of `pre_session`, `post_session`, and `on_error` methods:
+
+```python
+from takopi.hooks import PreSessionContext, PreSessionResult, PostSessionContext, OnErrorContext
+
+class MyHook:
+    def pre_session(self, ctx: PreSessionContext, config: dict) -> PreSessionResult:
+        """Called before session starts. Return allow=False to block."""
+        if ctx.sender_id not in config.get("allowed_users", []):
+            return PreSessionResult(allow=False, reason="Not authorized")
+        return PreSessionResult(allow=True)
+
+    def post_session(self, ctx: PostSessionContext, config: dict) -> None:
+        """Called after session completes (fire-and-forget)."""
+        # Access the original message and agent response
+        print(f"User: {ctx.message_text}")
+        print(f"Agent: {ctx.response_text}")
+        print(f"Completed in {ctx.duration_ms}ms")
+
+    def on_error(self, ctx: OnErrorContext, config: dict) -> None:
+        """Called when an error occurs (fire-and-forget)."""
+        print(f"Error: {ctx.error_type}: {ctx.error_message}")
+```
+
+Register via `pyproject.toml`:
+
+```toml
+[project.entry-points."takopi.hooks"]
+my_hook = "my_package:MyHook"
+```
+
+### Hook-specific config
+
+```toml
+[hooks.config.auth]
+allowed_users = [123, 456]
+
+[hooks.config.logger]
+endpoint = "https://example.com/log"
+```
+
 ## Plugins
 
 ### `plugins.enabled`

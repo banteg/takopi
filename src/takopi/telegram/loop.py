@@ -25,7 +25,7 @@ from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
 from .commands.agent import _handle_agent_command
 from .commands.cancel import handle_callback_cancel, handle_cancel
 from .commands.dispatch import _dispatch_command
-from .commands.executor import _run_engine, _should_show_resume_line
+from .commands.executor import ResponseCapture, _run_engine, _should_show_resume_line
 from .commands.file_transfer import (
     FILE_PUT_USAGE,
     _handle_file_command,
@@ -64,6 +64,12 @@ from .types import (
     TelegramIncomingUpdate,
 )
 from .voice import transcribe_voice
+from .hooks_integration import (
+    TelegramHooksManager,
+    create_pre_session_context,
+    create_post_session_context,
+    create_on_error_context,
+)
 
 logger = get_logger(__name__)
 
@@ -390,6 +396,7 @@ async def run_main_loop(
     resolved_topics_scope: str | None = None
     topics_chat_ids: frozenset[int] = frozenset()
     bot_username: str | None = None
+    hooks_manager = TelegramHooksManager(cfg.hooks)
 
     def refresh_topics_scope() -> None:
         nonlocal resolved_topics_scope, topics_chat_ids
@@ -532,7 +539,11 @@ async def run_main_loop(
                 | None = None,
                 engine_override: EngineId | None = None,
                 progress_ref: MessageRef | None = None,
+                sender_id: int | None = None,
+                raw_message: dict | None = None,
             ) -> None:
+                import time
+
                 topic_key = (
                     (chat_id, thread_id)
                     if topic_store is not None
@@ -548,24 +559,117 @@ async def run_main_loop(
                     stateful_mode=stateful_mode,
                     context=context,
                 )
-                await _run_engine(
-                    exec_cfg=cfg.exec_cfg,
-                    runtime=cfg.runtime,
-                    running_tasks=running_tasks,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    text=text,
-                    resume_token=resume_token,
-                    context=context,
-                    reply_ref=reply_ref,
-                    on_thread_known=wrap_on_thread_known(
-                        on_thread_known, topic_key, chat_session_key
-                    ),
+
+                # Resolve engine for hook context
+                resolved_engine = cfg.runtime.resolve_engine(
                     engine_override=engine_override,
-                    thread_id=thread_id,
-                    show_resume_line=show_resume_line,
-                    progress_ref=progress_ref,
+                    context=context,
                 )
+
+                # Run pre_session hooks
+                pre_session_metadata: dict = {}
+                if hooks_manager.has_hooks:
+                    pre_ctx = create_pre_session_context(
+                        sender_id=sender_id,
+                        chat_id=chat_id,
+                        thread_id=thread_id,
+                        message_text=text,
+                        engine=resolved_engine,
+                        context=context,
+                        raw_message=raw_message,
+                    )
+                    pre_result = await hooks_manager.run_pre_session(pre_ctx)
+                    pre_session_metadata = pre_result.metadata
+                    if not pre_result.allow:
+                        if not pre_result.silent:
+                            reply = make_reply(
+                                cfg,
+                                None,
+                                chat_id=chat_id,
+                                user_msg_id=user_msg_id,
+                                thread_id=thread_id,
+                            )
+                            reason = pre_result.reason or "request blocked by hook"
+                            await reply(text=f"blocked: {reason}")
+                        logger.info(
+                            "hook.pre_session.blocked",
+                            chat_id=chat_id,
+                            sender_id=sender_id,
+                            reason=pre_result.reason,
+                        )
+                        return
+
+                started_at = time.monotonic()
+                error_msg: str | None = None
+                status = "success"
+                # Capture response if hooks are configured
+                response_capture = (
+                    ResponseCapture() if hooks_manager.has_hooks else None
+                )
+
+                try:
+                    await _run_engine(
+                        exec_cfg=cfg.exec_cfg,
+                        runtime=cfg.runtime,
+                        running_tasks=running_tasks,
+                        chat_id=chat_id,
+                        user_msg_id=user_msg_id,
+                        text=text,
+                        resume_token=resume_token,
+                        context=context,
+                        reply_ref=reply_ref,
+                        on_thread_known=wrap_on_thread_known(
+                            on_thread_known, topic_key, chat_session_key
+                        ),
+                        engine_override=engine_override,
+                        thread_id=thread_id,
+                        show_resume_line=show_resume_line,
+                        progress_ref=progress_ref,
+                        response_capture=response_capture,
+                    )
+                except Exception as exc:
+                    error_msg = str(exc)
+                    status = "error"
+                    # Run on_error hooks (fire-and-forget)
+                    if hooks_manager.has_hooks:
+                        import traceback as tb
+
+                        error_ctx = create_on_error_context(
+                            sender_id=sender_id,
+                            chat_id=chat_id,
+                            thread_id=thread_id,
+                            engine=resolved_engine,
+                            context=context,
+                            error_type=type(exc).__name__,
+                            error_message=error_msg,
+                            traceback=tb.format_exc(),
+                            pre_session_metadata=pre_session_metadata,
+                        )
+                        tg.start_soon(hooks_manager.run_on_error, error_ctx)
+                    raise
+                finally:
+                    # Run post_session hooks (fire-and-forget)
+                    if hooks_manager.has_hooks:
+                        duration_ms = int((time.monotonic() - started_at) * 1000)
+                        post_ctx = create_post_session_context(
+                            sender_id=sender_id,
+                            chat_id=chat_id,
+                            thread_id=thread_id,
+                            engine=resolved_engine,
+                            context=context,
+                            duration_ms=duration_ms,
+                            tokens_in=0,  # TODO: extract from runner if available
+                            tokens_out=0,
+                            status=status,
+                            error=error_msg,
+                            message_text=text,
+                            response_text=response_capture.text
+                            if response_capture
+                            else None,
+                            pre_session_metadata=pre_session_metadata,
+                        )
+                        # Fire-and-forget: run in background
+                        tg.start_soon(hooks_manager.run_post_session, post_ctx)
 
             async def run_thread_job(job: ThreadJob) -> None:
                 await run_job(
@@ -747,6 +851,9 @@ async def run_main_loop(
                         reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
+                        None,  # progress_ref
+                        msg.sender_id,
+                        msg.raw,
                     )
                     return
                 progress_ref = await _send_queued_progress(
@@ -1146,6 +1253,9 @@ async def run_main_loop(
                         reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
+                        None,  # progress_ref
+                        msg.sender_id,
+                        msg.raw,
                     )
                 else:
                     progress_ref = await _send_queued_progress(

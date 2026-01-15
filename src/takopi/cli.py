@@ -356,6 +356,7 @@ def _run_auto_router(
             config_path=config_path,
             transport_config=transport_config,
             runtime=runtime,
+            hooks_settings=settings.hooks,
         )
     except ConfigError as e:
         typer.echo(f"error: {e}", err=True)

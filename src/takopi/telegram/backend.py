@@ -9,7 +9,7 @@ import anyio
 from ..backends import EngineBackend
 from ..logging import get_logger
 from ..runner_bridge import ExecBridgeConfig
-from ..settings import TelegramTopicsSettings, TelegramTransportSettings
+from ..settings import HooksSettings, TelegramTopicsSettings, TelegramTransportSettings
 from ..transport_runtime import TransportRuntime
 from ..transports import SetupResult, TransportBackend
 from .bridge import (
@@ -107,6 +107,7 @@ class TelegramBackend(TransportBackend):
         runtime: TransportRuntime,
         final_notify: bool,
         default_engine_override: str | None,
+        hooks_settings: HooksSettings | None = None,
     ) -> None:
         settings = _expect_transport_settings(transport_config)
         token = settings.bot_token
@@ -140,6 +141,7 @@ class TelegramBackend(TransportBackend):
             voice_transcription_model=settings.voice_transcription_model,
             topics=settings.topics,
             files=settings.files,
+            hooks=hooks_settings or HooksSettings(),
         )
 
         async def run_loop() -> None:

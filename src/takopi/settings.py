@@ -116,6 +116,35 @@ class PluginsSettings(BaseModel):
     model_config = ConfigDict(extra="allow", str_strip_whitespace=True)
 
 
+class HooksSettings(BaseModel):
+    """Configuration for lifecycle hooks."""
+
+    model_config = ConfigDict(extra="allow", str_strip_whitespace=True)
+
+    hooks: list[NonEmptyStr] | NonEmptyStr = Field(default_factory=list)
+    pre_session_timeout_ms: StrictInt = 1000
+    post_session_timeout_ms: StrictInt = 5000
+    on_error_timeout_ms: StrictInt = 5000
+    fail_closed: bool = False
+
+    @field_validator("hooks", mode="before")
+    @classmethod
+    def _coerce_to_list(cls, value: Any) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+        if value is None:
+            return []
+        return value
+
+    def get_hook_config(self, hook_id: str) -> dict[str, Any]:
+        """Get config for a specific hook from model_extra."""
+        extra = self.model_extra or {}
+        config = extra.get("config", {})
+        if isinstance(config, dict):
+            return config.get(hook_id, {})
+        return {}
+
+
 class ProjectSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -143,6 +172,7 @@ class TakopiSettings(BaseSettings):
     transports: TransportsSettings
 
     plugins: PluginsSettings = Field(default_factory=PluginsSettings)
+    hooks: HooksSettings = Field(default_factory=HooksSettings)
 
     @model_validator(mode="before")
     @classmethod

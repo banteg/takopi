@@ -7,6 +7,7 @@ from collections.abc import Iterable
 
 from .backends import EngineBackend, SetupIssue
 from .plugins import TRANSPORT_GROUP, list_ids, load_plugin_backend
+from .settings import HooksSettings
 from .transport_runtime import TransportRuntime
 
 
@@ -46,6 +47,7 @@ class TransportBackend(Protocol):
         runtime: TransportRuntime,
         final_notify: bool,
         default_engine_override: str | None,
+        hooks_settings: HooksSettings | None = None,
     ) -> None: ...
 
 

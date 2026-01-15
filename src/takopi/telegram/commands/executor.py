@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import cast
+from typing import Any, cast
 
 import anyio
 
@@ -108,10 +108,21 @@ async def _run_engine(
     thread_id: int | None = None,
     show_resume_line: bool = True,
     progress_ref: MessageRef | None = None,
+    response_capture: ResponseCapture | None = None,
 ) -> None:
+    # Optionally wrap transport to capture the final response
+    if response_capture is not None:
+        effective_cfg = ExecBridgeConfig(
+            transport=_SpyTransport(exec_cfg.transport, response_capture),
+            presenter=exec_cfg.presenter,
+            final_notify=exec_cfg.final_notify,
+        )
+    else:
+        effective_cfg = exec_cfg
+
     reply = partial(
         send_plain,
-        exec_cfg.transport,
+        effective_cfg.transport,
         chat_id=chat_id,
         user_msg_id=user_msg_id,
         thread_id=thread_id,
@@ -131,7 +142,7 @@ async def _run_engine(
         if not entry.available:
             reason = entry.issue or "engine unavailable"
             await _send_runner_unavailable(
-                exec_cfg,
+                effective_cfg,
                 chat_id=chat_id,
                 user_msg_id=user_msg_id,
                 resume_token=resume_token,
@@ -168,7 +179,7 @@ async def _run_engine(
                 thread_id=thread_id,
             )
             await handle_message(
-                exec_cfg,
+                effective_cfg,
                 runner=runner,
                 incoming=incoming,
                 resume_token=resume_token,
@@ -192,6 +203,8 @@ async def _run_engine(
 
 
 class _CaptureTransport:
+    """Transport that captures the last message without sending."""
+
     def __init__(self) -> None:
         self._next_id = 1
         self.last_message: RenderedMessage | None = None
@@ -224,6 +237,45 @@ class _CaptureTransport:
 
     async def close(self) -> None:
         return None
+
+
+@dataclass(slots=True)
+class ResponseCapture:
+    """Mutable container to capture the final response text."""
+
+    text: str | None = None
+
+
+class _SpyTransport:
+    """Transport wrapper that captures the final message while forwarding to the real transport."""
+
+    def __init__(self, inner: Any, capture: ResponseCapture) -> None:
+        self._inner = inner
+        self._capture = capture
+
+    async def send(
+        self,
+        *,
+        channel_id: int | str,
+        message: RenderedMessage,
+        options: SendOptions | None = None,
+    ) -> MessageRef:
+        self._capture.text = message.text
+        return await self._inner.send(
+            channel_id=channel_id, message=message, options=options
+        )
+
+    async def edit(
+        self, *, ref: MessageRef, message: RenderedMessage, wait: bool = True
+    ) -> MessageRef:
+        self._capture.text = message.text
+        return await self._inner.edit(ref=ref, message=message, wait=wait)
+
+    async def delete(self, *, ref: MessageRef) -> bool:
+        return await self._inner.delete(ref=ref)
+
+    async def close(self) -> None:
+        return await self._inner.close()
 
 
 class _TelegramCommandExecutor(CommandExecutor):

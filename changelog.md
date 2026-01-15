@@ -1,5 +1,15 @@
 # changelog
 
+## unreleased
+
+### changes
+
+- add lifecycle hooks system with pre_session, post_session, and on_error events
+- hooks can be shell commands or Python plugins via `takopi.hooks` entrypoint
+- pre_session hooks can block execution with custom deny reasons
+- metadata flows from pre_session to post_session and on_error hooks
+- post_session hooks receive `message_text` and `response_text` for chaining workflows
+
 ## v0.19.0 (2026-01-15)
 
 ### changes
