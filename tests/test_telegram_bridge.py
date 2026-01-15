@@ -1149,6 +1149,19 @@ def test_resolve_message_accepts_backticked_ctx_line() -> None:
     assert resolved.context == RunContext(project="takopi", branch="feat/api")
 
 
+def test_is_forwarded_detects_forward_fields() -> None:
+    assert telegram_loop._is_forwarded({"forward_origin": {"type": "user"}})
+    assert telegram_loop._is_forwarded({"forward_from": {"id": 1}})
+    assert telegram_loop._is_forwarded({"forward_from_chat": {"id": 1}})
+    assert telegram_loop._is_forwarded({"forward_from_message_id": 2})
+    assert telegram_loop._is_forwarded({"forward_sender_name": "anon"})
+    assert telegram_loop._is_forwarded({"forward_signature": "sig"})
+    assert telegram_loop._is_forwarded({"forward_date": 123})
+    assert telegram_loop._is_forwarded({"is_automatic_forward": True})
+    assert not telegram_loop._is_forwarded({"text": "hello"})
+    assert not telegram_loop._is_forwarded(None)
+
+
 def test_topic_title_matches_command_syntax() -> None:
     transport = _FakeTransport()
     cfg = _make_cfg(transport)
@@ -1977,6 +1990,142 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
     assert not claude_runner.calls
     assert len(codex_runner.calls) == 1
     assert codex_runner.calls[0][0].startswith("(voice transcribed) do thing")
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_debounces_forwarded_messages_preserves_directives() -> (
+    None
+):
+    codex_runner = ScriptRunner([Return(answer="codex")], engine=CODEX_ENGINE)
+    claude_runner = ScriptRunner([Return(answer="claude")], engine="claude")
+    router = AutoRouter(
+        entries=[
+            RunnerEntry(engine=claude_runner.engine, runner=claude_runner),
+            RunnerEntry(engine=codex_runner.engine, runner=codex_runner),
+        ],
+        default_engine=claude_runner.engine,
+    )
+    runtime = TransportRuntime(router=router, projects=_empty_projects())
+    transport = _FakeTransport()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=_FakeBot(),
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="/codex summarize these",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+        )
+        await anyio.sleep(telegram_loop._FORWARD_DEBOUNCE_S / 2)
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=2,
+            text="a",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            raw={"forward_origin": {"type": "user"}},
+        )
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=3,
+            text="b",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            raw={"forward_origin": {"type": "user"}},
+        )
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=4,
+            text="c",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            raw={"forward_origin": {"type": "user"}},
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert not claude_runner.calls
+    assert len(codex_runner.calls) == 1
+    prompt_text, _ = codex_runner.calls[0]
+    assert prompt_text == "\n".join(
+        [
+            "Forwarded messages (3):",
+            "[1]",
+            "a",
+            "[2]",
+            "b",
+            "[3]",
+            "c",
+            "",
+            "User prompt:",
+            "summarize these",
+        ]
+    )
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_ignores_forwarded_without_prompt() -> None:
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    runtime = TransportRuntime(router=_make_router(runner), projects=_empty_projects())
+    transport = _FakeTransport()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=_FakeBot(),
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="a",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            raw={"forward_origin": {"type": "user"}},
+        )
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=2,
+            text="b",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            raw={"forward_origin": {"type": "user"}},
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert runner.calls == []
 
 
 @pytest.mark.anyio
