@@ -1,7 +1,9 @@
 # /// script
 # requires-python = ">=3.14"
 # dependencies = [
+#     "mistune>=3.2.0",
 #     "requests>=2.32.5",
+#     "sulguk>=0.11.1",
 # ]
 # ///
 from __future__ import annotations
@@ -9,8 +11,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 
+import mistune
 import requests
+import sulguk
 
 repo = os.environ["REPO"]
 bot_token = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -21,14 +26,12 @@ event = json.loads(event_path.read_text(encoding="utf-8"))
 
 ref = event.get("ref") or ""
 branch = ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else ref
-before = event.get("before") or ""
-after = event.get("after") or ""
-compare = event.get("compare") or ""
-
 commits = list(event.get("commits") or [])
 head_commit = event.get("head_commit")
 if not commits and head_commit:
     commits = [head_commit]
+
+PULL_RE = re.compile(rf"(https://github.com/{repo}/pull/(\d+))")
 
 
 def _short_sha(value: str) -> str:
@@ -36,12 +39,12 @@ def _short_sha(value: str) -> str:
 
 
 def _commit_line(commit: dict[str, object]) -> str:
-    sha = _short_sha(str(commit.get("id") or ""))
+    full_sha = str(commit.get("id") or "")
+    sha = _short_sha(full_sha)
     message = str(commit.get("message") or "").splitlines()[0].strip()
-    url = str(commit.get("url") or commit.get("html_url") or "").strip()
-    if url:
-        return f"- {sha} {message} ({url})"
-    return f"- {sha} {message}"
+    message = PULL_RE.sub(r"[#\2](\1)", message)
+    url = f"https://github.com/{repo}/commit/{full_sha or sha}"
+    return f"- [{sha}]({url}) {message}"
 
 
 lines: list[str] = []
@@ -51,20 +54,20 @@ if commits:
     if len(commits) > max_commits:
         lines.append(f"- ...and {len(commits) - max_commits} more")
 
-header = f"push to {repo} {branch}".strip()
+header = f"push **{repo} {branch}**".strip()
 parts = [header]
-if before and after and before != after:
-    parts.append(f"range {_short_sha(before)}..{_short_sha(after)}")
-if compare:
-    parts.append(compare)
 if lines:
     parts.append("\n".join(lines))
 
-text = "\n\n".join(part for part in parts if part)
+message = "\n\n".join(part for part in parts if part)
+
+html = mistune.html(message)
+rendered = sulguk.transform_html(html)
 
 payload = {
     "chat_id": chat_id,
-    "text": text,
+    "text": rendered.text,
+    "entities": rendered.entities,
     "link_preview_options": {"is_disabled": True},
 }
 resp = requests.post(
