@@ -27,6 +27,7 @@ from ..model import (
     TakopiEvent,
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from .run_options import get_run_options
 from ..schemas import pi as pi_schema
 from ..utils.paths import get_run_base_dir
 from .tool_actions import tool_kind_and_title
@@ -322,11 +323,15 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: PiStreamState,
     ) -> list[str]:
+        run_options = get_run_options()
         args: list[str] = [*self.extra_args, "--print", "--mode", "json"]
         if self.provider:
             args.extend(["--provider", self.provider])
-        if self.model:
-            args.extend(["--model", self.model])
+        model = self.model
+        if run_options is not None and run_options.model:
+            model = run_options.model
+        if model:
+            args.extend(["--model", model])
         args.extend(["--session", state.resume.value])
         args.append(self._sanitize_prompt(prompt))
         return args

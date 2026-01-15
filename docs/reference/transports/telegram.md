@@ -58,7 +58,7 @@ Explicit invocation includes any of:
 - `@botname` mention in the message.
 - `/engine` or `/project_alias` as the first token.
 - Replying to a bot message.
-- Built-in or plugin slash commands (for example `/agent`, `/file`, `/trigger`).
+- Built-in or plugin slash commands (for example `/agent`, `/model`, `/reasoning`, `/file`, `/trigger`).
 
 Commands:
 

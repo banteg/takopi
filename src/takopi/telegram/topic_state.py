@@ -8,6 +8,7 @@ import msgspec
 from ..context import RunContext
 from ..logging import get_logger
 from ..model import ResumeToken
+from .engine_overrides import EngineOverrides, normalize_overrides
 from .state_store import JsonStateStore
 
 logger = get_logger(__name__)
@@ -41,6 +42,7 @@ class _ThreadState(msgspec.Struct, forbid_unknown_fields=False):
     topic_title: str | None = None
     default_engine: str | None = None
     trigger_mode: str | None = None
+    engine_overrides: dict[str, EngineOverrides] = msgspec.field(default_factory=dict)
 
 
 class _TopicState(msgspec.Struct, forbid_unknown_fields=False):
@@ -72,6 +74,13 @@ def _normalize_trigger_mode(value: str | None) -> str | None:
     if value == "all":
         return None
     return None
+
+
+def _normalize_engine_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip().lower()
+    return value or None
 
 
 def _context_from_state(state: _ContextState | None) -> RunContext | None:
@@ -181,6 +190,20 @@ class TopicStateStore(JsonStateStore[_TopicState]):
                 return None
             return _normalize_trigger_mode(thread.trigger_mode)
 
+    async def get_engine_override(
+        self, chat_id: int, thread_id: int, engine: str
+    ) -> EngineOverrides | None:
+        engine_key = _normalize_engine_id(engine)
+        if engine_key is None:
+            return None
+        async with self._lock:
+            self._reload_locked_if_needed()
+            thread = self._get_thread_locked(chat_id, thread_id)
+            if thread is None:
+                return None
+            override = thread.engine_overrides.get(engine_key)
+            return normalize_overrides(override)
+
     async def set_default_engine(
         self, chat_id: int, thread_id: int, engine: str | None
     ) -> None:
@@ -206,6 +229,31 @@ class TopicStateStore(JsonStateStore[_TopicState]):
 
     async def clear_trigger_mode(self, chat_id: int, thread_id: int) -> None:
         await self.set_trigger_mode(chat_id, thread_id, None)
+
+    async def set_engine_override(
+        self,
+        chat_id: int,
+        thread_id: int,
+        engine: str,
+        override: EngineOverrides | None,
+    ) -> None:
+        engine_key = _normalize_engine_id(engine)
+        if engine_key is None:
+            return
+        normalized = normalize_overrides(override)
+        async with self._lock:
+            self._reload_locked_if_needed()
+            thread = self._ensure_thread_locked(chat_id, thread_id)
+            if normalized is None:
+                thread.engine_overrides.pop(engine_key, None)
+            else:
+                thread.engine_overrides[engine_key] = normalized
+            self._save_locked()
+
+    async def clear_engine_override(
+        self, chat_id: int, thread_id: int, engine: str
+    ) -> None:
+        await self.set_engine_override(chat_id, thread_id, engine, None)
 
     async def set_session_resume(
         self, chat_id: int, thread_id: int, token: ResumeToken

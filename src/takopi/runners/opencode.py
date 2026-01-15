@@ -34,6 +34,7 @@ from ..model import (
     TakopiEvent,
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from .run_options import get_run_options
 from ..schemas import opencode as opencode_schema
 from ..utils.paths import relativize_path
 from .tool_actions import tool_input_path, tool_kind_and_title
@@ -325,11 +326,15 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: Any,
     ) -> list[str]:
+        run_options = get_run_options()
         args = ["run", "--format", "json"]
         if resume is not None:
             args.extend(["--session", resume.value])
-        if self.model is not None:
-            args.extend(["--model", str(self.model)])
+        model = self.model
+        if run_options is not None and run_options.model:
+            model = run_options.model
+        if model is not None:
+            args.extend(["--model", str(model)])
         args.extend(["--", prompt])
         return args
 

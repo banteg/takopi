@@ -9,6 +9,7 @@ from ...commands import CommandContext, get_command
 from ...config import ConfigError
 from ...logging import get_logger
 from ...model import EngineId, ResumeToken
+from ...runners.run_options import EngineRunOptions
 from ...runner_bridge import RunningTasks
 from ...scheduler import ThreadScheduler
 from ...transport import MessageRef
@@ -33,6 +34,8 @@ async def _dispatch_command(
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
     stateful_mode: bool,
     default_engine_override: EngineId | None,
+    engine_overrides_resolver: Callable[[EngineId], Awaitable[EngineRunOptions | None]]
+    | None,
 ) -> None:
     allowlist = cfg.runtime.allowlist
     chat_id = msg.chat_id
@@ -52,6 +55,7 @@ async def _dispatch_command(
         running_tasks=running_tasks,
         scheduler=scheduler,
         on_thread_known=on_thread_known,
+        engine_overrides_resolver=engine_overrides_resolver,
         chat_id=chat_id,
         user_msg_id=user_msg_id,
         thread_id=msg.thread_id,

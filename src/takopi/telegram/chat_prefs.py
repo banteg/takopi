@@ -5,6 +5,7 @@ from pathlib import Path
 import msgspec
 
 from ..logging import get_logger
+from .engine_overrides import EngineOverrides, normalize_overrides
 from .state_store import JsonStateStore
 
 logger = get_logger(__name__)
@@ -16,6 +17,7 @@ STATE_FILENAME = "telegram_chat_prefs_state.json"
 class _ChatPrefs(msgspec.Struct, forbid_unknown_fields=False):
     default_engine: str | None = None
     trigger_mode: str | None = None
+    engine_overrides: dict[str, EngineOverrides] = msgspec.field(default_factory=dict)
 
 
 class _ChatPrefsState(msgspec.Struct, forbid_unknown_fields=False):
@@ -47,6 +49,13 @@ def _normalize_trigger_mode(value: str | None) -> str | None:
     if value == "all":
         return None
     return None
+
+
+def _normalize_engine_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip().lower()
+    return value or None
 
 
 def _new_state() -> _ChatPrefsState:
@@ -120,6 +129,45 @@ class ChatPrefsStore(JsonStateStore[_ChatPrefsState]):
     async def clear_trigger_mode(self, chat_id: int) -> None:
         await self.set_trigger_mode(chat_id, None)
 
+    async def get_engine_override(
+        self, chat_id: int, engine: str
+    ) -> EngineOverrides | None:
+        engine_key = _normalize_engine_id(engine)
+        if engine_key is None:
+            return None
+        async with self._lock:
+            self._reload_locked_if_needed()
+            chat = self._get_chat_locked(chat_id)
+            if chat is None:
+                return None
+            override = chat.engine_overrides.get(engine_key)
+            return normalize_overrides(override)
+
+    async def set_engine_override(
+        self, chat_id: int, engine: str, override: EngineOverrides | None
+    ) -> None:
+        engine_key = _normalize_engine_id(engine)
+        if engine_key is None:
+            return
+        normalized = normalize_overrides(override)
+        async with self._lock:
+            self._reload_locked_if_needed()
+            chat = self._get_chat_locked(chat_id)
+            if normalized is None:
+                if chat is None:
+                    return
+                chat.engine_overrides.pop(engine_key, None)
+                if self._chat_is_empty(chat):
+                    self._remove_chat_locked(chat_id)
+                self._save_locked()
+                return
+            chat = self._ensure_chat_locked(chat_id)
+            chat.engine_overrides[engine_key] = normalized
+            self._save_locked()
+
+    async def clear_engine_override(self, chat_id: int, engine: str) -> None:
+        await self.set_engine_override(chat_id, engine, None)
+
     def _get_chat_locked(self, chat_id: int) -> _ChatPrefs | None:
         return self._state.chats.get(_chat_key(chat_id))
 
@@ -136,7 +184,15 @@ class ChatPrefsStore(JsonStateStore[_ChatPrefsState]):
         return (
             _normalize_text(chat.default_engine) is None
             and _normalize_trigger_mode(chat.trigger_mode) is None
+            and not self._has_engine_overrides(chat.engine_overrides)
         )
+
+    @staticmethod
+    def _has_engine_overrides(overrides: dict[str, EngineOverrides]) -> bool:
+        for override in overrides.values():
+            if normalize_overrides(override) is not None:
+                return True
+        return False
 
     def _remove_chat_locked(self, chat_id: int) -> bool:
         key = _chat_key(chat_id)

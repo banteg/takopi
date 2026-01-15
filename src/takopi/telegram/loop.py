@@ -14,6 +14,7 @@ from ..commands import list_command_ids
 from ..directives import DirectiveError
 from ..logging import get_logger
 from ..model import EngineId, ResumeToken
+from ..runners.run_options import EngineRunOptions
 from ..scheduler import ThreadJob, ThreadScheduler
 from ..progress import ProgressTracker
 from ..settings import TelegramTransportSettings
@@ -42,6 +43,8 @@ from .commands.topics import (
     _handle_new_command,
     _handle_topic_command,
 )
+from .commands.model import _handle_model_command
+from .commands.reasoning import _handle_reasoning_command
 from .commands.trigger import _handle_trigger_command
 from .context import _merge_topic_context, _usage_ctx_set, _usage_topic
 from .topics import (
@@ -55,6 +58,7 @@ from .topics import (
 from .client import poll_incoming
 from .chat_prefs import ChatPrefsStore, resolve_prefs_path
 from .chat_sessions import ChatSessionStore, resolve_sessions_path
+from .engine_overrides import merge_overrides
 from .engine_defaults import resolve_engine_for_message
 from .topic_state import TopicStateStore, resolve_state_path
 from .trigger_mode import resolve_trigger_mode, should_trigger_run
@@ -84,6 +88,27 @@ def _chat_session_key(
     if msg.sender_id is None:
         return None
     return (msg.chat_id, msg.sender_id)
+
+
+async def _resolve_engine_run_options(
+    chat_id: int,
+    thread_id: int | None,
+    engine: EngineId,
+    chat_prefs: ChatPrefsStore | None,
+    topic_store: TopicStateStore | None,
+) -> EngineRunOptions | None:
+    topic_override = None
+    if topic_store is not None and thread_id is not None:
+        topic_override = await topic_store.get_engine_override(
+            chat_id, thread_id, engine
+        )
+    chat_override = None
+    if chat_prefs is not None:
+        chat_override = await chat_prefs.get_engine_override(chat_id, engine)
+    merged = merge_overrides(topic_override, chat_override)
+    if merged is None:
+        return None
+    return EngineRunOptions(model=merged.model, reasoning=merged.reasoning)
 
 
 def _allowed_chat_ids(cfg: TelegramBridgeConfig) -> set[int]:
@@ -177,6 +202,32 @@ def _dispatch_builtin_command(
     if command_id == "agent":
         handlers["agent"] = partial(
             _handle_agent_command,
+            cfg,
+            msg,
+            args_text,
+            ambient_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
+        )
+
+    if command_id == "model":
+        handlers["model"] = partial(
+            _handle_model_command,
+            cfg,
+            msg,
+            args_text,
+            ambient_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
+        )
+
+    if command_id == "reasoning":
+        handlers["reasoning"] = partial(
+            _handle_reasoning_command,
             cfg,
             msg,
             args_text,
@@ -605,6 +656,24 @@ async def run_main_loop(
                     stateful_mode=stateful_mode,
                     context=context,
                 )
+                engine_for_overrides = (
+                    resume_token.engine
+                    if resume_token is not None
+                    else engine_override
+                    if engine_override is not None
+                    else cfg.runtime.resolve_engine(
+                        engine_override=None,
+                        context=context,
+                    )
+                )
+                overrides_thread_id = topic_key[1] if topic_key is not None else None
+                run_options = await _resolve_engine_run_options(
+                    chat_id,
+                    overrides_thread_id,
+                    engine_for_overrides,
+                    chat_prefs=chat_prefs,
+                    topic_store=topic_store,
+                )
                 await _run_engine(
                     exec_cfg=cfg.exec_cfg,
                     runtime=cfg.runtime,
@@ -622,6 +691,7 @@ async def run_main_loop(
                     thread_id=thread_id,
                     show_resume_line=show_resume_line,
                     progress_ref=progress_ref,
+                    run_options=run_options,
                 )
 
             async def run_thread_job(job: ThreadJob) -> None:
@@ -1377,6 +1447,16 @@ async def run_main_loop(
                             in {"directive", "topic_default", "chat_default"}
                             else None
                         )
+                        overrides_thread_id = (
+                            topic_key[1] if topic_key is not None else None
+                        )
+                        engine_overrides_resolver = partial(
+                            _resolve_engine_run_options,
+                            chat_id,
+                            overrides_thread_id,
+                            chat_prefs=chat_prefs,
+                            topic_store=topic_store,
+                        )
                         tg.start_soon(
                             _dispatch_command,
                             cfg,
@@ -1393,6 +1473,7 @@ async def run_main_loop(
                             ),
                             stateful_mode,
                             default_engine_override,
+                            engine_overrides_resolver,
                         )
                         continue
 

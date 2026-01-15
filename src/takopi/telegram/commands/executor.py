@@ -11,10 +11,11 @@ from ...commands import CommandExecutor, RunMode, RunRequest, RunResult
 from ...config import ConfigError
 from ...context import RunContext
 from ...logging import bind_run_context, clear_context, get_logger
-from ...model import EngineId, ResumeToken, TakopiEvent
+from ...model import Action, ActionEvent, EngineId, ResumeToken, TakopiEvent
 from ...progress import ProgressTracker
 from ...router import RunnerUnavailableError
 from ...runner import Runner
+from ...runners.run_options import EngineRunOptions, apply_run_options
 from ...runner_bridge import (
     ExecBridgeConfig,
     IncomingMessage as RunnerIncomingMessage,
@@ -26,6 +27,7 @@ from ...transport import MessageRef, RenderedMessage, SendOptions
 from ...transport_runtime import TransportRuntime
 from ...utils.paths import reset_run_base_dir, set_run_base_dir
 from ..bridge import send_plain
+from ..engine_overrides import supports_reasoning
 
 logger = get_logger(__name__)
 
@@ -51,6 +53,54 @@ class _ResumeLineProxy:
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
         return self.runner.run(prompt, resume)
+
+
+@dataclass(slots=True)
+class _PreludeRunner:
+    runner: Runner
+    prelude_events: Sequence[TakopiEvent]
+
+    @property
+    def engine(self) -> str:
+        return self.runner.engine
+
+    def is_resume_line(self, line: str) -> bool:
+        return self.runner.is_resume_line(line)
+
+    def format_resume(self, token: ResumeToken) -> str:
+        return self.runner.format_resume(token)
+
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        return self.runner.extract_resume(text)
+
+    async def run(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
+        for event in self.prelude_events:
+            yield event
+        async for event in self.runner.run(prompt, resume):
+            yield event
+
+
+def _reasoning_warning(
+    *, engine: str, run_options: EngineRunOptions | None
+) -> ActionEvent | None:
+    if run_options is None or not run_options.reasoning:
+        return None
+    if supports_reasoning(engine):
+        return None
+    message = f"reasoning override is not supported for `{engine}`; ignoring."
+    return ActionEvent(
+        engine=engine,
+        action=Action(
+            id=f"{engine}.override.reasoning",
+            kind="note",
+            title=message,
+            detail={},
+        ),
+        phase="completed",
+        ok=True,
+    )
 
 
 def _should_show_resume_line(
@@ -108,6 +158,7 @@ async def _run_engine(
     thread_id: int | None = None,
     show_resume_line: bool = True,
     progress_ref: MessageRef | None = None,
+    run_options: EngineRunOptions | None = None,
 ) -> None:
     reply = partial(
         send_plain,
@@ -128,6 +179,9 @@ async def _run_engine(
         runner: Runner = entry.runner
         if not show_resume_line:
             runner = cast(Runner, _ResumeLineProxy(runner))
+        warning = _reasoning_warning(engine=runner.engine, run_options=run_options)
+        if warning is not None:
+            runner = cast(Runner, _PreludeRunner(runner, [warning]))
         if not entry.available:
             reason = entry.issue or "engine unavailable"
             await _send_runner_unavailable(
@@ -167,18 +221,19 @@ async def _run_engine(
                 reply_to=reply_ref,
                 thread_id=thread_id,
             )
-            await handle_message(
-                exec_cfg,
-                runner=runner,
-                incoming=incoming,
-                resume_token=resume_token,
-                context=context,
-                context_line=context_line,
-                strip_resume_line=runtime.is_resume_line,
-                running_tasks=running_tasks,
-                on_thread_known=on_thread_known,
-                progress_ref=progress_ref,
-            )
+            with apply_run_options(run_options):
+                await handle_message(
+                    exec_cfg,
+                    runner=runner,
+                    incoming=incoming,
+                    resume_token=resume_token,
+                    context=context,
+                    context_line=context_line,
+                    strip_resume_line=runtime.is_resume_line,
+                    running_tasks=running_tasks,
+                    on_thread_known=on_thread_known,
+                    progress_ref=progress_ref,
+                )
         finally:
             reset_run_base_dir(run_base_token)
     except Exception as exc:
@@ -235,6 +290,10 @@ class _TelegramCommandExecutor(CommandExecutor):
         running_tasks: RunningTasks,
         scheduler: ThreadScheduler,
         on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
+        engine_overrides_resolver: Callable[
+            [EngineId], Awaitable[EngineRunOptions | None]
+        ]
+        | None,
         chat_id: int,
         user_msg_id: int,
         thread_id: int | None,
@@ -247,6 +306,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         self._running_tasks = running_tasks
         self._scheduler = scheduler
         self._on_thread_known = on_thread_known
+        self._engine_overrides_resolver = engine_overrides_resolver
         self._chat_id = chat_id
         self._user_msg_id = user_msg_id
         self._thread_id = thread_id
@@ -317,6 +377,9 @@ class _TelegramCommandExecutor(CommandExecutor):
             engine_override=request.engine,
             context=request.context,
         )
+        run_options = None
+        if self._engine_overrides_resolver is not None:
+            run_options = await self._engine_overrides_resolver(engine)
         on_thread_known = (
             self._scheduler.note_thread_known
             if self._on_thread_known is None
@@ -343,6 +406,7 @@ class _TelegramCommandExecutor(CommandExecutor):
                 engine_override=engine,
                 thread_id=self._thread_id,
                 show_resume_line=effective_show_resume_line,
+                run_options=run_options,
             )
             return RunResult(engine=engine, message=capture.last_message)
         await _run_engine(
@@ -359,6 +423,7 @@ class _TelegramCommandExecutor(CommandExecutor):
             engine_override=engine,
             thread_id=self._thread_id,
             show_resume_line=effective_show_resume_line,
+            run_options=run_options,
         )
         return RunResult(engine=engine, message=None)
 

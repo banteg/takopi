@@ -13,6 +13,7 @@ from ..events import EventFactory
 from ..logging import get_logger
 from ..model import ActionPhase, EngineId, ResumeToken, TakopiEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from .run_options import get_run_options
 from ..schemas import codex as codex_schema
 from ..utils.paths import relativize_command
 
@@ -426,13 +427,26 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: Any,
     ) -> list[str]:
-        args = [
-            *self.extra_args,
-            "exec",
-            "--json",
-            "--skip-git-repo-check",
-            "--color=never",
-        ]
+        run_options = get_run_options()
+        args = [*self.extra_args]
+        if run_options is not None:
+            if run_options.model:
+                args.extend(["--model", str(run_options.model)])
+            if run_options.reasoning:
+                args.extend(
+                    [
+                        "-c",
+                        f"model_reasoning_effort={run_options.reasoning}",
+                    ]
+                )
+        args.extend(
+            [
+                "exec",
+                "--json",
+                "--skip-git-repo-check",
+                "--color=never",
+            ]
+        )
         if resume:
             args.extend(["resume", resume.value, "-"])
         else:
