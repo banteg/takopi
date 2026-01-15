@@ -9,7 +9,7 @@ OverrideSource = Literal["topic_override", "chat_default", "default"]
 
 REASONING_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
 OPENCODE_REASONING_LEVELS: tuple[str, ...] = ("none", *REASONING_LEVELS)
-REASONING_SUPPORTED_ENGINES = frozenset({"codex", "claude"})
+REASONING_SUPPORTED_ENGINES = frozenset({"codex"})
 
 
 class EngineOverrides(msgspec.Struct, forbid_unknown_fields=False):

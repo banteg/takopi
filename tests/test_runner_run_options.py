@@ -37,15 +37,6 @@ def test_claude_run_options_override_model() -> None:
     assert args[model_idx] == "claude-opus"
 
 
-def test_claude_run_options_reasoning_sets_env() -> None:
-    runner = ClaudeRunner(claude_cmd="claude", use_api_billing=True)
-    with apply_run_options(EngineRunOptions(reasoning="medium")):
-        env = runner.env(state=None)
-
-    assert env is not None
-    assert env.get("MAX_THINKING_TOKENS") == "4096"
-
-
 def test_opencode_run_options_override_model() -> None:
     runner = OpenCodeRunner(opencode_cmd="opencode", model="claude-sonnet")
     state = OpenCodeStreamState()

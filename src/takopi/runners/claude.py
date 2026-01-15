@@ -22,13 +22,6 @@ logger = get_logger(__name__)
 
 ENGINE: EngineId = "claude"
 DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Edit", "Write"]
-CLAUDE_THINKING_TOKENS = {
-    "minimal": 1024,
-    "low": 2048,
-    "medium": 4096,
-    "high": 8192,
-    "xhigh": 16384,
-}
 
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?claude\s+(?:--resume|-r)\s+(?P<token>[^`\s]+)`?\s*$"
@@ -344,21 +337,11 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         return None
 
     def env(self, *, state: Any) -> dict[str, str] | None:
-        run_options = get_run_options()
-        needs_env = self.use_api_billing is not True or (
-            run_options is not None and run_options.reasoning
-        )
-        if not needs_env:
-            return None
-        env = dict(os.environ)
         if self.use_api_billing is not True:
+            env = dict(os.environ)
             env.pop("ANTHROPIC_API_KEY", None)
-        if run_options is not None and run_options.reasoning:
-            key = run_options.reasoning.strip().lower()
-            tokens = CLAUDE_THINKING_TOKENS.get(key)
-            if tokens is not None:
-                env["MAX_THINKING_TOKENS"] = str(tokens)
-        return env
+            return env
+        return None
 
     def new_state(self, prompt: str, resume: ResumeToken | None) -> ClaudeStreamState:
         return ClaudeStreamState()
