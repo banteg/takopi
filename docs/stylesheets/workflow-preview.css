@@ -1,0 +1,99 @@
+/* Telegram-style chat preview (light mode with brand colors) */
+/* Takopi pink: #F4A5B8, Flower pink: #E87A9F, Teal: #4A9B8E */
+
+.workflow-preview {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  margin: 8px 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  border: 1px solid #e5e5e5;
+  width: 360px;
+}
+
+.workflow-preview .msg {
+  max-width: 85%;
+  padding: 6px 12px;
+  border-radius: 16px;
+  margin: 4px 0;
+  clear: both;
+}
+
+.workflow-preview .msg-you {
+  background: #4A9B8E;
+  color: #fff;
+  float: right;
+  border-bottom-right-radius: 4px;
+}
+
+.workflow-preview .msg-bot {
+  background: #fafafa;
+  color: #999;
+  float: left;
+  border: 1px solid #e5e5e5;
+  border-bottom-left-radius: 4px;
+}
+
+.workflow-preview .resume {
+  display: block;
+}
+
+.workflow-preview .resume .id-1 {
+  color: #4A9B8E;
+}
+
+.workflow-preview .resume .id-2 {
+  color: #E87A9F;
+}
+
+.workflow-preview .cmd {
+  color: #4A9B8E;
+}
+
+.workflow-preview .msg-you .cmd {
+  color: #fff;
+}
+
+.workflow-preview .clearfix::after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+.workflow-preview .topic-bar {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e5e5;
+  font-size: 0.75rem;
+}
+
+.workflow-preview .topic-bar .topic {
+  color: #999;
+  padding-bottom: 6px;
+  cursor: pointer;
+}
+
+.workflow-preview .topic-bar .topic:hover {
+  color: #666;
+}
+
+.workflow-preview .topic-bar .topic-active {
+  color: #E87A9F;
+  font-weight: 500;
+  padding-bottom: 6px;
+  border-bottom: 2px solid #E87A9F;
+  margin-bottom: -9px;
+}
+
+.workflow-preview .reply-quote {
+  background: rgba(255, 255, 255, 0.2);
+  border-left: 2px solid rgba(255, 255, 255, 0.6);
+  padding: 2px 6px;
+  margin-bottom: 4px;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 2px;
+}
