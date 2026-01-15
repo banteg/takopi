@@ -64,6 +64,7 @@ CODEX_ENGINE = "codex"
 FAST_FORWARD_COALESCE_S = 0.0
 FAST_MEDIA_GROUP_DEBOUNCE_S = 0.0
 BATCH_MEDIA_GROUP_DEBOUNCE_S = 0.05
+DEBOUNCE_FORWARD_COALESCE_S = 0.05
 
 
 def _empty_projects() -> ProjectsConfig:
@@ -2270,7 +2271,7 @@ async def test_run_main_loop_debounces_forwarded_messages_preserves_directives()
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
-        forward_coalesce_s=1.0,
+        forward_coalesce_s=DEBOUNCE_FORWARD_COALESCE_S,
         media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
     )
 
