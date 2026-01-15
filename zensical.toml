@@ -8,7 +8,8 @@ repo_name = "banteg/takopi"
 edit_uri = "edit/master/docs/"
 docs_dir = "docs"
 site_dir = "_site"
-extra_css = ["stylesheets/admonitions.css", "stylesheets/workflow-preview.css"]
+extra_css = ["stylesheets/admonitions.css", "stylesheets/workflow-preview.css", "stylesheets/hero-chat.css"]
+extra_javascript = ["javascripts/hero-chat.js"]
 
 nav = [
   { "Home" = "index.md" },

@@ -1,0 +1,130 @@
+/* Animated hero chat widget */
+/* Takopi pink: #F4A5B8, Flower pink: #E87A9F, Teal: #4A9B8E */
+
+.hero-chat {
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px;
+  max-width: 420px;
+  margin: 24px auto;
+  font-size: 16px;
+  line-height: 1.5;
+  border: 1px solid #e5e5e5;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  min-height: 280px;
+}
+
+.hero-chat .chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hero-chat .msg {
+  max-width: 90%;
+  padding: 10px 14px;
+  border-radius: 18px;
+  opacity: 0;
+  transform: translateY(10px);
+  animation: msg-appear 0.3s ease forwards;
+}
+
+@keyframes msg-appear {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-chat .msg-user {
+  background: #4A9B8E;
+  color: #fff;
+  align-self: flex-end;
+  border-bottom-right-radius: 6px;
+}
+
+.hero-chat .msg-bot {
+  background: #fafafa;
+  color: #333;
+  align-self: flex-start;
+  border: 1px solid #e5e5e5;
+  border-bottom-left-radius: 6px;
+}
+
+.hero-chat .msg-bot .status {
+  color: #999;
+}
+
+.hero-chat .msg-bot .tools {
+  margin-top: 8px;
+}
+
+.hero-chat .msg-bot .tool {
+  opacity: 0;
+  animation: tool-appear 0.2s ease forwards;
+}
+
+@keyframes tool-appear {
+  to {
+    opacity: 1;
+  }
+}
+
+.hero-chat .msg-bot .tool.cmd {
+  font-family: var(--md-code-font-family, monospace);
+}
+
+.hero-chat .msg-bot .tool::before {
+  content: "✓ ";
+  color: #4A9B8E;
+}
+
+.hero-chat .msg-bot .tool.running::before {
+  content: "● ";
+}
+
+.hero-chat .msg-bot .answer {
+  margin-top: 8px;
+  color: #333;
+}
+
+.hero-chat .msg-bot .resume {
+  margin-top: 8px;
+  color: #999;
+}
+
+.hero-chat .msg-bot .resume .id {
+  color: #4A9B8E;
+}
+
+.hero-chat .typing-indicator {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.hero-chat .typing-indicator span {
+  width: 6px;
+  height: 6px;
+  background: #999;
+  border-radius: 50%;
+  animation: typing-bounce 1s ease-in-out infinite;
+}
+
+.hero-chat .typing-indicator span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.hero-chat .typing-indicator span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-bounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-4px);
+  }
+}
+

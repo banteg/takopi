@@ -153,19 +153,6 @@ Key points:
 - When done, the progress message is replaced with the final answer
 - Chat mode auto-resumes; resume lines let you reply to branch
 
-## The core loop
-
-You now know the three fundamental interactions:
-
-| Action | How |
-|--------|-----|
-| **Start** | Send a message to your bot |
-| **Continue** | Chat mode: send another message. Stateless: reply to a resume line. |
-| **Reset** | `/new` |
-| **Cancel** | Tap **cancel** on a progress message |
-
-Everything else in Takopi builds on this loop.
-
 ## Troubleshooting
 
 **Progress message stuck on "starting" (or not updating)**
