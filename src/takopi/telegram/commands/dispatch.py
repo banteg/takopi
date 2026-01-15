@@ -11,7 +11,7 @@ from ...logging import get_logger
 from ...model import EngineId, ResumeToken
 from ...runner_bridge import RunningTasks
 from ...scheduler import ThreadScheduler
-from ...transport import MessageRef
+from ...transport import MessageRef, RenderedMessage
 from ..files import split_command_args
 from ..types import TelegramIncomingMessage
 from .executor import _TelegramCommandExecutor
@@ -104,4 +104,5 @@ async def _dispatch_command(
         return
     if result is not None:
         reply_to = message_ref if result.reply_to is None else result.reply_to
-        await executor.send(result.text, reply_to=reply_to, notify=result.notify)
+        message = RenderedMessage(text=result.text, extra={"parse_mode": "HTML"})
+        await executor.send(message, reply_to=reply_to, notify=result.notify)
