@@ -808,6 +808,7 @@ async def run_main_loop(
                 )
                 reply = make_reply(cfg, msg)
                 text = msg.text
+                is_voice_transcribed = False
                 if msg.voice is not None:
                     text = await transcribe_voice(
                         bot=cfg.bot,
@@ -819,7 +820,7 @@ async def run_main_loop(
                     )
                     if text is None:
                         continue
-                    text = f"(voice transcribed) {text}"
+                    is_voice_transcribed = True
                 topic_key = (
                     _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
                     if topic_store is not None
@@ -981,6 +982,14 @@ async def run_main_loop(
                 except DirectiveError as exc:
                     await reply(text=f"error:\n{exc}")
                     continue
+                if is_voice_transcribed:
+                    resolved = ResolvedMessage(
+                        prompt=f"(voice transcribed) {resolved.prompt}",
+                        resume_token=resolved.resume_token,
+                        engine_override=resolved.engine_override,
+                        context=resolved.context,
+                        context_source=resolved.context_source,
+                    )
 
                 text = resolved.prompt
                 resume_token = resolved.resume_token

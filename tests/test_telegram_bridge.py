@@ -51,6 +51,7 @@ from takopi.telegram.types import (
     TelegramCallbackQuery,
     TelegramDocument,
     TelegramIncomingMessage,
+    TelegramVoice,
 )
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from tests.plugin_fixtures import FakeEntryPoint, install_entrypoints
@@ -1906,6 +1907,75 @@ async def test_run_main_loop_prompt_upload_uses_caption_directives(
     assert prompt_text.startswith("do thing")
     assert "/other" not in prompt_text
     assert "[uploaded file: incoming/hello.txt]" in prompt_text
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_voice_transcript_preserves_directive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    codex_runner = ScriptRunner([Return(answer="codex")], engine=CODEX_ENGINE)
+    claude_runner = ScriptRunner([Return(answer="claude")], engine="claude")
+    router = AutoRouter(
+        entries=[
+            RunnerEntry(engine=claude_runner.engine, runner=claude_runner),
+            RunnerEntry(engine=codex_runner.engine, runner=codex_runner),
+        ],
+        default_engine=claude_runner.engine,
+    )
+    runtime = TransportRuntime(router=router, projects=_empty_projects())
+    transport = _FakeTransport()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=_FakeBot(),
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        voice_transcription=True,
+    )
+
+    async def _fake_transcribe(
+        *,
+        bot: BotClient,
+        msg: TelegramIncomingMessage,
+        enabled: bool,
+        model: str,
+        max_bytes: int | None = None,
+        reply,
+    ) -> str:
+        _ = bot, msg, enabled, model, max_bytes, reply
+        return "/codex do thing"
+
+    monkeypatch.setattr(telegram_loop, "transcribe_voice", _fake_transcribe)
+    monkeypatch.setattr(telegram_loop, "list_command_ids", lambda **_: [])
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            voice=TelegramVoice(
+                file_id="voice-1",
+                mime_type=None,
+                file_size=None,
+                duration=None,
+                raw={"file_id": "voice-1"},
+            ),
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert not claude_runner.calls
+    assert len(codex_runner.calls) == 1
+    assert codex_runner.calls[0][0].startswith("(voice transcribed) do thing")
 
 
 @pytest.mark.anyio
