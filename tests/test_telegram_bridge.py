@@ -61,6 +61,7 @@ from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from tests.plugin_fixtures import FakeEntryPoint, install_entrypoints
 
 CODEX_ENGINE = "codex"
+FAST_FORWARD_COALESCE_S = 0.0
 
 
 def _empty_projects() -> ProjectsConfig:
@@ -323,6 +324,7 @@ def _make_cfg(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
     )
 
 
@@ -952,6 +954,7 @@ async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         files=TelegramFilesSettings(enabled=True),
     )
     msg = TelegramIncomingMessage(
@@ -1015,6 +1018,7 @@ async def test_handle_file_get_sends_document_for_allowed_user(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         files=TelegramFilesSettings(
             enabled=True,
             allowed_user_ids=[42],
@@ -1315,6 +1319,7 @@ async def test_topic_command_recreates_stale_topic(tmp_path: Path) -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         topics=TelegramTopicsSettings(enabled=True, scope="main"),
     )
     store = TopicStateStore(tmp_path / "telegram_topics_state.json")
@@ -1777,6 +1782,7 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
     )
 
     async def poller(_cfg: TelegramBridgeConfig):
@@ -1866,6 +1872,7 @@ async def test_run_main_loop_persists_topic_sessions_in_project_scope(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         topics=TelegramTopicsSettings(
             enabled=True,
             scope="projects",
@@ -1946,6 +1953,7 @@ async def test_run_main_loop_auto_resumes_topic_default_engine(
             presenter=MarkdownPresenter(),
             final_notify=True,
         ),
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         topics=TelegramTopicsSettings(
             enabled=True,
             scope="main",
@@ -2011,6 +2019,7 @@ async def test_run_main_loop_auto_resumes_chat_sessions(tmp_path: Path) -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
     )
 
@@ -2044,6 +2053,7 @@ async def test_run_main_loop_auto_resumes_chat_sessions(tmp_path: Path) -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
     )
 
@@ -2113,6 +2123,7 @@ async def test_run_main_loop_prompt_upload_uses_caption_directives(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         files=TelegramFilesSettings(
             enabled=True,
             auto_put=True,
@@ -2176,6 +2187,7 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         voice_transcription=True,
     )
 
@@ -2245,6 +2257,7 @@ async def test_run_main_loop_debounces_forwarded_messages_preserves_directives()
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=1.0,
     )
 
     async def poller(_cfg: TelegramBridgeConfig):
@@ -2313,6 +2326,7 @@ async def test_run_main_loop_ignores_forwarded_without_prompt() -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
     )
 
     async def poller(_cfg: TelegramBridgeConfig):
@@ -2395,6 +2409,7 @@ async def test_run_main_loop_prompt_upload_auto_resumes_chat_sessions(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
         files=TelegramFilesSettings(
             enabled=True,
@@ -2446,6 +2461,7 @@ async def test_run_main_loop_prompt_upload_auto_resumes_chat_sessions(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg2,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
         files=TelegramFilesSettings(
             enabled=True,
@@ -2530,6 +2546,7 @@ async def test_run_main_loop_command_updates_chat_session_resume(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
         show_resume_line=False,
     )
@@ -2570,6 +2587,7 @@ async def test_run_main_loop_command_updates_chat_session_resume(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg2,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
         show_resume_line=False,
     )
@@ -2634,6 +2652,7 @@ async def test_run_main_loop_hides_resume_line_when_disabled(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
         show_resume_line=False,
     )
@@ -2687,6 +2706,7 @@ async def test_run_main_loop_chat_sessions_isolate_group_senders(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
     )
 
@@ -2716,6 +2736,7 @@ async def test_run_main_loop_chat_sessions_isolate_group_senders(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
     )
 
@@ -2763,6 +2784,7 @@ async def test_run_main_loop_new_clears_chat_sessions(tmp_path: Path) -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         session_mode="chat",
     )
 
@@ -2811,6 +2833,7 @@ async def test_run_main_loop_new_clears_topic_sessions(tmp_path: Path) -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         topics=TelegramTopicsSettings(enabled=True, scope="main"),
     )
 
@@ -2854,6 +2877,7 @@ async def test_run_main_loop_replies_in_same_thread() -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
     )
 
     async def poller(_cfg: TelegramBridgeConfig):
@@ -2927,6 +2951,7 @@ async def test_run_main_loop_batches_media_group_upload(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         files=TelegramFilesSettings(enabled=True, auto_put=True),
     )
     msg1 = TelegramIncomingMessage(
@@ -3032,6 +3057,7 @@ async def test_run_main_loop_handles_command_plugins(monkeypatch) -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
     )
 
     async def poller(_cfg: TelegramBridgeConfig):
@@ -3117,6 +3143,7 @@ async def test_run_main_loop_command_uses_project_default_engine(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
     )
 
     async def poller(_cfg: TelegramBridgeConfig):
@@ -3201,6 +3228,7 @@ async def test_run_main_loop_command_defaults_to_chat_project(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
     )
 
     async def poller(_cfg: TelegramBridgeConfig):
@@ -3269,6 +3297,7 @@ async def test_run_main_loop_refreshes_command_ids(monkeypatch) -> None:
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
     )
 
     async def poller(_cfg: TelegramBridgeConfig):
@@ -3329,6 +3358,7 @@ async def test_run_main_loop_mentions_only_skips_voice_and_files(
         chat_id=123,
         startup_msg="",
         exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         voice_transcription=True,
         files=TelegramFilesSettings(enabled=True, auto_put=True),
     )
