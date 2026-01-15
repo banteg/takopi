@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
+from typing import cast
 
 import anyio
 import pytest
 
+import takopi.runners.claude as claude_runner
 from takopi.model import ActionEvent, CompletedEvent, ResumeToken, StartedEvent
 from takopi.runners.claude import (
     ClaudeRunner,
@@ -60,6 +62,21 @@ def test_claude_resume_format_and_extract() -> None:
         engine=ENGINE, value="other"
     )
     assert runner.extract_resume("`codex resume sid`") is None
+
+
+def test_build_runner_uses_shutil_which(monkeypatch) -> None:
+    expected = r"C:\Tools\claude.cmd"
+    called: dict[str, str] = {}
+
+    def fake_which(name: str) -> str | None:
+        called["name"] = name
+        return expected
+
+    monkeypatch.setattr(claude_runner.shutil, "which", fake_which)
+    runner = cast(ClaudeRunner, claude_runner.build_runner({}, Path("takopi.toml")))
+
+    assert called["name"] == "claude"
+    assert runner.claude_cmd == expected
 
 
 def test_translate_success_fixture() -> None:
