@@ -2,7 +2,7 @@
 site_name = "takopi"
 site_description = "Run coding agents on your computer, control them via Telegram. Send tasks from anywhere, stream progress live, pick up where you left off at the terminal."
 site_author = "banteg"
-site_url = "https://takopi.banteg.xyz/"
+site_url = "https://takopi.dev/"
 repo_url = "https://github.com/banteg/takopi"
 repo_name = "banteg/takopi"
 edit_uri = "edit/master/docs/"
