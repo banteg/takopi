@@ -297,7 +297,7 @@ def _format_forwarded_prompt(forwarded: list[str], prompt: str) -> str:
     separator = "\n\n---\n\n"
     forward_block = separator.join(forwarded)
     if prompt.strip():
-        return f"{prompt}\n\n{forward_block}"
+        return f"{prompt}{separator}{forward_block}"
     return forward_block
 
 
