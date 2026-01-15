@@ -32,6 +32,7 @@ if not commits and head_commit:
     commits = [head_commit]
 
 PULL_RE = re.compile(rf"(https://github.com/{repo}/pull/(\d+))")
+PULL_NUM_RE = re.compile(r"\(#(\d+)\)")
 
 
 def _short_sha(value: str) -> str:
@@ -43,6 +44,9 @@ def _commit_line(commit: dict[str, object]) -> str:
     sha = _short_sha(full_sha)
     message = str(commit.get("message") or "").splitlines()[0].strip()
     message = PULL_RE.sub(r"[#\2](\1)", message)
+    message = PULL_NUM_RE.sub(
+        rf"([#\1](https://github.com/{repo}/pull/\1))", message
+    )
     url = f"https://github.com/{repo}/commit/{full_sha or sha}"
     return f"- [{sha}]({url}) {message}"
 
