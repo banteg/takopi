@@ -1,6 +1,6 @@
 # Takopi documentation
 
-Takopi runs coding agents on your computer and bridges them to Telegram. Send tasks from anywhere, watch progress stream in real time, pick up where you left off when back at the terminal. Supports simple handoffs or full multi-project workflows with agents working in parallel worktrees. Branches are neatly organized in their own topics.
+Takopi runs coding agents on your computer and bridges them to Telegram. Send tasks from anywhere, watch progress stream live, pick up when back at the terminal. Scale from quick one-offs to multi-project workflows with topic for branches and parallel worktrees.
 
 ## Quick start
 
