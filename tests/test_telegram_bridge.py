@@ -2030,7 +2030,7 @@ async def test_run_main_loop_debounces_forwarded_messages_preserves_directives()
             reply_to_text=None,
             sender_id=123,
         )
-        await anyio.sleep(telegram_loop._FORWARD_DEBOUNCE_S / 2)
+        await anyio.sleep(_cfg.forward_coalesce_s / 2)
         yield TelegramIncomingMessage(
             transport="telegram",
             chat_id=123,

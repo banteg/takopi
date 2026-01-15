@@ -70,7 +70,6 @@ logger = get_logger(__name__)
 __all__ = ["poll_updates", "run_main_loop", "send_with_resume"]
 
 _MEDIA_GROUP_DEBOUNCE_S = 1.0
-_FORWARD_DEBOUNCE_S = 0.5
 
 ForwardKey = tuple[int, int, int]
 
@@ -260,7 +259,7 @@ class _PendingPrompt:
     reply_ref: MessageRef | None
     reply_id: int | None
     is_voice_transcribed: bool
-    forwards: list[str]
+    forwards: list[tuple[int, str]]
     cancel_scope: anyio.CancelScope | None = None
 
 
@@ -448,6 +447,7 @@ async def run_main_loop(
     resolved_topics_scope: str | None = None
     topics_chat_ids: frozenset[int] = frozenset()
     bot_username: str | None = None
+    forward_coalesce_s = max(0.0, float(cfg.forward_coalesce_s))
 
     def refresh_topics_scope() -> None:
         nonlocal resolved_topics_scope, topics_chat_ids
@@ -852,8 +852,15 @@ async def run_main_loop(
 
                 prompt_text = resolved.prompt
                 if pending.forwards:
+                    forwarded = [
+                        text
+                        for _, text in sorted(
+                            pending.forwards,
+                            key=lambda item: item[0],
+                        )
+                    ]
                     prompt_text = _format_forwarded_prompt(
-                        pending.forwards,
+                        forwarded,
                         prompt_text,
                     )
 
@@ -978,7 +985,7 @@ async def run_main_loop(
                 try:
                     with anyio.CancelScope() as scope:
                         pending.cancel_scope = scope
-                        await anyio.sleep(_FORWARD_DEBOUNCE_S)
+                        await anyio.sleep(forward_coalesce_s)
                 except anyio.get_cancelled_exc_class():
                     return
                 if pending_prompts.get(key) is not pending:
@@ -991,9 +998,15 @@ async def run_main_loop(
                     sender_id=pending.msg.sender_id,
                     message_id=pending.msg.message_id,
                     forward_count=len(pending.forwards),
-                    debounce_s=_FORWARD_DEBOUNCE_S,
+                    debounce_s=forward_coalesce_s,
                 )
                 await _dispatch_pending_prompt(pending)
+
+            def _reschedule_prompt(key: ForwardKey, pending: _PendingPrompt) -> None:
+                if pending.cancel_scope is not None:
+                    pending.cancel_scope.cancel()
+                pending.cancel_scope = None
+                tg.start_soon(_debounce_prompt_run, key, pending)
 
             def _cancel_pending_prompt(key: ForwardKey) -> None:
                 pending = pending_prompts.pop(key, None)
@@ -1013,6 +1026,28 @@ async def run_main_loop(
             def _schedule_prompt(
                 pending: _PendingPrompt,
             ) -> None:
+                if pending.msg.sender_id is None:
+                    logger.debug(
+                        "forward.prompt.bypass",
+                        chat_id=pending.msg.chat_id,
+                        thread_id=pending.msg.thread_id,
+                        sender_id=pending.msg.sender_id,
+                        message_id=pending.msg.message_id,
+                        reason="missing_sender",
+                    )
+                    tg.start_soon(_dispatch_pending_prompt, pending)
+                    return
+                if forward_coalesce_s <= 0:
+                    logger.debug(
+                        "forward.prompt.bypass",
+                        chat_id=pending.msg.chat_id,
+                        thread_id=pending.msg.thread_id,
+                        sender_id=pending.msg.sender_id,
+                        message_id=pending.msg.message_id,
+                        reason="disabled",
+                    )
+                    tg.start_soon(_dispatch_pending_prompt, pending)
+                    return
                 key = _forward_key(pending.msg)
                 existing = pending_prompts.get(key)
                 if existing is not None:
@@ -1036,11 +1071,21 @@ async def run_main_loop(
                     thread_id=pending.msg.thread_id,
                     sender_id=pending.msg.sender_id,
                     message_id=pending.msg.message_id,
-                    debounce_s=_FORWARD_DEBOUNCE_S,
+                    debounce_s=forward_coalesce_s,
                 )
-                tg.start_soon(_debounce_prompt_run, key, pending)
+                _reschedule_prompt(key, pending)
 
             def _attach_forward(msg: TelegramIncomingMessage) -> None:
+                if msg.sender_id is None:
+                    logger.debug(
+                        "forward.message.ignored",
+                        chat_id=msg.chat_id,
+                        thread_id=msg.thread_id,
+                        sender_id=msg.sender_id,
+                        message_id=msg.message_id,
+                        reason="missing_sender",
+                    )
+                    return
                 key = _forward_key(msg)
                 pending = pending_prompts.get(key)
                 if pending is None:
@@ -1064,7 +1109,7 @@ async def run_main_loop(
                         reason="empty_text",
                     )
                     return
-                pending.forwards.append(text)
+                pending.forwards.append((msg.message_id, text))
                 logger.debug(
                     "forward.message.attached",
                     chat_id=msg.chat_id,
@@ -1078,6 +1123,7 @@ async def run_main_loop(
                     message_date=msg.raw.get("date") if msg.raw else None,
                     text_len=len(text),
                 )
+                _reschedule_prompt(key, pending)
 
             async def handle_prompt_upload(
                 msg: TelegramIncomingMessage,
