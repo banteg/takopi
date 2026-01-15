@@ -2067,18 +2067,10 @@ async def test_run_main_loop_debounces_forwarded_messages_preserves_directives()
     assert not claude_runner.calls
     assert len(codex_runner.calls) == 1
     prompt_text, _ = codex_runner.calls[0]
-    assert prompt_text == "\n".join(
+    assert prompt_text == "\n\n".join(
         [
-            "Forwarded messages (3):",
-            "[1]",
-            "a",
-            "[2]",
-            "b",
-            "[3]",
-            "c",
-            "",
-            "User prompt:",
             "summarize these",
+            "\n\n---\n\n".join(["a", "b", "c"]),
         ]
     )
 

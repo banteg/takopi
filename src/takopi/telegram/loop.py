@@ -292,14 +292,13 @@ def _forward_fields_present(raw: dict[str, object] | None) -> list[str]:
 
 
 def _format_forwarded_prompt(forwarded: list[str], prompt: str) -> str:
-    lines = [f"Forwarded messages ({len(forwarded)}):"]
-    for idx, message in enumerate(forwarded, 1):
-        lines.append(f"[{idx}]")
-        lines.append(message)
-    lines.append("")
-    lines.append("User prompt:")
-    lines.append(prompt)
-    return "\n".join(lines)
+    if not forwarded:
+        return prompt
+    separator = "\n\n---\n\n"
+    forward_block = separator.join(forwarded)
+    if prompt.strip():
+        return f"{prompt}\n\n{forward_block}"
+    return forward_block
 
 
 def _diff_keys(old: dict[str, object], new: dict[str, object]) -> list[str]:
