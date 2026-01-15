@@ -7,7 +7,7 @@ from typing import cast
 
 import anyio
 
-from ...commands import CommandExecutor, RunMode, RunRequest, RunResult
+from ...commands import CommandExecutor, CommandResult, RunMode, RunRequest, RunResult
 from ...config import ConfigError
 from ...context import RunContext
 from ...logging import bind_run_context, clear_context, get_logger
@@ -281,6 +281,11 @@ class _CaptureTransport:
         return None
 
 
+CommandDispatcher = Callable[
+    [str, str, RunContext | None], Awaitable[CommandResult | None]
+]
+
+
 class _TelegramCommandExecutor(CommandExecutor):
     def __init__(
         self,
@@ -300,6 +305,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         show_resume_line: bool,
         stateful_mode: bool,
         default_engine_override: EngineId | None,
+        command_dispatcher: CommandDispatcher | None = None,
     ) -> None:
         self._exec_cfg = exec_cfg
         self._runtime = runtime
@@ -313,6 +319,7 @@ class _TelegramCommandExecutor(CommandExecutor):
         self._show_resume_line = show_resume_line
         self._stateful_mode = stateful_mode
         self._default_engine_override = default_engine_override
+        self._command_dispatcher = command_dispatcher
         self._reply_ref = MessageRef(
             channel_id=chat_id,
             message_id=user_msg_id,
@@ -447,3 +454,16 @@ class _TelegramCommandExecutor(CommandExecutor):
                 tg.start_soon(run_idx, idx, request)
 
         return [result for result in results if result is not None]
+
+    async def invoke_command(
+        self,
+        command: str,
+        args: str = "",
+        *,
+        context: RunContext | None = None,
+    ) -> CommandResult | None:
+        if self._command_dispatcher is None:
+            raise NotImplementedError(
+                "Command invocation is not available in this context"
+            )
+        return await self._command_dispatcher(command, args, context)
