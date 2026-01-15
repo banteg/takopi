@@ -2067,7 +2067,7 @@ async def test_run_main_loop_debounces_forwarded_messages_preserves_directives()
     assert not claude_runner.calls
     assert len(codex_runner.calls) == 1
     prompt_text, _ = codex_runner.calls[0]
-    assert prompt_text == "summarize these\n\n---\n\na\n\n---\n\nb\n\n---\n\nc"
+    assert prompt_text == "summarize these\n\na\n\nb\n\nc"
 
 
 @pytest.mark.anyio

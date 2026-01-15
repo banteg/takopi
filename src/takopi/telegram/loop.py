@@ -294,7 +294,7 @@ def _forward_fields_present(raw: dict[str, object] | None) -> list[str]:
 def _format_forwarded_prompt(forwarded: list[str], prompt: str) -> str:
     if not forwarded:
         return prompt
-    separator = "\n\n---\n\n"
+    separator = "\n\n"
     forward_block = separator.join(forwarded)
     if prompt.strip():
         return f"{prompt}{separator}{forward_block}"
