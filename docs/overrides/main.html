@@ -1,17 +1,22 @@
 {% extends "base.html" %}
 
 {% block extrahead %}
+  {{ super() }}
+  {% set og_title = page.title ~ " - " ~ config.site_name if page and page.title else config.site_name %}
+  {% set og_desc = config.site_description %}
+  {% set og_url = page.canonical_url if page and page.canonical_url else config.site_url %}
+
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="{{ config.site_name }}">
-  <meta property="og:title" content="{{ page.title }} - {{ config.site_name }}">
-  <meta property="og:description" content="{{ config.site_description }}">
-  <meta property="og:url" content="{{ page.canonical_url }}">
+  <meta property="og:title" content="{{ og_title }}">
+  <meta property="og:description" content="{{ og_desc }}">
+  <meta property="og:url" content="{{ og_url }}">
   <meta property="og:image" content="{{ config.site_url }}assets/og-image.jpg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
 
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="{{ page.title }} - {{ config.site_name }}">
-  <meta name="twitter:description" content="{{ config.site_description }}">
+  <meta name="twitter:title" content="{{ og_title }}">
+  <meta name="twitter:description" content="{{ og_desc }}">
   <meta name="twitter:image" content="{{ config.site_url }}assets/og-image.jpg">
 {% endblock %}
