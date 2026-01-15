@@ -6,7 +6,7 @@
   border-radius: 12px;
   padding: 12px;
   margin: 8px 0;
-  font-size: 0.85rem;
+  font-size: 14px;
   line-height: 1.4;
   border: 1px solid #e5e5e5;
   width: 360px;
@@ -67,7 +67,6 @@
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 1px solid #e5e5e5;
-  font-size: 0.75rem;
 }
 
 .workflow-preview .topic-bar .topic {
@@ -93,7 +92,7 @@
   border-left: 2px solid rgba(255, 255, 255, 0.6);
   padding: 2px 6px;
   margin-bottom: 4px;
-  font-size: 0.75rem;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.85);
   border-radius: 2px;
 }
