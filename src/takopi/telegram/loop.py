@@ -1500,22 +1500,7 @@ async def run_main_loop(
                     ambient_context=ambient_context,
                 )
 
-            async for msg in poller(cfg):
-                if isinstance(msg, TelegramCallbackQuery):
-                    if msg.data == CANCEL_CALLBACK_DATA:
-                        tg.start_soon(
-                            handle_callback_cancel,
-                            cfg,
-                            msg,
-                            state.running_tasks,
-                            scheduler,
-                        )
-                    else:
-                        tg.start_soon(
-                            cfg.bot.answer_callback_query,
-                            msg.callback_query_id,
-                        )
-                    continue
+            async def route_message(msg: TelegramIncomingMessage) -> None:
                 reply = make_reply(cfg, msg)
                 text = msg.text
                 is_voice_transcribed = False
@@ -1527,7 +1512,7 @@ async def run_main_loop(
                 )
                 if is_forward_candidate:
                     forward_coalescer.attach_forward(msg)
-                    continue
+                    return
                 forward_key = _forward_key(msg)
                 if (
                     cfg.files.enabled
@@ -1535,7 +1520,7 @@ async def run_main_loop(
                     and msg.media_group_id is not None
                 ):
                     media_group_buffer.add(msg)
-                    continue
+                    return
                 ctx = await build_message_context(msg)
                 chat_id = ctx.chat_id
                 reply_id = ctx.reply_id
@@ -1550,7 +1535,7 @@ async def run_main_loop(
                     tg.start_soon(
                         handle_cancel, cfg, msg, state.running_tasks, scheduler
                     )
-                    continue
+                    return
 
                 command_id, args_text = parse_slash_command(text)
                 if command_id == "new":
@@ -1566,7 +1551,7 @@ async def run_main_loop(
                                 scope_chat_ids=state.topics_chat_ids,
                             )
                         )
-                        continue
+                        return
                     if state.chat_session_store is not None:
                         tg.start_soon(
                             handle_chat_new_command,
@@ -1575,7 +1560,7 @@ async def run_main_loop(
                             state.chat_session_store,
                             chat_session_key,
                         )
-                        continue
+                        return
                     if state.topic_store is not None:
                         tg.start_soon(
                             partial(
@@ -1587,7 +1572,7 @@ async def run_main_loop(
                                 scope_chat_ids=state.topics_chat_ids,
                             )
                         )
-                        continue
+                        return
                 if command_id is not None and _dispatch_builtin_command(
                     ctx=TelegramCommandContext(
                         cfg=cfg,
@@ -1603,7 +1588,7 @@ async def run_main_loop(
                     ),
                     command_id=command_id,
                 ):
-                    continue
+                    return
 
                 trigger_mode = await resolve_trigger_mode(
                     chat_id=chat_id,
@@ -1618,7 +1603,7 @@ async def run_main_loop(
                     command_ids=state.command_ids,
                     reserved_chat_commands=state.reserved_chat_commands,
                 ):
-                    continue
+                    return
 
                 if msg.voice is not None:
                     text = await transcribe_voice(
@@ -1630,7 +1615,7 @@ async def run_main_loop(
                         reply=reply,
                     )
                     if text is None:
-                        continue
+                        return
                     is_voice_transcribed = True
                 if msg.document is not None:
                     if cfg.files.enabled and cfg.files.auto_put:
@@ -1659,7 +1644,7 @@ async def run_main_loop(
                         tg.start_soon(
                             partial(reply, text=FILE_PUT_USAGE),
                         )
-                    continue
+                    return
                 if command_id is not None and command_id not in state.reserved_commands:
                     if command_id not in state.command_ids:
                         refresh_commands()
@@ -1704,7 +1689,7 @@ async def run_main_loop(
                             default_engine_override,
                             engine_overrides_resolver,
                         )
-                        continue
+                        return
 
                 pending = _PendingPrompt(
                     msg=msg,
@@ -1730,7 +1715,28 @@ async def run_main_loop(
                         reason="reply_resume",
                     )
                     tg.start_soon(_dispatch_pending_prompt, pending)
-                    continue
+                    return
                 forward_coalescer.schedule(pending)
+
+            async def route_update(update: TelegramIncomingUpdate) -> None:
+                if isinstance(update, TelegramCallbackQuery):
+                    if update.data == CANCEL_CALLBACK_DATA:
+                        tg.start_soon(
+                            handle_callback_cancel,
+                            cfg,
+                            update,
+                            state.running_tasks,
+                            scheduler,
+                        )
+                    else:
+                        tg.start_soon(
+                            cfg.bot.answer_callback_query,
+                            update.callback_query_id,
+                        )
+                    return
+                await route_message(update)
+
+            async for update in poller(cfg):
+                await route_update(update)
     finally:
         await cfg.exec_cfg.transport.close()
