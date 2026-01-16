@@ -136,19 +136,99 @@ Plugin-specific configuration lives under `[plugins.<id>]` and is passed to comm
 
 ## Engine-specific config tables
 
-Engines can have top-level config tables keyed by engine id, for example:
+Engines use **top-level tables** keyed by engine id. Built-in engines are listed
+here; plugin engines should document their own keys.
+
+### `codex`
+
+| Key | Type | Default | Notes |
+|-----|------|---------|-------|
+| `extra_args` | string[] | `["-c", "notify=[]"]` | Extra CLI args for `codex` (exec-only flags are rejected). |
+| `profile` | string | (unset) | Passed as `--profile <name>` and used as the session title. |
 
 === "takopi config"
 
     ```sh
-    takopi config set codex.model "..."
+    takopi config set codex.extra_args '["-c", "notify=[]"]'
+    takopi config set codex.profile "work"
     ```
 
 === "toml"
 
     ```toml
     [codex]
-    model = "..."
+    extra_args = ["-c", "notify=[]"]
+    profile = "work"
     ```
 
-The shape is engine-defined.
+### `claude`
+
+| Key | Type | Default | Notes |
+|-----|------|---------|-------|
+| `model` | string | (unset) | Optional model override. |
+| `allowed_tools` | string[] | `["Bash", "Read", "Edit", "Write"]` | Auto-approve tool rules. |
+| `dangerously_skip_permissions` | bool | `false` | Skip Claude permissions prompts. |
+| `use_api_billing` | bool | `false` | Keep `ANTHROPIC_API_KEY` for API billing. |
+
+=== "takopi config"
+
+    ```sh
+    takopi config set claude.model "claude-sonnet-4-5-20250929"
+    takopi config set claude.allowed_tools '["Bash", "Read", "Edit", "Write"]'
+    takopi config set claude.dangerously_skip_permissions false
+    takopi config set claude.use_api_billing false
+    ```
+
+=== "toml"
+
+    ```toml
+    [claude]
+    model = "claude-sonnet-4-5-20250929"
+    allowed_tools = ["Bash", "Read", "Edit", "Write"]
+    dangerously_skip_permissions = false
+    use_api_billing = false
+    ```
+
+### `pi`
+
+| Key | Type | Default | Notes |
+|-----|------|---------|-------|
+| `model` | string | (unset) | Passed as `--model`. |
+| `provider` | string | (unset) | Passed as `--provider`. |
+| `extra_args` | string[] | `[]` | Extra CLI args for `pi`. |
+
+=== "takopi config"
+
+    ```sh
+    takopi config set pi.model "..."
+    takopi config set pi.provider "..."
+    takopi config set pi.extra_args "[]"
+    ```
+
+=== "toml"
+
+    ```toml
+    [pi]
+    model = "..."
+    provider = "..."
+    extra_args = []
+    ```
+
+### `opencode`
+
+| Key | Type | Default | Notes |
+|-----|------|---------|-------|
+| `model` | string | (unset) | Optional model override. |
+
+=== "takopi config"
+
+    ```sh
+    takopi config set opencode.model "claude-sonnet"
+    ```
+
+=== "toml"
+
+    ```toml
+    [opencode]
+    model = "claude-sonnet"
+    ```

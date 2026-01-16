@@ -52,10 +52,18 @@ BACKEND = EngineBackend(
 
 Engine config is a raw table in `takopi.toml`:
 
-```toml
-[myengine]
-model = "..."
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set myengine.model "..."
+    ```
+
+=== "toml"
+
+    ```toml
+    [myengine]
+    model = "..."
+    ```
 
 ## Transport backend plugin
 
@@ -92,19 +100,35 @@ BACKEND = MyCommand()
 
 Configure under `[plugins.<id>]`:
 
-```toml
-[plugins.hello]
-greeting = "hello"
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set plugins.hello.greeting "hello"
+    ```
+
+=== "toml"
+
+    ```toml
+    [plugins.hello]
+    greeting = "hello"
+    ```
 
 The parsed dict is available as `ctx.plugin_config` in `handle()`.
 
 ## Enable/disable installed plugins
 
-```toml
-[plugins]
-enabled = ["takopi-transport-slack", "takopi-engine-acme"]
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set plugins.enabled '["takopi-transport-slack", "takopi-engine-acme"]'
+    ```
+
+=== "toml"
+
+    ```toml
+    [plugins]
+    enabled = ["takopi-transport-slack", "takopi-engine-acme"]
+    ```
 
 - `enabled = []` (default) means “load all installed plugins”.
 - If non-empty, only distributions with matching names are visible.
