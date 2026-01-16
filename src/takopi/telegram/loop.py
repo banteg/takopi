@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
 from typing import cast
@@ -508,6 +508,99 @@ class ForwardCoalescer:
             debounce_s=self._debounce_s,
         )
         await self._dispatch(pending)
+
+
+@dataclass(frozen=True, slots=True)
+class ResumeDecision:
+    resume_token: ResumeToken | None
+    handled_by_running_task: bool
+
+
+class ResumeResolver:
+    def __init__(
+        self,
+        *,
+        cfg: TelegramBridgeConfig,
+        task_group: TaskGroup,
+        running_tasks: Mapping[MessageRef, object],
+        enqueue_resume: Callable[
+            [
+                int,
+                int,
+                str,
+                ResumeToken,
+                RunContext | None,
+                int | None,
+                tuple[int, int | None] | None,
+                MessageRef | None,
+            ],
+            Awaitable[None],
+        ],
+        topic_store: TopicStateStore | None,
+        chat_session_store: ChatSessionStore | None,
+    ) -> None:
+        self._cfg = cfg
+        self._task_group = task_group
+        self._running_tasks = running_tasks
+        self._enqueue_resume = enqueue_resume
+        self._topic_store = topic_store
+        self._chat_session_store = chat_session_store
+
+    async def resolve(
+        self,
+        *,
+        resume_token: ResumeToken | None,
+        reply_id: int | None,
+        chat_id: int,
+        user_msg_id: int,
+        thread_id: int | None,
+        chat_session_key: tuple[int, int | None] | None,
+        topic_key: tuple[int, int] | None,
+        engine_for_session: EngineId,
+        prompt_text: str,
+    ) -> ResumeDecision:
+        if resume_token is not None:
+            return ResumeDecision(
+                resume_token=resume_token, handled_by_running_task=False
+            )
+        if reply_id is not None:
+            running_task = self._running_tasks.get(
+                MessageRef(channel_id=chat_id, message_id=reply_id)
+            )
+            if running_task is not None:
+                self._task_group.start_soon(
+                    send_with_resume,
+                    self._cfg,
+                    self._enqueue_resume,
+                    running_task,
+                    chat_id,
+                    user_msg_id,
+                    thread_id,
+                    chat_session_key,
+                    prompt_text,
+                )
+                return ResumeDecision(resume_token=None, handled_by_running_task=True)
+        if self._topic_store is not None and topic_key is not None:
+            stored = await self._topic_store.get_session_resume(
+                topic_key[0],
+                topic_key[1],
+                engine_for_session,
+            )
+            if stored is not None:
+                resume_token = stored
+        if (
+            resume_token is None
+            and self._chat_session_store is not None
+            and chat_session_key is not None
+        ):
+            stored = await self._chat_session_store.get_session_resume(
+                chat_session_key[0],
+                chat_session_key[1],
+                engine_for_session,
+            )
+            if stored is not None:
+                resume_token = stored
+        return ResumeDecision(resume_token=resume_token, handled_by_running_task=False)
 
 
 class MediaGroupBuffer:
@@ -1034,6 +1127,15 @@ async def run_main_loop(
                     chat_prefs=chat_prefs,
                 )
 
+            resume_resolver = ResumeResolver(
+                cfg=cfg,
+                task_group=tg,
+                running_tasks=running_tasks,
+                enqueue_resume=scheduler.enqueue_resume,
+                topic_store=topic_store,
+                chat_session_store=chat_session_store,
+            )
+
             async def run_prompt_from_upload(
                 msg: TelegramIncomingMessage,
                 prompt_text: str,
@@ -1066,47 +1168,20 @@ async def run_main_loop(
                     topic_key=topic_key,
                 )
                 engine_override = engine_resolution.engine
-                if resume_token is None and reply_id is not None:
-                    running_task = running_tasks.get(
-                        MessageRef(channel_id=chat_id, message_id=reply_id)
-                    )
-                    if running_task is not None:
-                        tg.start_soon(
-                            send_with_resume,
-                            cfg,
-                            scheduler.enqueue_resume,
-                            running_task,
-                            chat_id,
-                            user_msg_id,
-                            msg.thread_id,
-                            chat_session_key,
-                            prompt_text,
-                        )
-                        return
-                if (
-                    resume_token is None
-                    and topic_store is not None
-                    and topic_key is not None
-                ):
-                    engine_for_session = engine_resolution.engine
-                    stored = await topic_store.get_session_resume(
-                        topic_key[0], topic_key[1], engine_for_session
-                    )
-                    if stored is not None:
-                        resume_token = stored
-                if (
-                    resume_token is None
-                    and chat_session_store is not None
-                    and chat_session_key is not None
-                ):
-                    engine_for_session = engine_resolution.engine
-                    stored = await chat_session_store.get_session_resume(
-                        chat_session_key[0],
-                        chat_session_key[1],
-                        engine_for_session,
-                    )
-                    if stored is not None:
-                        resume_token = stored
+                resume_decision = await resume_resolver.resolve(
+                    resume_token=resume_token,
+                    reply_id=reply_id,
+                    chat_id=chat_id,
+                    user_msg_id=user_msg_id,
+                    thread_id=msg.thread_id,
+                    chat_session_key=chat_session_key,
+                    topic_key=topic_key,
+                    engine_for_session=engine_resolution.engine,
+                    prompt_text=prompt_text,
+                )
+                if resume_decision.handled_by_running_task:
+                    return
+                resume_token = resume_decision.resume_token
                 if resume_token is None:
                     await run_job(
                         chat_id,
@@ -1215,49 +1290,20 @@ async def run_main_loop(
                         f"{_usage_topic(chat_project=pending.chat_project)}",
                     )
                     return
-                if resume_token is None and pending.reply_id is not None:
-                    running_task = running_tasks.get(
-                        MessageRef(channel_id=chat_id, message_id=pending.reply_id)
-                    )
-                    if running_task is not None:
-                        tg.start_soon(
-                            send_with_resume,
-                            cfg,
-                            scheduler.enqueue_resume,
-                            running_task,
-                            chat_id,
-                            user_msg_id,
-                            msg.thread_id,
-                            pending.chat_session_key,
-                            prompt_text,
-                        )
-                        return
-                if (
-                    resume_token is None
-                    and topic_store is not None
-                    and pending.topic_key is not None
-                ):
-                    engine_for_session = engine_resolution.engine
-                    stored = await topic_store.get_session_resume(
-                        pending.topic_key[0],
-                        pending.topic_key[1],
-                        engine_for_session,
-                    )
-                    if stored is not None:
-                        resume_token = stored
-                if (
-                    resume_token is None
-                    and chat_session_store is not None
-                    and pending.chat_session_key is not None
-                ):
-                    engine_for_session = engine_resolution.engine
-                    stored = await chat_session_store.get_session_resume(
-                        pending.chat_session_key[0],
-                        pending.chat_session_key[1],
-                        engine_for_session,
-                    )
-                    if stored is not None:
-                        resume_token = stored
+                resume_decision = await resume_resolver.resolve(
+                    resume_token=resume_token,
+                    reply_id=pending.reply_id,
+                    chat_id=chat_id,
+                    user_msg_id=user_msg_id,
+                    thread_id=msg.thread_id,
+                    chat_session_key=pending.chat_session_key,
+                    topic_key=pending.topic_key,
+                    engine_for_session=engine_resolution.engine,
+                    prompt_text=prompt_text,
+                )
+                if resume_decision.handled_by_running_task:
+                    return
+                resume_token = resume_decision.resume_token
 
                 if resume_token is None:
                     tg.start_soon(
