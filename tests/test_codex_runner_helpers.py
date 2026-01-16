@@ -88,6 +88,7 @@ def test_translate_codex_events_for_items() -> None:
         item=codex_schema.WebSearchItem(id="w1", query="query")
     )
     out = translate_codex_event(event, title="Codex", factory=factory)
+    assert isinstance(out[0], ActionEvent)
     assert out[0].phase == "completed"
     assert out[0].ok is True
 
@@ -95,6 +96,7 @@ def test_translate_codex_events_for_items() -> None:
         item=codex_schema.ReasoningItem(id="r1", text="thinking")
     )
     out = translate_codex_event(event, title="Codex", factory=factory)
+    assert isinstance(out[0], ActionEvent)
     assert out[0].action.kind == "note"
     assert out[0].action.title == "thinking"
 
@@ -108,6 +110,7 @@ def test_translate_codex_events_for_items() -> None:
         )
     )
     out = translate_codex_event(event, title="Codex", factory=factory)
+    assert isinstance(out[0], ActionEvent)
     assert out[0].action.detail["done"] == 1
     assert out[0].action.detail["total"] == 2
     assert "todo 1/2" in out[0].action.title
@@ -121,6 +124,7 @@ def test_translate_codex_events_for_items() -> None:
         item=codex_schema.ErrorItem(id="e1", message="boom")
     )
     out = translate_codex_event(completed, title="Codex", factory=factory)
+    assert isinstance(out[0], ActionEvent)
     assert out[0].action.kind == "warning"
     assert out[0].ok is False
 
@@ -152,34 +156,41 @@ def test_codex_runner_process_and_stream_end_events() -> None:
 
     out = runner.process_error_events(2, resume=None, found_session=None, state=state)
     assert len(out) == 2
-    assert isinstance(out[-1], CompletedEvent)
-    assert out[-1].ok is False
+    completed = out[-1]
+    assert isinstance(completed, CompletedEvent)
+    assert completed.ok is False
 
     end = runner.stream_end_events(resume=None, found_session=None, state=state)
     assert len(end) == 1
-    assert isinstance(end[0], CompletedEvent)
-    assert end[0].ok is False
+    end_event = end[0]
+    assert isinstance(end_event, CompletedEvent)
+    assert end_event.ok is False
 
     started = translate_codex_event(
         codex_schema.ThreadStarted(thread_id="sess-2"),
         title="Codex",
         factory=EventFactory("codex"),
     )[0]
+    assert isinstance(started, StartedEvent)
     end = runner.stream_end_events(
         resume=None,
         found_session=started.resume,
         state=state,
     )
-    assert end[0].ok is True
+    end_event = end[0]
+    assert isinstance(end_event, CompletedEvent)
+    assert end_event.ok is True
 
 
 def test_codex_build_runner_configs(tmp_path: Path) -> None:
     cfg: EngineConfig = {}
     runner = build_runner(cfg, tmp_path)
+    assert isinstance(runner, CodexRunner)
     assert runner.extra_args == ["-c", "notify=[]"]
 
     cfg = {"extra_args": ["--foo"], "profile": "Demo"}
     runner = build_runner(cfg, tmp_path)
+    assert isinstance(runner, CodexRunner)
     assert runner.extra_args[-2:] == ["--profile", "Demo"]
     assert runner.session_title == "Demo"
 
