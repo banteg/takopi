@@ -121,6 +121,19 @@ def test_config_set_parses_and_writes(tmp_path: Path) -> None:
         [
             "config",
             "set",
+            "watch_config",
+            "False",
+            "--config-path",
+            str(config_path),
+        ],
+    )
+    assert result.exit_code == 0
+
+    result = runner.invoke(
+        cli.create_app(),
+        [
+            "config",
+            "set",
             "transports.telegram.chat_id",
             "456",
             "--config-path",
@@ -130,7 +143,7 @@ def test_config_set_parses_and_writes(tmp_path: Path) -> None:
     assert result.exit_code == 0
 
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    assert data["watch_config"] is True
+    assert data["watch_config"] is False
     assert data["default_engine"] == "openai"
     assert data["transports"]["telegram"]["chat_id"] == 456
 

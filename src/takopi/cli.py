@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 import anyio
 from functools import partial
+from pydantic import BaseModel
 import typer
 
 from . import __version__
@@ -57,6 +58,7 @@ from .telegram.topics import _validate_topics_setup_for
 logger = get_logger(__name__)
 
 _KEY_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_MISSING = object()
 
 
 def _load_settings_optional() -> tuple[TakopiSettings | None, Path | None]:
@@ -727,6 +729,28 @@ def _toml_literal(value: Any) -> str:
     raise ConfigError("Unsupported config value; unable to render TOML literal.")
 
 
+def _normalized_value_from_settings(
+    settings: TakopiSettings, segments: list[str]
+) -> Any:
+    node: Any = settings
+    for segment in segments:
+        if isinstance(node, BaseModel):
+            if segment in node.__class__.model_fields:
+                node = getattr(node, segment)
+            else:
+                extra = node.model_extra or {}
+                node = extra.get(segment, _MISSING)
+        elif isinstance(node, dict):
+            node = node.get(segment, _MISSING)
+        else:
+            return _MISSING
+        if node is _MISSING:
+            return _MISSING
+    if isinstance(node, BaseModel):
+        return node.model_dump(exclude_unset=True)
+    return node
+
+
 def _flatten_config(config: dict[str, Any]) -> list[tuple[str, Any]]:
     items: list[tuple[str, Any]] = []
 
@@ -871,7 +895,16 @@ def config_set(
     node[segments[-1]] = parsed
 
     try:
-        validate_settings_data(config, config_path=path)
+        settings = validate_settings_data(config, config_path=path)
+    except ConfigError as exc:
+        _exit_config_error(exc)
+
+    normalized = _normalized_value_from_settings(settings, segments)
+    if normalized is not _MISSING:
+        node[segments[-1]] = normalized
+        parsed = normalized
+
+    try:
         write_config(config, path)
     except ConfigError as exc:
         _exit_config_error(exc)
