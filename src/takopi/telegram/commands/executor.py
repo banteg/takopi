@@ -111,9 +111,7 @@ def _should_show_resume_line(
 ) -> bool:
     if show_resume_line:
         return True
-    if not stateful_mode:
-        return True
-    return False
+    return not stateful_mode
 
 
 async def _send_runner_unavailable(
