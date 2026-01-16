@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Callable
-from importlib.metadata import EntryPoint
 from pathlib import Path
 
 import anyio
@@ -56,6 +55,7 @@ from .doctor import (
     _doctor_voice_checks,
     run_doctor,
 )
+from .plugins import plugins_cmd
 from .config import (
     _CONFIG_PATH_OPTION,
     _config_path_display,
@@ -476,92 +476,6 @@ def doctor() -> None:
         file_checks=_doctor_file_checks,
         voice_checks=_doctor_voice_checks,
     )
-
-
-def _print_entrypoints(
-    label: str, entrypoints: list[EntryPoint], *, allowlist: set[str] | None
-) -> None:
-    typer.echo(f"{label}:")
-    if not entrypoints:
-        typer.echo("  (none)")
-        return
-    for ep in entrypoints:
-        dist = entrypoint_distribution_name(ep) or "unknown"
-        status = ""
-        if allowlist is not None:
-            allowed = is_entrypoint_allowed(ep, allowlist)
-            status = " enabled" if allowed else " disabled"
-        typer.echo(f"  {ep.name} ({dist}){status}")
-
-
-def plugins_cmd(
-    load: bool = typer.Option(
-        False,
-        "--load/--no-load",
-        help="Load plugins to validate and surface import errors.",
-    ),
-) -> None:
-    """List discovered plugins and optionally validate them."""
-    settings_hint, _ = _load_settings_optional()
-    allowlist = resolve_plugins_allowlist(settings_hint)
-
-    allowlist_set = normalize_allowlist(allowlist)
-    engine_eps = list_entrypoints(
-        ENGINE_GROUP,
-        reserved_ids=RESERVED_ENGINE_IDS,
-    )
-    transport_eps = list_entrypoints(TRANSPORT_GROUP)
-    command_eps = list_entrypoints(
-        COMMAND_GROUP,
-        reserved_ids=RESERVED_COMMAND_IDS,
-    )
-
-    _print_entrypoints("engine backends", engine_eps, allowlist=allowlist_set)
-    _print_entrypoints("transport backends", transport_eps, allowlist=allowlist_set)
-    _print_entrypoints("command backends", command_eps, allowlist=allowlist_set)
-
-    if load:
-        for ep in engine_eps:
-            if allowlist_set is not None and not is_entrypoint_allowed(
-                ep, allowlist_set
-            ):
-                continue
-            try:
-                get_backend(ep.name, allowlist=allowlist)
-            except ConfigError:
-                continue
-        for ep in transport_eps:
-            if allowlist_set is not None and not is_entrypoint_allowed(
-                ep, allowlist_set
-            ):
-                continue
-            try:
-                get_transport(ep.name, allowlist=allowlist)
-            except ConfigError:
-                continue
-        for ep in command_eps:
-            if allowlist_set is not None and not is_entrypoint_allowed(
-                ep, allowlist_set
-            ):
-                continue
-            try:
-                get_command(ep.name, allowlist=allowlist)
-            except ConfigError:
-                continue
-
-    errors = get_load_errors()
-    if errors:
-        typer.echo("errors:")
-        for err in errors:
-            group = err.group
-            if group == ENGINE_GROUP:
-                group = "engine"
-            elif group == TRANSPORT_GROUP:
-                group = "transport"
-            elif group == COMMAND_GROUP:
-                group = "command"
-            dist = err.distribution or "unknown"
-            typer.echo(f"  {group} {err.name} ({dist}): {err.error}")
 
 
 def app_main(
