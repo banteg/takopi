@@ -2607,7 +2607,7 @@ async def test_run_main_loop_applies_chat_bound_context(
         config_path=state_path,
     )
     prefs = ChatPrefsStore(resolve_prefs_path(state_path))
-    await prefs.set_context(123, RunContext(project="beta", branch="dev"))
+    await prefs.set_context(123, RunContext(project="beta"))
     cfg = TelegramBridgeConfig(
         bot=bot,
         runtime=runtime,
@@ -2636,7 +2636,7 @@ async def test_run_main_loop_applies_chat_bound_context(
 
     assert transport.send_calls
     final_text = transport.send_calls[-1]["message"].text
-    assert "`ctx: Beta @dev`" in final_text
+    assert "`ctx: Beta`" in final_text
 
 
 @pytest.mark.anyio
