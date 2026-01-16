@@ -7,7 +7,7 @@ from takopi.telegram.api_models import File, Message, Update, User
 from takopi.telegram.client import BotClient, TelegramClient, TelegramRetryAfter
 
 
-class _FakeBot(BotClient):
+class FakeBot(BotClient):
     def __init__(self) -> None:
         self.calls: list[str] = []
         self.edit_calls: list[str] = []
@@ -157,7 +157,7 @@ class _FakeBot(BotClient):
 
 @pytest.mark.anyio
 async def test_edit_forum_topic_uses_outbox() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
     result = await client.edit_forum_topic(
@@ -171,7 +171,7 @@ async def test_edit_forum_topic_uses_outbox() -> None:
 
 @pytest.mark.anyio
 async def test_edits_coalesce_latest() -> None:
-    class _BlockingBot(_FakeBot):
+    class _BlockingBot(FakeBot):
         def __init__(self) -> None:
             super().__init__()
             self.edit_started = anyio.Event()
@@ -240,7 +240,7 @@ async def test_edits_coalesce_latest() -> None:
 
 @pytest.mark.anyio
 async def test_send_preempts_pending_edit() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
     await client.edit_message_text(
@@ -269,7 +269,7 @@ async def test_send_preempts_pending_edit() -> None:
 
 @pytest.mark.anyio
 async def test_delete_drops_pending_edits() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
     await client.edit_message_text(
@@ -300,7 +300,7 @@ async def test_delete_drops_pending_edits() -> None:
 
 @pytest.mark.anyio
 async def test_retry_after_retries_once() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     bot.retry_after = 0.0
     client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 
@@ -317,7 +317,7 @@ async def test_retry_after_retries_once() -> None:
 
 @pytest.mark.anyio
 async def test_get_updates_retries_on_retry_after() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     bot.updates_retry_after = 0.0
     client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
 

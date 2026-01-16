@@ -85,7 +85,7 @@ async def transcribe_voice(
         )
         await reply(text=str(exc).strip() or "voice transcription failed")
         return None
-    except Exception as exc:
+    except (RuntimeError, OSError, ValueError) as exc:
         logger.error(
             "voice.transcribe.error",
             error=str(exc),

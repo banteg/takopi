@@ -14,15 +14,7 @@ from takopi.telegram.commands.topics import _handle_topic_command
 import takopi.telegram.loop as telegram_loop
 import takopi.telegram.topics as telegram_topics
 from takopi.directives import parse_directives
-from takopi.telegram.api_models import (
-    Chat,
-    ChatMember,
-    File,
-    ForumTopic,
-    Message,
-    Update,
-    User,
-)
+from takopi.telegram.api_models import File, ForumTopic, Message, Update, User
 from takopi.settings import TelegramFilesSettings, TelegramTopicsSettings
 from takopi.telegram.bridge import (
     TelegramBridgeConfig,
@@ -60,10 +52,10 @@ from takopi.telegram.types import (
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from tests.plugin_fixtures import FakeEntryPoint, install_entrypoints
 from tests.telegram_fakes import (
-    _FakeBot,
-    _FakeTransport,
+    FakeBot,
+    FakeTransport,
     _empty_projects,
-    _make_cfg,
+    make_cfg,
     _make_router,
 )
 
@@ -295,7 +287,7 @@ def test_telegram_presenter_split_overflow_adds_followups() -> None:
 
 @pytest.mark.anyio
 async def test_telegram_transport_passes_replace_and_wait() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     transport = TelegramTransport(bot)
     reply = MessageRef(channel_id=123, message_id=10)
     replace = MessageRef(channel_id=123, message_id=11)
@@ -319,7 +311,7 @@ async def test_telegram_transport_passes_replace_and_wait() -> None:
 
 @pytest.mark.anyio
 async def test_telegram_transport_passes_reply_markup() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     transport = TelegramTransport(bot)
     markup = {"inline_keyboard": []}
 
@@ -341,7 +333,7 @@ async def test_telegram_transport_passes_reply_markup() -> None:
 
 @pytest.mark.anyio
 async def test_telegram_transport_sends_followups() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     transport = TelegramTransport(bot)
     reply = MessageRef(channel_id=123, message_id=10)
     followup = RenderedMessage(text="part 2")
@@ -362,7 +354,7 @@ async def test_telegram_transport_sends_followups() -> None:
 
 @pytest.mark.anyio
 async def test_telegram_transport_edits_and_sends_followups() -> None:
-    bot = _FakeBot()
+    bot = FakeBot()
     transport = TelegramTransport(bot)
     followup = RenderedMessage(text="part 2")
 
@@ -520,8 +512,8 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
 
 @pytest.mark.anyio
 async def test_handle_cancel_without_reply_prompts_user() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     msg = TelegramIncomingMessage(
         transport="telegram",
         chat_id=123,
@@ -541,8 +533,8 @@ async def test_handle_cancel_without_reply_prompts_user() -> None:
 
 @pytest.mark.anyio
 async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     msg = TelegramIncomingMessage(
         transport="telegram",
         chat_id=123,
@@ -562,8 +554,8 @@ async def test_handle_cancel_with_no_progress_message_says_nothing_running() -> 
 
 @pytest.mark.anyio
 async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     progress_id = 99
     msg = TelegramIncomingMessage(
         transport="telegram",
@@ -584,8 +576,8 @@ async def test_handle_cancel_with_finished_task_says_nothing_running() -> None:
 
 @pytest.mark.anyio
 async def test_handle_cancel_cancels_running_task() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     progress_id = 42
     msg = TelegramIncomingMessage(
         transport="telegram",
@@ -607,8 +599,8 @@ async def test_handle_cancel_cancels_running_task() -> None:
 
 @pytest.mark.anyio
 async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     task_first = RunningTask()
     task_second = RunningTask()
     msg = TelegramIncomingMessage(
@@ -634,8 +626,8 @@ async def test_handle_cancel_only_cancels_matching_progress_message() -> None:
 
 @pytest.mark.anyio
 async def test_handle_cancel_cancels_queued_job() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
 
     async def _noop_run_job(_) -> None:
         return None
@@ -672,7 +664,7 @@ async def test_handle_cancel_cancels_queued_job() -> None:
 async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
     payload = b"hello"
 
-    class _FileBot(_FakeBot):
+    class _FileBot(FakeBot):
         async def get_file(self, file_id: str) -> File | None:
             _ = file_id
             return File(file_path="files/hello.txt")
@@ -681,7 +673,7 @@ async def test_handle_file_put_writes_file(tmp_path: Path) -> None:
             _ = file_path
             return payload
 
-    transport = _FakeTransport()
+    transport = FakeTransport()
     bot = _FileBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     projects = ProjectsConfig(
@@ -746,8 +738,8 @@ async def test_handle_file_get_sends_document_for_allowed_user(
     target = tmp_path / "hello.txt"
     target.write_bytes(payload)
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     projects = ProjectsConfig(
         projects={
@@ -798,8 +790,8 @@ async def test_handle_file_get_sends_document_for_allowed_user(
 
 @pytest.mark.anyio
 async def test_handle_callback_cancel_cancels_running_task() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     progress_id = 42
     running_task = RunningTask()
     running_tasks = {MessageRef(channel_id=123, message_id=progress_id): running_task}
@@ -816,15 +808,15 @@ async def test_handle_callback_cancel_cancels_running_task() -> None:
 
     assert running_task.cancel_requested.is_set() is True
     assert len(transport.send_calls) == 0
-    bot = cast(_FakeBot, cfg.bot)
+    bot = cast(FakeBot, cfg.bot)
     assert bot.callback_calls
     assert bot.callback_calls[-1]["text"] == "cancelling..."
 
 
 @pytest.mark.anyio
 async def test_handle_callback_cancel_cancels_queued_job() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
 
     async def _noop_run_job(_) -> None:
         return None
@@ -853,15 +845,15 @@ async def test_handle_callback_cancel_cancels_queued_job() -> None:
 
     assert transport.edit_calls
     assert "cancelled" in transport.edit_calls[0]["message"].text.lower()
-    bot = cast(_FakeBot, cfg.bot)
+    bot = cast(FakeBot, cfg.bot)
     assert bot.callback_calls
     assert bot.callback_calls[-1]["text"] == "dropped from queue."
 
 
 @pytest.mark.anyio
 async def test_handle_callback_cancel_without_task_acknowledges() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     query = TelegramCallbackQuery(
         transport="telegram",
         chat_id=123,
@@ -874,7 +866,7 @@ async def test_handle_callback_cancel_without_task_acknowledges() -> None:
     await handle_callback_cancel(cfg, query, {})
 
     assert len(transport.send_calls) == 0
-    bot = cast(_FakeBot, cfg.bot)
+    bot = cast(FakeBot, cfg.bot)
     assert bot.callback_calls
     assert "nothing is currently running" in bot.callback_calls[-1]["text"].lower()
 
@@ -924,8 +916,8 @@ def test_is_forwarded_detects_forward_fields() -> None:
 
 
 def test_topic_title_matches_command_syntax() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
 
     title = telegram_topics._topic_title(
         runtime=cfg.runtime,
@@ -950,9 +942,9 @@ def test_topic_title_matches_command_syntax() -> None:
 
 
 def test_topic_title_projects_scope_includes_project() -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     cfg = replace(
-        _make_cfg(transport),
+        make_cfg(transport),
         topics=TelegramTopicsSettings(
             enabled=True,
             scope="projects",
@@ -969,8 +961,8 @@ def test_topic_title_projects_scope_includes_project() -> None:
 
 @pytest.mark.anyio
 async def test_maybe_rename_topic_updates_title(tmp_path: Path) -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     store = TopicStateStore(tmp_path / "telegram_topics_state.json")
 
     await store.set_context(
@@ -988,7 +980,7 @@ async def test_maybe_rename_topic_updates_title(tmp_path: Path) -> None:
         context=RunContext(project="takopi", branch="new"),
     )
 
-    bot = cast(_FakeBot, cfg.bot)
+    bot = cast(FakeBot, cfg.bot)
     assert bot.edit_topic_calls
     assert bot.edit_topic_calls[-1]["name"] == "takopi @new"
     snapshot = await store.get_thread(123, 77)
@@ -998,8 +990,8 @@ async def test_maybe_rename_topic_updates_title(tmp_path: Path) -> None:
 
 @pytest.mark.anyio
 async def test_maybe_rename_topic_skips_when_title_matches(tmp_path: Path) -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     store = TopicStateStore(tmp_path / "telegram_topics_state.json")
 
     await store.set_context(
@@ -1019,13 +1011,13 @@ async def test_maybe_rename_topic_skips_when_title_matches(tmp_path: Path) -> No
         snapshot=snapshot,
     )
 
-    bot = cast(_FakeBot, cfg.bot)
+    bot = cast(FakeBot, cfg.bot)
     assert bot.edit_topic_calls == []
 
 
 @pytest.mark.anyio
 async def test_topic_command_recreates_stale_topic(tmp_path: Path) -> None:
-    class _StaleTopicBot(_FakeBot):
+    class _StaleTopicBot(FakeBot):
         def __init__(self) -> None:
             super().__init__()
             self.create_topic_calls: list[dict[str, Any]] = []
@@ -1048,7 +1040,7 @@ async def test_topic_command_recreates_stale_topic(tmp_path: Path) -> None:
             )
             return False
 
-    transport = _FakeTransport()
+    transport = FakeTransport()
     bot = _StaleTopicBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     projects = ProjectsConfig(
@@ -1113,8 +1105,8 @@ async def test_topic_command_recreates_stale_topic(tmp_path: Path) -> None:
 
 @pytest.mark.anyio
 async def test_model_command_show_reports_overrides(tmp_path: Path) -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     cfg = replace(cfg, topics=TelegramTopicsSettings(enabled=True, scope="main"))
     chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
     topic_store = TopicStateStore(tmp_path / "telegram_topics_state.json")
@@ -1160,8 +1152,8 @@ async def test_model_command_show_reports_overrides(tmp_path: Path) -> None:
 
 @pytest.mark.anyio
 async def test_model_command_set_and_clear_chat_override(tmp_path: Path) -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
     await chat_prefs.set_engine_override(
         123,
@@ -1220,8 +1212,8 @@ async def test_model_command_set_and_clear_chat_override(tmp_path: Path) -> None
 
 @pytest.mark.anyio
 async def test_reasoning_command_set_and_clear_topic_override(tmp_path: Path) -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     cfg = replace(cfg, topics=TelegramTopicsSettings(enabled=True, scope="main"))
     topic_store = TopicStateStore(tmp_path / "telegram_topics_state.json")
     await topic_store.set_engine_override(
@@ -1290,8 +1282,8 @@ async def test_reasoning_command_set_and_clear_topic_override(tmp_path: Path) ->
 
 @pytest.mark.anyio
 async def test_reasoning_command_show_reports_overrides(tmp_path: Path) -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     cfg = replace(cfg, topics=TelegramTopicsSettings(enabled=True, scope="main"))
     chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
     topic_store = TopicStateStore(tmp_path / "telegram_topics_state.json")
@@ -1337,8 +1329,8 @@ async def test_reasoning_command_show_reports_overrides(tmp_path: Path) -> None:
 
 @pytest.mark.anyio
 async def test_send_with_resume_waits_for_token() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     sent: list[
         tuple[
             int,
@@ -1412,8 +1404,8 @@ async def test_send_with_resume_waits_for_token() -> None:
 
 @pytest.mark.anyio
 async def test_send_with_resume_reports_when_missing() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     sent: list[
         tuple[
             int,
@@ -1514,8 +1506,8 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
     reply_ready = anyio.Event()
     hold = anyio.Event()
 
-    transport = _FakeTransport(progress_ready=progress_ready)
-    bot = _FakeBot()
+    transport = FakeTransport(progress_ready=progress_ready)
+    bot = FakeBot()
     resume_value = "abc123"
     runner = ScriptRunner(
         [Wait(hold), Sleep(0.05), Return(answer="ok")],
@@ -1593,8 +1585,8 @@ async def test_run_main_loop_persists_topic_sessions_in_project_scope(
     project_chat_id = -100
     resume_value = "resume-123"
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner(
         [Return(answer="ok")],
         engine=CODEX_ENGINE,
@@ -1672,8 +1664,8 @@ async def test_run_main_loop_auto_resumes_topic_default_engine(
     )
     await store.set_default_engine(123, 77, "claude")
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     codex_runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     claude_runner = ScriptRunner([Return(answer="ok")], engine="claude")
     router = AutoRouter(
@@ -1744,8 +1736,8 @@ async def test_run_main_loop_auto_resumes_chat_sessions(tmp_path: Path) -> None:
     resume_value = "resume-123"
     state_path = tmp_path / "takopi.toml"
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner(
         [Return(answer="ok")],
         engine=CODEX_ENGINE,
@@ -1844,7 +1836,7 @@ async def test_run_main_loop_prompt_upload_uses_caption_directives(
     proj_dir.mkdir()
     other_dir.mkdir()
 
-    class _UploadBot(_FakeBot):
+    class _UploadBot(FakeBot):
         async def get_file(self, file_id: str) -> File | None:
             _ = file_id
             return File(file_path="files/hello.txt")
@@ -1853,7 +1845,7 @@ async def test_run_main_loop_prompt_upload_uses_caption_directives(
             _ = file_path
             return payload
 
-    transport = _FakeTransport()
+    transport = FakeTransport()
     bot = _UploadBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg = ExecBridgeConfig(
@@ -1936,14 +1928,14 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
         default_engine=claude_runner.engine,
     )
     runtime = TransportRuntime(router=router, projects=_empty_projects())
-    transport = _FakeTransport()
+    transport = FakeTransport()
     exec_cfg = ExecBridgeConfig(
         transport=transport,
         presenter=MarkdownPresenter(),
         final_notify=True,
     )
     cfg = TelegramBridgeConfig(
-        bot=_FakeBot(),
+        bot=FakeBot(),
         runtime=runtime,
         chat_id=123,
         startup_msg="",
@@ -2007,14 +1999,14 @@ async def test_run_main_loop_debounces_forwarded_messages_preserves_directives()
         default_engine=claude_runner.engine,
     )
     runtime = TransportRuntime(router=router, projects=_empty_projects())
-    transport = _FakeTransport()
+    transport = FakeTransport()
     exec_cfg = ExecBridgeConfig(
         transport=transport,
         presenter=MarkdownPresenter(),
         final_notify=True,
     )
     cfg = TelegramBridgeConfig(
-        bot=_FakeBot(),
+        bot=FakeBot(),
         runtime=runtime,
         chat_id=123,
         startup_msg="",
@@ -2077,14 +2069,14 @@ async def test_run_main_loop_debounces_forwarded_messages_preserves_directives()
 async def test_run_main_loop_ignores_forwarded_without_prompt() -> None:
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     runtime = TransportRuntime(router=_make_router(runner), projects=_empty_projects())
-    transport = _FakeTransport()
+    transport = FakeTransport()
     exec_cfg = ExecBridgeConfig(
         transport=transport,
         presenter=MarkdownPresenter(),
         final_notify=True,
     )
     cfg = TelegramBridgeConfig(
-        bot=_FakeBot(),
+        bot=FakeBot(),
         runtime=runtime,
         chat_id=123,
         startup_msg="",
@@ -2126,7 +2118,7 @@ async def test_run_main_loop_forwarded_document_still_uploads(
 ) -> None:
     payload = b"hello"
 
-    class _UploadBot(_FakeBot):
+    class _UploadBot(FakeBot):
         async def get_file(self, file_id: str) -> File | None:
             _ = file_id
             return File(file_path="files/hello.txt")
@@ -2147,7 +2139,7 @@ async def test_run_main_loop_forwarded_document_still_uploads(
         default_project="proj",
     )
     runtime = TransportRuntime(router=_make_router(runner), projects=projects)
-    transport = _FakeTransport()
+    transport = FakeTransport()
     exec_cfg = ExecBridgeConfig(
         transport=transport,
         presenter=MarkdownPresenter(),
@@ -2208,7 +2200,7 @@ async def test_run_main_loop_prompt_upload_auto_resumes_chat_sessions(
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
 
-    class _UploadBot(_FakeBot):
+    class _UploadBot(FakeBot):
         async def get_file(self, file_id: str) -> File | None:
             _ = file_id
             return File(file_path="files/hello.txt")
@@ -2229,7 +2221,7 @@ async def test_run_main_loop_prompt_upload_auto_resumes_chat_sessions(
     )
     bot = _UploadBot()
 
-    transport = _FakeTransport()
+    transport = FakeTransport()
     runner = ScriptRunner(
         [Return(answer="ok")],
         engine=CODEX_ENGINE,
@@ -2286,7 +2278,7 @@ async def test_run_main_loop_prompt_upload_auto_resumes_chat_sessions(
     stored = await store.get_session_resume(123, None, CODEX_ENGINE)
     assert stored == ResumeToken(engine=CODEX_ENGINE, value=resume_value)
 
-    transport2 = _FakeTransport()
+    transport2 = FakeTransport()
     runner2 = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg2 = ExecBridgeConfig(
         transport=transport2,
@@ -2367,8 +2359,8 @@ async def test_run_main_loop_command_updates_chat_session_resume(
     resume_value = "resume-123"
     state_path = tmp_path / "takopi.toml"
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner(
         [Return(answer="ok")],
         engine=CODEX_ENGINE,
@@ -2414,7 +2406,7 @@ async def test_run_main_loop_command_updates_chat_session_resume(
     stored = await store.get_session_resume(123, None, CODEX_ENGINE)
     assert stored == ResumeToken(engine=CODEX_ENGINE, value=resume_value)
 
-    transport2 = _FakeTransport()
+    transport2 = FakeTransport()
     runner2 = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg2 = ExecBridgeConfig(
         transport=transport2,
@@ -2465,8 +2457,8 @@ async def test_run_main_loop_hides_resume_line_when_disabled(
     resume_value = "resume-123"
     state_path = tmp_path / "takopi.toml"
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner(
         [Return(answer="ok")],
         engine=CODEX_ENGINE,
@@ -2530,8 +2522,8 @@ async def test_run_main_loop_chat_sessions_isolate_group_senders(
     resume_value = "resume-group"
     state_path = tmp_path / "takopi.toml"
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner(
         [Return(answer="ok")],
         engine=CODEX_ENGINE,
@@ -2614,8 +2606,8 @@ async def test_run_main_loop_new_clears_chat_sessions(tmp_path: Path) -> None:
         123, None, ResumeToken(engine=CODEX_ENGINE, value="resume-1")
     )
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg = ExecBridgeConfig(
         transport=transport,
@@ -2664,8 +2656,8 @@ async def test_run_main_loop_new_clears_topic_sessions(tmp_path: Path) -> None:
         123, 77, ResumeToken(engine=CODEX_ENGINE, value="resume-1")
     )
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg = ExecBridgeConfig(
         transport=transport,
@@ -2710,8 +2702,8 @@ async def test_run_main_loop_new_clears_topic_sessions(tmp_path: Path) -> None:
 
 @pytest.mark.anyio
 async def test_run_main_loop_replies_in_same_thread() -> None:
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg = ExecBridgeConfig(
         transport=transport,
@@ -2768,7 +2760,7 @@ async def test_run_main_loop_batches_media_group_upload(
         "doc-2": "photos/file_2.jpg",
     }
 
-    class _MediaBot(_FakeBot):
+    class _MediaBot(FakeBot):
         async def get_file(self, file_id: str) -> File | None:
             file_path = file_map.get(file_id)
             if file_path is None:
@@ -2778,7 +2770,7 @@ async def test_run_main_loop_batches_media_group_upload(
         async def download_file(self, file_path: str) -> bytes | None:
             return payloads.get(file_path)
 
-    transport = _FakeTransport()
+    transport = FakeTransport()
     bot = _MediaBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     projects = ProjectsConfig(
@@ -2892,8 +2884,8 @@ async def test_run_main_loop_handles_command_plugins(monkeypatch) -> None:
     ]
     install_entrypoints(monkeypatch, entrypoints)
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg = ExecBridgeConfig(
         transport=transport,
@@ -2960,8 +2952,8 @@ async def test_run_main_loop_command_uses_project_default_engine(
     ]
     install_entrypoints(monkeypatch, entrypoints)
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     codex_runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     pi_runner = ScriptRunner([Return(answer="ok")], engine="pi")
     router = AutoRouter(
@@ -3044,8 +3036,8 @@ async def test_run_main_loop_command_defaults_to_chat_project(
     ]
     install_entrypoints(monkeypatch, entrypoints)
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     codex_runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     pi_runner = ScriptRunner([Return(answer="ok")], engine="pi")
     router = AutoRouter(
@@ -3135,8 +3127,8 @@ async def test_run_main_loop_refreshes_command_ids(monkeypatch) -> None:
 
     monkeypatch.setattr(telegram_loop, "list_command_ids", _list_command_ids)
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg = ExecBridgeConfig(
         transport=transport,
@@ -3195,8 +3187,8 @@ async def test_run_main_loop_mentions_only_skips_voice_and_files(
         telegram_loop, "_handle_file_put_default", fake_handle_file_put_default
     )
 
-    transport = _FakeTransport()
-    bot = _FakeBot()
+    transport = FakeTransport()
+    bot = FakeBot()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     exec_cfg = ExecBridgeConfig(
         transport=transport,

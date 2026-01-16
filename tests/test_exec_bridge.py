@@ -16,7 +16,7 @@ from tests.factories import action_completed, action_started
 CODEX_ENGINE = "codex"
 
 
-class _FakeTransport:
+class FakeTransport:
     def __init__(self) -> None:
         self._next_id = 1
         self.send_calls: list[dict] = []
@@ -181,7 +181,7 @@ def test_prepare_telegram_preserves_entities_on_truncate() -> None:
 
 @pytest.mark.anyio
 async def test_final_notify_sends_loud_final_message() -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     runner = _return_runner(answer="ok")
     cfg = ExecBridgeConfig(
         transport=transport,
@@ -203,7 +203,7 @@ async def test_final_notify_sends_loud_final_message() -> None:
 
 @pytest.mark.anyio
 async def test_handle_message_strips_resume_line_from_prompt() -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     cfg = ExecBridgeConfig(
         transport=transport,
@@ -228,7 +228,7 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
 
 @pytest.mark.anyio
 async def test_long_final_message_edits_progress_message() -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     runner = _return_runner(answer="x" * 10_000)
     cfg = ExecBridgeConfig(
         transport=transport,
@@ -251,7 +251,7 @@ async def test_long_final_message_edits_progress_message() -> None:
 
 @pytest.mark.anyio
 async def test_progress_edits_are_best_effort() -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     clock = _FakeClock()
     events: list[TakopiEvent] = [
         action_started("item_0", "command", "echo 1"),
@@ -288,7 +288,7 @@ async def test_progress_edits_are_best_effort() -> None:
 
 @pytest.mark.anyio
 async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     clock = _FakeClock()
     events: list[TakopiEvent] = [
         action_started("item_0", "command", "echo ok"),
@@ -336,7 +336,7 @@ async def test_bridge_flow_sends_progress_edits_and_final_resume() -> None:
 
 @pytest.mark.anyio
 async def test_final_message_includes_ctx_line() -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     clock = _FakeClock()
     session_id = "123e4567-e89b-12d3-a456-426614174000"
     runner = ScriptRunner(
@@ -367,7 +367,7 @@ async def test_final_message_includes_ctx_line() -> None:
 
 @pytest.mark.anyio
 async def test_handle_message_cancelled_renders_cancelled_state() -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     hold = anyio.Event()
     runner = ScriptRunner(
@@ -414,7 +414,7 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
 
 @pytest.mark.anyio
 async def test_handle_message_error_preserves_resume_token() -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
     runner = ScriptRunner(
         [Raise(RuntimeError("boom"))],

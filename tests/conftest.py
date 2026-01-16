@@ -4,24 +4,24 @@ import pytest
 
 from takopi.telegram.bridge import TelegramBridgeConfig
 from takopi.runners.mock import ScriptRunner
-from tests.telegram_fakes import _FakeBot, _FakeTransport, _make_cfg
+from tests.telegram_fakes import FakeBot, FakeTransport, make_cfg as build_cfg
 
 
 @pytest.fixture
-def fake_transport() -> _FakeTransport:
-    return _FakeTransport()
+def fake_transport() -> FakeTransport:
+    return FakeTransport()
 
 
 @pytest.fixture
-def fake_bot() -> _FakeBot:
-    return _FakeBot()
+def fake_bot() -> FakeBot:
+    return FakeBot()
 
 
 @pytest.fixture
 def make_cfg() -> Callable[..., TelegramBridgeConfig]:
     def _factory(
-        transport: _FakeTransport, runner: ScriptRunner | None = None
+        transport: FakeTransport, runner: ScriptRunner | None = None
     ) -> TelegramBridgeConfig:
-        return _make_cfg(transport, runner)
+        return build_cfg(transport, runner)
 
     return _factory

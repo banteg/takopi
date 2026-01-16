@@ -35,7 +35,7 @@ def _make_router(runner: Any) -> AutoRouter:
     )
 
 
-class _FakeTransport:
+class FakeTransport:
     def __init__(self, progress_ready: anyio.Event | None = None) -> None:
         self._next_id = 1
         self.send_calls: list[dict] = []
@@ -86,7 +86,7 @@ class _FakeTransport:
         return None
 
 
-class _FakeBot(BotClient):
+class FakeBot(BotClient):
     def __init__(self) -> None:
         self.command_calls: list[dict] = []
         self.callback_calls: list[dict] = []
@@ -258,8 +258,8 @@ class _FakeBot(BotClient):
         return True
 
 
-def _make_cfg(
-    transport: _FakeTransport,
+def make_cfg(
+    transport: FakeTransport,
     runner: ScriptRunner | None = None,
     *,
     engine_id: str = DEFAULT_ENGINE_ID,
@@ -278,7 +278,7 @@ def _make_cfg(
         projects=_empty_projects(),
     )
     return TelegramBridgeConfig(
-        bot=_FakeBot(),
+        bot=FakeBot(),
         runtime=runtime,
         chat_id=123,
         startup_msg="",

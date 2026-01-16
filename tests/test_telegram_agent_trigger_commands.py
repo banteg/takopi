@@ -10,7 +10,7 @@ from takopi.telegram.chat_prefs import ChatPrefsStore
 from takopi.telegram.topic_state import TopicStateStore
 from takopi.telegram.types import TelegramIncomingMessage
 from takopi.settings import TelegramTopicsSettings
-from tests.telegram_fakes import _FakeBot, _FakeTransport, _make_cfg
+from tests.telegram_fakes import FakeBot, FakeTransport, make_cfg
 
 
 def _msg(
@@ -35,12 +35,12 @@ def _msg(
     )
 
 
-def _last_text(transport: _FakeTransport) -> str:
+def _last_text(transport: FakeTransport) -> str:
     assert transport.send_calls
     return transport.send_calls[-1]["message"].text
 
 
-class _MemberBot(_FakeBot):
+class _MemberBot(FakeBot):
     async def get_chat_member(self, chat_id: int, user_id: int) -> ChatMember | None:
         _ = chat_id, user_id
         return ChatMember(status="member", can_manage_topics=False)
@@ -48,8 +48,8 @@ class _MemberBot(_FakeBot):
 
 @pytest.mark.anyio
 async def test_agent_show_private_defaults() -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     msg = _msg("/agent", chat_type="private")
 
     await _handle_agent_command(
@@ -68,8 +68,8 @@ async def test_agent_show_private_defaults() -> None:
 
 @pytest.mark.anyio
 async def test_agent_set_clear_group_admin(tmp_path: Path) -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     prefs = ChatPrefsStore(tmp_path / "prefs.json")
     msg = _msg("/agent set codex", chat_type="supergroup")
 
@@ -100,8 +100,8 @@ async def test_agent_set_clear_group_admin(tmp_path: Path) -> None:
 
 @pytest.mark.anyio
 async def test_agent_set_denied_for_non_admin(tmp_path: Path) -> None:
-    transport = _FakeTransport()
-    cfg = replace(_make_cfg(transport), bot=_MemberBot())
+    transport = FakeTransport()
+    cfg = replace(make_cfg(transport), bot=_MemberBot())
     prefs = ChatPrefsStore(tmp_path / "prefs.json")
     msg = _msg("/agent set codex", chat_type="supergroup")
 
@@ -120,8 +120,8 @@ async def test_agent_set_denied_for_non_admin(tmp_path: Path) -> None:
 
 @pytest.mark.anyio
 async def test_agent_set_invalid_engine(tmp_path: Path) -> None:
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
     msg = _msg("/agent set nope", chat_type="private")
 
     await _handle_agent_command(
@@ -154,9 +154,9 @@ async def test_trigger_show_sources(
     expected_source: str,
     expected_trigger: str,
 ) -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     cfg = replace(
-        _make_cfg(transport),
+        make_cfg(transport),
         topics=TelegramTopicsSettings(enabled=True, scope="all"),
     )
     topic_store = TopicStateStore(tmp_path / "topics.json")
@@ -184,11 +184,11 @@ async def test_trigger_show_sources(
 
 @pytest.mark.anyio
 async def test_trigger_set_clear_permissions(tmp_path: Path) -> None:
-    transport = _FakeTransport()
+    transport = FakeTransport()
     prefs = ChatPrefsStore(tmp_path / "prefs.json")
     msg = _msg("/trigger mentions", chat_type="supergroup")
 
-    denied_cfg = replace(_make_cfg(transport), bot=_MemberBot())
+    denied_cfg = replace(make_cfg(transport), bot=_MemberBot())
     await _handle_trigger_command(
         denied_cfg,
         msg,
@@ -200,8 +200,8 @@ async def test_trigger_set_clear_permissions(tmp_path: Path) -> None:
     assert await prefs.get_trigger_mode(msg.chat_id) is None
     assert "restricted to group admins" in _last_text(transport)
 
-    transport = _FakeTransport()
-    allow_cfg = _make_cfg(transport)
+    transport = FakeTransport()
+    allow_cfg = make_cfg(transport)
     await _handle_trigger_command(
         allow_cfg,
         msg,
