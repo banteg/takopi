@@ -4,6 +4,7 @@ import pytest
 
 from takopi import cli
 from takopi.config import ConfigError
+from takopi.lockfile import LockError
 from takopi.settings import TakopiSettings
 
 
@@ -138,3 +139,41 @@ def test_doctor_voice_checks(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "key")
     checks = cli._doctor_voice_checks(settings)
     assert checks[0].status == "ok"
+
+
+def test_load_settings_optional(monkeypatch, tmp_path) -> None:
+    def _raise() -> None:
+        raise ConfigError("boom")
+
+    monkeypatch.setattr(cli, "load_settings_if_exists", _raise)
+    assert cli._load_settings_optional() == (None, None)
+
+    monkeypatch.setattr(cli, "load_settings_if_exists", lambda: None)
+    assert cli._load_settings_optional() == (None, None)
+
+    settings = _settings()
+    config_path = tmp_path / "takopi.toml"
+    monkeypatch.setattr(
+        cli, "load_settings_if_exists", lambda: (settings, config_path)
+    )
+    assert cli._load_settings_optional() == (settings, config_path)
+
+
+def test_acquire_config_lock_reports_error(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "takopi.toml"
+    error = LockError(path=config_path, state="running")
+
+    def _raise(*_args, **_kwargs):
+        raise error
+
+    messages: list[tuple[str, bool]] = []
+    monkeypatch.setattr(cli, "acquire_lock", _raise)
+    monkeypatch.setattr(
+        cli.typer, "echo", lambda msg, err=False: messages.append((msg, err))
+    )
+
+    with pytest.raises(cli.typer.Exit) as exc:
+        cli.acquire_config_lock(config_path, "token")
+
+    assert exc.value.exit_code == 1
+    assert any("already running" in msg for msg, _ in messages)
