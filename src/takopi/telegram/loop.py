@@ -147,16 +147,14 @@ def _dispatch_builtin_command(
     reply: Callable[..., Awaitable[None]],
     task_group: TaskGroup,
 ) -> bool:
-    handlers: dict[str, Callable[[], Awaitable[None]]] = {}
-
     if command_id == "file":
         if not cfg.files.enabled:
-            handlers["file"] = partial(
+            handler = partial(
                 reply,
                 text="file transfer disabled; enable `[transports.telegram.files]`.",
             )
         else:
-            handlers["file"] = partial(
+            handler = partial(
                 _handle_file_command,
                 cfg,
                 msg,
@@ -164,54 +162,47 @@ def _dispatch_builtin_command(
                 ambient_context,
                 topic_store,
             )
+        task_group.start_soon(handler)
+        return True
 
     if cfg.topics.enabled and topic_store is not None:
-        handlers.update(
-            {
-                "ctx": partial(
-                    _handle_ctx_command,
-                    cfg,
-                    msg,
-                    args_text,
-                    topic_store,
-                    resolved_scope=resolved_scope,
-                    scope_chat_ids=scope_chat_ids,
-                ),
-                "new": partial(
-                    _handle_new_command,
-                    cfg,
-                    msg,
-                    topic_store,
-                    resolved_scope=resolved_scope,
-                    scope_chat_ids=scope_chat_ids,
-                ),
-                "topic": partial(
-                    _handle_topic_command,
-                    cfg,
-                    msg,
-                    args_text,
-                    topic_store,
-                    resolved_scope=resolved_scope,
-                    scope_chat_ids=scope_chat_ids,
-                ),
-            }
-        )
-
-    if command_id == "agent":
-        handlers["agent"] = partial(
-            _handle_agent_command,
-            cfg,
-            msg,
-            args_text,
-            ambient_context,
-            topic_store,
-            chat_prefs,
-            resolved_scope=resolved_scope,
-            scope_chat_ids=scope_chat_ids,
-        )
+        if command_id == "ctx":
+            handler = partial(
+                _handle_ctx_command,
+                cfg,
+                msg,
+                args_text,
+                topic_store,
+                resolved_scope=resolved_scope,
+                scope_chat_ids=scope_chat_ids,
+            )
+        elif command_id == "new":
+            handler = partial(
+                _handle_new_command,
+                cfg,
+                msg,
+                topic_store,
+                resolved_scope=resolved_scope,
+                scope_chat_ids=scope_chat_ids,
+            )
+        elif command_id == "topic":
+            handler = partial(
+                _handle_topic_command,
+                cfg,
+                msg,
+                args_text,
+                topic_store,
+                resolved_scope=resolved_scope,
+                scope_chat_ids=scope_chat_ids,
+            )
+        else:
+            handler = None
+        if handler is not None:
+            task_group.start_soon(handler)
+            return True
 
     if command_id == "model":
-        handlers["model"] = partial(
+        handler = partial(
             _handle_model_command,
             cfg,
             msg,
@@ -222,9 +213,26 @@ def _dispatch_builtin_command(
             resolved_scope=resolved_scope,
             scope_chat_ids=scope_chat_ids,
         )
+        task_group.start_soon(handler)
+        return True
+
+    if command_id == "agent":
+        handler = partial(
+            _handle_agent_command,
+            cfg,
+            msg,
+            args_text,
+            ambient_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
+        )
+        task_group.start_soon(handler)
+        return True
 
     if command_id == "reasoning":
-        handlers["reasoning"] = partial(
+        handler = partial(
             _handle_reasoning_command,
             cfg,
             msg,
@@ -235,9 +243,11 @@ def _dispatch_builtin_command(
             resolved_scope=resolved_scope,
             scope_chat_ids=scope_chat_ids,
         )
+        task_group.start_soon(handler)
+        return True
 
     if command_id == "trigger":
-        handlers["trigger"] = partial(
+        handler = partial(
             _handle_trigger_command,
             cfg,
             msg,
@@ -248,12 +258,10 @@ def _dispatch_builtin_command(
             resolved_scope=resolved_scope,
             scope_chat_ids=scope_chat_ids,
         )
+        task_group.start_soon(handler)
+        return True
 
-    handler = handlers.get(command_id)
-    if handler is None:
-        return False
-    task_group.start_soon(handler)
-    return True
+    return False
 
 
 async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int | None:
