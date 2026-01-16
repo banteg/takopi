@@ -3,14 +3,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...context import RunContext
-from ...directives import DirectiveError
 from ..chat_prefs import ChatPrefsStore
-from ..engine_defaults import resolve_engine_for_message
 from ..engine_overrides import EngineOverrides, resolve_override_value
 from ..files import split_command_args
 from ..topic_state import TopicStateStore
 from ..topics import _topic_key
 from ..types import TelegramIncomingMessage
+from .overrides import (
+    ENGINE_SOURCE_LABELS,
+    OVERRIDE_SOURCE_LABELS,
+    apply_engine_override,
+    parse_set_args,
+    require_admin_or_private,
+    resolve_engine_selection,
+)
 from .reply import make_reply
 
 if TYPE_CHECKING:
@@ -20,79 +26,6 @@ MODEL_USAGE = (
     "usage: `/model`, `/model set <model>`, "
     "`/model set <engine> <model>`, or `/model clear [engine]`"
 )
-
-
-async def _check_model_permissions(
-    cfg: TelegramBridgeConfig, msg: TelegramIncomingMessage
-) -> bool:
-    reply = make_reply(cfg, msg)
-    sender_id = msg.sender_id
-    if sender_id is None:
-        await reply(text="cannot verify sender for model overrides.")
-        return False
-    is_private = msg.chat_type == "private"
-    if msg.chat_type is None:
-        is_private = msg.chat_id > 0
-    if is_private:
-        return True
-    member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
-    if member is None:
-        await reply(text="failed to verify model override permissions.")
-        return False
-    if member.status in {"creator", "administrator"}:
-        return True
-    await reply(text="changing model overrides is restricted to group admins.")
-    return False
-
-
-async def _resolve_engine_selection(
-    cfg: TelegramBridgeConfig,
-    msg: TelegramIncomingMessage,
-    *,
-    ambient_context: RunContext | None,
-    topic_store: TopicStateStore | None,
-    chat_prefs: ChatPrefsStore | None,
-    topic_key: tuple[int, int] | None,
-) -> tuple[str, str] | None:
-    reply = make_reply(cfg, msg)
-    try:
-        resolved = cfg.runtime.resolve_message(
-            text="",
-            reply_text=msg.reply_to_text,
-            ambient_context=ambient_context,
-            chat_id=msg.chat_id,
-        )
-    except DirectiveError as exc:
-        await reply(text=f"error:\n{exc}")
-        return None
-    selection = await resolve_engine_for_message(
-        runtime=cfg.runtime,
-        context=resolved.context,
-        explicit_engine=None,
-        chat_id=msg.chat_id,
-        topic_key=topic_key,
-        topic_store=topic_store,
-        chat_prefs=chat_prefs,
-    )
-    return selection.engine, selection.source
-
-
-def _parse_set_args(
-    tokens: tuple[str, ...], *, engine_ids: set[str]
-) -> tuple[str | None, str | None]:
-    if len(tokens) < 2:
-        return None, None
-    if len(tokens) == 2:
-        maybe_engine = tokens[1].strip().lower()
-        if maybe_engine in engine_ids:
-            return None, None
-        return None, tokens[1].strip()
-    maybe_engine = tokens[1].strip().lower()
-    if maybe_engine in engine_ids:
-        model = " ".join(tokens[2:]).strip()
-        return maybe_engine, model or None
-    model = " ".join(tokens[1:]).strip()
-    return None, model or None
 
 
 async def _handle_model_command(
@@ -117,7 +50,7 @@ async def _handle_model_command(
     engine_ids = {engine.lower() for engine in cfg.runtime.engine_ids}
 
     if action in {"show", ""}:
-        selection = await _resolve_engine_selection(
+        selection = await resolve_engine_selection(
             cfg,
             msg,
             ambient_context=ambient_context,
@@ -141,21 +74,11 @@ async def _handle_model_command(
             chat_override=chat_override,
             field="model",
         )
-        source_labels = {
-            "directive": "directive",
-            "topic_default": "topic default",
-            "chat_default": "chat default",
-            "project_default": "project default",
-            "global_default": "global default",
-        }
-        override_labels = {
-            "topic_override": "topic override",
-            "chat_default": "chat default",
-            "default": "no override",
-        }
-        engine_line = f"engine: {engine} ({source_labels[engine_source]})"
+        engine_line = f"engine: {engine} ({ENGINE_SOURCE_LABELS[engine_source]})"
         model_value = resolution.value or "default"
-        model_line = f"model: {model_value} ({override_labels[resolution.source]})"
+        model_line = (
+            f"model: {model_value} ({OVERRIDE_SOURCE_LABELS[resolution.source]})"
+        )
         topic_label = resolution.topic_value or "none"
         if tkey is None:
             topic_label = "none"
@@ -170,14 +93,20 @@ async def _handle_model_command(
         return
 
     if action == "set":
-        engine_arg, model = _parse_set_args(tokens, engine_ids=engine_ids)
+        engine_arg, model = parse_set_args(tokens, engine_ids=engine_ids)
         if model is None:
             await reply(text=MODEL_USAGE)
             return
-        if not await _check_model_permissions(cfg, msg):
+        if not await require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for model overrides.",
+            failed_member="failed to verify model override permissions.",
+            denied="changing model overrides is restricted to group admins.",
+        ):
             return
         if engine_arg is None:
-            selection = await _resolve_engine_selection(
+            selection = await resolve_engine_selection(
                 cfg,
                 msg,
                 ambient_context=ambient_context,
@@ -196,16 +125,23 @@ async def _handle_model_command(
                     text=f"unknown engine `{engine}`.\navailable agents: `{available}`"
                 )
                 return
-        if tkey is not None:
-            if topic_store is None:
-                await reply(text="topic model overrides are unavailable.")
-                return
-            current = await topic_store.get_engine_override(tkey[0], tkey[1], engine)
-            updated = EngineOverrides(
+        scope = await apply_engine_override(
+            reply=reply,
+            tkey=tkey,
+            topic_store=topic_store,
+            chat_prefs=chat_prefs,
+            chat_id=msg.chat_id,
+            engine=engine,
+            update=lambda current: EngineOverrides(
                 model=model,
                 reasoning=current.reasoning if current is not None else None,
-            )
-            await topic_store.set_engine_override(tkey[0], tkey[1], engine, updated)
+            ),
+            topic_unavailable="topic model overrides are unavailable.",
+            chat_unavailable="chat model overrides are unavailable (no config path).",
+        )
+        if scope is None:
+            return
+        if scope == "topic":
             await reply(
                 text=(
                     f"topic model override set to `{model}` for `{engine}`.\n"
@@ -213,15 +149,6 @@ async def _handle_model_command(
                 )
             )
             return
-        if chat_prefs is None:
-            await reply(text="chat model overrides are unavailable (no config path).")
-            return
-        current = await chat_prefs.get_engine_override(msg.chat_id, engine)
-        updated = EngineOverrides(
-            model=model,
-            reasoning=current.reasoning if current is not None else None,
-        )
-        await chat_prefs.set_engine_override(msg.chat_id, engine, updated)
         await reply(
             text=(
                 f"chat model override set to `{model}` for `{engine}`.\n"
@@ -237,10 +164,16 @@ async def _handle_model_command(
             return
         if len(tokens) == 2:
             engine = tokens[1].strip().lower() or None
-        if not await _check_model_permissions(cfg, msg):
+        if not await require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for model overrides.",
+            failed_member="failed to verify model override permissions.",
+            denied="changing model overrides is restricted to group admins.",
+        ):
             return
         if engine is None:
-            selection = await _resolve_engine_selection(
+            selection = await resolve_engine_selection(
                 cfg,
                 msg,
                 ambient_context=ambient_context,
@@ -257,27 +190,25 @@ async def _handle_model_command(
                 text=f"unknown engine `{engine}`.\navailable agents: `{available}`"
             )
             return
-        if tkey is not None:
-            if topic_store is None:
-                await reply(text="topic model overrides are unavailable.")
-                return
-            current = await topic_store.get_engine_override(tkey[0], tkey[1], engine)
-            updated = EngineOverrides(
+        scope = await apply_engine_override(
+            reply=reply,
+            tkey=tkey,
+            topic_store=topic_store,
+            chat_prefs=chat_prefs,
+            chat_id=msg.chat_id,
+            engine=engine,
+            update=lambda current: EngineOverrides(
                 model=None,
                 reasoning=current.reasoning if current is not None else None,
-            )
-            await topic_store.set_engine_override(tkey[0], tkey[1], engine, updated)
+            ),
+            topic_unavailable="topic model overrides are unavailable.",
+            chat_unavailable="chat model overrides are unavailable (no config path).",
+        )
+        if scope is None:
+            return
+        if scope == "topic":
             await reply(text="topic model override cleared (using chat default).")
             return
-        if chat_prefs is None:
-            await reply(text="chat model overrides are unavailable (no config path).")
-            return
-        current = await chat_prefs.get_engine_override(msg.chat_id, engine)
-        updated = EngineOverrides(
-            model=None,
-            reasoning=current.reasoning if current is not None else None,
-        )
-        await chat_prefs.set_engine_override(msg.chat_id, engine, updated)
         await reply(text="chat model override cleared.")
         return
 

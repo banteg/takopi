@@ -8,6 +8,7 @@ from ..topic_state import TopicStateStore
 from ..topics import _topic_key
 from ..trigger_mode import resolve_trigger_mode
 from ..types import TelegramIncomingMessage
+from .overrides import require_admin_or_private
 from .reply import make_reply
 
 if TYPE_CHECKING:
@@ -16,29 +17,6 @@ if TYPE_CHECKING:
 TRIGGER_USAGE = (
     "usage: `/trigger`, `/trigger all`, `/trigger mentions`, or `/trigger clear`"
 )
-
-
-async def _check_trigger_permissions(
-    cfg: TelegramBridgeConfig, msg: TelegramIncomingMessage
-) -> bool:
-    reply = make_reply(cfg, msg)
-    sender_id = msg.sender_id
-    if sender_id is None:
-        await reply(text="cannot verify sender for trigger settings.")
-        return False
-    is_private = msg.chat_type == "private"
-    if msg.chat_type is None:
-        is_private = msg.chat_id > 0
-    if is_private:
-        return True
-    member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
-    if member is None:
-        await reply(text="failed to verify trigger permissions.")
-        return False
-    if member.status in {"creator", "administrator"}:
-        return True
-    await reply(text="changing trigger mode is restricted to group admins.")
-    return False
 
 
 async def _handle_trigger_command(
@@ -91,7 +69,13 @@ async def _handle_trigger_command(
         return
 
     if action in {"all", "mentions"}:
-        if not await _check_trigger_permissions(cfg, msg):
+        if not await require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for trigger settings.",
+            failed_member="failed to verify trigger permissions.",
+            denied="changing trigger mode is restricted to group admins.",
+        ):
             return
         if tkey is not None:
             if topic_store is None:
@@ -108,7 +92,13 @@ async def _handle_trigger_command(
         return
 
     if action == "clear":
-        if not await _check_trigger_permissions(cfg, msg):
+        if not await require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for trigger settings.",
+            failed_member="failed to verify trigger permissions.",
+            denied="changing trigger mode is restricted to group admins.",
+        ):
             return
         if tkey is not None:
             if topic_store is None:
