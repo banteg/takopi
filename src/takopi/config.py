@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
+import tempfile
 from typing import Any
 
 import tomli_w
@@ -104,4 +106,29 @@ def dump_toml(config: dict[str, Any]) -> str:
 
 def write_config(config: dict[str, Any], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(dump_toml(config), encoding="utf-8")
+    payload = dump_toml(config)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as tmp:
+            tmp.write(payload)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = Path(tmp.name)
+        os.replace(tmp_path, path)
+    except OSError as e:
+        raise ConfigError(f"Failed to write config file {path}: {e}") from e
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass

@@ -5,7 +5,7 @@ import re
 ID_PATTERN = r"^[a-z0-9_]{1,32}$"
 _ID_RE = re.compile(ID_PATTERN)
 
-RESERVED_CLI_COMMANDS = frozenset({"init", "plugins", "doctor"})
+RESERVED_CLI_COMMANDS = frozenset({"config", "doctor", "init", "plugins"})
 RESERVED_CHAT_COMMANDS = frozenset(
     {"cancel", "file", "new", "agent", "model", "reasoning", "trigger", "topic", "ctx"}
 )
