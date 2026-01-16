@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import anyio
 from anyio.abc import TaskGroup
@@ -351,6 +351,30 @@ class TelegramCommandContext:
     task_group: TaskGroup
 
 
+@dataclass(slots=True)
+class TelegramLoopState:
+    running_tasks: RunningTasks
+    pending_prompts: dict[ForwardKey, _PendingPrompt]
+    media_groups: dict[tuple[int, str], _MediaGroupState]
+    command_ids: set[str]
+    reserved_commands: set[str]
+    reserved_chat_commands: set[str]
+    transport_snapshot: dict[str, object] | None
+    topic_store: TopicStateStore | None
+    chat_session_store: ChatSessionStore | None
+    chat_prefs: ChatPrefsStore | None
+    resolved_topics_scope: str | None
+    topics_chat_ids: frozenset[int]
+    bot_username: str | None
+    forward_coalesce_s: float
+    media_group_debounce_s: float
+    transport_id: str | None
+
+
+if TYPE_CHECKING:
+    from ..runner_bridge import RunningTasks
+
+
 _FORWARD_FIELDS = (
     "forward_origin",
     "forward_from",
@@ -396,11 +420,12 @@ class ForwardCoalescer:
         task_group: TaskGroup,
         debounce_s: float,
         dispatch: Callable[[_PendingPrompt], Awaitable[None]],
+        pending: dict[ForwardKey, _PendingPrompt],
     ) -> None:
         self._task_group = task_group
         self._debounce_s = debounce_s
         self._dispatch = dispatch
-        self._pending: dict[ForwardKey, _PendingPrompt] = {}
+        self._pending = pending
 
     def cancel(self, key: ForwardKey) -> None:
         pending = self._pending.pop(key, None)
@@ -654,6 +679,7 @@ class MediaGroupBuffer:
         bot_username: str | None,
         command_ids: Callable[[], set[str]],
         reserved_chat_commands: set[str],
+        groups: dict[tuple[int, str], _MediaGroupState],
         run_prompt_from_upload: Callable[
             [TelegramIncomingMessage, str, ResolvedMessage], Awaitable[None]
         ],
@@ -670,9 +696,9 @@ class MediaGroupBuffer:
         self._bot_username = bot_username
         self._command_ids = command_ids
         self._reserved_chat_commands = reserved_chat_commands
+        self._groups = groups
         self._run_prompt_from_upload = run_prompt_from_upload
         self._resolve_prompt_message = resolve_prompt_message
-        self._groups: dict[tuple[int, str], _MediaGroupState] = {}
 
     def add(self, msg: TelegramIncomingMessage) -> None:
         if msg.media_group_id is None:
@@ -855,47 +881,51 @@ async def run_main_loop(
     transport_id: str | None = None,
     transport_config: TelegramTransportSettings | None = None,
 ) -> None:
-    from ..runner_bridge import RunningTasks
-
-    running_tasks: RunningTasks = {}
-    command_ids = {
-        command_id.lower()
-        for command_id in list_command_ids(allowlist=cfg.runtime.allowlist)
-    }
-    reserved_commands = get_reserved_commands(cfg.runtime)
-    reserved_chat_commands = set(RESERVED_CHAT_COMMANDS)
-    transport_snapshot = (
-        transport_config.model_dump() if transport_config is not None else None
+    state = TelegramLoopState(
+        running_tasks={},
+        pending_prompts={},
+        media_groups={},
+        command_ids={
+            command_id.lower()
+            for command_id in list_command_ids(allowlist=cfg.runtime.allowlist)
+        },
+        reserved_commands=get_reserved_commands(cfg.runtime),
+        reserved_chat_commands=set(RESERVED_CHAT_COMMANDS),
+        transport_snapshot=(
+            transport_config.model_dump() if transport_config is not None else None
+        ),
+        topic_store=None,
+        chat_session_store=None,
+        chat_prefs=None,
+        resolved_topics_scope=None,
+        topics_chat_ids=frozenset(),
+        bot_username=None,
+        forward_coalesce_s=max(0.0, float(cfg.forward_coalesce_s)),
+        media_group_debounce_s=max(0.0, float(cfg.media_group_debounce_s)),
+        transport_id=transport_id,
     )
-    topic_store: TopicStateStore | None = None
-    chat_session_store: ChatSessionStore | None = None
-    chat_prefs: ChatPrefsStore | None = None
-    resolved_topics_scope: str | None = None
-    topics_chat_ids: frozenset[int] = frozenset()
-    bot_username: str | None = None
-    forward_coalesce_s = max(0.0, float(cfg.forward_coalesce_s))
-    media_group_debounce_s = max(0.0, float(cfg.media_group_debounce_s))
 
     def refresh_topics_scope() -> None:
-        nonlocal resolved_topics_scope, topics_chat_ids
         if cfg.topics.enabled:
-            resolved_topics_scope, topics_chat_ids = _resolve_topics_scope(cfg)
+            (
+                state.resolved_topics_scope,
+                state.topics_chat_ids,
+            ) = _resolve_topics_scope(cfg)
         else:
-            resolved_topics_scope = None
-            topics_chat_ids = frozenset()
+            state.resolved_topics_scope = None
+            state.topics_chat_ids = frozenset()
 
     def refresh_commands() -> None:
-        nonlocal command_ids, reserved_commands
         allowlist = cfg.runtime.allowlist
-        command_ids = {
+        state.command_ids = {
             command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
         }
-        reserved_commands = get_reserved_commands(cfg.runtime)
+        state.reserved_commands = get_reserved_commands(cfg.runtime)
 
     try:
         config_path = cfg.runtime.config_path
         if config_path is not None:
-            chat_prefs = ChatPrefsStore(resolve_prefs_path(config_path))
+            state.chat_prefs = ChatPrefsStore(resolve_prefs_path(config_path))
             logger.info(
                 "chat_prefs.enabled",
                 state_path=str(resolve_prefs_path(config_path)),
@@ -905,7 +935,9 @@ async def run_main_loop(
                 raise ConfigError(
                     "session_mode=chat but config path is not set; cannot locate state file."
                 )
-            chat_session_store = ChatSessionStore(resolve_sessions_path(config_path))
+            state.chat_session_store = ChatSessionStore(
+                resolve_sessions_path(config_path)
+            )
             logger.info(
                 "chat_sessions.enabled",
                 state_path=str(resolve_sessions_path(config_path)),
@@ -915,13 +947,13 @@ async def run_main_loop(
                 raise ConfigError(
                     "topics enabled but config path is not set; cannot locate state file."
                 )
-            topic_store = TopicStateStore(resolve_state_path(config_path))
+            state.topic_store = TopicStateStore(resolve_state_path(config_path))
             await _validate_topics_setup(cfg)
             refresh_topics_scope()
             logger.info(
                 "topics.enabled",
                 scope=cfg.topics.scope,
-                resolved_scope=resolved_topics_scope,
+                resolved_scope=state.resolved_topics_scope,
                 state_path=str(resolve_state_path(config_path)),
             )
         await set_command_menu(cfg)
@@ -935,7 +967,7 @@ async def run_main_loop(
             )
             me = None
         if me is not None and me.username:
-            bot_username = me.username.lower()
+            state.bot_username = me.username.lower()
         else:
             logger.info("trigger_mode.bot_username.unavailable")
         async with anyio.create_task_group() as tg:
@@ -943,13 +975,12 @@ async def run_main_loop(
             watch_enabled = bool(watch_config) and config_path is not None
 
             async def handle_reload(reload: ConfigReload) -> None:
-                nonlocal transport_snapshot, transport_id
                 refresh_commands()
                 refresh_topics_scope()
                 await set_command_menu(cfg)
-                if transport_snapshot is not None:
+                if state.transport_snapshot is not None:
                     new_snapshot = reload.settings.transports.telegram.model_dump()
-                    changed = _diff_keys(transport_snapshot, new_snapshot)
+                    changed = _diff_keys(state.transport_snapshot, new_snapshot)
                     if changed:
                         logger.warning(
                             "config.reload.transport_config_changed",
@@ -957,18 +988,18 @@ async def run_main_loop(
                             keys=changed,
                             restart_required=True,
                         )
-                        transport_snapshot = new_snapshot
+                        state.transport_snapshot = new_snapshot
                 if (
-                    transport_id is not None
-                    and reload.settings.transport != transport_id
+                    state.transport_id is not None
+                    and reload.settings.transport != state.transport_id
                 ):
                     logger.warning(
                         "config.reload.transport_changed",
-                        old=transport_id,
+                        old=state.transport_id,
                         new=reload.settings.transport,
                         restart_required=True,
                     )
-                    transport_id = reload.settings.transport
+                    state.transport_id = reload.settings.transport
 
             if watch_enabled and config_path is not None:
 
@@ -993,12 +1024,15 @@ async def run_main_loop(
                 async def _wrapped(token: ResumeToken, done: anyio.Event) -> None:
                     if base_cb is not None:
                         await base_cb(token, done)
-                    if topic_store is not None and topic_key is not None:
-                        await topic_store.set_session_resume(
+                    if state.topic_store is not None and topic_key is not None:
+                        await state.topic_store.set_session_resume(
                             topic_key[0], topic_key[1], token
                         )
-                    if chat_session_store is not None and chat_session_key is not None:
-                        await chat_session_store.set_session_resume(
+                    if (
+                        state.chat_session_store is not None
+                        and chat_session_key is not None
+                    ):
+                        await state.chat_session_store.set_session_resume(
                             chat_session_key[0], chat_session_key[1], token
                         )
 
@@ -1020,10 +1054,10 @@ async def run_main_loop(
             ) -> None:
                 topic_key = (
                     (chat_id, thread_id)
-                    if topic_store is not None
+                    if state.topic_store is not None
                     and thread_id is not None
                     and _topics_chat_allowed(
-                        cfg, chat_id, scope_chat_ids=topics_chat_ids
+                        cfg, chat_id, scope_chat_ids=state.topics_chat_ids
                     )
                     else None
                 )
@@ -1048,13 +1082,13 @@ async def run_main_loop(
                     chat_id,
                     overrides_thread_id,
                     engine_for_overrides,
-                    chat_prefs=chat_prefs,
-                    topic_store=topic_store,
+                    chat_prefs=state.chat_prefs,
+                    topic_store=state.topic_store,
                 )
                 await run_engine(
                     exec_cfg=cfg.exec_cfg,
                     runtime=cfg.runtime,
-                    running_tasks=running_tasks,
+                    running_tasks=state.running_tasks,
                     chat_id=chat_id,
                     user_msg_id=user_msg_id,
                     text=text,
@@ -1091,9 +1125,9 @@ async def run_main_loop(
             def resolve_topic_key(
                 msg: TelegramIncomingMessage,
             ) -> tuple[int, int] | None:
-                if topic_store is None:
+                if state.topic_store is None:
                     return None
-                return _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
+                return _topic_key(msg, cfg, scope_chat_ids=state.topics_chat_ids)
 
             def _build_upload_prompt(base: str, annotation: str) -> str:
                 if base and base.strip():
@@ -1119,22 +1153,22 @@ async def run_main_loop(
                 topic_key = resolve_topic_key(msg)
                 effective_context = ambient_context
                 if (
-                    topic_store is not None
+                    state.topic_store is not None
                     and topic_key is not None
                     and resolved.context is not None
                     and resolved.context_source == "directives"
                 ):
-                    await topic_store.set_context(*topic_key, resolved.context)
+                    await state.topic_store.set_context(*topic_key, resolved.context)
                     await _maybe_rename_topic(
                         cfg,
-                        topic_store,
+                        state.topic_store,
                         chat_id=topic_key[0],
                         thread_id=topic_key[1],
                         context=resolved.context,
                     )
                     effective_context = resolved.context
                 if (
-                    topic_store is not None
+                    state.topic_store is not None
                     and topic_key is not None
                     and effective_context is None
                     and resolved.context_source not in {"directives", "reply_ctx"}
@@ -1165,17 +1199,17 @@ async def run_main_loop(
                     explicit_engine=explicit_engine,
                     chat_id=chat_id,
                     topic_key=topic_key,
-                    topic_store=topic_store,
-                    chat_prefs=chat_prefs,
+                    topic_store=state.topic_store,
+                    chat_prefs=state.chat_prefs,
                 )
 
             resume_resolver = ResumeResolver(
                 cfg=cfg,
                 task_group=tg,
-                running_tasks=running_tasks,
+                running_tasks=state.running_tasks,
                 enqueue_resume=scheduler.enqueue_resume,
-                topic_store=topic_store,
-                chat_session_store=chat_session_store,
+                topic_store=state.topic_store,
+                chat_session_store=state.chat_session_store,
             )
 
             async def run_prompt_from_upload(
@@ -1197,7 +1231,9 @@ async def run_main_loop(
                 )
                 resume_token = resolved.resume_token
                 context = resolved.context
-                chat_session_key = _chat_session_key(msg, store=chat_session_store)
+                chat_session_key = _chat_session_key(
+                    msg, store=state.chat_session_store
+                )
                 topic_key = resolve_topic_key(msg)
                 engine_resolution = await resolve_engine_defaults(
                     explicit_engine=resolved.engine_override,
@@ -1302,22 +1338,24 @@ async def run_main_loop(
                 engine_override = engine_resolution.engine
                 effective_context = pending.ambient_context
                 if (
-                    topic_store is not None
+                    state.topic_store is not None
                     and pending.topic_key is not None
                     and resolved.context is not None
                     and resolved.context_source == "directives"
                 ):
-                    await topic_store.set_context(*pending.topic_key, resolved.context)
+                    await state.topic_store.set_context(
+                        *pending.topic_key, resolved.context
+                    )
                     await _maybe_rename_topic(
                         cfg,
-                        topic_store,
+                        state.topic_store,
                         chat_id=pending.topic_key[0],
                         thread_id=pending.topic_key[1],
                         context=resolved.context,
                     )
                     effective_context = resolved.context
                 if (
-                    topic_store is not None
+                    state.topic_store is not None
                     and pending.topic_key is not None
                     and effective_context is None
                     and resolved.context_source not in {"directives", "reply_ctx"}
@@ -1379,8 +1417,9 @@ async def run_main_loop(
 
             forward_coalescer = ForwardCoalescer(
                 task_group=tg,
-                debounce_s=forward_coalesce_s,
+                debounce_s=state.forward_coalesce_s,
                 dispatch=_dispatch_pending_prompt,
+                pending=state.pending_prompts,
             )
 
             async def handle_prompt_upload(
@@ -1411,13 +1450,14 @@ async def run_main_loop(
 
             media_group_buffer = MediaGroupBuffer(
                 task_group=tg,
-                debounce_s=media_group_debounce_s,
+                debounce_s=state.media_group_debounce_s,
                 cfg=cfg,
-                chat_prefs=chat_prefs,
-                topic_store=topic_store,
-                bot_username=bot_username,
-                command_ids=lambda: command_ids,
-                reserved_chat_commands=reserved_chat_commands,
+                chat_prefs=state.chat_prefs,
+                topic_store=state.topic_store,
+                bot_username=state.bot_username,
+                command_ids=lambda: state.command_ids,
+                reserved_chat_commands=state.reserved_chat_commands,
+                groups=state.media_groups,
                 run_prompt_from_upload=run_prompt_from_upload,
                 resolve_prompt_message=resolve_prompt_message,
             )
@@ -1433,14 +1473,16 @@ async def run_main_loop(
                     else None
                 )
                 topic_key = resolve_topic_key(msg)
-                chat_session_key = _chat_session_key(msg, store=chat_session_store)
+                chat_session_key = _chat_session_key(
+                    msg, store=state.chat_session_store
+                )
                 stateful_mode = topic_key is not None or chat_session_key is not None
                 chat_project = (
                     _topics_chat_project(cfg, chat_id) if cfg.topics.enabled else None
                 )
                 bound_context = (
-                    await topic_store.get_context(*topic_key)
-                    if topic_store is not None and topic_key is not None
+                    await state.topic_store.get_context(*topic_key)
+                    if state.topic_store is not None and topic_key is not None
                     else None
                 )
                 ambient_context = _merge_topic_context(
@@ -1462,7 +1504,11 @@ async def run_main_loop(
                 if isinstance(msg, TelegramCallbackQuery):
                     if msg.data == CANCEL_CALLBACK_DATA:
                         tg.start_soon(
-                            handle_callback_cancel, cfg, msg, running_tasks, scheduler
+                            handle_callback_cancel,
+                            cfg,
+                            msg,
+                            state.running_tasks,
+                            scheduler,
                         )
                     else:
                         tg.start_soon(
@@ -1501,42 +1547,44 @@ async def run_main_loop(
                 ambient_context = ctx.ambient_context
 
                 if is_cancel_command(text):
-                    tg.start_soon(handle_cancel, cfg, msg, running_tasks, scheduler)
+                    tg.start_soon(
+                        handle_cancel, cfg, msg, state.running_tasks, scheduler
+                    )
                     continue
 
                 command_id, args_text = parse_slash_command(text)
                 if command_id == "new":
                     forward_coalescer.cancel(forward_key)
-                    if topic_store is not None and topic_key is not None:
+                    if state.topic_store is not None and topic_key is not None:
                         tg.start_soon(
                             partial(
                                 handle_new_command,
                                 cfg,
                                 msg,
-                                topic_store,
-                                resolved_scope=resolved_topics_scope,
-                                scope_chat_ids=topics_chat_ids,
+                                state.topic_store,
+                                resolved_scope=state.resolved_topics_scope,
+                                scope_chat_ids=state.topics_chat_ids,
                             )
                         )
                         continue
-                    if chat_session_store is not None:
+                    if state.chat_session_store is not None:
                         tg.start_soon(
                             handle_chat_new_command,
                             cfg,
                             msg,
-                            chat_session_store,
+                            state.chat_session_store,
                             chat_session_key,
                         )
                         continue
-                    if topic_store is not None:
+                    if state.topic_store is not None:
                         tg.start_soon(
                             partial(
                                 handle_new_command,
                                 cfg,
                                 msg,
-                                topic_store,
-                                resolved_scope=resolved_topics_scope,
-                                scope_chat_ids=topics_chat_ids,
+                                state.topic_store,
+                                resolved_scope=state.resolved_topics_scope,
+                                scope_chat_ids=state.topics_chat_ids,
                             )
                         )
                         continue
@@ -1546,10 +1594,10 @@ async def run_main_loop(
                         msg=msg,
                         args_text=args_text,
                         ambient_context=ambient_context,
-                        topic_store=topic_store,
-                        chat_prefs=chat_prefs,
-                        resolved_scope=resolved_topics_scope,
-                        scope_chat_ids=topics_chat_ids,
+                        topic_store=state.topic_store,
+                        chat_prefs=state.chat_prefs,
+                        resolved_scope=state.resolved_topics_scope,
+                        scope_chat_ids=state.topics_chat_ids,
                         reply=reply,
                         task_group=tg,
                     ),
@@ -1560,15 +1608,15 @@ async def run_main_loop(
                 trigger_mode = await resolve_trigger_mode(
                     chat_id=chat_id,
                     thread_id=msg.thread_id,
-                    chat_prefs=chat_prefs,
-                    topic_store=topic_store,
+                    chat_prefs=state.chat_prefs,
+                    topic_store=state.topic_store,
                 )
                 if trigger_mode == "mentions" and not should_trigger_run(
                     msg,
-                    bot_username=bot_username,
+                    bot_username=state.bot_username,
                     runtime=cfg.runtime,
-                    command_ids=command_ids,
-                    reserved_chat_commands=reserved_chat_commands,
+                    command_ids=state.command_ids,
+                    reserved_chat_commands=state.reserved_chat_commands,
                 ):
                     continue
 
@@ -1593,7 +1641,7 @@ async def run_main_loop(
                                 msg,
                                 caption_text,
                                 ambient_context,
-                                topic_store,
+                                state.topic_store,
                             )
                         elif not caption_text:
                             tg.start_soon(
@@ -1601,7 +1649,7 @@ async def run_main_loop(
                                 cfg,
                                 msg,
                                 ambient_context,
-                                topic_store,
+                                state.topic_store,
                             )
                         else:
                             tg.start_soon(
@@ -1612,10 +1660,10 @@ async def run_main_loop(
                             partial(reply, text=FILE_PUT_USAGE),
                         )
                     continue
-                if command_id is not None and command_id not in reserved_commands:
-                    if command_id not in command_ids:
+                if command_id is not None and command_id not in state.reserved_commands:
+                    if command_id not in state.command_ids:
                         refresh_commands()
-                    if command_id in command_ids:
+                    if command_id in state.command_ids:
                         engine_resolution = await resolve_engine_defaults(
                             explicit_engine=None,
                             context=ambient_context,
@@ -1635,8 +1683,8 @@ async def run_main_loop(
                             _resolve_engine_run_options,
                             chat_id,
                             overrides_thread_id,
-                            chat_prefs=chat_prefs,
-                            topic_store=topic_store,
+                            chat_prefs=state.chat_prefs,
+                            topic_store=state.topic_store,
                         )
                         tg.start_soon(
                             dispatch_command,
@@ -1645,7 +1693,7 @@ async def run_main_loop(
                             text,
                             command_id,
                             args_text,
-                            running_tasks,
+                            state.running_tasks,
                             scheduler,
                             wrap_on_thread_known(
                                 scheduler.note_thread_known,
@@ -1670,7 +1718,7 @@ async def run_main_loop(
                     is_voice_transcribed=is_voice_transcribed,
                     forwards=[],
                 )
-                if reply_id is not None and running_tasks.get(
+                if reply_id is not None and state.running_tasks.get(
                     MessageRef(channel_id=chat_id, message_id=reply_id)
                 ):
                     logger.debug(
