@@ -1,5 +1,7 @@
 from pathlib import Path
+import subprocess
 
+from takopi.utils.git import git_ok, git_run, git_stdout
 from takopi.utils.git import resolve_default_base, resolve_main_worktree_root
 
 
@@ -75,3 +77,29 @@ def test_resolve_default_base_uses_current_branch(monkeypatch) -> None:
 
     monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
     assert resolve_default_base(Path("/repo")) == "feature"
+
+
+def test_git_run_handles_missing_git(monkeypatch) -> None:
+    def _raise(*_args, **_kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr("takopi.utils.git.subprocess.run", _raise)
+    assert git_run(["status"], cwd=Path("/repo")) is None
+
+
+def test_git_stdout_returns_none_on_error(monkeypatch) -> None:
+    def _fake_run(*_args, **_kwargs):
+        return subprocess.CompletedProcess(
+            args=["git"],
+            returncode=1,
+            stdout="oops",
+            stderr="",
+        )
+
+    monkeypatch.setattr("takopi.utils.git._run_git", _fake_run)
+    assert git_stdout(["status"], cwd=Path("/repo")) is None
+
+
+def test_git_ok_false_when_run_missing(monkeypatch) -> None:
+    monkeypatch.setattr("takopi.utils.git._run_git", lambda *_args, **_kwargs: None)
+    assert git_ok(["status"], cwd=Path("/repo")) is False
