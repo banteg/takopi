@@ -23,29 +23,30 @@ from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
 from ..ids import RESERVED_CHAT_COMMANDS
 from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
-from .commands.agent import _handle_agent_command
 from .commands.cancel import handle_callback_cancel, handle_cancel
-from .commands.dispatch import _dispatch_command
-from .commands.executor import _run_engine, _should_show_resume_line
-from .commands.file_transfer import (
-    FILE_PUT_USAGE,
-    _handle_file_command,
-    _handle_file_put_default,
-    _save_file_put,
+from .commands.file_transfer import FILE_PUT_USAGE
+from .commands.handlers import (
+    dispatch_command,
+    handle_agent_command,
+    handle_chat_new_command,
+    handle_ctx_command,
+    handle_file_command,
+    handle_file_put_default,
+    handle_media_group,
+    handle_model_command,
+    handle_new_command,
+    handle_reasoning_command,
+    handle_topic_command,
+    handle_trigger_command,
+    parse_slash_command,
+    get_reserved_commands,
+    run_engine,
+    save_file_put,
+    set_command_menu,
+    should_show_resume_line,
 )
-from .commands.media import _handle_media_group
-from .commands.menu import _reserved_commands, _set_command_menu
-from .commands.parse import _parse_slash_command, is_cancel_command
+from .commands.parse import is_cancel_command
 from .commands.reply import make_reply
-from .commands.topics import (
-    _handle_chat_new_command,
-    _handle_ctx_command,
-    _handle_new_command,
-    _handle_topic_command,
-)
-from .commands.model import _handle_model_command
-from .commands.reasoning import _handle_reasoning_command
-from .commands.trigger import _handle_trigger_command
 from .context import _merge_topic_context, _usage_ctx_set, _usage_topic
 from .topics import (
     _maybe_rename_topic,
@@ -74,6 +75,8 @@ logger = get_logger(__name__)
 __all__ = ["poll_updates", "run_main_loop", "send_with_resume"]
 
 ForwardKey = tuple[int, int, int]
+
+_handle_file_put_default = handle_file_put_default
 
 
 def _chat_session_key(
@@ -155,7 +158,7 @@ def _dispatch_builtin_command(
             )
         else:
             handler = partial(
-                _handle_file_command,
+                handle_file_command,
                 cfg,
                 msg,
                 args_text,
@@ -168,7 +171,7 @@ def _dispatch_builtin_command(
     if cfg.topics.enabled and topic_store is not None:
         if command_id == "ctx":
             handler = partial(
-                _handle_ctx_command,
+                handle_ctx_command,
                 cfg,
                 msg,
                 args_text,
@@ -178,7 +181,7 @@ def _dispatch_builtin_command(
             )
         elif command_id == "new":
             handler = partial(
-                _handle_new_command,
+                handle_new_command,
                 cfg,
                 msg,
                 topic_store,
@@ -187,7 +190,7 @@ def _dispatch_builtin_command(
             )
         elif command_id == "topic":
             handler = partial(
-                _handle_topic_command,
+                handle_topic_command,
                 cfg,
                 msg,
                 args_text,
@@ -203,7 +206,7 @@ def _dispatch_builtin_command(
 
     if command_id == "model":
         handler = partial(
-            _handle_model_command,
+            handle_model_command,
             cfg,
             msg,
             args_text,
@@ -218,7 +221,7 @@ def _dispatch_builtin_command(
 
     if command_id == "agent":
         handler = partial(
-            _handle_agent_command,
+            handle_agent_command,
             cfg,
             msg,
             args_text,
@@ -233,7 +236,7 @@ def _dispatch_builtin_command(
 
     if command_id == "reasoning":
         handler = partial(
-            _handle_reasoning_command,
+            handle_reasoning_command,
             cfg,
             msg,
             args_text,
@@ -248,7 +251,7 @@ def _dispatch_builtin_command(
 
     if command_id == "trigger":
         handler = partial(
-            _handle_trigger_command,
+            handle_trigger_command,
             cfg,
             msg,
             args_text,
@@ -702,7 +705,7 @@ class MediaGroupBuffer:
                 for msg in messages
             ):
                 return
-            await _handle_media_group(
+            await handle_media_group(
                 self._cfg,
                 messages,
                 self._topic_store,
@@ -844,7 +847,7 @@ async def run_main_loop(
         command_id.lower()
         for command_id in list_command_ids(allowlist=cfg.runtime.allowlist)
     }
-    reserved_commands = _reserved_commands(cfg.runtime)
+    reserved_commands = get_reserved_commands(cfg.runtime)
     reserved_chat_commands = set(RESERVED_CHAT_COMMANDS)
     transport_snapshot = (
         transport_config.model_dump() if transport_config is not None else None
@@ -872,7 +875,7 @@ async def run_main_loop(
         command_ids = {
             command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
         }
-        reserved_commands = _reserved_commands(cfg.runtime)
+        reserved_commands = get_reserved_commands(cfg.runtime)
 
     try:
         config_path = cfg.runtime.config_path
@@ -906,7 +909,7 @@ async def run_main_loop(
                 resolved_scope=resolved_topics_scope,
                 state_path=str(resolve_state_path(config_path)),
             )
-        await _set_command_menu(cfg)
+        await set_command_menu(cfg)
         try:
             me = await cfg.bot.get_me()
         except Exception as exc:  # noqa: BLE001
@@ -928,7 +931,7 @@ async def run_main_loop(
                 nonlocal transport_snapshot, transport_id
                 refresh_commands()
                 refresh_topics_scope()
-                await _set_command_menu(cfg)
+                await set_command_menu(cfg)
                 if transport_snapshot is not None:
                     new_snapshot = reload.settings.transports.telegram.model_dump()
                     changed = _diff_keys(transport_snapshot, new_snapshot)
@@ -1010,7 +1013,7 @@ async def run_main_loop(
                     else None
                 )
                 stateful_mode = topic_key is not None or chat_session_key is not None
-                show_resume_line = _should_show_resume_line(
+                show_resume_line = should_show_resume_line(
                     show_resume_line=cfg.show_resume_line,
                     stateful_mode=stateful_mode,
                     context=context,
@@ -1033,7 +1036,7 @@ async def run_main_loop(
                     chat_prefs=chat_prefs,
                     topic_store=topic_store,
                 )
-                await _run_engine(
+                await run_engine(
                     exec_cfg=cfg.exec_cfg,
                     runtime=cfg.runtime,
                     running_tasks=running_tasks,
@@ -1379,7 +1382,7 @@ async def run_main_loop(
                 )
                 if resolved is None:
                     return
-                saved = await _save_file_put(
+                saved = await save_file_put(
                     cfg,
                     msg,
                     "",
@@ -1491,13 +1494,13 @@ async def run_main_loop(
                     tg.start_soon(handle_cancel, cfg, msg, running_tasks, scheduler)
                     continue
 
-                command_id, args_text = _parse_slash_command(text)
+                command_id, args_text = parse_slash_command(text)
                 if command_id == "new":
                     forward_coalescer.cancel(forward_key)
                     if topic_store is not None and topic_key is not None:
                         tg.start_soon(
                             partial(
-                                _handle_new_command,
+                                handle_new_command,
                                 cfg,
                                 msg,
                                 topic_store,
@@ -1508,7 +1511,7 @@ async def run_main_loop(
                         continue
                     if chat_session_store is not None:
                         tg.start_soon(
-                            _handle_chat_new_command,
+                            handle_chat_new_command,
                             cfg,
                             msg,
                             chat_session_store,
@@ -1518,7 +1521,7 @@ async def run_main_loop(
                     if topic_store is not None:
                         tg.start_soon(
                             partial(
-                                _handle_new_command,
+                                handle_new_command,
                                 cfg,
                                 msg,
                                 topic_store,
@@ -1582,7 +1585,7 @@ async def run_main_loop(
                             )
                         elif not caption_text:
                             tg.start_soon(
-                                _handle_file_put_default,
+                                handle_file_put_default,
                                 cfg,
                                 msg,
                                 ambient_context,
@@ -1624,7 +1627,7 @@ async def run_main_loop(
                             topic_store=topic_store,
                         )
                         tg.start_soon(
-                            _dispatch_command,
+                            dispatch_command,
                             cfg,
                             msg,
                             text,
