@@ -100,8 +100,16 @@ def _parse_incoming_message(
     reply = msg.reply_to_message
     reply_to_message_id = reply.message_id if reply is not None else None
     reply_to_text = reply.text if reply is not None else None
+    # Skip bot reply detection for forum topic creation messages.
+    # Per Telegram API docs, non-General topics are message threads of the
+    # topic creation message (https://core.telegram.org/api/forum). Messages
+    # in a topic have reply_to_message pointing to the topic creation. If
+    # the bot created the topic, this would incorrectly trigger on all messages.
+    is_topic_creation = reply is not None and reply.forum_topic_created is not None
     reply_to_is_bot = (
-        reply.from_.is_bot if reply is not None and reply.from_ is not None else None
+        reply.from_.is_bot
+        if reply is not None and reply.from_ is not None and not is_topic_creation
+        else None
     )
     reply_to_username = (
         reply.from_.username if reply is not None and reply.from_ is not None else None

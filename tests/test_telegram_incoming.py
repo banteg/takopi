@@ -8,6 +8,7 @@ from takopi.telegram.api_models import (
     CallbackQueryMessage,
     Chat,
     Document,
+    ForumTopicCreated,
     Message,
     MessageReply,
     PhotoSize,
@@ -16,6 +17,7 @@ from takopi.telegram.api_models import (
     User,
     Video,
     Voice,
+    decode_update,
 )
 
 
@@ -287,3 +289,213 @@ def test_parse_incoming_update_topic_fields() -> None:
     assert msg.is_topic_message is True
     assert msg.chat_type == "supergroup"
     assert msg.is_forum is True
+
+
+def test_reply_to_forum_topic_created_by_bot_ignores_is_bot() -> None:
+    """Test that reply_to_is_bot is None when replying to a forum topic creation message.
+
+    Per Telegram API docs (https://core.telegram.org/api/forum), non-General topics
+    are message threads of the topic creation message. This means messages in a
+    topic have reply_to_message pointing to the topic creation message. When the
+    bot creates a topic, this caused reply_to_is_bot to incorrectly be True for
+    messages that weren't actually replies to the bot.
+
+    This test reproduces the exact payload structure observed in production:
+    - message_thread_id: 163 (the topic ID)
+    - reply_to_message.message_id: 163 (same as thread ID - the topic creation)
+    - reply_to_message.from.is_bot: True (bot created the topic)
+    - reply_to_message.forum_topic_created: present (marks this as topic creation)
+    """
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=187,
+            text="Hello",
+            message_thread_id=163,
+            is_topic_message=True,
+            chat=Chat(id=-1001234567890, type="supergroup", is_forum=True),
+            from_=User(id=12345, username="testuser"),
+            reply_to_message=MessageReply(
+                message_id=163,
+                from_=User(id=8312076814, is_bot=True, username="TakopiBot"),
+                forum_topic_created=ForumTopicCreated(
+                    name="party-testing7 @main",
+                    icon_color=7322096,
+                ),
+            ),
+        ),
+    )
+
+    msg = parse_incoming_update(update, chat_id=-1001234567890)
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.text == "Hello"
+    assert msg.thread_id == 163
+    assert msg.reply_to_message_id == 163
+    # This is the key assertion: reply_to_is_bot should be None, not True
+    # Even though the reply_to_message.from.is_bot is True, we ignore it
+    # because it's a forum_topic_created message, not a real bot reply
+    assert msg.reply_to_is_bot is None
+    # Username should still be extracted
+    assert msg.reply_to_username == "TakopiBot"
+
+
+def test_reply_to_actual_bot_message_sets_is_bot() -> None:
+    """Test that reply_to_is_bot is True when explicitly replying to a bot message.
+
+    This ensures the fix doesn't break normal bot reply detection.
+    When a user explicitly replies to a message from the bot (not a topic creation),
+    reply_to_is_bot should still be True.
+    """
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=200,
+            text="Thanks for the help!",
+            message_thread_id=163,
+            is_topic_message=True,
+            chat=Chat(id=-1001234567890, type="supergroup", is_forum=True),
+            from_=User(id=12345, username="testuser"),
+            reply_to_message=MessageReply(
+                message_id=195,  # Different from thread_id - explicit reply
+                text="Here's the answer to your question...",
+                from_=User(id=8312076814, is_bot=True, username="TakopiBot"),
+                # No forum_topic_created - this is a normal message
+            ),
+        ),
+    )
+
+    msg = parse_incoming_update(update, chat_id=-1001234567890)
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.reply_to_message_id == 195
+    assert msg.reply_to_text == "Here's the answer to your question..."
+    # This should be True - it's a real reply to a bot message
+    assert msg.reply_to_is_bot is True
+    assert msg.reply_to_username == "TakopiBot"
+
+
+def test_reply_to_human_created_topic_sets_is_bot_false() -> None:
+    """Test that reply_to_is_bot is None when topic was created by a human.
+
+    When a human creates a topic manually (not via the bot), the topic creation
+    message has from.is_bot=False. The fix should still work correctly here.
+    """
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=50,
+            text="Hello everyone",
+            message_thread_id=45,
+            is_topic_message=True,
+            chat=Chat(id=-1001234567890, type="supergroup", is_forum=True),
+            from_=User(id=12345, username="testuser"),
+            reply_to_message=MessageReply(
+                message_id=45,
+                from_=User(id=67890, is_bot=False, username="admin"),
+                forum_topic_created=ForumTopicCreated(
+                    name="General Discussion",
+                    icon_color=16766590,
+                ),
+            ),
+        ),
+    )
+
+    msg = parse_incoming_update(update, chat_id=-1001234567890)
+    assert isinstance(msg, TelegramIncomingMessage)
+    # reply_to_is_bot should be None because it's a topic creation message
+    # (even though is_bot=False, we still skip it for consistency)
+    assert msg.reply_to_is_bot is None
+    assert msg.reply_to_username == "admin"
+
+
+def test_message_in_general_topic_no_reply() -> None:
+    """Test that messages in the General topic (no reply_to_message) work correctly.
+
+    Messages in the General topic don't have reply_to_message set, so this
+    case should not be affected by the fix.
+    """
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=186,
+            text="Hello",
+            chat=Chat(id=-1001234567890, type="supergroup", is_forum=True),
+            from_=User(id=12345, username="testuser"),
+            # No reply_to_message, no message_thread_id - General topic
+        ),
+    )
+
+    msg = parse_incoming_update(update, chat_id=-1001234567890)
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.text == "Hello"
+    assert msg.thread_id is None
+    assert msg.reply_to_message_id is None
+    assert msg.reply_to_is_bot is None
+    assert msg.reply_to_username is None
+
+
+def test_decode_forum_topic_created_from_json() -> None:
+    """Test that forum_topic_created is correctly decoded from raw JSON.
+
+    This test uses the exact JSON structure from the Telegram Bot API
+    to ensure our msgspec schema correctly parses real payloads.
+    """
+    payload = """{
+        "update_id": 123456789,
+        "message": {
+            "message_id": 187,
+            "from": {
+                "id": 12345,
+                "is_bot": false,
+                "first_name": "Test",
+                "username": "testuser"
+            },
+            "chat": {
+                "id": -1001234567890,
+                "title": "Test Forum",
+                "type": "supergroup",
+                "is_forum": true
+            },
+            "date": 1705395600,
+            "message_thread_id": 163,
+            "is_topic_message": true,
+            "reply_to_message": {
+                "message_id": 163,
+                "from": {
+                    "id": 8312076814,
+                    "is_bot": true,
+                    "first_name": "Takopi",
+                    "username": "TakopiBot"
+                },
+                "chat": {
+                    "id": -1001234567890,
+                    "title": "Test Forum",
+                    "type": "supergroup",
+                    "is_forum": true
+                },
+                "date": 1705395500,
+                "message_thread_id": 163,
+                "forum_topic_created": {
+                    "name": "party-testing7 @main",
+                    "icon_color": 7322096
+                }
+            },
+            "text": "Hello"
+        }
+    }"""
+
+    update = decode_update(payload)
+    assert update.message is not None
+    assert update.message.reply_to_message is not None
+    assert update.message.reply_to_message.forum_topic_created is not None
+    assert (
+        update.message.reply_to_message.forum_topic_created.name
+        == "party-testing7 @main"
+    )
+    assert update.message.reply_to_message.forum_topic_created.icon_color == 7322096
+    assert update.message.reply_to_message.from_ is not None
+    assert update.message.reply_to_message.from_.is_bot is True
+
+    # Now test the full parsing
+    msg = parse_incoming_update(update, chat_id=-1001234567890)
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.reply_to_is_bot is None  # Should be None due to forum_topic_created
