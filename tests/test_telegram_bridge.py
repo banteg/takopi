@@ -135,6 +135,7 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
     assert {"command": "cancel", "description": "cancel run"} in commands
     assert {"command": "file", "description": "upload or fetch files"} in commands
     assert {"command": "new", "description": "start a new thread"} in commands
+    assert {"command": "ctx", "description": "show or update context"} in commands
     assert {"command": "agent", "description": "set default agent"} in commands
     assert any(cmd["command"] == "codex" for cmd in commands)
 
@@ -179,7 +180,7 @@ def test_build_bot_commands_includes_topics_when_enabled() -> None:
     commands = build_bot_commands(runtime, include_topics=True)
 
     assert {"command": "topic", "description": "create or bind a topic"} in commands
-    assert {"command": "ctx", "description": "show or update topic context"} in commands
+    assert {"command": "ctx", "description": "show or update context"} in commands
 
 
 def test_build_bot_commands_includes_command_plugins(monkeypatch) -> None:
@@ -2513,6 +2514,128 @@ async def test_run_main_loop_hides_resume_line_when_disabled(
     assert transport.send_calls
     final_text = transport.send_calls[-1]["message"].text
     assert resume_value not in final_text
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_hides_resume_line_without_context(
+    tmp_path: Path,
+) -> None:
+    resume_value = "resume-ctxless"
+    state_path = tmp_path / "takopi.toml"
+
+    transport = FakeTransport()
+    bot = FakeBot()
+    runner = ScriptRunner(
+        [Return(answer="ok")],
+        engine=CODEX_ENGINE,
+        resume_value=resume_value,
+    )
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+        config_path=state_path,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+        session_mode="chat",
+        show_resume_line=False,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert transport.send_calls
+    final_text = transport.send_calls[-1]["message"].text
+    assert resume_value not in final_text
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_applies_chat_bound_context(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "takopi.toml"
+
+    transport = FakeTransport()
+    bot = FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    projects = ProjectsConfig(
+        projects={
+            "alpha": ProjectConfig(
+                alias="Alpha",
+                path=tmp_path,
+                worktrees_dir=Path(".worktrees"),
+            ),
+            "beta": ProjectConfig(
+                alias="Beta",
+                path=tmp_path / "beta",
+                worktrees_dir=Path(".worktrees"),
+            ),
+        },
+        default_project="alpha",
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=projects,
+        config_path=state_path,
+    )
+    prefs = ChatPrefsStore(resolve_prefs_path(state_path))
+    await prefs.set_context(123, RunContext(project="beta", branch="dev"))
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+        session_mode="chat",
+        show_resume_line=False,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert transport.send_calls
+    final_text = transport.send_calls[-1]["message"].text
+    assert "`ctx: Beta @dev`" in final_text
 
 
 @pytest.mark.anyio

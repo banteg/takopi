@@ -204,8 +204,8 @@ Commands:
 - `projects`: `/topic @branch` creates a topic in the project chat and binds it.
 - `all`: use `/topic <project> @branch` in the main chat, or `/topic @branch` in
   project chats.
-- `/ctx` inside a topic shows the bound context and stored session engines.
-  `/ctx set ...` and `/ctx clear` update the binding.
+- `/ctx` shows the bound context and stored session engines inside topics.
+  Outside topics, `/ctx set ...` and `/ctx clear` bind the chat context.
 - `/new` inside a topic clears stored resume tokens for that topic.
 
 State is stored in `telegram_topics_state.json` alongside the config file.

@@ -16,6 +16,7 @@ from .model import _handle_model_command as handle_model_command
 from .parse import _parse_slash_command as parse_slash_command
 from .reasoning import _handle_reasoning_command as handle_reasoning_command
 from .topics import _handle_chat_new_command as handle_chat_new_command
+from .topics import _handle_chat_ctx_command as handle_chat_ctx_command
 from .topics import _handle_ctx_command as handle_ctx_command
 from .topics import _handle_new_command as handle_new_command
 from .topics import _handle_topic_command as handle_topic_command
@@ -25,6 +26,7 @@ __all__ = [
     "dispatch_command",
     "get_reserved_commands",
     "handle_agent_command",
+    "handle_chat_ctx_command",
     "handle_chat_new_command",
     "handle_ctx_command",
     "handle_file_command",

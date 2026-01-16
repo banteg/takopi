@@ -31,6 +31,13 @@ Takopi treats the second message as a continuation. If you want a clean slate, u
 !!! user "You"
     /new
 
+To pin a project or branch for the chat, use:
+
+!!! user "You"
+    /ctx set <project> [@branch]
+
+`/new` clears the session but keeps the bound context.
+
 Tip: set a default agent for this chat with `/agent set claude`.
 
 ## Stateless (reply-to-continue)
@@ -81,7 +88,7 @@ takopi --onboard
 ## Resume lines in chat mode
 
 If you enable chat mode (or topics), Takopi can auto-resume, so you can hide resume lines for a cleaner chat.
-Resume lines are still shown when no project context is set, so replies can branch there.
+Disable them if you want a fully clean footer, or enable `show_resume_line` to keep reply-branching visible.
 
 If you prefer always-visible resume lines, set:
 

@@ -42,10 +42,16 @@ This line is parsed from replies and takes precedence over new directives.
 | `/file put <path>` | Upload a document into the repo/worktree (requires file transfer enabled). |
 | `/file get <path>` | Fetch a file or directory back into Telegram. |
 | `/topic <project> @branch` | Create/bind a topic (topics enabled). |
-| `/ctx` | Show topic context binding (topics enabled). |
-| `/ctx set <project> @branch` | Update topic context binding. |
-| `/ctx clear` | Remove topic context binding. |
+| `/ctx` | Show context binding (chat or topic). |
+| `/ctx set <project> @branch` | Update context binding. |
+| `/ctx clear` | Remove context binding. |
 | `/new` | Clear stored sessions for the current scope (topic/chat). |
+
+Notes:
+
+- Outside topics, `/ctx` binds the chat context.
+- In topics, `/ctx` binds the topic context.
+- `/new` clears sessions but does **not** clear a bound context.
 
 ## CLI
 

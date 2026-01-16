@@ -70,6 +70,8 @@ Takopi will bind the topic and rename it to match the context.
 - `/ctx set <project> @branch` updates it
 - `/ctx clear` removes it
 
+Note: Outside topics (private chats or main group chats), `/ctx` binds the chat context instead of a topic.
+
 ## Reset a topic session
 
 Use `/new` inside the topic to clear stored sessions for that thread.

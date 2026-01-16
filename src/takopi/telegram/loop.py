@@ -28,6 +28,7 @@ from .commands.file_transfer import FILE_PUT_USAGE
 from .commands.handlers import (
     dispatch_command,
     handle_agent_command,
+    handle_chat_ctx_command,
     handle_chat_new_command,
     handle_ctx_command,
     handle_file_command,
@@ -169,8 +170,13 @@ def _dispatch_builtin_command(
         task_group.start_soon(handler)
         return True
 
-    if cfg.topics.enabled and topic_store is not None:
-        if command_id == "ctx":
+    if command_id == "ctx":
+        topic_key = (
+            _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
+            if cfg.topics.enabled and topic_store is not None
+            else None
+        )
+        if topic_key is not None:
             handler = partial(
                 handle_ctx_command,
                 cfg,
@@ -180,7 +186,19 @@ def _dispatch_builtin_command(
                 resolved_scope=resolved_scope,
                 scope_chat_ids=scope_chat_ids,
             )
-        elif command_id == "new":
+        else:
+            handler = partial(
+                handle_chat_ctx_command,
+                cfg,
+                msg,
+                args_text,
+                chat_prefs,
+            )
+        task_group.start_soon(handler)
+        return True
+
+    if cfg.topics.enabled and topic_store is not None:
+        if command_id == "new":
             handler = partial(
                 handle_new_command,
                 cfg,
@@ -1485,9 +1503,19 @@ async def run_main_loop(
                     if state.topic_store is not None and topic_key is not None
                     else None
                 )
-                ambient_context = _merge_topic_context(
-                    chat_project=chat_project, bound=bound_context
-                )
+                chat_bound_context = None
+                if state.chat_prefs is not None:
+                    chat_bound_context = await state.chat_prefs.get_context(chat_id)
+                if bound_context is not None:
+                    ambient_context = _merge_topic_context(
+                        chat_project=chat_project, bound=bound_context
+                    )
+                elif chat_bound_context is not None:
+                    ambient_context = chat_bound_context
+                else:
+                    ambient_context = _merge_topic_context(
+                        chat_project=chat_project, bound=None
+                    )
                 return TelegramMsgContext(
                     chat_id=chat_id,
                     thread_id=msg.thread_id,

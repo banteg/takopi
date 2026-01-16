@@ -72,6 +72,7 @@ def build_bot_commands(
         seen.add(cmd)
     for cmd, description in [
         ("new", "start a new thread"),
+        ("ctx", "show or update context"),
         ("agent", "set default agent"),
         ("model", "set model override"),
         ("reasoning", "set reasoning override"),
@@ -82,10 +83,7 @@ def build_bot_commands(
         commands.append({"command": cmd, "description": description})
         seen.add(cmd)
     if include_topics:
-        for cmd, description in [
-            ("topic", "create or bind a topic"),
-            ("ctx", "show or update topic context"),
-        ]:
+        for cmd, description in [("topic", "create or bind a topic")]:
             if cmd in seen:
                 continue
             commands.append({"command": cmd, "description": description})

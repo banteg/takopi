@@ -119,6 +119,9 @@ When a message arrives in a chat whose `chat_id` matches `projects.<alias>.chat_
 Takopi defaults the project context to that alias unless a reply `ctx:` or explicit
 `/project` directive is present.
 
+In non-topic chats, `/ctx` can bind a chat context. That bound context is treated as
+ambient and takes precedence over the default project mapping until cleared.
+
 ## Worktree resolution
 
 When `@branch` is present:
