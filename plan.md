@@ -1,6 +1,6 @@
-You can push testability (and coverage) quite a bit further from ~75% by focusing on the parts of the codebase that are currently *hardest to test*, not the parts that are already mostly pure/covered.
+You can push testability (and coverage) quite a bit further by focusing on the parts of the codebase that are currently *hardest to test*, not the parts that are already mostly pure/covered.
 
-From the `coverage.xml` you shared, overall line coverage is **~75.4% (7002 / 9288 lines)**. The biggest coverage gaps are concentrated in a small set of “boundary” modules (CLI, Telegram command handlers, and OpenAI voice transcription), while most of the core logic is already in the 85–100% range.
+From the latest `uv run pytest` run on **2026-01-16**, with branch coverage enabled, total coverage is **70.39%**. Line-only coverage is **75.33% (6997 / 9288 statements)**, and branch coverage now tracks **3026 branches** with **681 partial branches**. The biggest coverage gaps are concentrated in a small set of “boundary” modules (CLI, Telegram command handlers, and OpenAI voice transcription), while most of the core logic is already in the 85–100% range.
 
 Below is a practical, repo-specific way to improve testability.
 
@@ -8,20 +8,21 @@ Below is a practical, repo-specific way to improve testability.
 
 ## 1) Target the real testability hotspots (where the code is “imperative”)
 
-These are your lowest-coverage files (rounded):
+These are your lowest-coverage files (rounded, with branch coverage enabled):
 
-* `src/takopi/cli.py` — **42%**
-* `src/takopi/telegram/commands/agent.py` — **13%**
-* `src/takopi/telegram/commands/trigger.py` — **13%**
-* `src/takopi/telegram/commands/media.py` — **40%**
-* `src/takopi/runners/tool_actions.py` — **41%**
-* `src/takopi/telegram/commands/topics.py` — **49%**
-* `src/takopi/telegram/client_api.py` — **54%**
-* `src/takopi/telegram/voice.py` — **61%**
-* `src/takopi/telegram/commands/file_transfer.py` — **62%**
-* `src/takopi/telegram/commands/reasoning.py` — **62%**
-* `src/takopi/runners/codex.py` — **63%**
-* `src/takopi/telegram/onboarding.py` — **63%**
+* `src/takopi/api.py` — **0%** (verify intended usage; may be unused)
+* `src/takopi/telegram/commands/trigger.py` — **9%**
+* `src/takopi/telegram/commands/agent.py` — **10%**
+* `src/takopi/telegram/commands/media.py` — **32%**
+* `src/takopi/runners/tool_actions.py` — **36%**
+* `src/takopi/cli.py` — **37%**
+* `src/takopi/telegram/commands/topics.py` — **44%**
+* `src/takopi/telegram/client_api.py` — **47%**
+* `src/takopi/runners/codex.py` — **55%**
+* `src/takopi/telegram/commands/file_transfer.py` — **58%**
+* `src/takopi/telegram/commands/reasoning.py` — **58%**
+* `src/takopi/telegram/onboarding.py` — **59%**
+* `src/takopi/telegram/voice.py` — **60%**
 
 **Pattern:** these modules are “edge” code: they touch network, filesystem, subprocess, environment, or user interaction. That’s exactly where testability tends to degrade unless you add seams.
 
@@ -213,19 +214,19 @@ Add tests for:
 
 ---
 
-## 5) Consider turning on branch coverage (optional but powerful)
+## 5) Branch coverage is now on (and why it matters)
 
-Right now the Cobertura report shows **0 branches measured**, which usually means you’re only tracking line coverage.
+Branch coverage is now enabled via `--cov-branch` in pytest, so the coverage report includes branch counts and partial branches.
 
 For “edge-heavy” code (CLI + Telegram commands), **branch coverage is often a better proxy for confidence** because it forces you to test the “sad paths” you care about (permission denied, missing token, invalid config, retries, etc.).
 
-In pytest, this is as simple as adding `--cov-branch` (or the coverage config equivalent).
+Note: with branch coverage enabled, the existing `--cov-fail-under=75` threshold fails at **70.39%** total coverage. Adjust the threshold or add tests as you see fit.
 
 ---
 
 ## 6) A realistic coverage jump without heroic effort
 
-To get from ~75% → **80%**, you need about **+429 lines covered** (with the same `lines-valid`). That’s very achievable by adding tests to just a few of the low-covered modules above.
+With branch coverage enabled, the total is **70.39%**. Getting back to 75% will require covering both statements *and* missing/partial branches, so the fastest path is to focus on the low-covered edge modules above.
 
 The bigger payoff, though, is the *testability unlock*: once you’ve introduced a couple of seams (especially for voice transcription and command reply planning), adding future tests becomes fast and pleasant instead of “mocking everything”.
 
@@ -236,6 +237,6 @@ The bigger payoff, though, is the *testability unlock*: once you’ve introduced
 1. **Extract the Telegram fakes** from `tests/test_telegram_bridge.py` into shared fixtures.
 2. Add tests for `/agent` and `/trigger` (these are currently at ~13% coverage and are quite testable with your existing fakes).
 3. Refactor `transcribe_voice()` to accept an injected transcriber (or client factory) and add the 5–6 branch tests listed above.
-4. Optionally: start measuring branch coverage once the seams are in place.
+4. Branch coverage is already enabled; use the new gaps to guide tests and adjust the fail-under target when you decide on the new bar.
 
 If you want, paste (or point me to) the specific areas you find hardest to test right now (CLI, Telegram commands, runners, etc.), and I’ll propose concrete refactor boundaries and example tests tailored to those files.
