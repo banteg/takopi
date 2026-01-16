@@ -153,9 +153,7 @@ def test_load_settings_optional(monkeypatch, tmp_path) -> None:
 
     settings = _settings()
     config_path = tmp_path / "takopi.toml"
-    monkeypatch.setattr(
-        cli, "load_settings_if_exists", lambda: (settings, config_path)
-    )
+    monkeypatch.setattr(cli, "load_settings_if_exists", lambda: (settings, config_path))
     assert cli._load_settings_optional() == (settings, config_path)
 
 
