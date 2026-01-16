@@ -53,3 +53,25 @@ def test_resolve_default_base_prefers_master_over_main(monkeypatch) -> None:
     monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
     monkeypatch.setattr("takopi.utils.git.git_ok", _fake_ok)
     assert resolve_default_base(Path("/repo")) == "master"
+
+
+def test_resolve_default_base_uses_origin_head(monkeypatch) -> None:
+    def _fake_stdout(args, **kwargs):
+        if args[:2] == ["symbolic-ref", "-q"]:
+            return "refs/remotes/origin/main"
+        return None
+
+    monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
+    assert resolve_default_base(Path("/repo")) == "main"
+
+
+def test_resolve_default_base_uses_current_branch(monkeypatch) -> None:
+    def _fake_stdout(args, **kwargs):
+        if args[:2] == ["symbolic-ref", "-q"]:
+            return None
+        if args == ["branch", "--show-current"]:
+            return "feature"
+        return None
+
+    monkeypatch.setattr("takopi.utils.git.git_stdout", _fake_stdout)
+    assert resolve_default_base(Path("/repo")) == "feature"
