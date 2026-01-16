@@ -1,12 +1,21 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypeVar
 from collections.abc import AsyncIterator, Callable, Iterable
 
 import anyio
+import msgspec
 
 from ..logging import get_logger
-from .api_models import Update
+from .api_schemas import (
+    CallbackQuery,
+    Document,
+    Message,
+    PhotoSize,
+    Sticker,
+    Update,
+    Video,
+)
 from .client_api import BotClient
 from .types import (
     TelegramCallbackQuery,
@@ -17,6 +26,7 @@ from .types import (
 )
 
 logger = get_logger(__name__)
+T = TypeVar("T")
 
 
 def parse_incoming_update(
@@ -25,186 +35,109 @@ def parse_incoming_update(
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
 ) -> TelegramIncomingUpdate | None:
-    if isinstance(update, Update):
-        msg = update.message
-        callback_query = update.callback_query
-    else:
-        msg = update.get("message")
-        callback_query = update.get("callback_query")
+    raw_message: dict[str, Any] | None = None
+    raw_callback: dict[str, Any] | None = None
+    if isinstance(update, dict):
+        raw_message = update.get("message") if isinstance(update.get("message"), dict) else None
+        raw_callback = (
+            update.get("callback_query")
+            if isinstance(update.get("callback_query"), dict)
+            else None
+        )
+        try:
+            update = msgspec.convert(update, type=Update)
+        except Exception:  # noqa: BLE001
+            return None
 
-    if isinstance(msg, dict):
-        return _parse_incoming_message(msg, chat_id=chat_id, chat_ids=chat_ids)
-    if isinstance(callback_query, dict):
+    msg = _coerce_payload(update.message, Message)
+    if msg is not None:
+        return _parse_incoming_message(
+            msg,
+            chat_id=chat_id,
+            chat_ids=chat_ids,
+            raw=raw_message,
+        )
+    callback_query = _coerce_payload(update.callback_query, CallbackQuery)
+    if callback_query is not None:
         return _parse_callback_query(
             callback_query,
             chat_id=chat_id,
             chat_ids=chat_ids,
+            raw=raw_callback,
         )
     return None
 
 
 def _parse_incoming_message(
-    msg: dict[str, Any],
+    msg: Message,
     *,
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
+    raw: dict[str, Any] | None = None,
 ) -> TelegramIncomingMessage | None:
-    def _parse_document_payload(payload: dict[str, Any]) -> TelegramDocument | None:
-        file_id = payload.get("file_id")
-        if not isinstance(file_id, str) or not file_id:
-            return None
-        return TelegramDocument(
-            file_id=file_id,
-            file_name=payload.get("file_name")
-            if isinstance(payload.get("file_name"), str)
-            else None,
-            mime_type=payload.get("mime_type")
-            if isinstance(payload.get("mime_type"), str)
-            else None,
-            file_size=payload.get("file_size")
-            if isinstance(payload.get("file_size"), int)
-            and not isinstance(payload.get("file_size"), bool)
-            else None,
-            raw=payload,
-        )
-
-    raw_text = msg.get("text")
-    text = raw_text if isinstance(raw_text, str) else None
-    caption = msg.get("caption")
-    if text is None and isinstance(caption, str):
-        text = caption
+    raw_text = msg.text
+    caption = msg.caption
+    text = raw_text if raw_text is not None else caption
     if text is None:
         text = ""
     file_command = False
-    if isinstance(text, str):
-        stripped = text.lstrip()
-        if stripped.startswith("/"):
-            token = stripped.split(maxsplit=1)[0]
-            file_command = token.startswith("/file")
+    stripped = text.lstrip()
+    if stripped.startswith("/"):
+        token = stripped.split(maxsplit=1)[0]
+        file_command = token.startswith("/file")
     voice_payload: TelegramVoice | None = None
-    voice = msg.get("voice")
-    if isinstance(voice, dict):
-        file_id = voice.get("file_id")
-        if not isinstance(file_id, str) or not file_id:
-            file_id = None
-        if file_id is not None:
-            voice_payload = TelegramVoice(
-                file_id=file_id,
-                mime_type=voice.get("mime_type")
-                if isinstance(voice.get("mime_type"), str)
-                else None,
-                file_size=voice.get("file_size")
-                if isinstance(voice.get("file_size"), int)
-                and not isinstance(voice.get("file_size"), bool)
-                else None,
-                duration=voice.get("duration")
-                if isinstance(voice.get("duration"), int)
-                and not isinstance(voice.get("duration"), bool)
-                else None,
-                raw=voice,
-            )
-            if not isinstance(raw_text, str) and not isinstance(caption, str):
-                text = ""
+    if msg.voice is not None:
+        voice_payload = TelegramVoice(
+            file_id=msg.voice.file_id,
+            mime_type=msg.voice.mime_type,
+            file_size=msg.voice.file_size,
+            duration=msg.voice.duration,
+            raw=msgspec.to_builtins(msg.voice),
+        )
+        if raw_text is None and caption is None:
+            text = ""
     document_payload: TelegramDocument | None = None
-    document = msg.get("document")
-    if isinstance(document, dict):
-        document_payload = _parse_document_payload(document)
+    if msg.document is not None:
+        document_payload = _document_from_media(msg.document)
+    if document_payload is None and msg.video is not None:
+        document_payload = _document_from_media(msg.video)
     if document_payload is None:
-        video = msg.get("video")
-        if isinstance(video, dict):
-            document_payload = _parse_document_payload(video)
-    if document_payload is None:
-        photo = msg.get("photo")
-        if isinstance(photo, list):
-            best: dict[str, Any] | None = None
-            best_score = -1
-            for item in photo:
-                if not isinstance(item, dict):
-                    continue
-                file_id = item.get("file_id")
-                if not isinstance(file_id, str) or not file_id:
-                    continue
-                size = item.get("file_size")
-                if isinstance(size, int) and not isinstance(size, bool):
-                    score = size
-                else:
-                    width = item.get("width")
-                    height = item.get("height")
-                    if isinstance(width, int) and isinstance(height, int):
-                        score = width * height
-                    else:
-                        score = 0
-                if score > best_score:
-                    best_score = score
-                    best = item
-            if best is not None:
-                document_payload = _parse_document_payload(best)
-    if document_payload is None and file_command:
-        sticker = msg.get("sticker")
-        if isinstance(sticker, dict):
-            document_payload = _parse_document_payload(sticker)
-    has_text = isinstance(raw_text, str) or isinstance(caption, str)
+        best = _best_photo(msg.photo)
+        if best is not None:
+            document_payload = _document_from_photo(best)
+    if document_payload is None and file_command and msg.sticker is not None:
+        document_payload = _document_from_sticker(msg.sticker)
+    has_text = raw_text is not None or caption is not None
     if not has_text and voice_payload is None and document_payload is None:
         return None
-    chat = msg.get("chat")
-    if not isinstance(chat, dict):
+    chat = msg.chat
+    if chat is None:
         return None
-    msg_chat_id = chat.get("id")
-    if not isinstance(msg_chat_id, int):
-        return None
-    chat_type = chat.get("type") if isinstance(chat.get("type"), str) else None
-    is_forum = chat.get("is_forum")
-    if not isinstance(is_forum, bool):
-        is_forum = None
+    msg_chat_id = chat.id
+    chat_type = chat.type
+    is_forum = chat.is_forum
     allowed = chat_ids
     if allowed is None and chat_id is not None:
         allowed = {chat_id}
     if allowed is not None and msg_chat_id not in allowed:
         return None
-    message_id = msg.get("message_id")
-    if not isinstance(message_id, int):
-        return None
-    reply = msg.get("reply_to_message")
-    reply_to_message_id = None
-    reply_to_text = None
-    reply_to_is_bot = None
-    reply_to_username = None
-    if isinstance(reply, dict):
-        reply_to_message_id = (
-            reply.get("message_id")
-            if isinstance(reply.get("message_id"), int)
-            else None
-        )
-        reply_to_text = (
-            reply.get("text") if isinstance(reply.get("text"), str) else None
-        )
-        reply_from = reply.get("from")
-        if isinstance(reply_from, dict):
-            is_bot = reply_from.get("is_bot")
-            if isinstance(is_bot, bool):
-                reply_to_is_bot = is_bot
-            username = reply_from.get("username")
-            if isinstance(username, str):
-                reply_to_username = username
-    sender = msg.get("from")
-    sender_id = (
-        sender.get("id")
-        if isinstance(sender, dict) and isinstance(sender.get("id"), int)
-        else None
+    reply = msg.reply_to_message
+    reply_to_message_id = reply.message_id if reply is not None else None
+    reply_to_text = reply.text if reply is not None else None
+    reply_to_is_bot = (
+        reply.from_.is_bot if reply is not None and reply.from_ is not None else None
     )
-    media_group_id = msg.get("media_group_id")
-    if not isinstance(media_group_id, str):
-        media_group_id = None
-    thread_id = msg.get("message_thread_id")
-    if isinstance(thread_id, bool) or not isinstance(thread_id, int):
-        thread_id = None
-    is_topic_message = msg.get("is_topic_message")
-    if not isinstance(is_topic_message, bool):
-        is_topic_message = None
+    reply_to_username = (
+        reply.from_.username if reply is not None and reply.from_ is not None else None
+    )
+    sender_id = msg.from_.id if msg.from_ is not None else None
+    media_group_id = msg.media_group_id
+    thread_id = msg.message_thread_id
+    is_topic_message = msg.is_topic_message
     return TelegramIncomingMessage(
         transport="telegram",
         chat_id=msg_chat_id,
-        message_id=message_id,
+        message_id=msg.message_id,
         text=text,
         reply_to_message_id=reply_to_message_id,
         reply_to_text=reply_to_text,
@@ -218,51 +151,97 @@ def _parse_incoming_message(
         is_forum=is_forum,
         voice=voice_payload,
         document=document_payload,
-        raw=msg,
+        raw=raw if raw is not None else msgspec.to_builtins(msg),
     )
 
 
 def _parse_callback_query(
-    query: dict[str, Any],
+    query: CallbackQuery,
     *,
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
+    raw: dict[str, Any] | None = None,
 ) -> TelegramCallbackQuery | None:
-    callback_id = query.get("id")
-    if not isinstance(callback_id, str) or not callback_id:
+    callback_id = query.id
+    msg = query.message
+    if msg is None:
         return None
-    msg = query.get("message")
-    if not isinstance(msg, dict):
+    chat = msg.chat
+    if chat is None:
         return None
-    chat = msg.get("chat")
-    if not isinstance(chat, dict):
-        return None
-    msg_chat_id = chat.get("id")
-    if not isinstance(msg_chat_id, int):
-        return None
+    msg_chat_id = chat.id
     allowed = chat_ids
     if allowed is None and chat_id is not None:
         allowed = {chat_id}
     if allowed is not None and msg_chat_id not in allowed:
         return None
-    message_id = msg.get("message_id")
-    if not isinstance(message_id, int):
-        return None
-    data = query.get("data") if isinstance(query.get("data"), str) else None
-    sender = query.get("from")
-    sender_id = (
-        sender.get("id")
-        if isinstance(sender, dict) and isinstance(sender.get("id"), int)
-        else None
-    )
+    data = query.data
+    sender_id = query.from_.id if query.from_ is not None else None
     return TelegramCallbackQuery(
         transport="telegram",
         chat_id=msg_chat_id,
-        message_id=message_id,
+        message_id=msg.message_id,
         callback_query_id=callback_id,
         data=data,
         sender_id=sender_id,
-        raw=query,
+        raw=raw if raw is not None else msgspec.to_builtins(query),
+    )
+
+
+def _coerce_payload(payload: Any | None, kind: type[T]) -> T | None:
+    if payload is None:
+        return None
+    if isinstance(payload, kind):
+        return payload
+    if isinstance(payload, dict):
+        try:
+            return msgspec.convert(payload, type=kind)
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def _best_photo(photos: list[PhotoSize] | None) -> PhotoSize | None:
+    if not photos:
+        return None
+    best = None
+    best_score = -1
+    for item in photos:
+        size = item.file_size
+        score = size if size is not None else item.width * item.height
+        if score > best_score:
+            best_score = score
+            best = item
+    return best
+
+
+def _document_from_media(media: Document | Video) -> TelegramDocument:
+    return TelegramDocument(
+        file_id=media.file_id,
+        file_name=getattr(media, "file_name", None),
+        mime_type=getattr(media, "mime_type", None),
+        file_size=getattr(media, "file_size", None),
+        raw=msgspec.to_builtins(media),
+    )
+
+
+def _document_from_photo(photo: PhotoSize) -> TelegramDocument:
+    return TelegramDocument(
+        file_id=photo.file_id,
+        file_name=None,
+        mime_type=None,
+        file_size=getattr(photo, "file_size", None),
+        raw=msgspec.to_builtins(photo),
+    )
+
+
+def _document_from_sticker(sticker: Sticker) -> TelegramDocument:
+    return TelegramDocument(
+        file_id=sticker.file_id,
+        file_name=None,
+        mime_type=None,
+        file_size=getattr(sticker, "file_size", None),
+        raw=msgspec.to_builtins(sticker),
     )
 
 

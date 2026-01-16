@@ -9,7 +9,7 @@ from rich.text import Text
 
 from takopi.config import ConfigError
 from takopi.telegram import onboarding
-from takopi.telegram.api_models import Update, User
+from takopi.telegram.api_models import User
 from takopi.telegram.client import TelegramRetryAfter
 
 
@@ -311,36 +311,58 @@ async def test_get_bot_info_gives_up(monkeypatch) -> None:
 @pytest.mark.anyio
 async def test_wait_for_chat_filters_updates(monkeypatch) -> None:
     updates = [
-        [Update(update_id=1, message={"from": {"is_bot": True}, "chat": {"id": 1}})],
+        [
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 1,
+                    "from": {"is_bot": True},
+                    "chat": {"id": 1},
+                },
+            }
+        ],
         None,
         [],
-        [Update(update_id=2, message=None)],
+        [{"update_id": 2, "message": None}],
         [
-            Update(
-                update_id=3,
-                message={"from": {"is_bot": True}, "chat": {"id": 2}},
-            )
+            {
+                "update_id": 3,
+                "message": {
+                    "message_id": 3,
+                    "from": {"is_bot": True},
+                    "chat": {"id": 2},
+                },
+            }
         ],
         [
-            Update(
-                update_id=4,
-                message={"from": {"is_bot": False}, "chat": "nope"},
-            )
+            {
+                "update_id": 4,
+                "message": {
+                    "message_id": 4,
+                    "from": {"is_bot": False},
+                    "chat": "nope",
+                },
+            }
         ],
         [
-            Update(
-                update_id=5,
-                message={"from": {"is_bot": False}, "chat": {"id": "bad"}},
-            )
+            {
+                "update_id": 5,
+                "message": {
+                    "message_id": 5,
+                    "from": {"is_bot": False},
+                    "chat": {"id": "bad"},
+                },
+            }
         ],
         [
-            Update(
-                update_id=6,
-                message={
+            {
+                "update_id": 6,
+                "message": {
+                    "message_id": 6,
                     "from": {"is_bot": False},
                     "chat": {"id": 7, "username": "bob", "type": "private"},
                 },
-            )
+            }
         ],
     ]
 

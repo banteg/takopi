@@ -38,7 +38,7 @@ class User(msgspec.Struct, forbid_unknown_fields=False):
 
 class Chat(msgspec.Struct, forbid_unknown_fields=False):
     id: int
-    type: str
+    type: str | None = None
     title: str | None = None
     username: str | None = None
     first_name: str | None = None
@@ -87,7 +87,7 @@ class MessageReply(msgspec.Struct, forbid_unknown_fields=False):
 
 class Message(msgspec.Struct, forbid_unknown_fields=False):
     message_id: int
-    chat: Chat
+    chat: Chat | None = None
     message_thread_id: int | None = None
     from_: User | None = msgspec.field(default=None, name="from")
     text: str | None = None
@@ -121,7 +121,7 @@ class Update(msgspec.Struct, forbid_unknown_fields=False):
 
 
 class File(msgspec.Struct, forbid_unknown_fields=False):
-    file_path: str | None = None
+    file_path: str
 
 
 class ChatMember(msgspec.Struct, forbid_unknown_fields=False):
