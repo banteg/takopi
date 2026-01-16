@@ -1,5 +1,37 @@
 from __future__ import annotations
 
-from .api_schemas import Chat, ChatMember, File, ForumTopic, Message, Update, User
+from .api_schemas import (
+    CallbackQuery,
+    CallbackQueryMessage,
+    Chat,
+    ChatMember,
+    Document,
+    File,
+    ForumTopic,
+    Message,
+    MessageReply,
+    PhotoSize,
+    Sticker,
+    Update,
+    User,
+    Video,
+    Voice,
+)
 
-__all__ = ["Chat", "ChatMember", "File", "ForumTopic", "Message", "Update", "User"]
+__all__ = [
+    "CallbackQuery",
+    "CallbackQueryMessage",
+    "Chat",
+    "ChatMember",
+    "Document",
+    "File",
+    "ForumTopic",
+    "Message",
+    "MessageReply",
+    "PhotoSize",
+    "Sticker",
+    "Update",
+    "User",
+    "Video",
+    "Voice",
+]

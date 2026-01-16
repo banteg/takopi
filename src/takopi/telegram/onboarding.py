@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, cast
 
 import anyio
-import msgspec
 import questionary
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import to_formatted_text
@@ -41,7 +40,7 @@ from ..settings import (
     require_telegram,
 )
 from ..transports import SetupResult
-from .api_models import Update, User
+from .api_models import User
 from .client import TelegramClient, TelegramRetryAfter
 from .topics import _validate_topics_setup_for
 
@@ -249,24 +248,13 @@ async def get_bot_info(token: str) -> User | None:
 async def wait_for_chat(token: str) -> ChatInfo:
     bot = TelegramClient(token)
     try:
-
-        def _update_id(update: Update | dict[str, Any]) -> int | None:
-            if isinstance(update, Update):
-                return update.update_id
-            raw_id = update.get("update_id")
-            if isinstance(raw_id, int) and not isinstance(raw_id, bool):
-                return raw_id
-            return None
-
         offset: int | None = None
         allowed_updates = ["message"]
         drained = await bot.get_updates(
             offset=None, timeout_s=0, allowed_updates=allowed_updates
         )
         if drained:
-            last_id = _update_id(drained[-1])
-            if last_id is not None:
-                offset = last_id + 1
+            offset = drained[-1].update_id + 1
         while True:
             updates = await bot.get_updates(
                 offset=offset, timeout_s=50, allowed_updates=allowed_updates
@@ -277,14 +265,7 @@ async def wait_for_chat(token: str) -> ChatInfo:
             if not updates:
                 continue
             update = updates[-1]
-            last_id = _update_id(update)
-            if last_id is not None:
-                offset = last_id + 1
-            if isinstance(update, dict):
-                try:
-                    update = msgspec.convert(update, type=Update)
-                except Exception:  # noqa: BLE001
-                    continue
+            offset = update.update_id + 1
             msg = update.message
             if msg is None:
                 continue

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, cast
 from collections.abc import AsyncIterator, Callable, Iterable
 
 import anyio
@@ -29,43 +28,22 @@ logger = get_logger(__name__)
 
 
 def parse_incoming_update(
-    update: Update | dict[str, Any],
+    update: Update,
     *,
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
 ) -> TelegramIncomingUpdate | None:
-    raw_message: dict[str, Any] | None = None
-    raw_callback: dict[str, Any] | None = None
-    if isinstance(update, dict):
-        update_dict = cast(dict[str, Any], update)
-        raw_message = (
-            update_dict.get("message")
-            if isinstance(update_dict.get("message"), dict)
-            else None
-        )
-        raw_callback = (
-            update_dict.get("callback_query")
-            if isinstance(update_dict.get("callback_query"), dict)
-            else None
-        )
-        try:
-            update = msgspec.convert(update_dict, type=Update)
-        except Exception:  # noqa: BLE001
-            return None
-
     if update.message is not None:
         return _parse_incoming_message(
             update.message,
             chat_id=chat_id,
             chat_ids=chat_ids,
-            raw=raw_message,
         )
     if update.callback_query is not None:
         return _parse_callback_query(
             update.callback_query,
             chat_id=chat_id,
             chat_ids=chat_ids,
-            raw=raw_callback,
         )
     return None
 
@@ -75,7 +53,6 @@ def _parse_incoming_message(
     *,
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
-    raw: dict[str, Any] | None = None,
 ) -> TelegramIncomingMessage | None:
     raw_text = msg.text
     caption = msg.caption
@@ -150,7 +127,7 @@ def _parse_incoming_message(
         is_forum=is_forum,
         voice=voice_payload,
         document=document_payload,
-        raw=raw if raw is not None else msgspec.to_builtins(msg),
+        raw=msgspec.to_builtins(msg),
     )
 
 
@@ -159,7 +136,6 @@ def _parse_callback_query(
     *,
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
-    raw: dict[str, Any] | None = None,
 ) -> TelegramCallbackQuery | None:
     callback_id = query.id
     msg = query.message
@@ -180,7 +156,7 @@ def _parse_callback_query(
         callback_query_id=callback_id,
         data=data,
         sender_id=sender_id,
-        raw=raw if raw is not None else msgspec.to_builtins(query),
+        raw=msgspec.to_builtins(query),
     )
 
 

@@ -9,7 +9,7 @@ from rich.text import Text
 
 from takopi.config import ConfigError
 from takopi.telegram import onboarding
-from takopi.telegram.api_models import User
+from takopi.telegram.api_models import Chat, Message, Update, User
 from takopi.telegram.client import TelegramRetryAfter
 
 
@@ -312,57 +312,57 @@ async def test_get_bot_info_gives_up(monkeypatch) -> None:
 async def test_wait_for_chat_filters_updates(monkeypatch) -> None:
     updates = [
         [
-            {
-                "update_id": 1,
-                "message": {
-                    "message_id": 1,
-                    "from": {"id": 1, "is_bot": True},
-                    "chat": {"id": 1, "type": "private"},
-                },
-            }
+            Update(
+                update_id=1,
+                message=Message(
+                    message_id=1,
+                    from_=User(id=1, is_bot=True),
+                    chat=Chat(id=1, type="private"),
+                ),
+            )
         ],
         None,
         [],
-        [{"update_id": 2, "message": None}],
+        [Update(update_id=2, message=None)],
         [
-            {
-                "update_id": 3,
-                "message": {
-                    "message_id": 3,
-                    "from": {"id": 2, "is_bot": True},
-                    "chat": {"id": 2, "type": "private"},
-                },
-            }
+            Update(
+                update_id=3,
+                message=Message(
+                    message_id=3,
+                    from_=User(id=2, is_bot=True),
+                    chat=Chat(id=2, type="private"),
+                ),
+            )
         ],
         [
-            {
-                "update_id": 4,
-                "message": {
-                    "message_id": 4,
-                    "from": {"id": 3, "is_bot": False},
-                    "chat": "nope",
-                },
-            }
+            Update(
+                update_id=4,
+                message=Message(
+                    message_id=4,
+                    from_=User(id=3, is_bot=True),
+                    chat=Chat(id=3, type="private"),
+                ),
+            )
         ],
         [
-            {
-                "update_id": 5,
-                "message": {
-                    "message_id": 5,
-                    "from": {"id": 4, "is_bot": False},
-                    "chat": {"id": "bad", "type": "private"},
-                },
-            }
+            Update(
+                update_id=5,
+                message=Message(
+                    message_id=5,
+                    from_=User(id=4, is_bot=True),
+                    chat=Chat(id=4, type="private"),
+                ),
+            )
         ],
         [
-            {
-                "update_id": 6,
-                "message": {
-                    "message_id": 6,
-                    "from": {"id": 5, "is_bot": False},
-                    "chat": {"id": 7, "username": "bob", "type": "private"},
-                },
-            }
+            Update(
+                update_id=6,
+                message=Message(
+                    message_id=6,
+                    from_=User(id=5, is_bot=False),
+                    chat=Chat(id=7, username="bob", type="private"),
+                ),
+            )
         ],
     ]
 

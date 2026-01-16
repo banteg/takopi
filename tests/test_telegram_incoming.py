@@ -3,23 +3,37 @@ from takopi.telegram import (
     TelegramIncomingMessage,
     parse_incoming_update,
 )
+from takopi.telegram.api_models import (
+    CallbackQuery,
+    CallbackQueryMessage,
+    Chat,
+    Document,
+    Message,
+    MessageReply,
+    PhotoSize,
+    Sticker,
+    Update,
+    User,
+    Video,
+    Voice,
+)
 
 
 def test_parse_incoming_update_maps_fields() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "text": "hello",
-            "chat": {"id": 123, "type": "supergroup", "is_forum": True},
-            "from": {"id": 99},
-            "reply_to_message": {
-                "message_id": 5,
-                "text": "prev",
-                "from": {"id": 77, "is_bot": True, "username": "ReplyBot"},
-            },
-        },
-    }
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            text="hello",
+            chat=Chat(id=123, type="supergroup", is_forum=True),
+            from_=User(id=99),
+            reply_to_message=MessageReply(
+                message_id=5,
+                text="prev",
+                from_=User(id=77, is_bot=True, username="ReplyBot"),
+            ),
+        ),
+    )
 
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
@@ -39,50 +53,49 @@ def test_parse_incoming_update_maps_fields() -> None:
     assert msg.is_forum is True
     assert msg.voice is None
     assert msg.document is None
-    assert msg.raw == update["message"]
+    assert msg.raw
+    assert msg.raw["message_id"] == 10
 
 
 def test_parse_incoming_update_filters_non_matching_chat() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "text": "hello",
-            "chat": {"id": 123, "type": "private"},
-        },
-    }
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            text="hello",
+            chat=Chat(id=123, type="private"),
+        ),
+    )
 
     assert parse_incoming_update(update, chat_id=999) is None
 
 
 def test_parse_incoming_update_filters_non_text_and_non_voice() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "chat": {"id": 123, "type": "private"},
-            "location": {"latitude": 1.0, "longitude": 2.0},
-        },
-    }
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            chat=Chat(id=123, type="private"),
+        ),
+    )
 
     assert parse_incoming_update(update, chat_id=123) is None
 
 
 def test_parse_incoming_update_voice_message() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "chat": {"id": 123, "type": "private"},
-            "voice": {
-                "file_id": "voice-id",
-                "file_unique_id": "uniq",
-                "duration": 3,
-                "mime_type": "audio/ogg",
-                "file_size": 1234,
-            },
-        },
-    }
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            chat=Chat(id=123, type="private"),
+            voice=Voice(
+                file_id="voice-id",
+                duration=3,
+                mime_type="audio/ogg",
+                file_size=1234,
+            ),
+        ),
+    )
 
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
@@ -96,21 +109,20 @@ def test_parse_incoming_update_voice_message() -> None:
 
 
 def test_parse_incoming_update_document_message() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "caption": "/file put incoming/doc.txt",
-            "chat": {"id": 123, "type": "private"},
-            "document": {
-                "file_id": "doc-id",
-                "file_unique_id": "uniq",
-                "file_name": "doc.txt",
-                "mime_type": "text/plain",
-                "file_size": 4321,
-            },
-        },
-    }
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            caption="/file put incoming/doc.txt",
+            chat=Chat(id=123, type="private"),
+            document=Document(
+                file_id="doc-id",
+                file_name="doc.txt",
+                mime_type="text/plain",
+                file_size=4321,
+            ),
+        ),
+    )
 
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
@@ -124,30 +136,28 @@ def test_parse_incoming_update_document_message() -> None:
 
 
 def test_parse_incoming_update_photo_message() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "caption": "/file put incoming/photo.jpg",
-            "chat": {"id": 123, "type": "private"},
-            "photo": [
-                {
-                    "file_id": "small",
-                    "file_unique_id": "uniq-small",
-                    "file_size": 100,
-                    "width": 90,
-                    "height": 90,
-                },
-                {
-                    "file_id": "large",
-                    "file_unique_id": "uniq-large",
-                    "file_size": 1000,
-                    "width": 800,
-                    "height": 600,
-                },
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            caption="/file put incoming/photo.jpg",
+            chat=Chat(id=123, type="private"),
+            photo=[
+                PhotoSize(
+                    file_id="small",
+                    file_size=100,
+                    width=90,
+                    height=90,
+                ),
+                PhotoSize(
+                    file_id="large",
+                    file_size=1000,
+                    width=800,
+                    height=600,
+                ),
             ],
-        },
-    }
+        ),
+    )
 
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
@@ -160,23 +170,22 @@ def test_parse_incoming_update_photo_message() -> None:
 
 
 def test_parse_incoming_update_media_group_id() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "chat": {"id": 123, "type": "private"},
-            "media_group_id": "group-1",
-            "photo": [
-                {
-                    "file_id": "large",
-                    "file_unique_id": "uniq-large",
-                    "file_size": 1000,
-                    "width": 800,
-                    "height": 600,
-                }
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            chat=Chat(id=123, type="private"),
+            media_group_id="group-1",
+            photo=[
+                PhotoSize(
+                    file_id="large",
+                    file_size=1000,
+                    width=800,
+                    height=600,
+                )
             ],
-        },
-    }
+        ),
+    )
 
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
@@ -185,21 +194,20 @@ def test_parse_incoming_update_media_group_id() -> None:
 
 
 def test_parse_incoming_update_video_message() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "caption": "/file put incoming/video.mp4",
-            "chat": {"id": 123, "type": "private"},
-            "video": {
-                "file_id": "video-id",
-                "file_unique_id": "uniq",
-                "file_name": "video.mp4",
-                "mime_type": "video/mp4",
-                "file_size": 4242,
-            },
-        },
-    }
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            caption="/file put incoming/video.mp4",
+            chat=Chat(id=123, type="private"),
+            video=Video(
+                file_id="video-id",
+                file_name="video.mp4",
+                mime_type="video/mp4",
+                file_size=4242,
+            ),
+        ),
+    )
 
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
@@ -213,19 +221,18 @@ def test_parse_incoming_update_video_message() -> None:
 
 
 def test_parse_incoming_update_sticker_message() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "caption": "/file put incoming/sticker.webp",
-            "chat": {"id": 123, "type": "private"},
-            "sticker": {
-                "file_id": "sticker-id",
-                "file_unique_id": "uniq",
-                "file_size": 2468,
-            },
-        },
-    }
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            caption="/file put incoming/sticker.webp",
+            chat=Chat(id=123, type="private"),
+            sticker=Sticker(
+                file_id="sticker-id",
+                file_size=2468,
+            ),
+        ),
+    )
 
     msg = parse_incoming_update(update, chat_id=123)
     assert msg is not None
@@ -239,18 +246,18 @@ def test_parse_incoming_update_sticker_message() -> None:
 
 
 def test_parse_incoming_update_callback_query() -> None:
-    update = {
-        "update_id": 1,
-        "callback_query": {
-            "id": "cbq-1",
-            "data": "takopi:cancel",
-            "from": {"id": 321},
-            "message": {
-                "message_id": 55,
-                "chat": {"id": 123, "type": "private"},
-            },
-        },
-    }
+    update = Update(
+        update_id=1,
+        callback_query=CallbackQuery(
+            id="cbq-1",
+            data="takopi:cancel",
+            from_=User(id=321),
+            message=CallbackQueryMessage(
+                message_id=55,
+                chat=Chat(id=123, type="private"),
+            ),
+        ),
+    )
 
     msg = parse_incoming_update(update, chat_id=123)
     assert isinstance(msg, TelegramCallbackQuery)
@@ -263,16 +270,16 @@ def test_parse_incoming_update_callback_query() -> None:
 
 
 def test_parse_incoming_update_topic_fields() -> None:
-    update = {
-        "update_id": 1,
-        "message": {
-            "message_id": 10,
-            "text": "hello",
-            "message_thread_id": 77,
-            "is_topic_message": True,
-            "chat": {"id": -100, "type": "supergroup", "is_forum": True},
-        },
-    }
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            text="hello",
+            message_thread_id=77,
+            is_topic_message=True,
+            chat=Chat(id=-100, type="supergroup", is_forum=True),
+        ),
+    )
 
     msg = parse_incoming_update(update, chat_id=-100)
     assert isinstance(msg, TelegramIncomingMessage)
