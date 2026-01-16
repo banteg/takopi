@@ -27,10 +27,7 @@ async def _check_agent_permissions(
     if sender_id is None:
         await reply(text="cannot verify sender for agent defaults.")
         return False
-    is_private = msg.chat_type == "private"
-    if msg.chat_type is None:
-        is_private = msg.chat_id > 0
-    if is_private:
+    if msg.is_private:
         return True
     member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
     if member is None:

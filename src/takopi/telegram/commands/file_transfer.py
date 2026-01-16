@@ -107,10 +107,7 @@ async def _check_file_permissions(
             await reply(text="file transfer is not allowed for this user.")
             return False
         return True
-    is_private = msg.chat_type == "private"
-    if msg.chat_type is None:
-        is_private = msg.chat_id > 0
-    if is_private:
+    if msg.is_private:
         return True
     member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
     if member is None:

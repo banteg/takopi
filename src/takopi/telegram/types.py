@@ -42,6 +42,12 @@ class TelegramIncomingMessage:
     document: TelegramDocument | None = None
     raw: dict[str, Any] | None = None
 
+    @property
+    def is_private(self) -> bool:
+        if self.chat_type is not None:
+            return self.chat_type == "private"
+        return self.chat_id > 0
+
 
 @dataclass(frozen=True, slots=True)
 class TelegramCallbackQuery:
