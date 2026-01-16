@@ -312,6 +312,19 @@ class _PendingPrompt:
     cancel_scope: anyio.CancelScope | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class TelegramMsgContext:
+    chat_id: int
+    thread_id: int | None
+    reply_id: int | None
+    reply_ref: MessageRef | None
+    topic_key: tuple[int, int] | None
+    chat_session_key: tuple[int, int | None] | None
+    stateful_mode: bool
+    chat_project: str | None
+    ambient_context: RunContext | None
+
+
 _FORWARD_FIELDS = (
     "forward_origin",
     "forward_from",
@@ -1384,6 +1397,46 @@ async def run_main_loop(
                 resolve_prompt_message=resolve_prompt_message,
             )
 
+            async def build_message_context(
+                msg: TelegramIncomingMessage,
+            ) -> TelegramMsgContext:
+                chat_id = msg.chat_id
+                reply_id = msg.reply_to_message_id
+                reply_ref = (
+                    MessageRef(channel_id=chat_id, message_id=reply_id)
+                    if reply_id is not None
+                    else None
+                )
+                topic_key = (
+                    _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
+                    if topic_store is not None
+                    else None
+                )
+                chat_session_key = _chat_session_key(msg, store=chat_session_store)
+                stateful_mode = topic_key is not None or chat_session_key is not None
+                chat_project = (
+                    _topics_chat_project(cfg, chat_id) if cfg.topics.enabled else None
+                )
+                bound_context = (
+                    await topic_store.get_context(*topic_key)
+                    if topic_store is not None and topic_key is not None
+                    else None
+                )
+                ambient_context = _merge_topic_context(
+                    chat_project=chat_project, bound=bound_context
+                )
+                return TelegramMsgContext(
+                    chat_id=chat_id,
+                    thread_id=msg.thread_id,
+                    reply_id=reply_id,
+                    reply_ref=reply_ref,
+                    topic_key=topic_key,
+                    chat_session_key=chat_session_key,
+                    stateful_mode=stateful_mode,
+                    chat_project=chat_project,
+                    ambient_context=ambient_context,
+                )
+
             async for msg in poller(cfg):
                 if isinstance(msg, TelegramCallbackQuery):
                     if msg.data == CANCEL_CALLBACK_DATA:
@@ -1396,13 +1449,6 @@ async def run_main_loop(
                             msg.callback_query_id,
                         )
                     continue
-                chat_id = msg.chat_id
-                reply_id = msg.reply_to_message_id
-                reply_ref = (
-                    MessageRef(channel_id=chat_id, message_id=reply_id)
-                    if reply_id is not None
-                    else None
-                )
                 reply = make_reply(cfg, msg)
                 text = msg.text
                 is_voice_transcribed = False
@@ -1423,24 +1469,15 @@ async def run_main_loop(
                 ):
                     media_group_buffer.add(msg)
                     continue
-                topic_key = (
-                    _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
-                    if topic_store is not None
-                    else None
-                )
-                chat_session_key = _chat_session_key(msg, store=chat_session_store)
-                stateful_mode = topic_key is not None or chat_session_key is not None
-                chat_project = (
-                    _topics_chat_project(cfg, chat_id) if cfg.topics.enabled else None
-                )
-                bound_context = (
-                    await topic_store.get_context(*topic_key)
-                    if topic_store is not None and topic_key is not None
-                    else None
-                )
-                ambient_context = _merge_topic_context(
-                    chat_project=chat_project, bound=bound_context
-                )
+                ctx = await build_message_context(msg)
+                chat_id = ctx.chat_id
+                reply_id = ctx.reply_id
+                reply_ref = ctx.reply_ref
+                topic_key = ctx.topic_key
+                chat_session_key = ctx.chat_session_key
+                stateful_mode = ctx.stateful_mode
+                chat_project = ctx.chat_project
+                ambient_context = ctx.ambient_context
 
                 if is_cancel_command(text):
                     tg.start_soon(handle_cancel, cfg, msg, running_tasks, scheduler)
