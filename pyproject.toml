@@ -66,7 +66,7 @@ docs = [
 ]
 
 [tool.pytest.ini_options]
-addopts = ["--cov=takopi", "--cov-branch", "--cov-report=term-missing", "--cov-fail-under=75"]
+addopts = ["--cov=takopi", "--cov-branch", "--cov-report=term-missing", "--cov-fail-under=80"]
 testpaths = ["tests"]
 
 [tool.ruff.lint]
