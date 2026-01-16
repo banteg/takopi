@@ -1073,6 +1073,13 @@ async def run_main_loop(
 
             scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
 
+            def resolve_topic_key(
+                msg: TelegramIncomingMessage,
+            ) -> tuple[int, int] | None:
+                if topic_store is None:
+                    return None
+                return _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
+
             def _build_upload_prompt(base: str, annotation: str) -> str:
                 if base and base.strip():
                     return f"{base}\n\n{annotation}"
@@ -1094,11 +1101,7 @@ async def run_main_loop(
                 except DirectiveError as exc:
                     await reply(text=f"error:\n{exc}")
                     return None
-                topic_key = (
-                    _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
-                    if topic_store is not None
-                    else None
-                )
+                topic_key = resolve_topic_key(msg)
                 effective_context = ambient_context
                 if (
                     topic_store is not None
@@ -1180,11 +1183,7 @@ async def run_main_loop(
                 resume_token = resolved.resume_token
                 context = resolved.context
                 chat_session_key = _chat_session_key(msg, store=chat_session_store)
-                topic_key = (
-                    _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
-                    if topic_store is not None
-                    else None
-                )
+                topic_key = resolve_topic_key(msg)
                 engine_resolution = await resolve_engine_defaults(
                     explicit_engine=resolved.engine_override,
                     context=context,
@@ -1418,11 +1417,7 @@ async def run_main_loop(
                     if reply_id is not None
                     else None
                 )
-                topic_key = (
-                    _topic_key(msg, cfg, scope_chat_ids=topics_chat_ids)
-                    if topic_store is not None
-                    else None
-                )
+                topic_key = resolve_topic_key(msg)
                 chat_session_key = _chat_session_key(msg, store=chat_session_store)
                 stateful_mode = topic_key is not None or chat_session_key is not None
                 chat_project = (
