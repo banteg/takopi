@@ -138,18 +138,19 @@ async def _send_startup(cfg: TelegramBridgeConfig) -> None:
 
 def _dispatch_builtin_command(
     *,
-    cfg: TelegramBridgeConfig,
-    msg: TelegramIncomingMessage,
+    ctx: TelegramCommandContext,
     command_id: str,
-    args_text: str,
-    ambient_context: RunContext | None,
-    topic_store: TopicStateStore | None,
-    chat_prefs: ChatPrefsStore | None,
-    resolved_scope: str | None,
-    scope_chat_ids: frozenset[int],
-    reply: Callable[..., Awaitable[None]],
-    task_group: TaskGroup,
 ) -> bool:
+    cfg = ctx.cfg
+    msg = ctx.msg
+    args_text = ctx.args_text
+    ambient_context = ctx.ambient_context
+    topic_store = ctx.topic_store
+    chat_prefs = ctx.chat_prefs
+    resolved_scope = ctx.resolved_scope
+    scope_chat_ids = ctx.scope_chat_ids
+    reply = ctx.reply
+    task_group = ctx.task_group
     if command_id == "file":
         if not cfg.files.enabled:
             handler = partial(
@@ -334,6 +335,20 @@ class TelegramMsgContext:
     stateful_mode: bool
     chat_project: str | None
     ambient_context: RunContext | None
+
+
+@dataclass(frozen=True, slots=True)
+class TelegramCommandContext:
+    cfg: TelegramBridgeConfig
+    msg: TelegramIncomingMessage
+    args_text: str
+    ambient_context: RunContext | None
+    topic_store: TopicStateStore | None
+    chat_prefs: ChatPrefsStore | None
+    resolved_scope: str | None
+    scope_chat_ids: frozenset[int]
+    reply: Callable[..., Awaitable[None]]
+    task_group: TaskGroup
 
 
 _FORWARD_FIELDS = (
@@ -1526,17 +1541,19 @@ async def run_main_loop(
                         )
                         continue
                 if command_id is not None and _dispatch_builtin_command(
-                    cfg=cfg,
-                    msg=msg,
+                    ctx=TelegramCommandContext(
+                        cfg=cfg,
+                        msg=msg,
+                        args_text=args_text,
+                        ambient_context=ambient_context,
+                        topic_store=topic_store,
+                        chat_prefs=chat_prefs,
+                        resolved_scope=resolved_topics_scope,
+                        scope_chat_ids=topics_chat_ids,
+                        reply=reply,
+                        task_group=tg,
+                    ),
                     command_id=command_id,
-                    args_text=args_text,
-                    ambient_context=ambient_context,
-                    topic_store=topic_store,
-                    chat_prefs=chat_prefs,
-                    resolved_scope=resolved_topics_scope,
-                    scope_chat_ids=topics_chat_ids,
-                    reply=reply,
-                    task_group=tg,
                 ):
                     continue
 
