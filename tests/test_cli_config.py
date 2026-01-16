@@ -9,10 +9,10 @@ from takopi import cli
 def _write_min_config(path: Path) -> None:
     path.write_text(
         'transport = "telegram"\n'
-        '\n'
-        '[transports.telegram]\n'
+        "\n"
+        "[transports.telegram]\n"
         'bot_token = "token"\n'
-        'chat_id = 123\n',
+        "chat_id = 123\n",
         encoding="utf-8",
     )
 
@@ -21,11 +21,11 @@ def test_config_list_outputs_flattened(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
     config_path.write_text(
         'transport = "telegram"\n'
-        'watch_config = true\n'
-        '\n'
-        '[transports.telegram]\n'
+        "watch_config = true\n"
+        "\n"
+        "[transports.telegram]\n"
         'bot_token = "token"\n'
-        'chat_id = 123\n',
+        "chat_id = 123\n",
         encoding="utf-8",
     )
 
@@ -152,12 +152,12 @@ def test_config_unset_prunes_tables(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
     config_path.write_text(
         'transport = "telegram"\n'
-        '\n'
-        '[transports.telegram]\n'
+        "\n"
+        "[transports.telegram]\n"
         'bot_token = "token"\n'
-        'chat_id = 123\n'
-        '\n'
-        '[projects.foo]\n'
+        "chat_id = 123\n"
+        "\n"
+        "[projects.foo]\n"
         'path = "/tmp/repo"\n',
         encoding="utf-8",
     )
@@ -177,12 +177,12 @@ def test_config_set_schema_validation_error(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
     config_path.write_text(
         'transport = "telegram"\n'
-        '\n'
-        '[transports.telegram]\n'
+        "\n"
+        "[transports.telegram]\n"
         'bot_token = "token"\n'
-        'chat_id = 123\n'
-        '\n'
-        '[projects.foo]\n'
+        "chat_id = 123\n"
+        "\n"
+        "[projects.foo]\n"
         'path = "/tmp/repo"\n',
         encoding="utf-8",
     )

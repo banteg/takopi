@@ -59,6 +59,11 @@ logger = get_logger(__name__)
 
 _KEY_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _MISSING = object()
+_CONFIG_PATH_OPTION = typer.Option(
+    None,
+    "--config-path",
+    help="Override the default config path.",
+)
 
 
 def _load_settings_optional() -> tuple[TakopiSettings | None, Path | None]:
@@ -782,11 +787,7 @@ def _load_config_or_exit(path: Path, *, missing_code: int) -> dict[str, Any]:
 
 
 def config_path_cmd(
-    config_path: Path | None = typer.Option(
-        None,
-        "--config-path",
-        help="Override the default config path.",
-    ),
+    config_path: Path | None = _CONFIG_PATH_OPTION,
 ) -> None:
     """Print the resolved config path."""
     path = _resolve_config_path_override(config_path)
@@ -794,11 +795,7 @@ def config_path_cmd(
 
 
 def config_list(
-    config_path: Path | None = typer.Option(
-        None,
-        "--config-path",
-        help="Override the default config path.",
-    ),
+    config_path: Path | None = _CONFIG_PATH_OPTION,
 ) -> None:
     """List config keys as flattened dot-paths."""
     path = _resolve_config_path_override(config_path)
@@ -813,11 +810,7 @@ def config_list(
 
 def config_get(
     key: str = typer.Argument(..., help="Dot-path key to fetch."),
-    config_path: Path | None = typer.Option(
-        None,
-        "--config-path",
-        help="Override the default config path.",
-    ),
+    config_path: Path | None = _CONFIG_PATH_OPTION,
 ) -> None:
     """Fetch a single config key."""
     path = _resolve_config_path_override(config_path)
@@ -832,9 +825,7 @@ def config_get(
         if not isinstance(node, dict):
             prefix = ".".join(segments[:index])
             _exit_config_error(
-                ConfigError(
-                    f"Invalid `{prefix}` in {path}; expected a table."
-                )
+                ConfigError(f"Invalid `{prefix}` in {path}; expected a table.")
             )
         if segment not in node:
             raise typer.Exit(code=1)
@@ -856,11 +847,7 @@ def config_get(
 def config_set(
     key: str = typer.Argument(..., help="Dot-path key to set."),
     value: str = typer.Argument(..., help="Value to assign (auto-parsed)."),
-    config_path: Path | None = typer.Option(
-        None,
-        "--config-path",
-        help="Override the default config path.",
-    ),
+    config_path: Path | None = _CONFIG_PATH_OPTION,
 ) -> None:
     """Set a config value."""
     path = _resolve_config_path_override(config_path)
@@ -887,9 +874,7 @@ def config_set(
         if not isinstance(next_node, dict):
             prefix = ".".join(segments[: index + 1])
             _exit_config_error(
-                ConfigError(
-                    f"Invalid `{prefix}` in {path}; expected a table."
-                )
+                ConfigError(f"Invalid `{prefix}` in {path}; expected a table.")
             )
         node = next_node
     node[segments[-1]] = parsed
@@ -918,11 +903,7 @@ def config_set(
 
 def config_unset(
     key: str = typer.Argument(..., help="Dot-path key to remove."),
-    config_path: Path | None = typer.Option(
-        None,
-        "--config-path",
-        help="Override the default config path.",
-    ),
+    config_path: Path | None = _CONFIG_PATH_OPTION,
 ) -> None:
     """Remove a config key."""
     path = _resolve_config_path_override(config_path)
@@ -943,9 +924,7 @@ def config_unset(
         if not isinstance(node, dict):
             prefix = ".".join(segments[:index])
             _exit_config_error(
-                ConfigError(
-                    f"Invalid `{prefix}` in {path}; expected a table."
-                )
+                ConfigError(f"Invalid `{prefix}` in {path}; expected a table.")
             )
         next_node = node.get(segment)
         if next_node is None:
@@ -953,9 +932,7 @@ def config_unset(
         if not isinstance(next_node, dict):
             prefix = ".".join(segments[: index + 1])
             _exit_config_error(
-                ConfigError(
-                    f"Invalid `{prefix}` in {path}; expected a table."
-                )
+                ConfigError(f"Invalid `{prefix}` in {path}; expected a table.")
             )
         stack.append((node, segment))
         node = next_node
