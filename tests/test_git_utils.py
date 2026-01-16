@@ -1,7 +1,7 @@
 from pathlib import Path
 import subprocess
 
-from takopi.utils.git import git_ok, git_run, git_stdout
+from takopi.utils.git import git_is_worktree, git_ok, git_run, git_stdout
 from takopi.utils.git import resolve_default_base, resolve_main_worktree_root
 
 
@@ -103,3 +103,29 @@ def test_git_stdout_returns_none_on_error(monkeypatch) -> None:
 def test_git_ok_false_when_run_missing(monkeypatch) -> None:
     monkeypatch.setattr("takopi.utils.git._run_git", lambda *_args, **_kwargs: None)
     assert git_ok(["status"], cwd=Path("/repo")) is False
+
+
+def test_git_stdout_returns_trimmed_output(monkeypatch) -> None:
+    def _fake_run(*_args, **_kwargs):
+        return subprocess.CompletedProcess(
+            args=["git"],
+            returncode=0,
+            stdout="  ok \n",
+            stderr="",
+        )
+
+    monkeypatch.setattr("takopi.utils.git._run_git", _fake_run)
+    assert git_stdout(["status"], cwd=Path("/repo")) == "ok"
+
+
+def test_git_is_worktree_false_when_no_top(monkeypatch) -> None:
+    monkeypatch.setattr("takopi.utils.git.git_stdout", lambda *_a, **_k: None)
+    assert git_is_worktree(Path("/repo")) is False
+
+
+def test_git_is_worktree_matches_path(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "takopi.utils.git.git_stdout",
+        lambda *_a, **_k: "/repo",
+    )
+    assert git_is_worktree(Path("/repo")) is True
