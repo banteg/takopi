@@ -55,6 +55,12 @@ from .doctor import (
     _doctor_voice_checks,
     run_doctor,
 )
+from .init import (
+    _default_alias_from_path,
+    _ensure_projects_table,
+    _prompt_alias,
+    run_init,
+)
 from .plugins import plugins_cmd
 from .config import (
     _CONFIG_PATH_OPTION,
@@ -301,35 +307,6 @@ def _run_auto_router(
             lock_handle.release()
 
 
-def _prompt_alias(value: str | None, *, default_alias: str | None = None) -> str:
-    if value is not None:
-        alias = value
-    elif default_alias:
-        alias = typer.prompt("project alias", default=default_alias)
-    else:
-        alias = typer.prompt("project alias")
-    alias = alias.strip()
-    if not alias:
-        typer.echo("error: project alias cannot be empty", err=True)
-        raise typer.Exit(code=1)
-    return alias
-
-
-def _default_alias_from_path(path: Path) -> str | None:
-    name = path.name
-    if not name:
-        return None
-    name = name.removesuffix(".git")
-    return name or None
-
-
-def _ensure_projects_table(config: dict, config_path: Path) -> dict:
-    projects = config.setdefault("projects", {})
-    if not isinstance(projects, dict):
-        raise ConfigError(f"Invalid `projects` in {config_path}; expected a table.")
-    return projects
-
-
 def init(
     alias: str | None = typer.Argument(
         None, help="Project alias (used as /alias in messages)."
@@ -341,66 +318,15 @@ def init(
     ),
 ) -> None:
     """Register the current repo as a Takopi project."""
-    config, config_path = load_or_init_config()
-    if config_path.exists():
-        applied = migrate_config(config, config_path=config_path)
-        if applied:
-            write_config(config, config_path)
-
-    cwd = Path.cwd()
-    project_path = resolve_main_worktree_root(cwd) or cwd
-    default_alias = _default_alias_from_path(project_path)
-    alias = _prompt_alias(alias, default_alias=default_alias)
-
-    settings = validate_settings_data(config, config_path=config_path)
-    allowlist = resolve_plugins_allowlist(settings)
-    engine_ids = list_backend_ids(allowlist=allowlist)
-    projects_cfg = settings.to_projects_config(
-        config_path=config_path,
-        engine_ids=engine_ids,
-        reserved=RESERVED_CHAT_COMMANDS,
+    run_init(
+        alias=alias,
+        default=default,
+        load_or_init_config_fn=load_or_init_config,
+        resolve_main_worktree_root_fn=resolve_main_worktree_root,
+        resolve_default_base_fn=resolve_default_base,
+        list_backend_ids_fn=list_backend_ids,
+        resolve_plugins_allowlist_fn=resolve_plugins_allowlist,
     )
-
-    alias_key = alias.lower()
-    if alias_key in {engine.lower() for engine in engine_ids}:
-        raise ConfigError(
-            f"Invalid project alias {alias!r}; aliases must not match engine ids."
-        )
-    if alias_key in RESERVED_CHAT_COMMANDS:
-        raise ConfigError(
-            f"Invalid project alias {alias!r}; aliases must not match reserved commands."
-        )
-
-    existing = projects_cfg.projects.get(alias_key)
-    if existing is not None:
-        overwrite = typer.confirm(
-            f"project {existing.alias!r} already exists, overwrite?",
-            default=False,
-        )
-        if not overwrite:
-            raise typer.Exit(code=1)
-
-    projects = _ensure_projects_table(config, config_path)
-    if existing is not None and existing.alias in projects:
-        projects.pop(existing.alias, None)
-
-    default_engine = settings.default_engine
-    worktree_base = resolve_default_base(project_path)
-
-    entry: dict[str, object] = {
-        "path": str(project_path),
-        "worktrees_dir": ".worktrees",
-        "default_engine": default_engine,
-    }
-    if worktree_base:
-        entry["worktree_base"] = worktree_base
-
-    projects[alias] = entry
-    if default:
-        config["default_project"] = alias
-
-    write_config(config, config_path)
-    typer.echo(f"saved project {alias!r} to {_config_path_display(config_path)}")
 
 
 def chat_id(
