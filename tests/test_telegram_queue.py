@@ -3,7 +3,15 @@ from typing import Any
 import anyio
 import pytest
 
-from takopi.telegram.api_models import Chat, File, Message, Update, User
+from takopi.telegram.api_models import (
+    Chat,
+    ChatMember,
+    File,
+    ForumTopic,
+    Message,
+    Update,
+    User,
+)
 from takopi.telegram.client import BotClient, TelegramClient, TelegramRetryAfter
 
 
@@ -13,6 +21,16 @@ class FakeBot(BotClient):
         self.edit_calls: list[str] = []
         self.delete_calls: list[tuple[int, int]] = []
         self.topic_calls: list[tuple[int, int, str]] = []
+        self.document_calls: list[
+            tuple[int, str, bytes, int | None, int | None, bool | None, str | None]
+        ] = []
+        self.command_calls: list[
+            tuple[list[dict[str, Any]], dict[str, Any] | None, str | None]
+        ] = []
+        self.callback_calls: list[tuple[str, str | None, bool | None]] = []
+        self.chat_calls: list[int] = []
+        self.chat_member_calls: list[tuple[int, int]] = []
+        self.create_topic_calls: list[tuple[int, str]] = []
         self._edit_attempts = 0
         self._updates_attempts = 0
         self.retry_after: float | None = None
@@ -51,16 +69,18 @@ class FakeBot(BotClient):
         disable_notification: bool | None = False,
         caption: str | None = None,
     ) -> Message | None:
-        _ = (
-            chat_id,
-            filename,
-            content,
-            reply_to_message_id,
-            message_thread_id,
-            disable_notification,
-            caption,
-        )
         self.calls.append("send_document")
+        self.document_calls.append(
+            (
+                chat_id,
+                filename,
+                content,
+                reply_to_message_id,
+                message_thread_id,
+                disable_notification,
+                caption,
+            )
+        )
         return Message(message_id=1, chat=Chat(id=chat_id, type="private"))
 
     async def edit_message_text(
@@ -104,9 +124,8 @@ class FakeBot(BotClient):
         scope: dict[str, Any] | None = None,
         language_code: str | None = None,
     ) -> bool:
-        _ = commands
-        _ = scope
-        _ = language_code
+        self.calls.append("set_my_commands")
+        self.command_calls.append((commands, scope, language_code))
         return True
 
     async def get_updates(
@@ -144,7 +163,8 @@ class FakeBot(BotClient):
         text: str | None = None,
         show_alert: bool | None = None,
     ) -> bool:
-        _ = callback_query_id, text, show_alert
+        self.calls.append("answer_callback_query")
+        self.callback_calls.append((callback_query_id, text, show_alert))
         return True
 
     async def edit_forum_topic(
@@ -153,6 +173,21 @@ class FakeBot(BotClient):
         self.calls.append("edit_forum_topic")
         self.topic_calls.append((chat_id, message_thread_id, name))
         return True
+
+    async def get_chat(self, chat_id: int) -> Chat | None:
+        self.calls.append("get_chat")
+        self.chat_calls.append(chat_id)
+        return Chat(id=chat_id, type="private")
+
+    async def get_chat_member(self, chat_id: int, user_id: int) -> ChatMember | None:
+        self.calls.append("get_chat_member")
+        self.chat_member_calls.append((chat_id, user_id))
+        return ChatMember(status="member")
+
+    async def create_forum_topic(self, chat_id: int, name: str) -> ForumTopic | None:
+        self.calls.append("create_forum_topic")
+        self.create_topic_calls.append((chat_id, name))
+        return ForumTopic(message_thread_id=11)
 
 
 @pytest.mark.anyio
@@ -167,6 +202,93 @@ async def test_edit_forum_topic_uses_outbox() -> None:
     assert result is True
     assert bot.calls == ["edit_forum_topic"]
     assert bot.topic_calls == [(7, 42, "takopi @main")]
+
+
+@pytest.mark.anyio
+async def test_send_document_uses_outbox() -> None:
+    bot = FakeBot()
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
+
+    result = await client.send_document(
+        chat_id=5,
+        filename="note.txt",
+        content=b"hello",
+        caption="greetings",
+    )
+
+    assert result is not None
+    assert bot.calls == ["send_document"]
+    assert bot.document_calls == [
+        (5, "note.txt", b"hello", None, None, False, "greetings")
+    ]
+    await client.close()
+
+
+@pytest.mark.anyio
+async def test_set_my_commands_uses_outbox() -> None:
+    bot = FakeBot()
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
+
+    commands = [{"command": "ping", "description": "Ping the bot"}]
+    result = await client.set_my_commands(
+        commands,
+        scope={"type": "default"},
+        language_code="en",
+    )
+
+    assert result is True
+    assert bot.calls == ["set_my_commands"]
+    assert bot.command_calls == [(commands, {"type": "default"}, "en")]
+    await client.close()
+
+
+@pytest.mark.anyio
+async def test_answer_callback_query_uses_outbox() -> None:
+    bot = FakeBot()
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
+
+    result = await client.answer_callback_query(
+        callback_query_id="cb-1",
+        text="ok",
+        show_alert=True,
+    )
+
+    assert result is True
+    assert bot.calls == ["answer_callback_query"]
+    assert bot.callback_calls == [("cb-1", "ok", True)]
+    await client.close()
+
+
+@pytest.mark.anyio
+async def test_get_chat_and_member_uses_outbox() -> None:
+    bot = FakeBot()
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
+
+    chat = await client.get_chat(9)
+    member = await client.get_chat_member(9, 42)
+
+    assert chat is not None
+    assert chat.id == 9
+    assert member is not None
+    assert member.status == "member"
+    assert bot.calls == ["get_chat", "get_chat_member"]
+    assert bot.chat_calls == [9]
+    assert bot.chat_member_calls == [(9, 42)]
+    await client.close()
+
+
+@pytest.mark.anyio
+async def test_create_forum_topic_uses_outbox() -> None:
+    bot = FakeBot()
+    client = TelegramClient(client=bot, private_chat_rps=0.0, group_chat_rps=0.0)
+
+    topic = await client.create_forum_topic(3, "status updates")
+
+    assert topic is not None
+    assert topic.message_thread_id == 11
+    assert bot.calls == ["create_forum_topic"]
+    assert bot.create_topic_calls == [(3, "status updates")]
+    await client.close()
 
 
 @pytest.mark.anyio

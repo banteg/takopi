@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
@@ -256,6 +257,42 @@ def test_render_engine_table_prints() -> None:
         [("codex", True, None), ("other", False, "brew install other")],
     )
     assert ui.printed
+
+
+def test_debug_onboarding_paths_prints_table() -> None:
+    console = Console(record=True, width=120)
+    onboarding.debug_onboarding_paths(console=console)
+    output = console.export_text()
+    assert "onboarding paths (15)" in output
+    assert "workspace" in output
+    assert "assistant" in output
+    assert "handoff" in output
+
+
+@pytest.mark.anyio
+async def test_confirm_prompt_returns_question_result(monkeypatch) -> None:
+    seen: dict[str, object] = {}
+
+    class _PromptSession:
+        def __init__(self, *args, **kwargs) -> None:
+            seen["args"] = args
+            seen["kwargs"] = kwargs
+            self.app = object()
+
+    class _Question:
+        def __init__(self, app) -> None:
+            seen["app"] = app
+
+        async def ask_async(self) -> bool | None:
+            return True
+
+    monkeypatch.setattr(onboarding, "PromptSession", _PromptSession)
+    monkeypatch.setattr(onboarding, "Question", _Question)
+
+    result = await onboarding.confirm_prompt("continue?", default=False)
+
+    assert result is True
+    assert "kwargs" in seen
 
 
 @pytest.mark.anyio
