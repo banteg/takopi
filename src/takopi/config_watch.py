@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Awaitable, Callable, Iterable
@@ -75,6 +76,9 @@ async def watch_config(
     reserved: Iterable[str] = RESERVED_CHAT_COMMANDS,
     on_reload: Callable[[ConfigReload], Awaitable[None]] | None = None,
 ) -> None:
+    # Mutmut sets MUTANT_UNDER_TEST; disable watchers to avoid native crashes.
+    if os.environ.get("MUTANT_UNDER_TEST"):
+        return
     reserved_tuple = tuple(reserved)
     config_path = config_path.expanduser().resolve()
     watch_root = config_path.parent

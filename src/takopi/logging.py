@@ -206,7 +206,7 @@ class SafeWriter(io.TextIOBase):
 
 
 def setup_logging(
-    *, debug: bool = False, cache_logger_on_first_use: bool = True
+    *, debug: bool = False, cache_logger_on_first_use: bool = False
 ) -> None:
     global _MIN_LEVEL, _PIPELINE_LEVEL_NAME
     global _log_file_handle

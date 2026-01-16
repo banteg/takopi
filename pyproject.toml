@@ -54,6 +54,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "mutmut>=3.4.0",
     "pytest>=9.0.2",
     "pytest-anyio>=0.0.0",
     "pytest-cov>=7.0.0",
@@ -66,8 +67,14 @@ docs = [
 ]
 
 [tool.pytest.ini_options]
-addopts = ["--cov=takopi", "--cov-branch", "--cov-report=term-missing", "--cov-fail-under=80"]
+addopts = ["--cov=takopi", "--cov-branch", "--cov-report=term-missing", "--cov-fail-under=81"]
 testpaths = ["tests"]
+
+[tool.mutmut]
+paths_to_mutate = ["src/takopi"]
+tests_dir = ["tests"]
+pytest_add_cli_args = ["-q", "--no-cov"]
+do_not_mutate = ["src/takopi/cli/*"]
 
 [tool.ruff.lint]
 extend-select = ["B", "BLE001", "C4", "PERF", "RUF043", "S110", "SIM", "UP"]
