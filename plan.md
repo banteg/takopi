@@ -124,6 +124,7 @@ takopi config list
 
 * One key per line: `key = value`
 * Values printed as TOML literals (strings quoted) so output can be reused.
+* Output is **raw TOML only** (no default values injected by Pydantic).
 
 Example:
 
@@ -156,6 +157,7 @@ takopi config get default_engine
 * If key exists and is a leaf value: print it as a TOML literal.
 * If key exists and is a table: error with a hint ("this is a table; pick a leaf node").
 * If key does not exist: print nothing.
+* Uses raw TOML data only (no default values injected).
 
 **Exit codes**
 
@@ -223,11 +225,21 @@ takopi config unset projects.old-project
 
 ## Validation for mutations
 
-For `set` and `unset`, validate the updated config against the **config schema** before writing:
+For `set` and `unset`, validate the updated config against the **config schema** before writing
+(TOML-only, no env overlays):
 
 * If schema validation fails, abort and **do not write**.
+* This is strict: if the existing config is incomplete (e.g., missing required tables),
+  `set`/`unset` will fail until the config is made valid.
 
 No separate `validate` command and no validation modes.
+
+Notes:
+
+* Validation should use the existing helper in `src/takopi/settings.py`
+  (`validate_settings_data(data, config_path=...)`) so errors surface as `ConfigError`.
+* This enforces `ProjectSettings`’s strictness (extra=forbid) while still allowing
+  unknown **top-level** tables via `TakopiSettings` (extra=allow).
 
 ---
 
@@ -283,3 +295,5 @@ takopi config unset projects.old-project
 * Reuse `load_or_init_config()` and `write_config()` (but update/augment to support atomic write).
 * Reuse `migrate_config()`/`migrate_config_file()` logic, but prefer “migrate in-memory then write once” for config edits.
 * For `list`, implement a deterministic flatten that walks dicts and emits dot-path keys.
+* Use `validate_settings_data()` rather than `load_settings()` so CLI validation is TOML-only
+  (no env overrides) and returns consistent `ConfigError` messages.
