@@ -38,7 +38,7 @@ class User(msgspec.Struct, forbid_unknown_fields=False):
 
 class Chat(msgspec.Struct, forbid_unknown_fields=False):
     id: int
-    type: str | None = None
+    type: str
     title: str | None = None
     username: str | None = None
     first_name: str | None = None
@@ -87,13 +87,20 @@ class MessageReply(msgspec.Struct, forbid_unknown_fields=False):
 
 class Message(msgspec.Struct, forbid_unknown_fields=False):
     message_id: int
-    chat: Chat | None = None
+    chat: Chat
     message_thread_id: int | None = None
     from_: User | None = msgspec.field(default=None, name="from")
     text: str | None = None
     caption: str | None = None
     reply_to_message: MessageReply | None = None
+    forward_from: User | None = None
+    forward_from_chat: Chat | None = None
+    forward_from_message_id: int | None = None
+    forward_sender_name: str | None = None
+    forward_signature: str | None = None
+    forward_date: int | None = None
     media_group_id: str | None = None
+    is_automatic_forward: bool | None = None
     is_topic_message: bool | None = None
     voice: Voice | None = None
     document: Document | None = None

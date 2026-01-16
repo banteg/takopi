@@ -316,8 +316,8 @@ async def test_wait_for_chat_filters_updates(monkeypatch) -> None:
                 "update_id": 1,
                 "message": {
                     "message_id": 1,
-                    "from": {"is_bot": True},
-                    "chat": {"id": 1},
+                    "from": {"id": 1, "is_bot": True},
+                    "chat": {"id": 1, "type": "private"},
                 },
             }
         ],
@@ -329,8 +329,8 @@ async def test_wait_for_chat_filters_updates(monkeypatch) -> None:
                 "update_id": 3,
                 "message": {
                     "message_id": 3,
-                    "from": {"is_bot": True},
-                    "chat": {"id": 2},
+                    "from": {"id": 2, "is_bot": True},
+                    "chat": {"id": 2, "type": "private"},
                 },
             }
         ],
@@ -339,7 +339,7 @@ async def test_wait_for_chat_filters_updates(monkeypatch) -> None:
                 "update_id": 4,
                 "message": {
                     "message_id": 4,
-                    "from": {"is_bot": False},
+                    "from": {"id": 3, "is_bot": False},
                     "chat": "nope",
                 },
             }
@@ -349,8 +349,8 @@ async def test_wait_for_chat_filters_updates(monkeypatch) -> None:
                 "update_id": 5,
                 "message": {
                     "message_id": 5,
-                    "from": {"is_bot": False},
-                    "chat": {"id": "bad"},
+                    "from": {"id": 4, "is_bot": False},
+                    "chat": {"id": "bad", "type": "private"},
                 },
             }
         ],
@@ -359,7 +359,7 @@ async def test_wait_for_chat_filters_updates(monkeypatch) -> None:
                 "update_id": 6,
                 "message": {
                     "message_id": 6,
-                    "from": {"is_bot": False},
+                    "from": {"id": 5, "is_bot": False},
                     "chat": {"id": 7, "username": "bob", "type": "private"},
                 },
             }

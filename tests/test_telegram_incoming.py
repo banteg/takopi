@@ -48,7 +48,7 @@ def test_parse_incoming_update_filters_non_matching_chat() -> None:
         "message": {
             "message_id": 10,
             "text": "hello",
-            "chat": {"id": 123},
+            "chat": {"id": 123, "type": "private"},
         },
     }
 
@@ -60,7 +60,7 @@ def test_parse_incoming_update_filters_non_text_and_non_voice() -> None:
         "update_id": 1,
         "message": {
             "message_id": 10,
-            "chat": {"id": 123},
+            "chat": {"id": 123, "type": "private"},
             "location": {"latitude": 1.0, "longitude": 2.0},
         },
     }
@@ -73,7 +73,7 @@ def test_parse_incoming_update_voice_message() -> None:
         "update_id": 1,
         "message": {
             "message_id": 10,
-            "chat": {"id": 123},
+            "chat": {"id": 123, "type": "private"},
             "voice": {
                 "file_id": "voice-id",
                 "file_unique_id": "uniq",
@@ -101,7 +101,7 @@ def test_parse_incoming_update_document_message() -> None:
         "message": {
             "message_id": 10,
             "caption": "/file put incoming/doc.txt",
-            "chat": {"id": 123},
+            "chat": {"id": 123, "type": "private"},
             "document": {
                 "file_id": "doc-id",
                 "file_unique_id": "uniq",
@@ -129,7 +129,7 @@ def test_parse_incoming_update_photo_message() -> None:
         "message": {
             "message_id": 10,
             "caption": "/file put incoming/photo.jpg",
-            "chat": {"id": 123},
+            "chat": {"id": 123, "type": "private"},
             "photo": [
                 {
                     "file_id": "small",
@@ -164,7 +164,7 @@ def test_parse_incoming_update_media_group_id() -> None:
         "update_id": 1,
         "message": {
             "message_id": 10,
-            "chat": {"id": 123},
+            "chat": {"id": 123, "type": "private"},
             "media_group_id": "group-1",
             "photo": [
                 {
@@ -190,7 +190,7 @@ def test_parse_incoming_update_video_message() -> None:
         "message": {
             "message_id": 10,
             "caption": "/file put incoming/video.mp4",
-            "chat": {"id": 123},
+            "chat": {"id": 123, "type": "private"},
             "video": {
                 "file_id": "video-id",
                 "file_unique_id": "uniq",
@@ -218,7 +218,7 @@ def test_parse_incoming_update_sticker_message() -> None:
         "message": {
             "message_id": 10,
             "caption": "/file put incoming/sticker.webp",
-            "chat": {"id": 123},
+            "chat": {"id": 123, "type": "private"},
             "sticker": {
                 "file_id": "sticker-id",
                 "file_unique_id": "uniq",
@@ -247,7 +247,7 @@ def test_parse_incoming_update_callback_query() -> None:
             "from": {"id": 321},
             "message": {
                 "message_id": 55,
-                "chat": {"id": 123},
+                "chat": {"id": 123, "type": "private"},
             },
         },
     }

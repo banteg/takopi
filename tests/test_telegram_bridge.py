@@ -14,7 +14,7 @@ from takopi.telegram.commands.topics import _handle_topic_command
 import takopi.telegram.loop as telegram_loop
 import takopi.telegram.topics as telegram_topics
 from takopi.directives import parse_directives
-from takopi.telegram.api_models import File, ForumTopic, Message, Update, User
+from takopi.telegram.api_models import Chat, File, ForumTopic, Message, Update, User
 from takopi.settings import TelegramFilesSettings, TelegramTopicsSettings
 from takopi.telegram.bridge import (
     TelegramBridgeConfig,
@@ -462,7 +462,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             )
             if not wait:
                 return None
-            return Message(message_id=message_id)
+            return Message(message_id=message_id, chat=Chat(id=chat_id, type="private"))
 
         async def delete_message(
             self,

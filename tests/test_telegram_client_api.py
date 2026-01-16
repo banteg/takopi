@@ -71,9 +71,9 @@ async def test_client_methods_build_params_and_decode() -> None:
     payloads = {
         "getUpdates": [{"update_id": 1}],
         "getFile": {"file_path": "path"},
-        "sendMessage": {"message_id": 1},
-        "sendDocument": {"message_id": 2},
-        "editMessageText": {"message_id": 3},
+        "sendMessage": {"message_id": 1, "chat": {"id": 1, "type": "private"}},
+        "sendDocument": {"message_id": 2, "chat": {"id": 1, "type": "private"}},
+        "editMessageText": {"message_id": 3, "chat": {"id": 1, "type": "private"}},
         "deleteMessage": True,
         "setMyCommands": True,
         "getMe": {"id": 7},

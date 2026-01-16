@@ -3,7 +3,7 @@ from typing import Any
 import anyio
 import pytest
 
-from takopi.telegram.api_models import File, Message, Update, User
+from takopi.telegram.api_models import Chat, File, Message, Update, User
 from takopi.telegram.client import BotClient, TelegramClient, TelegramRetryAfter
 
 
@@ -39,7 +39,7 @@ class FakeBot(BotClient):
         _ = reply_markup
         _ = replace_message_id
         self.calls.append("send_message")
-        return Message(message_id=1)
+        return Message(message_id=1, chat=Chat(id=chat_id, type="private"))
 
     async def send_document(
         self,
@@ -61,7 +61,7 @@ class FakeBot(BotClient):
             caption,
         )
         self.calls.append("send_document")
-        return Message(message_id=1)
+        return Message(message_id=1, chat=Chat(id=chat_id, type="private"))
 
     async def edit_message_text(
         self,
@@ -86,7 +86,7 @@ class FakeBot(BotClient):
             self._edit_attempts += 1
             raise TelegramRetryAfter(self.retry_after)
         self._edit_attempts += 1
-        return Message(message_id=message_id)
+        return Message(message_id=message_id, chat=Chat(id=chat_id, type="private"))
 
     async def delete_message(
         self,

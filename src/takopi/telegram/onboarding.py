@@ -41,7 +41,7 @@ from ..settings import (
     require_telegram,
 )
 from ..transports import SetupResult
-from .api_models import Message, Update, User
+from .api_models import Update, User
 from .client import TelegramClient, TelegramRetryAfter
 from .topics import _validate_topics_setup_for
 
@@ -249,13 +249,24 @@ async def get_bot_info(token: str) -> User | None:
 async def wait_for_chat(token: str) -> ChatInfo:
     bot = TelegramClient(token)
     try:
+
+        def _update_id(update: Update | dict[str, Any]) -> int | None:
+            if isinstance(update, Update):
+                return update.update_id
+            raw_id = update.get("update_id")
+            if isinstance(raw_id, int) and not isinstance(raw_id, bool):
+                return raw_id
+            return None
+
         offset: int | None = None
         allowed_updates = ["message"]
         drained = await bot.get_updates(
             offset=None, timeout_s=0, allowed_updates=allowed_updates
         )
         if drained:
-            offset = drained[-1].update_id + 1
+            last_id = _update_id(drained[-1])
+            if last_id is not None:
+                offset = last_id + 1
         while True:
             updates = await bot.get_updates(
                 offset=offset, timeout_s=50, allowed_updates=allowed_updates
@@ -265,19 +276,16 @@ async def wait_for_chat(token: str) -> ChatInfo:
                 continue
             if not updates:
                 continue
-            offset = updates[-1].update_id + 1
             update = updates[-1]
+            last_id = _update_id(update)
+            if last_id is not None:
+                offset = last_id + 1
             if isinstance(update, dict):
                 try:
                     update = msgspec.convert(update, type=Update)
                 except Exception:  # noqa: BLE001
                     continue
             msg = update.message
-            if isinstance(msg, dict):
-                try:
-                    msg = msgspec.convert(msg, type=Message)
-                except Exception:  # noqa: BLE001
-                    continue
             if msg is None:
                 continue
             sender = msg.from_

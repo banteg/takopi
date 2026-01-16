@@ -141,7 +141,7 @@ class FakeBot(BotClient):
                 "replace_message_id": replace_message_id,
             }
         )
-        return Message(message_id=1)
+        return Message(message_id=1, chat=Chat(id=chat_id, type="private"))
 
     async def send_document(
         self,
@@ -164,7 +164,7 @@ class FakeBot(BotClient):
                 "caption": caption,
             }
         )
-        return Message(message_id=2)
+        return Message(message_id=2, chat=Chat(id=chat_id, type="private"))
 
     async def edit_message_text(
         self,
@@ -188,7 +188,7 @@ class FakeBot(BotClient):
                 "wait": wait,
             }
         )
-        return Message(message_id=message_id)
+        return Message(message_id=message_id, chat=Chat(id=chat_id, type="private"))
 
     async def delete_message(self, chat_id: int, message_id: int) -> bool:
         self.delete_calls.append({"chat_id": chat_id, "message_id": message_id})

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, TypeVar
+from typing import Any, cast
 from collections.abc import AsyncIterator, Callable, Iterable
 
 import anyio
@@ -26,7 +26,6 @@ from .types import (
 )
 
 logger = get_logger(__name__)
-T = TypeVar("T")
 
 
 def parse_incoming_update(
@@ -38,29 +37,32 @@ def parse_incoming_update(
     raw_message: dict[str, Any] | None = None
     raw_callback: dict[str, Any] | None = None
     if isinstance(update, dict):
-        raw_message = update.get("message") if isinstance(update.get("message"), dict) else None
+        update_dict = cast(dict[str, Any], update)
+        raw_message = (
+            update_dict.get("message")
+            if isinstance(update_dict.get("message"), dict)
+            else None
+        )
         raw_callback = (
-            update.get("callback_query")
-            if isinstance(update.get("callback_query"), dict)
+            update_dict.get("callback_query")
+            if isinstance(update_dict.get("callback_query"), dict)
             else None
         )
         try:
-            update = msgspec.convert(update, type=Update)
+            update = msgspec.convert(update_dict, type=Update)
         except Exception:  # noqa: BLE001
             return None
 
-    msg = _coerce_payload(update.message, Message)
-    if msg is not None:
+    if update.message is not None:
         return _parse_incoming_message(
-            msg,
+            update.message,
             chat_id=chat_id,
             chat_ids=chat_ids,
             raw=raw_message,
         )
-    callback_query = _coerce_payload(update.callback_query, CallbackQuery)
-    if callback_query is not None:
+    if update.callback_query is not None:
         return _parse_callback_query(
-            callback_query,
+            update.callback_query,
             chat_id=chat_id,
             chat_ids=chat_ids,
             raw=raw_callback,
@@ -110,12 +112,9 @@ def _parse_incoming_message(
     has_text = raw_text is not None or caption is not None
     if not has_text and voice_payload is None and document_payload is None:
         return None
-    chat = msg.chat
-    if chat is None:
-        return None
-    msg_chat_id = chat.id
-    chat_type = chat.type
-    is_forum = chat.is_forum
+    msg_chat_id = msg.chat.id
+    chat_type = msg.chat.type
+    is_forum = msg.chat.is_forum
     allowed = chat_ids
     if allowed is None and chat_id is not None:
         allowed = {chat_id}
@@ -166,10 +165,7 @@ def _parse_callback_query(
     msg = query.message
     if msg is None:
         return None
-    chat = msg.chat
-    if chat is None:
-        return None
-    msg_chat_id = chat.id
+    msg_chat_id = msg.chat.id
     allowed = chat_ids
     if allowed is None and chat_id is not None:
         allowed = {chat_id}
@@ -186,19 +182,6 @@ def _parse_callback_query(
         sender_id=sender_id,
         raw=raw if raw is not None else msgspec.to_builtins(query),
     )
-
-
-def _coerce_payload(payload: Any | None, kind: type[T]) -> T | None:
-    if payload is None:
-        return None
-    if isinstance(payload, kind):
-        return payload
-    if isinstance(payload, dict):
-        try:
-            return msgspec.convert(payload, type=kind)
-        except Exception:  # noqa: BLE001
-            return None
-    return None
 
 
 def _best_photo(photos: list[PhotoSize] | None) -> PhotoSize | None:
@@ -218,9 +201,9 @@ def _best_photo(photos: list[PhotoSize] | None) -> PhotoSize | None:
 def _document_from_media(media: Document | Video) -> TelegramDocument:
     return TelegramDocument(
         file_id=media.file_id,
-        file_name=getattr(media, "file_name", None),
-        mime_type=getattr(media, "mime_type", None),
-        file_size=getattr(media, "file_size", None),
+        file_name=media.file_name,
+        mime_type=media.mime_type,
+        file_size=media.file_size,
         raw=msgspec.to_builtins(media),
     )
 
@@ -230,7 +213,7 @@ def _document_from_photo(photo: PhotoSize) -> TelegramDocument:
         file_id=photo.file_id,
         file_name=None,
         mime_type=None,
-        file_size=getattr(photo, "file_size", None),
+        file_size=photo.file_size,
         raw=msgspec.to_builtins(photo),
     )
 
@@ -240,7 +223,7 @@ def _document_from_sticker(sticker: Sticker) -> TelegramDocument:
         file_id=sticker.file_id,
         file_name=None,
         mime_type=None,
-        file_size=getattr(sticker, "file_size", None),
+        file_size=sticker.file_size,
         raw=msgspec.to_builtins(sticker),
     )
 
