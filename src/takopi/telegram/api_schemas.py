@@ -15,6 +15,7 @@ __all__ = [
     "Document",
     "File",
     "ForumTopic",
+    "ForumTopicCreated",
     "Message",
     "MessageReply",
     "PhotoSize",
@@ -79,10 +80,17 @@ class Sticker(msgspec.Struct, forbid_unknown_fields=False):
     file_size: int | None = None
 
 
+class ForumTopicCreated(msgspec.Struct, forbid_unknown_fields=False):
+    name: str
+    icon_color: int | None = None
+    icon_custom_emoji_id: str | None = None
+
+
 class MessageReply(msgspec.Struct, forbid_unknown_fields=False):
     message_id: int
     text: str | None = None
     from_: User | None = msgspec.field(default=None, name="from")
+    forum_topic_created: ForumTopicCreated | None = None
 
 
 class Message(msgspec.Struct, forbid_unknown_fields=False):

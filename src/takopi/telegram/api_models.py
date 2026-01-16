@@ -8,6 +8,7 @@ from .api_schemas import (
     Document,
     File,
     ForumTopic,
+    ForumTopicCreated,
     Message,
     MessageReply,
     PhotoSize,
@@ -16,6 +17,7 @@ from .api_schemas import (
     User,
     Video,
     Voice,
+    decode_update,
 )
 
 __all__ = [
@@ -26,6 +28,7 @@ __all__ = [
     "Document",
     "File",
     "ForumTopic",
+    "ForumTopicCreated",
     "Message",
     "MessageReply",
     "PhotoSize",
@@ -34,4 +37,5 @@ __all__ = [
     "User",
     "Video",
     "Voice",
+    "decode_update",
 ]

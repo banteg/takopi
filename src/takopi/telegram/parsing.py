@@ -100,8 +100,19 @@ def _parse_incoming_message(
     reply = msg.reply_to_message
     reply_to_message_id = reply.message_id if reply is not None else None
     reply_to_text = reply.text if reply is not None else None
+    # Skip bot reply detection for forum topic creation messages.
+    # Telegram may set reply_to_message to the topic creation message
+    # for messages in a topic. If the bot created the topic, this would
+    # incorrectly set reply_to_is_bot=True for non-reply messages.
+    is_topic_creation = (
+        reply is not None and reply.forum_topic_created is not None
+    )
     reply_to_is_bot = (
-        reply.from_.is_bot if reply is not None and reply.from_ is not None else None
+        reply.from_.is_bot
+        if reply is not None
+        and reply.from_ is not None
+        and not is_topic_creation
+        else None
     )
     reply_to_username = (
         reply.from_.username if reply is not None and reply.from_ is not None else None
