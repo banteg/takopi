@@ -87,22 +87,6 @@ Practical parsing rules:
 
 ---
 
-## Redaction
-
-By default, redact secret-looking values in `list` and `get`.
-
-Redact when any key segment contains (case-insensitive):
-
-* `token`
-* `secret`
-* `key`
-
-Add a single flag to override:
-
-* `--show-secrets`
-
----
-
 ## Subcommand specs
 
 ### 1) `takopi config path`
@@ -134,7 +118,6 @@ List config as flattened dot-keys.
 
 ```sh
 takopi config list
-takopi config list --show-secrets
 ```
 
 **Output**
@@ -147,7 +130,7 @@ Example:
 ```
 default_engine = "codex"
 transports.telegram.chat_id = -100123456
-transports.telegram.bot_token = "********…"
+transports.telegram.bot_token = "123456:ABCDEF..."
 ```
 
 **Exit codes**
@@ -166,7 +149,6 @@ Fetch a single key.
 
 ```sh
 takopi config get default_engine
-takopi config get transports.telegram.bot_token --show-secrets
 ```
 
 **Behavior**
@@ -201,15 +183,16 @@ takopi config set plugins.enabled '["plugin-a", "plugin-b"]'
 1. Load current TOML.
 2. Navigate to the path. Create intermediate tables if missing.
 3. Parse `<value>` with the smart-guess rules.
-4. Write the file atomically.
-5. Print a confirmation line (redacted for secrets), e.g.:
+4. Validate the updated config against the config schema.
+5. Write the file atomically.
+6. Print a confirmation line, e.g.:
 
    * `updated default_engine = "openai"`
 
 **Exit codes**
 
 * `0` success
-* `2` parse error / invalid key path / write error
+* `2` parse error / invalid key path / schema validation error / write error
 
 ---
 
@@ -228,20 +211,21 @@ takopi config unset projects.old-project
 
 * Remove the leaf key from its parent table.
 * Prune empty tables up the path after removal.
+* Validate the updated config against the config schema before writing.
 
 **Exit codes**
 
 * `0` key existed and was removed
 * `1` key not found (no change)
-* `2` invalid path / config read error / write error
+* `2` invalid path / config read error / schema validation error / write error
 
 ---
 
-## Minimal validation for mutations
+## Validation for mutations
 
-For `set` and `unset`, do a simple TOML sanity check before writing:
+For `set` and `unset`, validate the updated config against the **config schema** before writing:
 
-* If the updated config cannot be parsed as TOML, abort and **do not write**.
+* If schema validation fails, abort and **do not write**.
 
 No separate `validate` command and no validation modes.
 
@@ -299,4 +283,3 @@ takopi config unset projects.old-project
 * Reuse `load_or_init_config()` and `write_config()` (but update/augment to support atomic write).
 * Reuse `migrate_config()`/`migrate_config_file()` logic, but prefer “migrate in-memory then write once” for config edits.
 * For `list`, implement a deterministic flatten that walks dicts and emits dot-path keys.
-* For redaction, apply the simple segment-name heuristic and `--show-secrets` override.
