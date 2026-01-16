@@ -15,8 +15,8 @@ from functools import partial
 from pydantic import BaseModel
 import typer
 
-from . import __version__
-from .config import (
+from .. import __version__
+from ..config import (
     ConfigError,
     HOME_CONFIG_PATH,
     dump_toml,
@@ -24,22 +24,22 @@ from .config import (
     read_config,
     write_config,
 )
-from .config_migrations import migrate_config
-from .commands import get_command
-from .backends import EngineBackend
-from .engines import get_backend, list_backend_ids
-from .ids import RESERVED_CHAT_COMMANDS, RESERVED_COMMAND_IDS, RESERVED_ENGINE_IDS
-from .lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
-from .logging import get_logger, setup_logging
-from .runtime_loader import build_runtime_spec, resolve_plugins_allowlist
-from .settings import (
+from ..config_migrations import migrate_config
+from ..commands import get_command
+from ..backends import EngineBackend
+from ..engines import get_backend, list_backend_ids
+from ..ids import RESERVED_CHAT_COMMANDS, RESERVED_COMMAND_IDS, RESERVED_ENGINE_IDS
+from ..lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
+from ..logging import get_logger, setup_logging
+from ..runtime_loader import build_runtime_spec, resolve_plugins_allowlist
+from ..settings import (
     TakopiSettings,
     TelegramTopicsSettings,
     load_settings,
     load_settings_if_exists,
     validate_settings_data,
 )
-from .plugins import (
+from ..plugins import (
     COMMAND_GROUP,
     ENGINE_GROUP,
     TRANSPORT_GROUP,
@@ -49,11 +49,11 @@ from .plugins import (
     list_entrypoints,
     normalize_allowlist,
 )
-from .transports import SetupResult, get_transport
-from .utils.git import resolve_default_base, resolve_main_worktree_root
-from .telegram import onboarding
-from .telegram.client import TelegramClient
-from .telegram.topics import _validate_topics_setup_for
+from ..transports import SetupResult, get_transport
+from ..utils.git import resolve_default_base, resolve_main_worktree_root
+from ..telegram import onboarding
+from ..telegram.client import TelegramClient
+from ..telegram.topics import _validate_topics_setup_for
 
 logger = get_logger(__name__)
 
