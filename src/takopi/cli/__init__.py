@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import os
 import sys
-from dataclasses import dataclass
 from collections.abc import Callable
 from importlib.metadata import EntryPoint
 from pathlib import Path
-from typing import Literal
 
 import anyio
 from functools import partial
@@ -31,7 +29,6 @@ from ..logging import get_logger, setup_logging
 from ..runtime_loader import build_runtime_spec, resolve_plugins_allowlist
 from ..settings import (
     TakopiSettings,
-    TelegramTopicsSettings,
     load_settings,
     load_settings_if_exists,
     validate_settings_data,
@@ -51,6 +48,14 @@ from ..utils.git import resolve_default_base, resolve_main_worktree_root
 from ..telegram import onboarding
 from ..telegram.client import TelegramClient
 from ..telegram.topics import _validate_topics_setup_for
+from .doctor import (
+    DoctorCheck,
+    DoctorStatus,
+    _doctor_file_checks,
+    _doctor_telegram_checks,
+    _doctor_voice_checks,
+    run_doctor,
+)
 from .config import (
     _CONFIG_PATH_OPTION,
     _config_path_display,
@@ -81,21 +86,6 @@ def _load_settings_optional() -> tuple[TakopiSettings | None, Path | None]:
     if loaded is None:
         return None, None
     return loaded
-
-
-DoctorStatus = Literal["ok", "warning", "error"]
-
-
-@dataclass(frozen=True, slots=True)
-class DoctorCheck:
-    label: str
-    status: DoctorStatus
-    detail: str | None = None
-
-    def render(self) -> str:
-        if self.detail:
-            return f"- {self.label}: {self.status} ({self.detail})"
-        return f"- {self.label}: {self.status}"
 
 
 def _print_version_and_exit() -> None:
@@ -185,72 +175,6 @@ def _should_run_interactive() -> bool:
 def _setup_needs_config(setup: SetupResult) -> bool:
     config_titles = {"create a config", "configure telegram"}
     return any(issue.title in config_titles for issue in setup.issues)
-
-
-def _doctor_file_checks(settings: TakopiSettings) -> list[DoctorCheck]:
-    files = settings.transports.telegram.files
-    if not files.enabled:
-        return [DoctorCheck("file transfer", "ok", "disabled")]
-    if files.allowed_user_ids:
-        count = len(files.allowed_user_ids)
-        detail = f"restricted to {count} user id(s)"
-        return [DoctorCheck("file transfer", "ok", detail)]
-    return [DoctorCheck("file transfer", "warning", "enabled for all users")]
-
-
-def _doctor_voice_checks(settings: TakopiSettings) -> list[DoctorCheck]:
-    if not settings.transports.telegram.voice_transcription:
-        return [DoctorCheck("voice transcription", "ok", "disabled")]
-    if os.environ.get("OPENAI_API_KEY"):
-        return [DoctorCheck("voice transcription", "ok", "OPENAI_API_KEY set")]
-    return [DoctorCheck("voice transcription", "error", "OPENAI_API_KEY not set")]
-
-
-async def _doctor_telegram_checks(
-    token: str,
-    chat_id: int,
-    topics: TelegramTopicsSettings,
-    project_chat_ids: tuple[int, ...],
-) -> list[DoctorCheck]:
-    checks: list[DoctorCheck] = []
-    bot = TelegramClient(token)
-    try:
-        me = await bot.get_me()
-        if me is None:
-            checks.append(
-                DoctorCheck("telegram token", "error", "failed to fetch bot info")
-            )
-            checks.append(DoctorCheck("chat_id", "error", "skipped (token invalid)"))
-            if topics.enabled:
-                checks.append(DoctorCheck("topics", "error", "skipped (token invalid)"))
-            else:
-                checks.append(DoctorCheck("topics", "ok", "disabled"))
-            return checks
-        bot_label = f"@{me.username}" if me.username else f"id={me.id}"
-        checks.append(DoctorCheck("telegram token", "ok", bot_label))
-        chat = await bot.get_chat(chat_id)
-        if chat is None:
-            checks.append(DoctorCheck("chat_id", "error", f"unreachable ({chat_id})"))
-        else:
-            checks.append(DoctorCheck("chat_id", "ok", f"{chat.type} ({chat_id})"))
-        if topics.enabled:
-            try:
-                await _validate_topics_setup_for(
-                    bot=bot,
-                    topics=topics,
-                    chat_id=chat_id,
-                    project_chat_ids=project_chat_ids,
-                )
-                checks.append(DoctorCheck("topics", "ok", f"scope={topics.scope}"))
-            except ConfigError as exc:
-                checks.append(DoctorCheck("topics", "error", str(exc)))
-        else:
-            checks.append(DoctorCheck("topics", "ok", "disabled"))
-    except Exception as exc:  # noqa: BLE001
-        checks.append(DoctorCheck("telegram", "error", str(exc)))
-    finally:
-        await bot.close()
-    return checks
 
 
 def _run_auto_router(
@@ -546,52 +470,12 @@ def onboarding_paths() -> None:
 def doctor() -> None:
     """Run configuration checks for the active transport."""
     setup_logging(debug=False, cache_logger_on_first_use=False)
-    try:
-        settings, config_path = load_settings()
-    except ConfigError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-    if settings.transport != "telegram":
-        typer.echo(
-            "error: takopi doctor currently supports the telegram transport only.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    allowlist = resolve_plugins_allowlist(settings)
-    engine_ids = list_backend_ids(allowlist=allowlist)
-    try:
-        projects_cfg = settings.to_projects_config(
-            config_path=config_path,
-            engine_ids=engine_ids,
-            reserved=RESERVED_CHAT_COMMANDS,
-        )
-    except ConfigError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-
-    tg = settings.transports.telegram
-    project_chat_ids = projects_cfg.project_chat_ids()
-    telegram_checks = anyio.run(
-        _doctor_telegram_checks,
-        tg.bot_token,
-        tg.chat_id,
-        tg.topics,
-        project_chat_ids,
+    run_doctor(
+        load_settings_fn=load_settings,
+        telegram_checks=_doctor_telegram_checks,
+        file_checks=_doctor_file_checks,
+        voice_checks=_doctor_voice_checks,
     )
-    if telegram_checks is None:
-        telegram_checks = []
-    checks = [
-        *telegram_checks,
-        *_doctor_file_checks(settings),
-        *_doctor_voice_checks(settings),
-    ]
-    typer.echo("takopi doctor")
-    for check in checks:
-        typer.echo(check.render())
-    if any(check.status == "error" for check in checks):
-        raise typer.Exit(code=1)
 
 
 def _print_entrypoints(
