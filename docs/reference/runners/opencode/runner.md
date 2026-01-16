@@ -13,10 +13,18 @@ npm i -g opencode-ai@latest
 
 Add to your `takopi.toml`:
 
-```toml
-[opencode]
-model = "claude-sonnet"  # optional
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set opencode.model "claude-sonnet"
+    ```
+
+=== "toml"
+
+    ```toml
+    [opencode]
+    model = "claude-sonnet"  # optional
+    ```
 
 ## Usage
 

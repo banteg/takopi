@@ -9,10 +9,18 @@ Chat sessions store one resume token per engine per chat (per sender in group ch
 
 If you chose **handoff** during onboarding and want to switch to chat mode:
 
-```toml
-[transports.telegram]
-session_mode = "chat" # stateless | chat
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.session_mode "chat"
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram]
+    session_mode = "chat" # stateless | chat
+    ```
 
 With `session_mode = "chat"`, new messages in the chat continue the current thread automatically.
 
@@ -32,10 +40,18 @@ Chat sessions do not remove reply-to-continue. If resume lines are visible, you 
 
 If you prefer a cleaner chat, hide resume lines:
 
-```toml
-[transports.telegram]
-show_resume_line = false
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.show_resume_line false
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram]
+    show_resume_line = false
+    ```
 
 ## How it behaves in groups
 

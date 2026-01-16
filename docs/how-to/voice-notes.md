@@ -4,11 +4,20 @@ Enable transcription so voice notes become normal text runs.
 
 ## Enable transcription
 
-```toml
-[transports.telegram]
-voice_transcription = true
-voice_transcription_model = "gpt-4o-mini-transcribe" # optional
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.voice_transcription true
+    takopi config set transports.telegram.voice_transcription_model "gpt-4o-mini-transcribe"
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram]
+    voice_transcription = true
+    voice_transcription_model = "gpt-4o-mini-transcribe" # optional
+    ```
 
 Set `OPENAI_API_KEY` in your environment (uses OpenAI’s transcription API).
 
@@ -24,4 +33,3 @@ If transcription fails, you’ll get an error message and the run is skipped.
 ## Related
 
 - [Config reference](../reference/config.md)
-

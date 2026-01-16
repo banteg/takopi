@@ -18,22 +18,39 @@ worktree-based runs via `@branch`.
 All config lives in `~/.takopi/takopi.toml`.
 See [Config](config.md) for the full reference.
 
-```toml
-default_engine = "codex"       # optional
-default_project = "z80"        # optional
-transport = "telegram"         # optional, defaults to "telegram"
+=== "takopi config"
 
-[transports.telegram]
-bot_token = "..."              # required
-chat_id = 123                  # required
+    ```sh
+    takopi config set default_engine "codex"
+    takopi config set default_project "z80"
+    takopi config set transport "telegram"
+    takopi config set transports.telegram.bot_token "..."
+    takopi config set transports.telegram.chat_id 123
+    takopi config set projects.z80.path "~/dev/z80"
+    takopi config set projects.z80.worktrees_dir ".worktrees"
+    takopi config set projects.z80.default_engine "codex"
+    takopi config set projects.z80.worktree_base "master"
+    takopi config set projects.z80.chat_id -123
+    ```
 
-[projects.z80]
-path = "~/dev/z80"             # required (repo root)
-worktrees_dir = ".worktrees"   # optional, default ".worktrees"
-default_engine = "codex"       # optional, per-project override
-worktree_base = "master"       # optional, base for new branches
-chat_id = -123                 # optional, project chat id
-```
+=== "toml"
+
+    ```toml
+    default_engine = "codex"       # optional
+    default_project = "z80"        # optional
+    transport = "telegram"         # optional, defaults to "telegram"
+
+    [transports.telegram]
+    bot_token = "..."              # required
+    chat_id = 123                  # required
+
+    [projects.z80]
+    path = "~/dev/z80"             # required (repo root)
+    worktrees_dir = ".worktrees"   # optional, default ".worktrees"
+    default_engine = "codex"       # optional, per-project override
+    worktree_base = "master"       # optional, base for new branches
+    chat_id = -123                 # optional, project chat id
+    ```
 
 Legacy config note: top-level `bot_token` / `chat_id` are auto-migrated into
 `[transports.telegram]` on startup.

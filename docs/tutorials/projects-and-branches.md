@@ -31,10 +31,18 @@ saved project 'happy-gadgets' to ~/.takopi/takopi.toml
 
 This adds an entry to your config (Takopi also fills in defaults like `worktrees_dir`, `default_engine`, and sometimes `worktree_base`):
 
-```toml
-[projects.happy-gadgets]
-path = "~/dev/happy-gadgets"
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set projects.happy-gadgets.path "~/dev/happy-gadgets"
+    ```
+
+=== "toml"
+
+    ```toml
+    [projects.happy-gadgets]
+    path = "~/dev/happy-gadgets"
+    ```
 
 !!! tip "Project aliases are also Telegram commands"
     The alias becomes a `/command` you can use in chat. Keep them short and lowercase: `myapp`, `backend`, `docs`.
@@ -69,12 +77,22 @@ Worktrees let you run tasks on feature branches without touching your main check
 
 Add worktree config to your project:
 
-```toml
-[projects.happy-gadgets]
-path = "~/dev/happy-gadgets"
-worktrees_dir = ".worktrees"      # where branches go
-worktree_base = "main"            # base for new branches
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set projects.happy-gadgets.path "~/dev/happy-gadgets"
+    takopi config set projects.happy-gadgets.worktrees_dir ".worktrees"
+    takopi config set projects.happy-gadgets.worktree_base "main"
+    ```
+
+=== "toml"
+
+    ```toml
+    [projects.happy-gadgets]
+    path = "~/dev/happy-gadgets"
+    worktrees_dir = ".worktrees"      # where branches go
+    worktree_base = "main"            # base for new branches
+    ```
 
 !!! note "Ignore the worktrees directory"
     Add `.worktrees/` to your global gitignore so it doesn't clutter `git status`:
@@ -125,9 +143,17 @@ The `ctx:` line in each message carries the context forward.
 
 If you mostly work in one repo, set it as the default:
 
-```toml
-default_project = "happy-gadgets"
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set default_project "happy-gadgets"
+    ```
+
+=== "toml"
+
+    ```toml
+    default_project = "happy-gadgets"
+    ```
 
 Now messages without a `/project` prefix go to that repo:
 

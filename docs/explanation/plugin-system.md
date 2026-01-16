@@ -51,10 +51,18 @@ Rules:
 
 Plugin visibility can be restricted via:
 
-```toml
-[plugins]
-enabled = ["takopi-engine-acme", "takopi-transport-slack"]
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set plugins.enabled '["takopi-engine-acme", "takopi-transport-slack"]'
+    ```
+
+=== "toml"
+
+    ```toml
+    [plugins]
+    enabled = ["takopi-engine-acme", "takopi-transport-slack"]
+    ```
 
 When set, Takopi filters by **distribution name** (package metadata), not by entrypoint name.
 This lets you:

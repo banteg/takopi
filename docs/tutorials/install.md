@@ -268,54 +268,99 @@ Your config file lives at `~/.takopi/takopi.toml`. The exact contents depend on 
 
 === "assistant"
 
-    ```toml title="~/.takopi/takopi.toml"
-    default_engine = "codex"
-    transport = "telegram"
+    === "takopi config"
 
-    [transports.telegram]
-    bot_token = "..."
-    chat_id = 123456789
-    session_mode = "chat"       # auto-resume
-    show_resume_line = false    # cleaner chat
+        ```sh
+        takopi config set default_engine "codex"
+        takopi config set transport "telegram"
+        takopi config set transports.telegram.bot_token "..."
+        takopi config set transports.telegram.chat_id 123456789
+        takopi config set transports.telegram.session_mode "chat"
+        takopi config set transports.telegram.show_resume_line false
+        takopi config set transports.telegram.topics.enabled false
+        takopi config set transports.telegram.topics.scope "auto"
+        ```
 
-    [transports.telegram.topics]
-    enabled = false
-    scope = "auto"
-    ```
+    === "toml"
+
+        ```toml title="~/.takopi/takopi.toml"
+        default_engine = "codex"
+        transport = "telegram"
+
+        [transports.telegram]
+        bot_token = "..."
+        chat_id = 123456789
+        session_mode = "chat"       # auto-resume
+        show_resume_line = false    # cleaner chat
+
+        [transports.telegram.topics]
+        enabled = false
+        scope = "auto"
+        ```
 
 === "workspace"
 
-    ```toml title="~/.takopi/takopi.toml"
-    default_engine = "codex"
-    transport = "telegram"
+    === "takopi config"
 
-    [transports.telegram]
-    bot_token = "..."
-    chat_id = -1001234567890    # forum group
-    session_mode = "chat"
-    show_resume_line = false
+        ```sh
+        takopi config set default_engine "codex"
+        takopi config set transport "telegram"
+        takopi config set transports.telegram.bot_token "..."
+        takopi config set transports.telegram.chat_id -1001234567890
+        takopi config set transports.telegram.session_mode "chat"
+        takopi config set transports.telegram.show_resume_line false
+        takopi config set transports.telegram.topics.enabled true
+        takopi config set transports.telegram.topics.scope "auto"
+        ```
 
-    [transports.telegram.topics]
-    enabled = true              # topics on
-    scope = "auto"
-    ```
+    === "toml"
+
+        ```toml title="~/.takopi/takopi.toml"
+        default_engine = "codex"
+        transport = "telegram"
+
+        [transports.telegram]
+        bot_token = "..."
+        chat_id = -1001234567890    # forum group
+        session_mode = "chat"
+        show_resume_line = false
+
+        [transports.telegram.topics]
+        enabled = true              # topics on
+        scope = "auto"
+        ```
 
 === "handoff"
 
-    ```toml title="~/.takopi/takopi.toml"
-    default_engine = "codex"
-    transport = "telegram"
+    === "takopi config"
 
-    [transports.telegram]
-    bot_token = "..."
-    chat_id = 123456789
-    session_mode = "stateless"  # reply-to-continue
-    show_resume_line = true     # always show resume lines
+        ```sh
+        takopi config set default_engine "codex"
+        takopi config set transport "telegram"
+        takopi config set transports.telegram.bot_token "..."
+        takopi config set transports.telegram.chat_id 123456789
+        takopi config set transports.telegram.session_mode "stateless"
+        takopi config set transports.telegram.show_resume_line true
+        takopi config set transports.telegram.topics.enabled false
+        takopi config set transports.telegram.topics.scope "auto"
+        ```
 
-    [transports.telegram.topics]
-    enabled = false
-    scope = "auto"
-    ```
+    === "toml"
+
+        ```toml title="~/.takopi/takopi.toml"
+        default_engine = "codex"
+        transport = "telegram"
+
+        [transports.telegram]
+        bot_token = "..."
+        chat_id = 123456789
+        session_mode = "stateless"  # reply-to-continue
+        show_resume_line = true     # always show resume lines
+
+        [transports.telegram.topics]
+        enabled = false
+        scope = "auto"
+        ```
 
 This config file controls all of Takopi's behavior. You can edit it directly to change settings or add advanced features.
 

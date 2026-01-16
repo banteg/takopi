@@ -4,9 +4,17 @@ Takopi reads configuration from `~/.takopi/takopi.toml`.
 
 If you expect to edit config while Takopi is running, set:
 
-```toml
-watch_config = true
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set watch_config true
+    ```
+
+=== "toml"
+
+    ```toml
+    watch_config = true
+    ```
 
 ## Top-level keys
 
@@ -19,11 +27,20 @@ watch_config = true
 
 ## `transports.telegram`
 
-```toml
-[transports.telegram]
-bot_token = "..."
-chat_id = 123
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.bot_token "..."
+    takopi config set transports.telegram.chat_id 123
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram]
+    bot_token = "..."
+    chat_id = 123
+    ```
 
 | Key | Type | Default | Notes |
 |-----|------|---------|-------|
@@ -62,14 +79,26 @@ File size limits (not configurable):
 
 ## `projects.<alias>`
 
-```toml
-[projects.happy-gadgets]
-path = "~/dev/happy-gadgets"
-worktrees_dir = ".worktrees"
-default_engine = "claude"
-worktree_base = "master"
-chat_id = -1001234567890
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set projects.happy-gadgets.path "~/dev/happy-gadgets"
+    takopi config set projects.happy-gadgets.worktrees_dir ".worktrees"
+    takopi config set projects.happy-gadgets.default_engine "claude"
+    takopi config set projects.happy-gadgets.worktree_base "master"
+    takopi config set projects.happy-gadgets.chat_id -1001234567890
+    ```
+
+=== "toml"
+
+    ```toml
+    [projects.happy-gadgets]
+    path = "~/dev/happy-gadgets"
+    worktrees_dir = ".worktrees"
+    default_engine = "claude"
+    worktree_base = "master"
+    chat_id = -1001234567890
+    ```
 
 | Key | Type | Default | Notes |
 |-----|------|---------|-------|
@@ -85,10 +114,18 @@ Legacy config note: top-level `bot_token` / `chat_id` are auto-migrated into `[t
 
 ### `plugins.enabled`
 
-```toml
-[plugins]
-enabled = ["takopi-transport-slack", "takopi-engine-acme"]
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set plugins.enabled '["takopi-transport-slack", "takopi-engine-acme"]'
+    ```
+
+=== "toml"
+
+    ```toml
+    [plugins]
+    enabled = ["takopi-transport-slack", "takopi-engine-acme"]
+    ```
 
 - `enabled = []` (default) means “load all installed plugins”.
 - If non-empty, only distributions with matching names are visible (case-insensitive).
@@ -101,9 +138,17 @@ Plugin-specific configuration lives under `[plugins.<id>]` and is passed to comm
 
 Engines can have top-level config tables keyed by engine id, for example:
 
-```toml
-[codex]
-model = "..."
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set codex.model "..."
+    ```
+
+=== "toml"
+
+    ```toml
+    [codex]
+    model = "..."
+    ```
 
 The shape is engine-defined.

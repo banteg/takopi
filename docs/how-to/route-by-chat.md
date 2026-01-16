@@ -12,11 +12,20 @@ takopi chat-id --project happy-gadgets
 
 Then send any message in the target chat. Takopi captures the `chat_id` and updates your config:
 
-```toml
-[projects.happy-gadgets]
-path = "~/dev/happy-gadgets"
-chat_id = -1001234567890
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set projects.happy-gadgets.path "~/dev/happy-gadgets"
+    takopi config set projects.happy-gadgets.chat_id -1001234567890
+    ```
+
+=== "toml"
+
+    ```toml
+    [projects.happy-gadgets]
+    path = "~/dev/happy-gadgets"
+    chat_id = -1001234567890
+    ```
 
 Messages from that chat now default to the project.
 
@@ -36,4 +45,3 @@ takopi chat-id
 
 - [Topics](topics.md)
 - [Context resolution](../reference/context-resolution.md)
-

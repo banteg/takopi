@@ -4,15 +4,28 @@ Upload files into the active repo/worktree or fetch files back into Telegram.
 
 ## Enable file transfer
 
-```toml
-[transports.telegram.files]
-enabled = true
-auto_put = true
-auto_put_mode = "upload" # upload | prompt
-uploads_dir = "incoming"
-allowed_user_ids = [123456789]
-deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.files.enabled true
+    takopi config set transports.telegram.files.auto_put true
+    takopi config set transports.telegram.files.auto_put_mode "upload"
+    takopi config set transports.telegram.files.uploads_dir "incoming"
+    takopi config set transports.telegram.files.allowed_user_ids "[123456789]"
+    takopi config set transports.telegram.files.deny_globs '[".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]'
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram.files]
+    enabled = true
+    auto_put = true
+    auto_put_mode = "upload" # upload | prompt
+    uploads_dir = "incoming"
+    allowed_user_ids = [123456789]
+    deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
+    ```
 
 Notes:
 
@@ -56,4 +69,3 @@ Directories are zipped automatically.
 
 - [Commands & directives](../reference/commands-and-directives.md)
 - [Config reference](../reference/config.md)
-

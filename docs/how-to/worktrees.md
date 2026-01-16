@@ -6,12 +6,22 @@ Use `@branch` to run tasks in a dedicated git worktree for that branch.
 
 Add a `worktrees_dir` (and optionally a base branch) to the project:
 
-```toml
-[projects.happy-gadgets]
-path = "~/dev/happy-gadgets"
-worktrees_dir = ".worktrees"      # relative to project path
-worktree_base = "master"          # base branch for new worktrees
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set projects.happy-gadgets.path "~/dev/happy-gadgets"
+    takopi config set projects.happy-gadgets.worktrees_dir ".worktrees"
+    takopi config set projects.happy-gadgets.worktree_base "master"
+    ```
+
+=== "toml"
+
+    ```toml
+    [projects.happy-gadgets]
+    path = "~/dev/happy-gadgets"
+    worktrees_dir = ".worktrees"      # relative to project path
+    worktree_base = "master"          # base branch for new worktrees
+    ```
 
 ## Run in a branch worktree
 
@@ -39,4 +49,3 @@ When you reply, this context carries forward (you usually don’t need to repeat
 ## Related
 
 - [Context resolution](../reference/context-resolution.md)
-

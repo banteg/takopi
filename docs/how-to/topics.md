@@ -27,11 +27,20 @@ Topics bind Telegram **forum threads** to a project/branch context. Each topic k
 
 ## Enable topics
 
-```toml
-[transports.telegram.topics]
-enabled = true
-scope = "auto" # auto | main | projects | all
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.topics.enabled true
+    takopi config set transports.telegram.topics.scope "auto"
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram.topics]
+    enabled = true
+    scope = "auto" # auto | main | projects | all
+    ```
 
 ### Scope explained
 

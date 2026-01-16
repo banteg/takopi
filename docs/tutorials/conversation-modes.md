@@ -57,11 +57,20 @@ To continue the same session, **reply** to a message with a resume line:
 
 You can manually change these settings in your config file:
 
-```toml
-[transports.telegram]
-session_mode = "chat"      # "chat" or "stateless"
-show_resume_line = false   # true or false
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.session_mode "chat"
+    takopi config set transports.telegram.show_resume_line false
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram]
+    session_mode = "chat"      # "chat" or "stateless"
+    show_resume_line = false   # true or false
+    ```
 
 Or re-run onboarding to pick a different workflow:
 
@@ -76,10 +85,18 @@ Resume lines are still shown when no project context is set, so replies can bran
 
 If you prefer always-visible resume lines, set:
 
-```toml
-[transports.telegram]
-show_resume_line = true
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.show_resume_line true
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram]
+    show_resume_line = true
+    ```
 
 ## Reply-to-continue still works
 

@@ -210,15 +210,26 @@ Claude runner implementation summary (no Takopi domain model changes):
 
 A minimal TOML config for Claude:
 
-```toml
-[claude]
-# model: opus | sonnet | haiku
-model = "sonnet"
+=== "takopi config"
 
-allowed_tools = ["Bash", "Read", "Edit", "Write", "WebSearch"]
-dangerously_skip_permissions = false
-use_api_billing = false
-```
+    ```sh
+    takopi config set claude.model "sonnet"
+    takopi config set claude.allowed_tools '["Bash", "Read", "Edit", "Write", "WebSearch"]'
+    takopi config set claude.dangerously_skip_permissions false
+    takopi config set claude.use_api_billing false
+    ```
+
+=== "toml"
+
+    ```toml
+    [claude]
+    # model: opus | sonnet | haiku
+    model = "sonnet"
+
+    allowed_tools = ["Bash", "Read", "Edit", "Write", "WebSearch"]
+    dangerously_skip_permissions = false
+    use_api_billing = false
+    ```
 
 Takopi only maps these keys to Claude CLI flags; other options should be configured in Claude Code settings.
 If `allowed_tools` is omitted, Takopi defaults to `["Bash", "Read", "Edit", "Write"]`.

@@ -68,17 +68,29 @@ Add a new optional `[claude]` section.
 
 Recommended v1 schema:
 
-```toml
-# ~/.takopi/takopi.toml
+=== "takopi config"
 
-default_engine = "claude"
+    ```sh
+    takopi config set default_engine "claude"
+    takopi config set claude.model "claude-sonnet-4-5-20250929"
+    takopi config set claude.allowed_tools '["Bash", "Read", "Edit", "Write"]'
+    takopi config set claude.dangerously_skip_permissions false
+    takopi config set claude.use_api_billing false
+    ```
 
-[claude]
-model = "claude-sonnet-4-5-20250929" # optional (Claude Code supports model override in settings too)
-allowed_tools = ["Bash", "Read", "Edit", "Write"] # optional but strongly recommended for automation
-dangerously_skip_permissions = false # optional (high risk; prefer sandbox use only)
-use_api_billing = false             # optional (keep ANTHROPIC_API_KEY for API billing)
-```
+=== "toml"
+
+    ```toml
+    # ~/.takopi/takopi.toml
+
+    default_engine = "claude"
+
+    [claude]
+    model = "claude-sonnet-4-5-20250929" # optional (Claude Code supports model override in settings too)
+    allowed_tools = ["Bash", "Read", "Edit", "Write"] # optional but strongly recommended for automation
+    dangerously_skip_permissions = false # optional (high risk; prefer sandbox use only)
+    use_api_billing = false             # optional (keep ANTHROPIC_API_KEY for API billing)
+    ```
 
 Notes:
 

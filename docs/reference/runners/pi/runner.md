@@ -58,16 +58,27 @@ Add a new optional `[pi]` section.
 
 Recommended schema:
 
-```toml
-# ~/.takopi/takopi.toml
+=== "takopi config"
 
-default_engine = "pi"
+    ```sh
+    takopi config set default_engine "pi"
+    takopi config set pi.model "..."
+    takopi config set pi.provider "..."
+    takopi config set pi.extra_args "[]"
+    ```
 
-[pi]
-model = "..."               # optional; passed as --model
-provider = "..."            # optional; passed as --provider
-extra_args = []             # optional list of strings, appended verbatim
-```
+=== "toml"
+
+    ```toml
+    # ~/.takopi/takopi.toml
+
+    default_engine = "pi"
+
+    [pi]
+    model = "..."               # optional; passed as --model
+    provider = "..."            # optional; passed as --provider
+    extra_args = []             # optional list of strings, appended verbatim
+    ```
 
 Notes:
 

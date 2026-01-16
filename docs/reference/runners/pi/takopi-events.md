@@ -144,11 +144,21 @@ transformation.
 
 A minimal TOML config for Pi:
 
-```toml
-[pi]
-model = "..."
-provider = "..."
-extra_args = []
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set pi.model "..."
+    takopi config set pi.provider "..."
+    takopi config set pi.extra_args "[]"
+    ```
+
+=== "toml"
+
+    ```toml
+    [pi]
+    model = "..."
+    provider = "..."
+    extra_args = []
+    ```
 
 Use `extra_args` for any Pi CLI flags not explicitly mapped.

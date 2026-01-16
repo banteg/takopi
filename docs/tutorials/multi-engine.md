@@ -109,11 +109,20 @@ Each topic remembers its own default.
 
 Set a default engine in your project config:
 
-```toml
-[projects.happy-gadgets]
-path = "~/dev/happy-gadgets"
-default_engine = "claude"
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set projects.happy-gadgets.path "~/dev/happy-gadgets"
+    takopi config set projects.happy-gadgets.default_engine "claude"
+    ```
+
+=== "toml"
+
+    ```toml
+    [projects.happy-gadgets]
+    path = "~/dev/happy-gadgets"
+    default_engine = "claude"
+    ```
 
 Now `/happy-gadgets` tasks default to Claude, even if your global default is Codex.
 
@@ -144,15 +153,28 @@ This means: resume lines always win, then explicit directives, then the most spe
 
 **Pattern: Quick questions vs. deep work**
 
-```
-# Global default for quick stuff
-default_engine = "codex"
+=== "takopi config"
 
-# Project default for complex codebase
-[projects.backend]
-path = "~/dev/backend"
-default_engine = "claude"
-```
+    ```sh
+    # Global default for quick stuff
+    takopi config set default_engine "codex"
+
+    # Project default for complex codebase
+    takopi config set projects.backend.path "~/dev/backend"
+    takopi config set projects.backend.default_engine "claude"
+    ```
+
+=== "toml"
+
+    ```toml
+    # Global default for quick stuff
+    default_engine = "codex"
+
+    # Project default for complex codebase
+    [projects.backend]
+    path = "~/dev/backend"
+    default_engine = "claude"
+    ```
 
 Simple messages go to Codex. `/backend` messages go to Claude.
 

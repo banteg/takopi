@@ -28,10 +28,19 @@ directive pipeline as typed text.
 
 Configuration (under `[transports.telegram]`):
 
-```toml
-voice_transcription = true
-voice_transcription_model = "gpt-4o-mini-transcribe" # optional
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.voice_transcription true
+    takopi config set transports.telegram.voice_transcription_model "gpt-4o-mini-transcribe"
+    ```
+
+=== "toml"
+
+    ```toml
+    voice_transcription = true
+    voice_transcription_model = "gpt-4o-mini-transcribe" # optional
+    ```
 
 Set `OPENAI_API_KEY` in the environment. If transcription is enabled but the API key
 is missing or the audio download fails, takopi replies with a short error and skips
@@ -88,9 +97,17 @@ Behavior:
 
 Configuration (under `[transports.telegram]`):
 
-```toml
-forward_coalesce_s = 1.0 # set 0 to disable the delay
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.forward_coalesce_s 1.0
+    ```
+
+=== "toml"
+
+    ```toml
+    forward_coalesce_s = 1.0 # set 0 to disable the delay
+    ```
 
 ## Chat sessions (optional)
 
@@ -100,10 +117,19 @@ use chat mode with auto-resume enabled.
 
 Configuration (under `[transports.telegram]`):
 
-```toml
-show_resume_line = true # set false to hide resume lines
-session_mode = "chat" # or "stateless"
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.show_resume_line true
+    takopi config set transports.telegram.session_mode "chat"
+    ```
+
+=== "toml"
+
+    ```toml
+    show_resume_line = true # set false to hide resume lines
+    session_mode = "chat" # or "stateless"
+    ```
 
 Behavior:
 
@@ -124,10 +150,18 @@ By default, takopi trims long final responses to ~3500 characters to stay under
 Telegram's 4096 character limit after entity parsing. You can opt into splitting
 instead:
 
-```toml
-[transports.telegram]
-message_overflow = "split" # trim | split
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.message_overflow "split"
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram]
+    message_overflow = "split" # trim | split
+    ```
 
 Split mode sends multiple messages. Each chunk includes the footer; follow-up
 chunks add a "continued (N/M)" header.
@@ -140,11 +174,20 @@ topic, so replies keep the right context even after restarts.
 
 Configuration (under `[transports.telegram]`):
 
-```toml
-[transports.telegram.topics]
-enabled = true
-scope = "auto" # auto | main | projects | all
-```
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.topics.enabled true
+    takopi config set transports.telegram.topics.scope "auto"
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram.topics]
+    enabled = true
+    scope = "auto" # auto | main | projects | all
+    ```
 
 Requirements:
 
