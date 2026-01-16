@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 
 import anyio
 import msgspec
@@ -210,6 +210,7 @@ async def poll_incoming(
     chat_id: int | None = None,
     chat_ids: Iterable[int] | Callable[[], Iterable[int]] | None = None,
     offset: int | None = None,
+    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
 ) -> AsyncIterator[TelegramIncomingUpdate]:
     while True:
         updates = await bot.get_updates(
@@ -219,7 +220,7 @@ async def poll_incoming(
         )
         if updates is None:
             logger.info("loop.get_updates.failed")
-            await anyio.sleep(2)
+            await sleep(2)
             continue
         logger.debug("loop.updates", updates=updates)
         resolved_chat_ids = chat_ids() if callable(chat_ids) else chat_ids

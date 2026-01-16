@@ -290,6 +290,8 @@ async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int |
 
 async def poll_updates(
     cfg: TelegramBridgeConfig,
+    *,
+    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
 ) -> AsyncIterator[TelegramIncomingUpdate]:
     offset: int | None = None
     offset = await _drain_backlog(cfg, offset)
@@ -299,6 +301,7 @@ async def poll_updates(
         cfg.bot,
         chat_ids=lambda: _allowed_chat_ids(cfg),
         offset=offset,
+        sleep=sleep,
     ):
         yield msg
 
@@ -419,11 +422,13 @@ class ForwardCoalescer:
         *,
         task_group: TaskGroup,
         debounce_s: float,
+        sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         dispatch: Callable[[_PendingPrompt], Awaitable[None]],
         pending: dict[ForwardKey, _PendingPrompt],
     ) -> None:
         self._task_group = task_group
         self._debounce_s = debounce_s
+        self._sleep = sleep
         self._dispatch = dispatch
         self._pending = pending
 
@@ -556,7 +561,7 @@ class ForwardCoalescer:
         try:
             with anyio.CancelScope() as scope:
                 pending.cancel_scope = scope
-                await anyio.sleep(self._debounce_s)
+                await self._sleep(self._debounce_s)
         except anyio.get_cancelled_exc_class():
             return
         if self._pending.get(key) is not pending:
@@ -673,6 +678,7 @@ class MediaGroupBuffer:
         *,
         task_group: TaskGroup,
         debounce_s: float,
+        sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
         cfg: TelegramBridgeConfig,
         chat_prefs: ChatPrefsStore | None,
         topic_store: TopicStateStore | None,
@@ -690,6 +696,7 @@ class MediaGroupBuffer:
     ) -> None:
         self._task_group = task_group
         self._debounce_s = debounce_s
+        self._sleep = sleep
         self._cfg = cfg
         self._chat_prefs = chat_prefs
         self._topic_store = topic_store
@@ -718,7 +725,7 @@ class MediaGroupBuffer:
             if state is None:
                 return
             token = state.token
-            await anyio.sleep(self._debounce_s)
+            await self._sleep(self._debounce_s)
             state = self._groups.get(key)
             if state is None:
                 return
@@ -880,6 +887,7 @@ async def run_main_loop(
     default_engine_override: str | None = None,
     transport_id: str | None = None,
     transport_config: TelegramTransportSettings | None = None,
+    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
 ) -> None:
     state = TelegramLoopState(
         running_tasks={},
@@ -971,6 +979,18 @@ async def run_main_loop(
         else:
             logger.info("trigger_mode.bot_username.unavailable")
         async with anyio.create_task_group() as tg:
+            poller_fn: Callable[
+                [TelegramBridgeConfig], AsyncIterator[TelegramIncomingUpdate]
+            ]
+            if poller is poll_updates:
+                poller_fn = cast(
+                    Callable[
+                        [TelegramBridgeConfig], AsyncIterator[TelegramIncomingUpdate]
+                    ],
+                    partial(poll_updates, sleep=sleep),
+                )
+            else:
+                poller_fn = poller
             config_path = cfg.runtime.config_path
             watch_enabled = bool(watch_config) and config_path is not None
 
@@ -1418,6 +1438,7 @@ async def run_main_loop(
             forward_coalescer = ForwardCoalescer(
                 task_group=tg,
                 debounce_s=state.forward_coalesce_s,
+                sleep=sleep,
                 dispatch=_dispatch_pending_prompt,
                 pending=state.pending_prompts,
             )
@@ -1451,6 +1472,7 @@ async def run_main_loop(
             media_group_buffer = MediaGroupBuffer(
                 task_group=tg,
                 debounce_s=state.media_group_debounce_s,
+                sleep=sleep,
                 cfg=cfg,
                 chat_prefs=state.chat_prefs,
                 topic_store=state.topic_store,
@@ -1736,7 +1758,7 @@ async def run_main_loop(
                     return
                 await route_message(update)
 
-            async for update in poller(cfg):
+            async for update in poller_fn(cfg):
                 await route_update(update)
     finally:
         await cfg.exec_cfg.transport.close()

@@ -223,3 +223,62 @@ async def test_trigger_set_clear_permissions(tmp_path: Path) -> None:
     )
     assert await prefs.get_trigger_mode(msg.chat_id) is None
     assert "chat trigger mode reset" in _last_text(transport)
+
+
+@pytest.mark.anyio
+async def test_trigger_missing_sender_denied(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
+    prefs = ChatPrefsStore(tmp_path / "prefs.json")
+    msg = _msg("/trigger all", chat_type="supergroup", sender_id=None)
+
+    await _handle_trigger_command(
+        cfg,
+        msg,
+        args_text="all",
+        _ambient_context=None,
+        topic_store=None,
+        chat_prefs=prefs,
+    )
+
+    assert await prefs.get_trigger_mode(msg.chat_id) is None
+    assert "cannot verify sender" in _last_text(transport)
+
+
+@pytest.mark.anyio
+async def test_trigger_topic_unavailable() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        topics=TelegramTopicsSettings(enabled=True, scope="all"),
+    )
+    msg = _msg("/trigger mentions", chat_type="supergroup", thread_id=3)
+
+    await _handle_trigger_command(
+        cfg,
+        msg,
+        args_text="mentions",
+        _ambient_context=None,
+        topic_store=None,
+        chat_prefs=None,
+    )
+
+    assert "topic trigger settings are unavailable" in _last_text(transport)
+
+
+@pytest.mark.anyio
+async def test_trigger_chat_prefs_unavailable() -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport)
+    msg = _msg("/trigger mentions", chat_type="supergroup")
+
+    await _handle_trigger_command(
+        cfg,
+        msg,
+        args_text="mentions",
+        _ambient_context=None,
+        topic_store=None,
+        chat_prefs=None,
+    )
+
+    assert "chat trigger settings are unavailable" in _last_text(transport)

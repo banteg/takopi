@@ -8,7 +8,8 @@ from ..topic_state import TopicStateStore
 from ..topics import _topic_key
 from ..trigger_mode import resolve_trigger_mode
 from ..types import TelegramIncomingMessage
-from .overrides import require_admin_or_private
+from .overrides import check_admin_or_private
+from .plan import ActionPlan
 from .reply import make_reply
 
 if TYPE_CHECKING:
@@ -31,11 +32,27 @@ async def _handle_trigger_command(
     scope_chat_ids: frozenset[int] | None = None,
 ) -> None:
     reply = make_reply(cfg, msg)
-    tkey = (
-        _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
-        if topic_store is not None
-        else None
+    plan = await _plan_trigger_command(
+        cfg,
+        msg,
+        args_text=args_text,
+        topic_store=topic_store,
+        chat_prefs=chat_prefs,
+        scope_chat_ids=scope_chat_ids,
     )
+    await plan.execute(reply)
+
+
+async def _plan_trigger_command(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    *,
+    args_text: str,
+    topic_store: TopicStateStore | None,
+    chat_prefs: ChatPrefsStore | None,
+    scope_chat_ids: frozenset[int] | None,
+) -> ActionPlan:
+    tkey = _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
     tokens = split_command_args(args_text)
     action = tokens[0].lower() if tokens else "show"
 
@@ -65,53 +82,62 @@ async def _handle_trigger_command(
         chat_label = "unavailable" if chat_prefs is None else chat_mode or "none"
         defaults_line = f"defaults: topic: {topic_label}, chat: {chat_label}"
         available_line = "available: all, mentions"
-        await reply(text="\n\n".join([trigger_line, defaults_line, available_line]))
-        return
+        return ActionPlan(
+            reply_text="\n\n".join([trigger_line, defaults_line, available_line])
+        )
 
     if action in {"all", "mentions"}:
-        if not await require_admin_or_private(
+        decision = await check_admin_or_private(
             cfg,
             msg,
             missing_sender="cannot verify sender for trigger settings.",
             failed_member="failed to verify trigger permissions.",
             denied="changing trigger mode is restricted to group admins.",
-        ):
-            return
+        )
+        if not decision.allowed:
+            return ActionPlan(reply_text=decision.error_text or TRIGGER_USAGE)
         if tkey is not None:
             if topic_store is None:
-                await reply(text="topic trigger settings are unavailable.")
-                return
-            await topic_store.set_trigger_mode(tkey[0], tkey[1], action)
-            await reply(text=f"topic trigger mode set to `{action}`")
-            return
+                return ActionPlan(reply_text="topic trigger settings are unavailable.")
+            return ActionPlan(
+                reply_text=f"topic trigger mode set to `{action}`",
+                actions=(
+                    lambda: topic_store.set_trigger_mode(tkey[0], tkey[1], action),
+                ),
+            )
         if chat_prefs is None:
-            await reply(text="chat trigger settings are unavailable (no config path).")
-            return
-        await chat_prefs.set_trigger_mode(msg.chat_id, action)
-        await reply(text=f"chat trigger mode set to `{action}`")
-        return
+            return ActionPlan(
+                reply_text="chat trigger settings are unavailable (no config path)."
+            )
+        return ActionPlan(
+            reply_text=f"chat trigger mode set to `{action}`",
+            actions=(lambda: chat_prefs.set_trigger_mode(msg.chat_id, action),),
+        )
 
     if action == "clear":
-        if not await require_admin_or_private(
+        decision = await check_admin_or_private(
             cfg,
             msg,
             missing_sender="cannot verify sender for trigger settings.",
             failed_member="failed to verify trigger permissions.",
             denied="changing trigger mode is restricted to group admins.",
-        ):
-            return
+        )
+        if not decision.allowed:
+            return ActionPlan(reply_text=decision.error_text or TRIGGER_USAGE)
         if tkey is not None:
             if topic_store is None:
-                await reply(text="topic trigger settings are unavailable.")
-                return
-            await topic_store.clear_trigger_mode(tkey[0], tkey[1])
-            await reply(text="topic trigger mode cleared (using chat default).")
-            return
+                return ActionPlan(reply_text="topic trigger settings are unavailable.")
+            return ActionPlan(
+                reply_text="topic trigger mode cleared (using chat default).",
+                actions=(lambda: topic_store.clear_trigger_mode(tkey[0], tkey[1]),),
+            )
         if chat_prefs is None:
-            await reply(text="chat trigger settings are unavailable (no config path).")
-            return
-        await chat_prefs.clear_trigger_mode(msg.chat_id)
-        await reply(text="chat trigger mode reset to `all`.")
-        return
+            return ActionPlan(
+                reply_text="chat trigger settings are unavailable (no config path)."
+            )
+        return ActionPlan(
+            reply_text="chat trigger mode reset to `all`.",
+            actions=(lambda: chat_prefs.clear_trigger_mode(msg.chat_id),),
+        )
 
-    await reply(text=TRIGGER_USAGE)
+    return ActionPlan(reply_text=TRIGGER_USAGE)

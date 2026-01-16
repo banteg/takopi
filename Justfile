@@ -4,6 +4,9 @@ check:
     uv run ty check src tests
     uv run pytest
 
+mutate:
+    uv run mutmut run
+
 docs-serve:
     uv run --no-sync python scripts/docs_prebuild.py
     uv run --group docs zensical serve

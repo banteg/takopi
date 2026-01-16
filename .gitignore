@@ -5,6 +5,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .coverage
+.mutmut-cache/
+mutants/
 .worktrees/
 research/
 _site/

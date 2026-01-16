@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from ...context import RunContext
@@ -38,20 +39,45 @@ async def require_admin_or_private(
     denied: str,
 ) -> bool:
     reply = make_reply(cfg, msg)
+    decision = await check_admin_or_private(
+        cfg,
+        msg,
+        missing_sender=missing_sender,
+        failed_member=failed_member,
+        denied=denied,
+    )
+    if decision.allowed:
+        return True
+    if decision.error_text is not None:
+        await reply(text=decision.error_text)
+    return False
+
+
+@dataclass(frozen=True, slots=True)
+class PermissionDecision:
+    allowed: bool
+    error_text: str | None = None
+
+
+async def check_admin_or_private(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    *,
+    missing_sender: str,
+    failed_member: str,
+    denied: str,
+) -> PermissionDecision:
     sender_id = msg.sender_id
     if sender_id is None:
-        await reply(text=missing_sender)
-        return False
+        return PermissionDecision(allowed=False, error_text=missing_sender)
     if msg.is_private:
-        return True
+        return PermissionDecision(allowed=True)
     member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
     if member is None:
-        await reply(text=failed_member)
-        return False
+        return PermissionDecision(allowed=False, error_text=failed_member)
     if member.status in {"creator", "administrator"}:
-        return True
-    await reply(text=denied)
-    return False
+        return PermissionDecision(allowed=True)
+    return PermissionDecision(allowed=False, error_text=denied)
 
 
 async def resolve_engine_selection(

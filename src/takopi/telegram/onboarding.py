@@ -232,20 +232,32 @@ def mask_token(token: str) -> str:
     return f"{token[:9]}...{token[-5:]}"
 
 
-async def get_bot_info(token: str) -> User | None:
+async def get_bot_info(
+    token: str,
+    *,
+    sleep: Callable[[float], Awaitable[None]] | None = None,
+) -> User | None:
+    if sleep is None:
+        sleep = anyio.sleep
     bot = TelegramClient(token)
     try:
         for _ in range(3):
             try:
                 return await bot.get_me()
             except TelegramRetryAfter as exc:
-                await anyio.sleep(exc.retry_after)
+                await sleep(exc.retry_after)
         return None
     finally:
         await bot.close()
 
 
-async def wait_for_chat(token: str) -> ChatInfo:
+async def wait_for_chat(
+    token: str,
+    *,
+    sleep: Callable[[float], Awaitable[None]] | None = None,
+) -> ChatInfo:
+    if sleep is None:
+        sleep = anyio.sleep
     bot = TelegramClient(token)
     try:
         offset: int | None = None
@@ -260,7 +272,7 @@ async def wait_for_chat(token: str) -> ChatInfo:
                 offset=offset, timeout_s=50, allowed_updates=allowed_updates
             )
             if updates is None:
-                await anyio.sleep(1)
+                await sleep(1)
                 continue
             if not updates:
                 continue
