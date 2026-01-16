@@ -1,5 +1,24 @@
 # changelog
 
+## v0.21.0 (2026-01-16)
+
+### changes
+
+- add `takopi config` subcommand [#153](https://github.com/banteg/takopi/pull/153)
+- make telegram /ctx work everywhere [#159](https://github.com/banteg/takopi/pull/159)
+- improve telegram command planning and testability [#158](https://github.com/banteg/takopi/pull/158)
+- simplify telegram loop and jsonl runner [#155](https://github.com/banteg/takopi/pull/155)
+- refactor telegram schemas and parsing with msgspec [#156](https://github.com/banteg/takopi/pull/156)
+
+### tests
+
+- improve coverage and raise threshold to 80% [#154](https://github.com/banteg/takopi/pull/154)
+- stabilize mutmut runs and extend telegram coverage [#157](https://github.com/banteg/takopi/pull/157)
+
+### docs
+
+- add opengraph meta fallbacks [#150](https://github.com/banteg/takopi/pull/150)
+
 ## v0.20.0 (2026-01-15)
 
 ### changes
