@@ -17,7 +17,12 @@ from takopi.telegram.commands.topics import (
 )
 from takopi.telegram.topic_state import TopicStateStore
 from takopi.telegram.types import TelegramIncomingMessage
-from tests.telegram_fakes import DEFAULT_ENGINE_ID, FakeTransport, _make_router, make_cfg
+from tests.telegram_fakes import (
+    DEFAULT_ENGINE_ID,
+    FakeTransport,
+    _make_router,
+    make_cfg,
+)
 from takopi.transport_runtime import TransportRuntime
 
 
