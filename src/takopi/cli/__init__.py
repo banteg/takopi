@@ -6,8 +6,6 @@ from collections.abc import Callable
 import sys
 from pathlib import Path
 
-import anyio
-from functools import partial
 import typer
 
 from .. import __version__
@@ -59,6 +57,7 @@ from .init import (
     _prompt_alias,
     run_init,
 )
+from .onboarding_cmd import chat_id, onboarding_paths
 from .plugins import plugins_cmd
 from .run import (
     _default_engine_for_setup,
@@ -123,70 +122,6 @@ def init(
         list_backend_ids_fn=list_backend_ids,
         resolve_plugins_allowlist_fn=resolve_plugins_allowlist,
     )
-
-
-def chat_id(
-    token: str | None = typer.Option(
-        None,
-        "--token",
-        help="Telegram bot token (defaults to config if available).",
-    ),
-    project: str | None = typer.Option(
-        None,
-        "--project",
-        help="Project alias to print a chat_id snippet for.",
-    ),
-) -> None:
-    """Capture a Telegram chat id and exit."""
-    setup_logging(debug=False, cache_logger_on_first_use=False)
-    if token is None:
-        settings, _ = _load_settings_optional()
-        if settings is not None:
-            tg = settings.transports.telegram
-            token = tg.bot_token or None
-    chat = anyio.run(partial(onboarding.capture_chat_id, token=token))
-    if chat is None:
-        raise typer.Exit(code=1)
-    if project:
-        project = project.strip()
-        if not project:
-            raise ConfigError("Invalid `--project`; expected a non-empty string.")
-
-        config, config_path = load_or_init_config()
-        if config_path.exists():
-            applied = migrate_config(config, config_path=config_path)
-            if applied:
-                write_config(config, config_path)
-
-        projects = _ensure_projects_table(config, config_path)
-        entry = projects.get(project)
-        if entry is None:
-            lowered = project.lower()
-            for key, value in projects.items():
-                if isinstance(key, str) and key.lower() == lowered:
-                    entry = value
-                    project = key
-                    break
-        if entry is None:
-            raise ConfigError(
-                f"Unknown project {project!r}; run `takopi init {project}` first."
-            )
-        if not isinstance(entry, dict):
-            raise ConfigError(
-                f"Invalid `projects.{project}` in {config_path}; expected a table."
-            )
-        entry["chat_id"] = chat.chat_id
-        write_config(config, config_path)
-        typer.echo(f"updated projects.{project}.chat_id = {chat.chat_id}")
-        return
-
-    typer.echo(f"chat_id = {chat.chat_id}")
-
-
-def onboarding_paths() -> None:
-    """Print all possible onboarding paths."""
-    setup_logging(debug=False, cache_logger_on_first_use=False)
-    onboarding.debug_onboarding_paths()
 
 
 def doctor() -> None:
