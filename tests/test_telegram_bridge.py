@@ -2600,6 +2600,7 @@ async def test_run_main_loop_applies_chat_bound_context(
         },
         default_project="alpha",
     )
+    (tmp_path / "beta").mkdir()
     runtime = TransportRuntime(
         router=_make_router(runner),
         projects=projects,
