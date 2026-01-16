@@ -173,6 +173,7 @@ class TelegramClient:
         message_thread_id: int | None = None,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        link_preview_options: dict[str, Any] | None = None,
         reply_markup: dict[str, Any] | None = None,
         *,
         replace_message_id: int | None = None,
@@ -186,6 +187,7 @@ class TelegramClient:
                 message_thread_id=message_thread_id,
                 entities=entities,
                 parse_mode=parse_mode,
+                link_preview_options=link_preview_options,
                 reply_markup=reply_markup,
                 replace_message_id=replace_message_id,
             )
@@ -243,6 +245,7 @@ class TelegramClient:
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        link_preview_options: dict[str, Any] | None = None,
         reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
@@ -254,6 +257,7 @@ class TelegramClient:
                 text=text,
                 entities=entities,
                 parse_mode=parse_mode,
+                link_preview_options=link_preview_options,
                 reply_markup=reply_markup,
                 wait=wait,
             )

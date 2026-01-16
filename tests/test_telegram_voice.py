@@ -50,6 +50,7 @@ class _Bot(BotClient):
         message_thread_id: int | None = None,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        link_preview_options: dict | None = None,
         reply_markup: dict | None = None,
         *,
         replace_message_id: int | None = None,
@@ -62,6 +63,7 @@ class _Bot(BotClient):
             message_thread_id,
             entities,
             parse_mode,
+            link_preview_options,
             reply_markup,
             replace_message_id,
         )
@@ -95,6 +97,7 @@ class _Bot(BotClient):
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
+        link_preview_options: dict | None = None,
         reply_markup: dict | None = None,
         *,
         wait: bool = True,
@@ -107,6 +110,7 @@ class _Bot(BotClient):
             parse_mode,
             reply_markup,
             wait,
+            link_preview_options,
         )
         raise AssertionError("edit_message_text should not be called")
 

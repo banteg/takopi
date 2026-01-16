@@ -124,6 +124,7 @@ class FakeBot(BotClient):
         message_thread_id: int | None = None,
         entities: list[dict[str, Any]] | None = None,
         parse_mode: str | None = None,
+        link_preview_options: dict[str, Any] | None = None,
         reply_markup: dict | None = None,
         *,
         replace_message_id: int | None = None,
@@ -137,6 +138,7 @@ class FakeBot(BotClient):
                 "message_thread_id": message_thread_id,
                 "entities": entities,
                 "parse_mode": parse_mode,
+                "link_preview_options": link_preview_options,
                 "reply_markup": reply_markup,
                 "replace_message_id": replace_message_id,
             }
@@ -173,6 +175,7 @@ class FakeBot(BotClient):
         text: str,
         entities: list[dict[str, Any]] | None = None,
         parse_mode: str | None = None,
+        link_preview_options: dict[str, Any] | None = None,
         reply_markup: dict | None = None,
         *,
         wait: bool = True,
@@ -186,6 +189,7 @@ class FakeBot(BotClient):
                 "parse_mode": parse_mode,
                 "reply_markup": reply_markup,
                 "wait": wait,
+                "link_preview_options": link_preview_options,
             }
         )
         return Message(message_id=message_id, chat=Chat(id=chat_id, type="private"))

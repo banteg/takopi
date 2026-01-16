@@ -41,6 +41,7 @@ CANCEL_MARKUP = {
     "inline_keyboard": [[{"text": "cancel", "callback_data": CANCEL_CALLBACK_DATA}]]
 }
 CLEAR_MARKUP = {"inline_keyboard": []}
+LINK_PREVIEW_DISABLED = {"is_disabled": True}
 
 
 class TelegramPresenter:
@@ -157,6 +158,7 @@ class TelegramTransport:
                 text=followup.text,
                 entities=followup.extra.get("entities"),
                 parse_mode=followup.extra.get("parse_mode"),
+                link_preview_options=LINK_PREVIEW_DISABLED,
                 reply_markup=followup.extra.get("reply_markup"),
                 reply_to_message_id=reply_to_message_id,
                 message_thread_id=message_thread_id,
@@ -211,6 +213,7 @@ class TelegramTransport:
             text=message.text,
             entities=message.extra.get("entities"),
             parse_mode=message.extra.get("parse_mode"),
+            link_preview_options=LINK_PREVIEW_DISABLED,
             reply_markup=message.extra.get("reply_markup"),
             reply_to_message_id=reply_to_message_id,
             message_thread_id=message_thread_id,
@@ -255,6 +258,7 @@ class TelegramTransport:
             text=message.text,
             entities=entities,
             parse_mode=parse_mode,
+            link_preview_options=LINK_PREVIEW_DISABLED,
             reply_markup=reply_markup,
             wait=wait,
         )

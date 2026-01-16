@@ -322,6 +322,7 @@ async def test_telegram_transport_passes_reply_markup() -> None:
     )
     assert bot.send_calls
     assert bot.send_calls[0]["reply_markup"] == markup
+    assert bot.send_calls[0]["link_preview_options"] == {"is_disabled": True}
 
     ref = MessageRef(channel_id=123, message_id=1)
     await transport.edit(
@@ -330,6 +331,7 @@ async def test_telegram_transport_passes_reply_markup() -> None:
     )
     assert bot.edit_calls
     assert bot.edit_calls[0]["reply_markup"] == markup
+    assert bot.edit_calls[0]["link_preview_options"] == {"is_disabled": True}
 
 
 @pytest.mark.anyio
@@ -411,11 +413,12 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             message_thread_id: int | None = None,
             entities: list[dict[str, Any]] | None = None,
             parse_mode: str | None = None,
+            link_preview_options: dict[str, Any] | None = None,
             reply_markup: dict | None = None,
             *,
             replace_message_id: int | None = None,
         ) -> Message | None:
-            _ = reply_markup
+            _ = reply_markup, link_preview_options
             return None
 
         async def send_document(
@@ -446,6 +449,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
             text: str,
             entities: list[dict[str, Any]] | None = None,
             parse_mode: str | None = None,
+            link_preview_options: dict[str, Any] | None = None,
             reply_markup: dict | None = None,
             *,
             wait: bool = True,
@@ -459,6 +463,7 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
                     "parse_mode": parse_mode,
                     "reply_markup": reply_markup,
                     "wait": wait,
+                    "link_preview_options": link_preview_options,
                 }
             )
             if not wait:

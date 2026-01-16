@@ -115,6 +115,7 @@ async def test_client_methods_build_params_and_decode() -> None:
         message_thread_id=3,
         entities=[{"type": "bold", "offset": 0, "length": 2}],
         parse_mode="Markdown",
+        link_preview_options={"is_disabled": True},
         reply_markup={"inline_keyboard": []},
     )
     assert msg and msg.message_id == 1
@@ -136,6 +137,7 @@ async def test_client_methods_build_params_and_decode() -> None:
         "edit",
         entities=[{"type": "italic", "offset": 0, "length": 4}],
         parse_mode="Markdown",
+        link_preview_options={"is_disabled": True},
         reply_markup={"inline_keyboard": []},
     )
     assert edit and edit.message_id == 3
@@ -160,11 +162,15 @@ async def test_client_methods_build_params_and_decode() -> None:
     assert send_call[1]["message_thread_id"] == 3
     assert send_call[1]["entities"]
     assert send_call[1]["parse_mode"] == "Markdown"
+    assert send_call[1]["link_preview_options"] == {"is_disabled": True}
     assert send_call[1]["reply_markup"]
 
     doc_call = next(call for call in client.calls if call[0] == "sendDocument")
     assert doc_call[2]["caption"] == "doc"
     assert doc_call[3]["document"][0] == "file.txt"
+
+    edit_call = next(call for call in client.calls if call[0] == "editMessageText")
+    assert edit_call[1]["link_preview_options"] == {"is_disabled": True}
 
 
 @pytest.mark.anyio
