@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from collections.abc import Awaitable, Callable
+from typing import Protocol
 
 from ..logging import get_logger
 from openai import AsyncOpenAI, OpenAIError
@@ -22,6 +23,22 @@ VOICE_TRANSCRIPTION_DISABLED_HINT = (
 )
 
 
+class VoiceTranscriber(Protocol):
+    async def transcribe(self, *, model: str, audio_bytes: bytes) -> str: ...
+
+
+class OpenAIVoiceTranscriber:
+    async def transcribe(self, *, model: str, audio_bytes: bytes) -> str:
+        audio_file = io.BytesIO(audio_bytes)
+        audio_file.name = "voice.ogg"
+        async with AsyncOpenAI(timeout=120) as client:
+            response = await client.audio.transcriptions.create(
+                model=model,
+                file=audio_file,
+            )
+        return response.text
+
+
 async def transcribe_voice(
     *,
     bot: BotClient,
@@ -30,6 +47,7 @@ async def transcribe_voice(
     model: str,
     max_bytes: int | None = None,
     reply: Callable[..., Awaitable[None]],
+    transcriber: VoiceTranscriber | None = None,
 ) -> str | None:
     voice = msg.voice
     if voice is None:
@@ -55,21 +73,23 @@ async def transcribe_voice(
     if max_bytes is not None and len(audio_bytes) > max_bytes:
         await reply(text="voice message is too large to transcribe.")
         return None
-    audio_file = io.BytesIO(audio_bytes)
-    audio_file.name = "voice.ogg"
-    async with AsyncOpenAI(timeout=120) as client:
-        try:
-            response = await client.audio.transcriptions.create(
-                model=model,
-                file=audio_file,
-            )
-        except OpenAIError as exc:
-            logger.error(
-                "openai.transcribe.error",
-                error=str(exc),
-                error_type=exc.__class__.__name__,
-            )
-            await reply(text=str(exc).strip() or "voice transcription failed")
-            return None
-
-    return response.text
+    if transcriber is None:
+        transcriber = OpenAIVoiceTranscriber()
+    try:
+        return await transcriber.transcribe(model=model, audio_bytes=audio_bytes)
+    except OpenAIError as exc:
+        logger.error(
+            "openai.transcribe.error",
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+        await reply(text=str(exc).strip() or "voice transcription failed")
+        return None
+    except Exception as exc:
+        logger.error(
+            "voice.transcribe.error",
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+        await reply(text=str(exc).strip() or "voice transcription failed")
+        return None

@@ -13,7 +13,7 @@ from takopi.telegram.api_models import (
 )
 from takopi.telegram.client import BotClient
 from takopi.telegram.types import TelegramIncomingMessage, TelegramVoice
-from takopi.telegram.voice import transcribe_voice
+from takopi.telegram.voice import VOICE_TRANSCRIPTION_DISABLED_HINT, transcribe_voice
 
 
 class _Bot(BotClient):
@@ -176,6 +176,42 @@ def _voice_message(*, file_size: int = 123) -> TelegramIncomingMessage:
     )
 
 
+class _Transcriber:
+    def __init__(self, *, result: str | None = None, error: Exception | None = None):
+        self.calls: list[tuple[str, bytes]] = []
+        self._result = result
+        self._error = error
+
+    async def transcribe(self, *, model: str, audio_bytes: bytes) -> str:
+        self.calls.append((model, audio_bytes))
+        if self._error is not None:
+            raise self._error
+        assert self._result is not None
+        return self._result
+
+
+@pytest.mark.anyio
+async def test_transcribe_voice_disabled_replies_with_hint() -> None:
+    replies: list[str] = []
+
+    async def reply(**kwargs) -> None:
+        replies.append(kwargs["text"])
+
+    transcriber = _Transcriber(result="should-not-run")
+    result = await transcribe_voice(
+        bot=_Bot(file_info=None, audio=None),
+        msg=_voice_message(),
+        enabled=False,
+        model="whisper-1",
+        reply=reply,
+        transcriber=transcriber,
+    )
+
+    assert result is None
+    assert replies[-1] == VOICE_TRANSCRIPTION_DISABLED_HINT
+    assert transcriber.calls == []
+
+
 @pytest.mark.anyio
 async def test_transcribe_voice_handles_missing_file() -> None:
     replies: list[str] = []
@@ -244,3 +280,73 @@ async def test_transcribe_voice_rejects_large_voice_without_downloading() -> Non
 
     assert result is None
     assert replies[-1] == "voice message is too large to transcribe."
+
+
+@pytest.mark.anyio
+async def test_transcribe_voice_rejects_large_download() -> None:
+    replies: list[str] = []
+
+    async def reply(**kwargs) -> None:
+        replies.append(kwargs["text"])
+
+    transcriber = _Transcriber(result="should-not-run")
+    bot = _Bot(file_info=File(file_path="voice.ogg"), audio=b"x" * 200)
+    result = await transcribe_voice(
+        bot=bot,
+        msg=_voice_message(file_size=10),
+        enabled=True,
+        model="whisper-1",
+        max_bytes=100,
+        reply=reply,
+        transcriber=transcriber,
+    )
+
+    assert result is None
+    assert replies[-1] == "voice message is too large to transcribe."
+    assert transcriber.calls == []
+
+
+@pytest.mark.anyio
+async def test_transcribe_voice_handles_transcriber_error() -> None:
+    replies: list[str] = []
+
+    async def reply(**kwargs) -> None:
+        replies.append(kwargs["text"])
+
+    transcriber = _Transcriber(error=RuntimeError("boom"))
+    bot = _Bot(file_info=File(file_path="voice.ogg"), audio=b"ok")
+    result = await transcribe_voice(
+        bot=bot,
+        msg=_voice_message(file_size=2),
+        enabled=True,
+        model="whisper-1",
+        reply=reply,
+        transcriber=transcriber,
+    )
+
+    assert result is None
+    assert replies[-1] == "boom"
+    assert transcriber.calls
+
+
+@pytest.mark.anyio
+async def test_transcribe_voice_success() -> None:
+    replies: list[str] = []
+
+    async def reply(**kwargs) -> None:
+        replies.append(kwargs["text"])
+
+    transcriber = _Transcriber(result="transcribed")
+    bot = _Bot(file_info=File(file_path="voice.ogg"), audio=b"ok")
+    result = await transcribe_voice(
+        bot=bot,
+        msg=_voice_message(file_size=2),
+        enabled=True,
+        model="whisper-1",
+        reply=reply,
+        transcriber=transcriber,
+    )
+
+    assert result == "transcribed"
+    assert replies == []
+    assert transcriber.calls
