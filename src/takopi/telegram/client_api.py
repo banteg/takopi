@@ -56,7 +56,6 @@ class BotClient(Protocol):
         message_thread_id: int | None = None,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
-        link_preview_options: dict[str, Any] | None = None,
         reply_markup: dict[str, Any] | None = None,
         *,
         replace_message_id: int | None = None,
@@ -80,7 +79,6 @@ class BotClient(Protocol):
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
-        link_preview_options: dict[str, Any] | None = None,
         reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
@@ -379,7 +377,6 @@ class HttpBotClient:
         message_thread_id: int | None = None,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
-        link_preview_options: dict[str, Any] | None = None,
         reply_markup: dict[str, Any] | None = None,
         *,
         replace_message_id: int | None = None,
@@ -395,8 +392,7 @@ class HttpBotClient:
             params["entities"] = entities
         if parse_mode is not None:
             params["parse_mode"] = parse_mode
-        if link_preview_options is not None:
-            params["link_preview_options"] = link_preview_options
+        params["link_preview_options"] = {"is_disabled": True}
         if reply_markup is not None:
             params["reply_markup"] = reply_markup
         result = await self._post("sendMessage", params)
@@ -435,7 +431,6 @@ class HttpBotClient:
         text: str,
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
-        link_preview_options: dict[str, Any] | None = None,
         reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
@@ -449,8 +444,7 @@ class HttpBotClient:
             params["entities"] = entities
         if parse_mode is not None:
             params["parse_mode"] = parse_mode
-        if link_preview_options is not None:
-            params["link_preview_options"] = link_preview_options
+        params["link_preview_options"] = {"is_disabled": True}
         if reply_markup is not None:
             params["reply_markup"] = reply_markup
         result = await self._post("editMessageText", params)

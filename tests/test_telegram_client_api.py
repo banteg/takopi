@@ -115,7 +115,6 @@ async def test_client_methods_build_params_and_decode() -> None:
         message_thread_id=3,
         entities=[{"type": "bold", "offset": 0, "length": 2}],
         parse_mode="Markdown",
-        link_preview_options={"is_disabled": True},
         reply_markup={"inline_keyboard": []},
     )
     assert msg and msg.message_id == 1
@@ -137,7 +136,6 @@ async def test_client_methods_build_params_and_decode() -> None:
         "edit",
         entities=[{"type": "italic", "offset": 0, "length": 4}],
         parse_mode="Markdown",
-        link_preview_options={"is_disabled": True},
         reply_markup={"inline_keyboard": []},
     )
     assert edit and edit.message_id == 3
