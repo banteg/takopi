@@ -19,7 +19,7 @@ Takopi keeps running in your terminal. In Telegram, your bot will post a startup
     🐙 takopi is ready
 
     default: codex<br>
-    agents: codex, claude<br>
+    engines: codex, claude<br>
     projects: none<br>
     mode: chat<br>
     topics: disabled<br>
@@ -29,7 +29,7 @@ Takopi keeps running in your terminal. In Telegram, your bot will post a startup
 The engines/projects list reflects your setup. This tells you:
 
 - Which engine is the default
-- Which agents are available (and any missing ones)
+- Which engines are available (and any missing ones)
 - Which projects are registered
 - Which directory Takopi will run in
 
@@ -131,7 +131,7 @@ If a resume token was already issued (and resume lines are enabled), it will sti
 
 ## 7. Try a different engine
 
-Want to use a different agent for one message? Prefix your message with `/<engine>`:
+Want to use a different engine for one message? Prefix your message with `/<engine>`:
 
 !!! user "You"
     /claude explain the error handling in this codebase

@@ -71,7 +71,7 @@ def _build_startup_message(
     return (
         f"\N{OCTOPUS} **takopi is ready**\n\n"
         f"default: `{runtime.default_engine}`  \n"
-        f"agents: `{engine_list}`  \n"
+        f"engines: `{engine_list}`  \n"
         f"projects: `{project_list}`  \n"
         f"mode: `{session_mode}`  \n"
         f"topics: `{topics_label}`  \n"

@@ -1,6 +1,6 @@
 # Topics
 
-Topics bind Telegram **forum threads** to a project/branch context. Each topic keeps its own session and default agent, which is ideal for teams or multi-project work.
+Topics bind Telegram **forum threads** to a project/branch context. Each topic keeps its own session and default engine, which is ideal for teams or multi-project work.
 
 !!! tip "Workspace workflow"
     If you chose the **workspace** workflow during [onboarding](../tutorials/install.md), topics are already enabled. This guide covers advanced topic configuration and usage.
@@ -9,7 +9,7 @@ Topics bind Telegram **forum threads** to a project/branch context. Each topic k
 
 - Keep each thread tied to a repo + branch
 - Avoid context collisions in busy team chats
-- Set a default agent per topic with `/agent set`
+- Set a default engine per topic with `/agent set`
 
 ## Requirements checklist
 
@@ -76,7 +76,7 @@ Note: Outside topics (private chats or main group chats), `/ctx` binds the chat 
 
 Use `/new` inside the topic to clear stored sessions for that thread.
 
-## Set a default agent per topic
+## Set a default engine per topic
 
 Use `/agent set` inside the topic:
 

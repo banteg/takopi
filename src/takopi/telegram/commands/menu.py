@@ -29,7 +29,7 @@ def build_bot_commands(
         cmd = engine_id.lower()
         if cmd in seen:
             continue
-        commands.append({"command": cmd, "description": f"use agent: {cmd}"})
+        commands.append({"command": cmd, "description": f"use engine: {cmd}"})
         seen.add(cmd)
     for alias in runtime.project_aliases():
         cmd = alias.lower()
@@ -73,7 +73,7 @@ def build_bot_commands(
     for cmd, description in [
         ("new", "start a new thread"),
         ("ctx", "show or update context"),
-        ("agent", "set default agent"),
+        ("agent", "set default engine"),
         ("model", "set model override"),
         ("reasoning", "set reasoning override"),
         ("trigger", "set trigger mode"),

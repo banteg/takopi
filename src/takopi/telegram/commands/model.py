@@ -122,7 +122,7 @@ async def _handle_model_command(
             if engine not in engine_ids:
                 available = ", ".join(cfg.runtime.engine_ids)
                 await reply(
-                    text=f"unknown engine `{engine}`.\navailable agents: `{available}`"
+                    text=f"unknown engine `{engine}`.\navailable engines: `{available}`"
                 )
                 return
         scope = await apply_engine_override(
@@ -187,7 +187,7 @@ async def _handle_model_command(
         if engine not in engine_ids:
             available = ", ".join(cfg.runtime.engine_ids)
             await reply(
-                text=f"unknown engine `{engine}`.\navailable agents: `{available}`"
+                text=f"unknown engine `{engine}`.\navailable engines: `{available}`"
             )
             return
         scope = await apply_engine_override(

@@ -8,7 +8,7 @@ If you’re trying to understand the *why*, use **[Explanation](../explanation/i
 ## Most-used reference pages
 
 - [Commands & directives](commands-and-directives.md)
-  - Message prefixes like `/engine`, `/project`, and `@branch`
+  - Message prefixes like `/<engine-id>`, `/<project-alias>`, and `@branch`
   - In-chat commands like `/cancel`, `/new`, `/ctx`, `/file …`, `/topic …`
 - [Configuration](config.md)
   - `takopi.toml` options and defaults

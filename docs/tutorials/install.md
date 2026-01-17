@@ -228,9 +228,9 @@ Once Takopi receives your message:
 Takopi scans your PATH for installed agent CLIs:
 
 ```
-step 4: default agent
+step 4: default engine
 
-takopi runs these agents on your computer. switch anytime with /agent.
+takopi runs these engines on your computer. switch anytime with /agent.
 
   engine    status         install command
   ───────────────────────────────────────────
@@ -239,7 +239,7 @@ takopi runs these agents on your computer. switch anytime with /agent.
   opencode  ✗ not found    npm install -g opencode-ai@latest
   pi        ✗ not found    npm install -g @mariozechner/pi-coding-agent
 
-? choose default agent:
+? choose default engine:
  ❯ codex
    claude
 ```

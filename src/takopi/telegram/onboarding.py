@@ -877,7 +877,7 @@ async def step_capture_chat(ui: UI, svc: Services, state: OnboardingState) -> No
 
 
 async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> None:
-    ui.print("takopi runs these agents on your computer. switch anytime with /agent.")
+    ui.print("takopi runs these engines on your computer. switch anytime with /agent.")
     rows = svc.list_engines()
     render_engine_table(ui, rows)
     installed_ids = [engine_id for engine_id, installed, _ in rows if installed]
@@ -885,13 +885,13 @@ async def step_default_engine(ui: UI, svc: Services, state: OnboardingState) -> 
     if installed_ids:
         ui.print("")
         default_engine = await ui.select(
-            "choose default agent:",
+            "choose default engine:",
             choices=[(engine_id, engine_id) for engine_id in installed_ids],
         )
         state.default_engine = require_value(default_engine)
         return
 
-    ui.print("no agents found. install one and rerun --onboard.")
+    ui.print("no engines found. install one and rerun --onboard.")
     ui.print("")
     save_anyway = await ui.confirm("save config anyway?", default=False)
     if not save_anyway:
@@ -945,7 +945,7 @@ STEPS: list[OnboardingStep] = [
     OnboardingStep("bot token", 1, step_token_and_bot),
     OnboardingStep("pick your workflow", 2, step_persona),
     OnboardingStep("connect chat", 3, step_capture_chat),
-    OnboardingStep("default agent", 4, step_default_engine),
+    OnboardingStep("default engine", 4, step_default_engine),
     OnboardingStep("save config", 5, step_save_config),
 ]
 

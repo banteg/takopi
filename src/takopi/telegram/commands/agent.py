@@ -25,17 +25,17 @@ async def _check_agent_permissions(
     reply = make_reply(cfg, msg)
     sender_id = msg.sender_id
     if sender_id is None:
-        await reply(text="cannot verify sender for agent defaults.")
+        await reply(text="cannot verify sender for engine defaults.")
         return False
     if msg.is_private:
         return True
     member = await cfg.bot.get_chat_member(msg.chat_id, sender_id)
     if member is None:
-        await reply(text="failed to verify agent permissions.")
+        await reply(text="failed to verify engine permissions.")
         return False
     if member.status in {"creator", "administrator"}:
         return True
-    await reply(text="changing default agents is restricted to group admins.")
+    await reply(text="changing default engines is restricted to group admins.")
     return False
 
 
@@ -86,7 +86,7 @@ async def _handle_agent_command(
             "project_default": "project default",
             "global_default": "global default",
         }
-        agent_line = f"agent: {selection.engine} ({source_labels[selection.source]})"
+        agent_line = f"engine: {selection.engine} ({source_labels[selection.source]})"
         topic_override = None
         if tkey is not None and topic_store is not None:
             topic_override = await topic_store.get_engine_override(
@@ -159,7 +159,7 @@ async def _handle_agent_command(
         if engine not in cfg.runtime.engine_ids:
             available = ", ".join(cfg.runtime.engine_ids)
             await reply(
-                text=f"unknown engine `{engine}`.\navailable agents: `{available}`",
+                text=f"unknown engine `{engine}`.\navailable engines: `{available}`",
             )
             return
         if tkey is not None:
@@ -167,13 +167,13 @@ async def _handle_agent_command(
                 await reply(text="topic defaults are unavailable.")
                 return
             await topic_store.set_default_engine(tkey[0], tkey[1], engine)
-            await reply(text=f"topic default agent set to `{engine}`")
+            await reply(text=f"topic default engine set to `{engine}`")
             return
         if chat_prefs is None:
             await reply(text="chat defaults are unavailable (no config path).")
             return
         await chat_prefs.set_default_engine(msg.chat_id, engine)
-        await reply(text=f"chat default agent set to `{engine}`")
+        await reply(text=f"chat default engine set to `{engine}`")
         return
 
     if action == "clear":
@@ -184,13 +184,13 @@ async def _handle_agent_command(
                 await reply(text="topic defaults are unavailable.")
                 return
             await topic_store.clear_default_engine(tkey[0], tkey[1])
-            await reply(text="topic default agent cleared.")
+            await reply(text="topic default engine cleared.")
             return
         if chat_prefs is None:
             await reply(text="chat defaults are unavailable (no config path).")
             return
         await chat_prefs.clear_default_engine(msg.chat_id)
-        await reply(text="chat default agent cleared.")
+        await reply(text="chat default engine cleared.")
         return
 
     await reply(text=AGENT_USAGE)

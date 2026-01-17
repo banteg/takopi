@@ -130,7 +130,7 @@ async def _handle_reasoning_command(
             if engine not in engine_ids:
                 available = ", ".join(cfg.runtime.engine_ids)
                 await reply(
-                    text=f"unknown engine `{engine}`.\navailable agents: `{available}`"
+                    text=f"unknown engine `{engine}`.\navailable engines: `{available}`"
                 )
                 return
         normalized_level = level.strip().lower()
@@ -206,7 +206,7 @@ async def _handle_reasoning_command(
         if engine not in engine_ids:
             available = ", ".join(cfg.runtime.engine_ids)
             await reply(
-                text=f"unknown engine `{engine}`.\navailable agents: `{available}`"
+                text=f"unknown engine `{engine}`.\navailable engines: `{available}`"
             )
             return
         scope = await apply_engine_override(

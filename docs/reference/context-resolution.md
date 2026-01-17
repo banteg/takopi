@@ -92,8 +92,8 @@ Takopi parses the first non-empty line of a message for a directive prefix.
 
 Supported directives:
 
-- `/engine` or `/engine@bot`: chooses the engine
-- `/project`: chooses a project alias
+- `/<engine-id>` or `/<engine-id>@bot`: chooses the engine
+- `/<project-alias>`: chooses a project alias
 - `@branch`: chooses a git branch/worktree
 
 Rules:
@@ -117,7 +117,7 @@ The `ctx:` line is parsed from replies and takes precedence over new directives.
 
 When a message arrives in a chat whose `chat_id` matches `projects.<alias>.chat_id`,
 Takopi defaults the project context to that alias unless a reply `ctx:` or explicit
-`/project` directive is present.
+`/<project-alias>` directive is present.
 
 In non-topic chats, `/ctx` can bind a chat context. That bound context is treated as
 ambient and takes precedence over the default project mapping until cleared.

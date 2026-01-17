@@ -29,7 +29,7 @@ Use `/agent`:
 - In normal chats, it affects the whole chat.
 - In group chats, only admins can change defaults.
 
-Selection precedence (highest to lowest): resume token → `/engine` directive → topic default → chat default → project default → global default.
+Selection precedence (highest to lowest): resume token → `/<engine-id>` directive → topic default → chat default → project default → global default.
 
 ## Engine installation
 
@@ -40,4 +40,3 @@ Takopi shells out to engine CLIs. Install them and make sure they’re on your `
 
 - [Commands & directives](../reference/commands-and-directives.md)
 - [Config reference](../reference/config.md)
-

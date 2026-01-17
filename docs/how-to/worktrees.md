@@ -44,7 +44,7 @@ echo ".worktrees/" >> ~/.config/git/ignore
 ## Context persistence
 
 When project/worktree context is active, Takopi includes a `ctx:` footer in messages.
-When you reply, this context carries forward (you usually don’t need to repeat `/project @branch`).
+When you reply, this context carries forward (you usually don’t need to repeat `/<project-alias> @branch`).
 
 ## Related
 

@@ -8,8 +8,8 @@ Takopi parses the first non-empty line of a message for a directive prefix.
 
 | Directive | Example | Effect |
 |----------|---------|--------|
-| `/engine` | `/codex fix flaky test` | Select an engine for this message. |
-| `/project` | `/happy-gadgets add escape-pod` | Select a project alias. |
+| `/<engine-id>` | `/codex fix flaky test` | Select an engine for this message. |
+| `/<project-alias>` | `/happy-gadgets add escape-pod` | Select a project alias. |
 | `@branch` | `@feat/happy-camera rewind to checkpoint` | Run in a worktree for the branch. |
 | Combined | `/happy-gadgets @feat/flower-pin observe unseen` | Project + branch. |
 
@@ -35,7 +35,7 @@ This line is parsed from replies and takes precedence over new directives.
 | Command | Description |
 |---------|-------------|
 | `/cancel` | Reply to the progress message to stop the current run. |
-| `/agent` | Show/set the default agent for the current scope. |
+| `/agent` | Show/set the default engine for the current scope. |
 | `/model` | Show/set the model override for the current scope. |
 | `/reasoning` | Show/set the reasoning override for the current scope. |
 | `/trigger` | Show/set trigger mode (mentions-only vs all). |

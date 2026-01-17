@@ -38,7 +38,7 @@ To pin a project or branch for the chat, use:
 
 `/new` clears the session but keeps the bound context.
 
-Tip: set a default agent for this chat with `/agent set claude`.
+Tip: set a default engine for this chat with `/agent set claude`.
 
 ## Stateless (reply-to-continue)
 
