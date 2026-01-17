@@ -40,12 +40,11 @@ class OpenAIVoiceTranscriber:
     async def transcribe(self, *, model: str, audio_bytes: bytes) -> str:
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = "voice.ogg"
-        client_kwargs: dict[str, object] = {"timeout": 120}
-        if self._base_url is not None:
-            client_kwargs["base_url"] = self._base_url
-        if self._api_key is not None:
-            client_kwargs["api_key"] = self._api_key
-        async with AsyncOpenAI(**client_kwargs) as client:
+        async with AsyncOpenAI(
+            base_url=self._base_url,
+            api_key=self._api_key,
+            timeout=120,
+        ) as client:
             response = await client.audio.transcriptions.create(
                 model=model,
                 file=audio_file,
