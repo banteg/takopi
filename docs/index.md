@@ -68,7 +68,7 @@ Step-by-step guides for new users:
 1. [Install & onboard](tutorials/install.md) — set up Takopi and your bot
 2. [First run](tutorials/first-run.md) — send a task, watch it stream, continue the conversation
 3. [Projects & branches](tutorials/projects-and-branches.md) — target repos from anywhere, run on feature branches
-4. [Multi-engine](tutorials/multi-engine.md) — use different agents for different tasks
+4. [Multi-engine](tutorials/multi-engine.md) — use different engines for different tasks
 
 ## How-to guides
 

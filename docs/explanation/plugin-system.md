@@ -72,7 +72,7 @@ This lets you:
 
 ## IDs and collisions
 
-Entrypoint names become plugin IDs and appear in user-facing surfaces (CLI subcommands, Telegram commands, `/engine` directives).
+Entrypoint names become plugin IDs and appear in user-facing surfaces (CLI subcommands, Telegram commands, `/<engine-id>` directives).
 Takopi validates IDs and rejects collisions with reserved names.
 
 Plugin IDs must match:

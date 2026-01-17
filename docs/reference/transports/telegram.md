@@ -65,7 +65,7 @@ To restore “only respond when invoked” behavior, use trigger mode:
 Explicit invocation includes any of:
 
 - `@botname` mention in the message.
-- `/engine` or `/project_alias` as the first token.
+- `/<engine-id>` or `/<project-alias>` as the first token.
 - Replying to a bot message.
 - Built-in or plugin slash commands (for example `/agent`, `/model`, `/reasoning`, `/file`, `/trigger`).
 

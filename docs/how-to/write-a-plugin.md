@@ -24,7 +24,9 @@ mytransport = "mytransport.backend:BACKEND"
 mycommand = "mycommand.backend:BACKEND"
 ```
 
-## Engine backend plugin (runner)
+## Engine backend plugin
+
+An engine backend builds a `Runner` via `build_runner(...)`.
 
 Minimal example:
 

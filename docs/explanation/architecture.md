@@ -165,7 +165,7 @@ sequenceDiagram
         Command->>RunnerBridge: run_one/run_many (optional)
         RunnerBridge->>Telegram: Send progress/final
     else Default routing
-        Bridge->>Bridge: Parse directives<br/>(/engine, /project, @branch)
+        Bridge->>Bridge: Parse directives<br/>(/&lt;engine-id&gt;, /&lt;project-alias&gt;, @branch)
         Bridge->>Bridge: Extract resume token<br/>from reply
         Bridge->>Bridge: Resolve worktree<br/>(if @branch)
 

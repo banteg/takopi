@@ -1,14 +1,14 @@
 # Multi-engine workflows
 
-This tutorial shows you how to use different agents for different tasks and set up defaults so you don't have to think about it.
+This tutorial shows you how to use different engines for different tasks and set up defaults so you don't have to think about it.
 
-**What you'll learn:** Engine directives, persistent defaults, and when to use which agent.
+**What you'll learn:** Engine directives, persistent defaults, and when to use which engine.
 
 ## Why multiple engines?
 
-Different agents have different strengths:
+Different engines have different strengths:
 
-| Agent | Good at |
+| Engine | Good at |
 |-------|---------|
 | **Codex** | Fast edits, shell commands, quick fixes |
 | **Claude Code** | Complex refactors, architecture, long context |
@@ -65,7 +65,7 @@ Use `/agent set` to change the default for the current scope:
 Response:
 
 !!! takopi "Takopi"
-    chat default agent set to claude
+    chat default engine set to claude
 
 Now all new conversations in this chat use Claude (unless you explicitly override with `/codex`).
 
@@ -77,7 +77,7 @@ Check the current default:
 Example response:
 
 !!! takopi "Takopi"
-    agent: claude (chat default)<br>
+    engine: claude (chat default)<br>
     defaults: topic: none, chat: claude, project: none, global: codex<br>
     available: codex, claude, opencode, pi
 
@@ -89,7 +89,7 @@ Clear it:
 Response:
 
 !!! takopi "Takopi"
-    chat default agent cleared.
+    chat default engine cleared.
 
 ## 4. Defaults in topics
 

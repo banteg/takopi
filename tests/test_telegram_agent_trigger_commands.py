@@ -62,7 +62,7 @@ async def test_agent_show_private_defaults() -> None:
     )
 
     text = _last_text(transport)
-    assert "agent: codex" in text
+    assert "engine: codex" in text
     assert "available: codex" in text
 
 
@@ -83,7 +83,7 @@ async def test_agent_set_clear_group_admin(tmp_path: Path) -> None:
     )
 
     assert await prefs.get_default_engine(msg.chat_id) == "codex"
-    assert "chat default agent set" in _last_text(transport)
+    assert "chat default engine set" in _last_text(transport)
 
     await _handle_agent_command(
         cfg,
@@ -95,7 +95,7 @@ async def test_agent_set_clear_group_admin(tmp_path: Path) -> None:
     )
 
     assert await prefs.get_default_engine(msg.chat_id) is None
-    assert "chat default agent cleared" in _last_text(transport)
+    assert "chat default engine cleared" in _last_text(transport)
 
 
 @pytest.mark.anyio
@@ -135,7 +135,7 @@ async def test_agent_set_invalid_engine(tmp_path: Path) -> None:
 
     text = _last_text(transport)
     assert "unknown engine" in text
-    assert "available agents" in text
+    assert "available engines" in text
 
 
 @pytest.mark.anyio

@@ -27,7 +27,7 @@ Reply-to-continue works even if topics or chat sessions are enabled.
 
 For each message, Takopi:
 
-- parses directive prefixes (`/engine`, `/project`, `@branch`) from the first non-empty line
+- parses directive prefixes (`/<engine-id>`, `/<project-alias>`, `@branch`) from the first non-empty line
 - attempts to extract a resume token by polling available runners
 - if a resume token is found, routes to the matching runner; otherwise uses the configured default engine
 

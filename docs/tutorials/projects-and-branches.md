@@ -2,7 +2,7 @@
 
 This tutorial shows you how to register repos as projects and run tasks on feature branches without switching directories.
 
-**What you'll learn:** How to target repos from anywhere with `/project`, and run on branches with `@branch`.
+**What you'll learn:** How to target repos from anywhere with `/<project-alias>`, and run on branches with `@branch`.
 
 ## The problem
 
@@ -123,7 +123,7 @@ Replies stay on the same branch. Your main checkout is untouched.
 
 ## 5. Context persistence
 
-Once you've set a context (via `/project @branch` or by replying), it sticks:
+Once you've set a context (via `/<project-alias> @branch` or by replying), it sticks:
 
 !!! user "You"
     /happy-gadgets @feat/new-login add tests
@@ -155,7 +155,7 @@ If you mostly work in one repo, set it as the default:
     default_project = "happy-gadgets"
     ```
 
-Now messages without a `/project` prefix go to that repo:
+Now messages without a `/<project-alias>` prefix go to that repo:
 
 !!! user "You"
     add a health check endpoint

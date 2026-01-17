@@ -50,7 +50,7 @@ def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
     )
 
     assert "takopi is ready" in message
-    assert "agents: `codex (not installed: pi)`" in message
+    assert "engines: `codex (not installed: pi)`" in message
     assert "projects: `none`" in message
 
 
@@ -92,7 +92,7 @@ def test_build_startup_message_surfaces_unavailable_engine_reasons(
         topics=TelegramTopicsSettings(),
     )
 
-    assert "agents: `codex" in message
+    assert "engines: `codex" in message
     assert "misconfigured: pi" in message
     assert "failed to load: claude" in message
 
