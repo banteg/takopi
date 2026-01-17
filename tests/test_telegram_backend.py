@@ -143,6 +143,8 @@ def test_telegram_backend_build_and_run_wires_config(
         voice_transcription=True,
         voice_max_bytes=1234,
         voice_transcription_model="whisper-1",
+        voice_transcription_base_url="http://localhost:8000/v1",
+        voice_transcription_api_key="local",
         files=TelegramFilesSettings(enabled=True, allowed_user_ids=[1, 2]),
         topics=TelegramTopicsSettings(enabled=True, scope="main"),
     )
@@ -161,6 +163,8 @@ def test_telegram_backend_build_and_run_wires_config(
     assert cfg.voice_transcription is True
     assert cfg.voice_max_bytes == 1234
     assert cfg.voice_transcription_model == "whisper-1"
+    assert cfg.voice_transcription_base_url == "http://localhost:8000/v1"
+    assert cfg.voice_transcription_api_key == "local"
     assert cfg.files.enabled is True
     assert cfg.files.allowed_user_ids == [1, 2]
     assert cfg.topics.enabled is True

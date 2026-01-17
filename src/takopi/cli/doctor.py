@@ -47,9 +47,14 @@ def _doctor_file_checks(settings: TakopiSettings) -> list[DoctorCheck]:
 def _doctor_voice_checks(settings: TakopiSettings) -> list[DoctorCheck]:
     if not settings.transports.telegram.voice_transcription:
         return [DoctorCheck("voice transcription", "ok", "disabled")]
+    api_key = settings.transports.telegram.voice_transcription_api_key
+    if api_key:
+        return [
+            DoctorCheck("voice transcription", "ok", "voice_transcription_api_key set")
+        ]
     if os.environ.get("OPENAI_API_KEY"):
         return [DoctorCheck("voice transcription", "ok", "OPENAI_API_KEY set")]
-    return [DoctorCheck("voice transcription", "error", "OPENAI_API_KEY not set")]
+    return [DoctorCheck("voice transcription", "error", "API key not set")]
 
 
 async def _doctor_telegram_checks(

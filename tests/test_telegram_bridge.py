@@ -1954,8 +1954,10 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
         model: str,
         max_bytes: int | None = None,
         reply,
+        base_url: str | None = None,
+        api_key: str | None = None,
     ) -> str:
-        _ = bot, msg, enabled, model, max_bytes, reply
+        _ = bot, msg, enabled, model, max_bytes, reply, base_url, api_key
         return "/codex do thing"
 
     monkeypatch.setattr(telegram_loop, "transcribe_voice", _fake_transcribe)

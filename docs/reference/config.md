@@ -51,6 +51,8 @@ If you expect to edit config while Takopi is running, set:
 | `voice_transcription` | bool | `false` | Enable voice note transcription. |
 | `voice_max_bytes` | int | `10485760` | Max voice note size (bytes). |
 | `voice_transcription_model` | string | `"gpt-4o-mini-transcribe"` | OpenAI transcription model name. |
+| `voice_transcription_base_url` | string\|null | `null` | Override base URL for voice transcription only. |
+| `voice_transcription_api_key` | string\|null | `null` | Override API key for voice transcription only. |
 | `session_mode` | `"stateless"`\|`"chat"` | `"stateless"` | Auto-resume mode. Onboarding sets `"chat"` for assistant/workspace. |
 | `show_resume_line` | bool | `true` | Show resume line in message footer. Onboarding sets `false` for assistant/workspace. |
 

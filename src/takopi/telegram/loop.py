@@ -1663,6 +1663,8 @@ async def run_main_loop(
                         model=cfg.voice_transcription_model,
                         max_bytes=cfg.voice_max_bytes,
                         reply=reply,
+                        base_url=cfg.voice_transcription_base_url,
+                        api_key=cfg.voice_transcription_api_key,
                     )
                     if text is None:
                         return

@@ -124,6 +124,8 @@ class TelegramBridgeConfig:
     voice_transcription: bool = False
     voice_max_bytes: int = 10 * 1024 * 1024
     voice_transcription_model: str = "gpt-4o-mini-transcribe"
+    voice_transcription_base_url: str | None = None
+    voice_transcription_api_key: str | None = None
     forward_coalesce_s: float = 1.0
     media_group_debounce_s: float = 1.0
     files: TelegramFilesSettings = field(default_factory=TelegramFilesSettings)

@@ -33,6 +33,10 @@ Configuration (under `[transports.telegram]`):
     ```sh
     takopi config set transports.telegram.voice_transcription true
     takopi config set transports.telegram.voice_transcription_model "gpt-4o-mini-transcribe"
+
+    # local OpenAI-compatible transcription server (optional)
+    takopi config set transports.telegram.voice_transcription_base_url "http://localhost:8000/v1"
+    takopi config set transports.telegram.voice_transcription_api_key "local"
     ```
 
 === "toml"
@@ -40,16 +44,19 @@ Configuration (under `[transports.telegram]`):
     ```toml
     voice_transcription = true
     voice_transcription_model = "gpt-4o-mini-transcribe" # optional
+    voice_transcription_base_url = "http://localhost:8000/v1" # optional
+    voice_transcription_api_key = "local" # optional
     ```
 
-Set `OPENAI_API_KEY` in the environment. If transcription is enabled but the API key
-is missing or the audio download fails, takopi replies with a short error and skips
-the run.
+Set `OPENAI_API_KEY` in the environment (or `voice_transcription_api_key` in config).
+If transcription is enabled but no API key is available or the audio download fails,
+takopi replies with a short error and skips the run.
 
-To use a local OpenAI-compatible Whisper server, also set `OPENAI_BASE_URL` (for
-example, `http://localhost:8000/v1`) and a dummy `OPENAI_API_KEY` if your server
-ignores it. If your server requires a specific model name, set
-`voice_transcription_model` (for example, `whisper-1`).
+To use a local OpenAI-compatible Whisper server, set `voice_transcription_base_url`
+(and `voice_transcription_api_key` if the server expects one). This keeps engine
+requests on their own base URL without relying on `OPENAI_BASE_URL`. If your server
+requires a specific model name, set `voice_transcription_model` (for example,
+`whisper-1`).
 
 ### Trigger mode (mentions-only)
 

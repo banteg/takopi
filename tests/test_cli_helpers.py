@@ -135,6 +135,23 @@ def test_doctor_voice_checks(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     checks = cli._doctor_voice_checks(settings)
     assert checks[0].status == "error"
+    assert checks[0].detail == "API key not set"
+
+    settings_with_key = _settings(
+        {
+            "transports": {
+                "telegram": {
+                    "bot_token": "token",
+                    "chat_id": 1,
+                    "voice_transcription": True,
+                    "voice_transcription_api_key": "local",
+                }
+            }
+        }
+    )
+    checks = cli._doctor_voice_checks(settings_with_key)
+    assert checks[0].status == "ok"
+    assert checks[0].detail == "voice_transcription_api_key set"
 
     monkeypatch.setenv("OPENAI_API_KEY", "key")
     checks = cli._doctor_voice_checks(settings)
