@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import typer
 
 
 def _get_takopi_executable() -> str:
-    """Find the takopi executable path."""
-    which_takopi = shutil.which("takopi")
-    if which_takopi:
-        return which_takopi
-    return sys.executable + " -m takopi.cli"
+    """Get the takopi command for systemd.
+
+    Uses just 'takopi' so systemd finds it via PATH at runtime,
+    rather than hardcoding the current environment's path.
+    """
+    return "takopi"
 
 
 def _get_systemd_user_dir() -> Path:
@@ -32,6 +31,18 @@ def _generate_service_unit(
     working_dir: str | None = None,
 ) -> str:
     """Generate a systemd service unit file content."""
+    home = str(Path.home())
+    # Use the current PATH to capture nvm, cargo, and other tool paths
+    path_value = os.environ.get("PATH", "")
+    if not path_value:
+        path_dirs = [
+            f"{home}/.local/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+        ]
+        path_value = ":".join(path_dirs)
+
     lines = [
         "[Unit]",
         f"Description={description}",
@@ -40,10 +51,12 @@ def _generate_service_unit(
         "",
         "[Service]",
         "Type=simple",
-        f"ExecStart={exec_path}",
+        f"Environment=HOME={home}",
+        f"Environment=PATH={path_value}",
+        "Environment=TAKOPI_NO_INTERACTIVE=1",
+        f"ExecStart=/bin/sh -c 'exec {exec_path}'",
         "Restart=on-failure",
         "RestartSec=10",
-        "Environment=TAKOPI_NO_INTERACTIVE=1",
     ]
 
     if working_dir:
@@ -64,9 +77,7 @@ def _run_systemctl(args: list[str], *, check: bool = True) -> bool:
     cmd = ["systemctl", "--user", *args]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if check and result.returncode != 0:
-            return False
-        return True
+        return not (check and result.returncode != 0)
     except FileNotFoundError:
         return False
 
