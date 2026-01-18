@@ -320,7 +320,7 @@ async def _invoke_builtin_command(
             )
             return None
         handlers["file"] = partial(
-            _handle_file_command,
+            handle_file_command,
             cfg,
             msg,
             args_text,
@@ -332,7 +332,7 @@ async def _invoke_builtin_command(
         handlers.update(
             {
                 "ctx": partial(
-                    _handle_ctx_command,
+                    handle_ctx_command,
                     cfg,
                     msg,
                     args_text,
@@ -341,7 +341,7 @@ async def _invoke_builtin_command(
                     scope_chat_ids=scope_chat_ids,
                 ),
                 "new": partial(
-                    _handle_new_command,
+                    handle_new_command,
                     cfg,
                     msg,
                     topic_store,
@@ -349,7 +349,7 @@ async def _invoke_builtin_command(
                     scope_chat_ids=scope_chat_ids,
                 ),
                 "topic": partial(
-                    _handle_topic_command,
+                    handle_topic_command,
                     cfg,
                     msg,
                     args_text,
@@ -362,7 +362,7 @@ async def _invoke_builtin_command(
 
     if command_id == "agent":
         handlers["agent"] = partial(
-            _handle_agent_command,
+            handle_agent_command,
             cfg,
             msg,
             args_text,
@@ -375,7 +375,7 @@ async def _invoke_builtin_command(
 
     if command_id == "model":
         handlers["model"] = partial(
-            _handle_model_command,
+            handle_model_command,
             cfg,
             msg,
             args_text,
@@ -388,7 +388,7 @@ async def _invoke_builtin_command(
 
     if command_id == "reasoning":
         handlers["reasoning"] = partial(
-            _handle_reasoning_command,
+            handle_reasoning_command,
             cfg,
             msg,
             args_text,
@@ -401,7 +401,7 @@ async def _invoke_builtin_command(
 
     if command_id == "trigger":
         handlers["trigger"] = partial(
-            _handle_trigger_command,
+            handle_trigger_command,
             cfg,
             msg,
             args_text,

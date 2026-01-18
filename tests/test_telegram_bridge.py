@@ -3397,7 +3397,7 @@ async def test_invoke_command_builtin(tmp_path: Path) -> None:
     router = _make_router(runner)
     config_path = tmp_path / "takopi.toml"
     config_path.touch()
-    transport = _FakeTransport()
+    transport = FakeTransport()
     presenter = TelegramPresenter()
     exec_cfg = ExecBridgeConfig(
         transport=transport, presenter=presenter, final_notify=True
@@ -3465,7 +3465,7 @@ async def test_invoke_command_not_available() -> None:
 
     runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
     router = _make_router(runner)
-    transport = _FakeTransport()
+    transport = FakeTransport()
     presenter = TelegramPresenter()
     exec_cfg = ExecBridgeConfig(
         transport=transport, presenter=presenter, final_notify=True
@@ -3502,8 +3502,8 @@ async def test_invoke_builtin_command_unknown_returns_error(tmp_path: Path) -> N
     from takopi.telegram.loop import _invoke_builtin_command
 
     runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport, runner=runner)
+    transport = FakeTransport()
+    cfg = make_cfg(transport, runner=runner)
 
     msg = TelegramIncomingMessage(
         transport="telegram",
@@ -3542,8 +3542,8 @@ async def test_invoke_builtin_command_trigger_uses_effective_context(
     from takopi.telegram.loop import _invoke_builtin_command
 
     runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport, runner=runner)
+    transport = FakeTransport()
+    cfg = make_cfg(transport, runner=runner)
 
     msg = TelegramIncomingMessage(
         transport="telegram",
@@ -3589,8 +3589,8 @@ async def test_invoke_builtin_command_context_override_precedence(
     from takopi.telegram.loop import _invoke_builtin_command
 
     runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
-    transport = _FakeTransport()
-    cfg = _make_cfg(transport, runner=runner)
+    transport = FakeTransport()
+    cfg = make_cfg(transport, runner=runner)
 
     msg = TelegramIncomingMessage(
         transport="telegram",
@@ -3635,9 +3635,9 @@ async def test_invoke_builtin_command_file_disabled(tmp_path: Path) -> None:
     from takopi.telegram.loop import _invoke_builtin_command
 
     runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
-    transport = _FakeTransport()
+    transport = FakeTransport()
     # Default config has files disabled
-    cfg = _make_cfg(transport, runner=runner)
+    cfg = make_cfg(transport, runner=runner)
 
     msg = TelegramIncomingMessage(
         transport="telegram",
@@ -3678,7 +3678,7 @@ async def test_make_command_dispatcher_strips_slash(tmp_path: Path) -> None:
     router = _make_router(runner)
     config_path = tmp_path / "takopi.toml"
     config_path.touch()
-    transport = _FakeTransport()
+    transport = FakeTransport()
     presenter = TelegramPresenter()
     exec_cfg = ExecBridgeConfig(
         transport=transport, presenter=presenter, final_notify=True
@@ -3734,7 +3734,7 @@ async def test_invoke_command_passes_context_to_dispatcher(tmp_path: Path) -> No
     router = _make_router(runner)
     config_path = tmp_path / "takopi.toml"
     config_path.touch()
-    transport = _FakeTransport()
+    transport = FakeTransport()
     presenter = TelegramPresenter()
     exec_cfg = ExecBridgeConfig(
         transport=transport, presenter=presenter, final_notify=True
