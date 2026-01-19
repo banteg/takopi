@@ -1996,7 +1996,13 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
     )
     transcript_message = transcript_call["message"]
     transcript_options = transcript_call["options"]
+    assert "\U0001f3a4:" in transcript_message.text
     assert transcript_text in transcript_message.text
+    assert transcript_message.extra is not None
+    assert any(
+        entity.get("type") == "italic"
+        for entity in transcript_message.extra.get("entities", [])
+    )
     assert transcript_options is not None
     assert transcript_options.notify is False
     assert transcript_options.reply_to is not None
@@ -2073,8 +2079,11 @@ async def test_run_main_loop_voice_transcript_trimmed(monkeypatch) -> None:
     assert transcript_lines[0].lower().startswith("voice transcript")
     assert transcript_lines[1] == ""
     body = "".join(transcript_lines[2:]).strip()
-    assert len(body) == MAX_BODY_CHARS
-    assert body.endswith("\u2026")
+    assert body.startswith("\U0001f3a4: ")
+    prefix = "\U0001f3a4: "
+    inner_body = body[len(prefix) :]
+    assert len(inner_body) == MAX_BODY_CHARS - len(prefix)
+    assert inner_body.endswith("\u2026")
 
 
 @pytest.mark.anyio
