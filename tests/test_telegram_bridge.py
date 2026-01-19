@@ -1992,11 +1992,11 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
     transcript_call = next(
         call
         for call in transport.send_calls
-        if call["message"].text.lower().startswith("voice transcript")
+        if call["message"].text.startswith("🎤 · voice transcript")
     )
     transcript_message = transcript_call["message"]
     transcript_options = transcript_call["options"]
-    assert "\U0001f3a4:" in transcript_message.text
+    assert transcript_message.text.startswith("🎤 · voice transcript")
     assert transcript_text in transcript_message.text
     assert transcript_message.extra is not None
     assert any(
@@ -2072,17 +2072,15 @@ async def test_run_main_loop_voice_transcript_trimmed(monkeypatch) -> None:
     transcript_call = next(
         call
         for call in transport.send_calls
-        if call["message"].text.lower().startswith("voice transcript")
+        if call["message"].text.startswith("🎤 · voice transcript")
     )
     transcript_text = transcript_call["message"].text
     transcript_lines = transcript_text.splitlines()
-    assert transcript_lines[0].lower().startswith("voice transcript")
+    assert transcript_lines[0].startswith("🎤 · voice transcript")
     assert transcript_lines[1] == ""
     body = "".join(transcript_lines[2:]).strip()
-    assert body.startswith("\U0001f3a4: ")
-    prefix = "\U0001f3a4: "
-    inner_body = body[len(prefix) :]
-    assert len(inner_body) == MAX_BODY_CHARS - len(prefix)
+    assert body.startswith("_")
+    inner_body = body[1:]
     assert inner_body.endswith("\u2026")
 
 

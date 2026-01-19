@@ -330,7 +330,7 @@ async def send_voice_transcript(
         return
     reply_to = MessageRef(channel_id=chat_id, message_id=user_msg_id)
     rendered_text, entities = prepare_telegram(
-        MarkdownParts(header="voice transcript", body=f"🎤: _{text}_")
+        MarkdownParts(header="🎤 · voice transcript", body=f"_{text}_")
     )
     await transport.send(
         channel_id=chat_id,
