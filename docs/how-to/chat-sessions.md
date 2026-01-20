@@ -57,6 +57,10 @@ If you prefer a cleaner chat, hide resume lines:
 
 In group chats, Takopi stores a session per sender, so different people can work independently in the same chat.
 
+## Working directory changes
+
+When `session_mode = "chat"` is enabled, Takopi clears stored chat sessions on startup if the current working directory differs from the one recorded in `telegram_chat_sessions_state.json`. This avoids resuming directory-bound sessions from a different project.
+
 ## Related
 
 - [Conversation modes](../tutorials/conversation-modes.md)

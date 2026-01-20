@@ -66,15 +66,6 @@ class ChatSessionStore(JsonStateStore[_ChatSessionsState]):
             return ResumeToken(engine=engine, value=entry.resume)
 
     async def sync_startup_cwd(self, cwd: Path) -> bool:
-        """Drop stored sessions when the process starts in a different directory.
-
-        Some runner CLIs persist session state relative to the current working
-        directory (or derive session storage paths from it). In `session_mode=chat`,
-        takopi otherwise attempts to resume a chat session even after being
-        restarted in a different directory, which can cause runner errors.
-
-        Returns True if any sessions were cleared.
-        """
         normalized = str(cwd.expanduser().resolve())
         async with self._lock:
             self._reload_locked_if_needed()
