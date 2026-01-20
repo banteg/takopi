@@ -43,12 +43,17 @@ def should_trigger_run(
         needle = f"@{bot_username}"
         if needle in lowered:
             return True
-    if msg.reply_to_is_bot:
+    implicit_topic_reply = (
+        msg.thread_id is not None and msg.reply_to_message_id == msg.thread_id
+    )
+
+    if msg.reply_to_is_bot and not implicit_topic_reply:
         return True
     if (
         bot_username
         and msg.reply_to_username
         and msg.reply_to_username.lower() == bot_username
+        and not implicit_topic_reply
     ):
         return True
     command_id, _ = _parse_slash_command(text)

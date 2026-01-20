@@ -57,6 +57,34 @@ def test_parse_incoming_update_maps_fields() -> None:
     assert msg.raw["message_id"] == 10
 
 
+def test_parse_incoming_update_ignores_implicit_topic_reply() -> None:
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=187,
+            message_thread_id=163,
+            is_topic_message=True,
+            text="Hello",
+            chat=Chat(id=123, type="supergroup", is_forum=True),
+            from_=User(id=99),
+            reply_to_message=MessageReply(
+                message_id=163,
+                from_=User(id=77, is_bot=True, username="TakopiBot"),
+            ),
+        ),
+    )
+
+    msg = parse_incoming_update(update, chat_id=123)
+    assert msg is not None
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert msg.thread_id == 163
+    assert msg.is_topic_message is True
+    assert msg.reply_to_message_id is None
+    assert msg.reply_to_text is None
+    assert msg.reply_to_is_bot is None
+    assert msg.reply_to_username is None
+
+
 def test_parse_incoming_update_filters_non_matching_chat() -> None:
     update = Update(
         update_id=1,

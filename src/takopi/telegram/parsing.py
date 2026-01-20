@@ -110,6 +110,11 @@ def _parse_incoming_message(
     media_group_id = msg.media_group_id
     thread_id = msg.message_thread_id
     is_topic_message = msg.is_topic_message
+    if thread_id is not None and reply_to_message_id == thread_id:
+        reply_to_message_id = None
+        reply_to_text = None
+        reply_to_is_bot = None
+        reply_to_username = None
     return TelegramIncomingMessage(
         transport="telegram",
         chat_id=msg_chat_id,
