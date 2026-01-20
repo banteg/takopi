@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import anyio
@@ -964,6 +965,14 @@ async def run_main_loop(
             state.chat_session_store = ChatSessionStore(
                 resolve_sessions_path(config_path)
             )
+            cleared = await state.chat_session_store.sync_startup_cwd(Path.cwd())
+            if cleared:
+                logger.info(
+                    "chat_sessions.cleared",
+                    reason="startup_cwd_changed",
+                    cwd=str(Path.cwd()),
+                    state_path=str(resolve_sessions_path(config_path)),
+                )
             logger.info(
                 "chat_sessions.enabled",
                 state_path=str(resolve_sessions_path(config_path)),
