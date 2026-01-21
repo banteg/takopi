@@ -176,6 +176,15 @@ def test_transport_config_telegram_and_extra(tmp_path: Path) -> None:
         settings.transport_config("discord", config_path=config_path)
 
 
+def test_transport_config_telegram_missing(tmp_path: Path) -> None:
+    config_path = tmp_path / "takopi.toml"
+    settings = TakopiSettings.model_validate(
+        {"transport": "discord", "transports": {"discord": {"token": "abc"}}}
+    )
+    with pytest.raises(ConfigError, match=r"Missing \[transports\.telegram\]"):
+        settings.transport_config("telegram", config_path=config_path)
+
+
 def test_bot_token_none_rejected(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
     data = {
@@ -195,6 +204,15 @@ def test_require_telegram_rejects_non_telegram_transport(tmp_path: Path) -> None
         }
     )
     with pytest.raises(ConfigError, match="Unsupported transport"):
+        require_telegram(settings, config_path)
+
+
+def test_require_telegram_rejects_missing_telegram_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "takopi.toml"
+    settings = TakopiSettings.model_validate(
+        {"transport": "telegram", "transports": {}}
+    )
+    with pytest.raises(ConfigError, match=r"Missing \[transports\.telegram\]"):
         require_telegram(settings, config_path)
 
 
@@ -235,3 +253,20 @@ def test_load_settings_rejects_non_file(tmp_path: Path) -> None:
     config_path.mkdir()
     with pytest.raises(ConfigError, match="exists but is not a file"):
         load_settings(config_path)
+
+
+def test_load_settings_without_telegram(tmp_path: Path) -> None:
+    config_path = tmp_path / "takopi.toml"
+    config_path.write_text(
+        'transport = "my-transport"\n\n[transports.my-transport]\nsome_key = "value"\n',
+        encoding="utf-8",
+    )
+
+    settings, loaded_path = load_settings(config_path)
+
+    assert loaded_path == config_path
+    assert settings.transport == "my-transport"
+    assert settings.transports.telegram is None
+    assert settings.transport_config("my-transport", config_path=config_path) == {
+        "some_key": "value"
+    }

@@ -211,7 +211,9 @@ def check_setup(
             try:
                 require_telegram(settings, config_path)
             except ConfigError:
-                issues.append(config_issue(config_path, title=_CONFIGURE_TELEGRAM_TITLE))
+                issues.append(
+                    config_issue(config_path, title=_CONFIGURE_TELEGRAM_TITLE)
+                )
     except ConfigError:
         issues.extend(backend_issues)
         if transport_override and transport_override != "telegram":
