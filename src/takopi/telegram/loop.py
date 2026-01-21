@@ -27,8 +27,10 @@ from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
 from .commands.cancel import handle_callback_cancel, handle_cancel
 from .commands.file_transfer import FILE_PUT_USAGE
 from .commands.handlers import (
+    dispatch_callback,
     dispatch_command,
     handle_agent_command,
+    parse_callback_data,
     handle_chat_ctx_command,
     handle_chat_new_command,
     handle_ctx_command,
@@ -1789,6 +1791,53 @@ async def run_main_loop(
                             state.running_tasks,
                             scheduler,
                         )
+                    elif update.data:
+                        # Route callback to command backend if registered
+                        cb_command_id, cb_args_text = parse_callback_data(update.data)
+                        if cb_command_id not in state.command_ids:
+                            refresh_commands()
+                        if cb_command_id in state.command_ids:
+                            # Answer callback immediately to clear loading state
+                            tg.start_soon(
+                                cfg.bot.answer_callback_query, update.callback_query_id
+                            )
+                            # Extract thread_id from raw callback data
+                            cb_thread_id: int | None = None
+                            if update.raw and isinstance(
+                                update.raw.get("message"), dict
+                            ):
+                                cb_thread_id = update.raw["message"].get(
+                                    "message_thread_id"
+                                )
+                            # Compute stateful mode for callback
+                            cb_topic_key = (
+                                (update.chat_id, cb_thread_id)
+                                if state.topic_store is not None
+                                and cb_thread_id is not None
+                                else None
+                            )
+                            cb_stateful_mode = cb_topic_key is not None
+                            tg.start_soon(
+                                dispatch_callback,
+                                cfg,
+                                update,
+                                cb_command_id,
+                                cb_args_text,
+                                cb_thread_id,
+                                state.running_tasks,
+                                scheduler,
+                                wrap_on_thread_known(
+                                    scheduler.note_thread_known,
+                                    cb_topic_key,
+                                    None,  # No chat session key for callbacks
+                                ),
+                                cb_stateful_mode,
+                                None,  # No engine override for callbacks
+                            )
+                        else:
+                            tg.start_soon(
+                                cfg.bot.answer_callback_query, update.callback_query_id
+                            )
                     else:
                         tg.start_soon(
                             cfg.bot.answer_callback_query,

@@ -3,7 +3,9 @@ from __future__ import annotations
 # ruff: noqa: F401
 
 from .agent import _handle_agent_command as handle_agent_command
+from .dispatch import _dispatch_callback as dispatch_callback
 from .dispatch import _dispatch_command as dispatch_command
+from .dispatch import _parse_callback_data as parse_callback_data
 from .executor import _run_engine as run_engine
 from .executor import _should_show_resume_line as should_show_resume_line
 from .file_transfer import _handle_file_command as handle_file_command
@@ -23,8 +25,10 @@ from .topics import _handle_topic_command as handle_topic_command
 from .trigger import _handle_trigger_command as handle_trigger_command
 
 __all__ = [
+    "dispatch_callback",
     "dispatch_command",
     "get_reserved_commands",
+    "parse_callback_data",
     "handle_agent_command",
     "handle_chat_ctx_command",
     "handle_chat_new_command",
