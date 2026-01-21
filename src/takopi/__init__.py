@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import sys
 import typing
 
 __version__ = "0.21.3"
@@ -9,8 +8,6 @@ __version__ = "0.21.3"
 
 # Workaround for Pydantic calling typing._eval_type with a removed kwarg on Python 3.14.
 def _patch_typing_eval_type_for_pydantic() -> None:
-    if sys.version_info < (3, 14):
-        return
     eval_type = getattr(typing, "_eval_type", None)
     if eval_type is None:
         return
