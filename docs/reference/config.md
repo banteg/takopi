@@ -46,6 +46,7 @@ If you expect to edit config while Takopi is running, set:
 |-----|------|---------|-------|
 | `bot_token` | string | (required) | Telegram bot token from @BotFather. |
 | `chat_id` | int | (required) | Default chat id. |
+| `allowed_user_ids` | int[] | `[]` | Allowed sender user ids. Empty disables sender filtering; when set, only these users can interact (including DMs). |
 | `message_overflow` | `"trim"`\|`"split"` | `"trim"` | How to handle long final responses. |
 | `forward_coalesce_s` | float | `1.0` | Quiet window for combining a prompt with immediately-following forwarded messages; set `0` to disable. |
 | `voice_transcription` | bool | `false` | Enable voice note transcription. |
@@ -55,6 +56,8 @@ If you expect to edit config while Takopi is running, set:
 | `voice_transcription_api_key` | string\|null | `null` | Override API key for voice transcription only. |
 | `session_mode` | `"stateless"`\|`"chat"` | `"stateless"` | Auto-resume mode. Onboarding sets `"chat"` for assistant/workspace. |
 | `show_resume_line` | bool | `true` | Show resume line in message footer. Onboarding sets `false` for assistant/workspace. |
+
+When `allowed_user_ids` is set, updates without a sender id (for example, some channel posts) are ignored.
 
 ### `transports.telegram.topics`
 
@@ -71,7 +74,7 @@ If you expect to edit config while Takopi is running, set:
 | `auto_put` | bool | `true` | Auto-save uploads. |
 | `auto_put_mode` | `"upload"`\|`"prompt"` | `"upload"` | Whether uploads also start a run. |
 | `uploads_dir` | string | `"incoming"` | Relative path inside the repo/worktree. |
-| `allowed_user_ids` | int[] | `[]` | Allowed senders; empty allows private chats (group usage requires admin). |
+| `allowed_user_ids` | int[] | `[]` | Allowed senders for file transfer; empty allows private chats (group usage requires admin). |
 | `deny_globs` | string[] | (defaults) | Glob denylist (e.g. `.git/**`, `**/*.pem`). |
 
 File size limits (not configurable):

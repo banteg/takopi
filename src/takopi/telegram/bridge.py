@@ -128,6 +128,7 @@ class TelegramBridgeConfig:
     voice_transcription_api_key: str | None = None
     forward_coalesce_s: float = 1.0
     media_group_debounce_s: float = 1.0
+    allowed_user_ids: tuple[int, ...] = ()
     files: TelegramFilesSettings = field(default_factory=TelegramFilesSettings)
     chat_ids: tuple[int, ...] | None = None
     topics: TelegramTopicsSettings = field(default_factory=TelegramTopicsSettings)

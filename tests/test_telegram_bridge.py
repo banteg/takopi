@@ -872,6 +872,76 @@ async def test_handle_callback_cancel_without_task_acknowledges() -> None:
     assert "nothing is currently running" in bot.callback_calls[-1]["text"].lower()
 
 
+def test_allowed_chat_ids_include_allowed_user_ids() -> None:
+    cfg = replace(make_cfg(FakeTransport()), allowed_user_ids=(42,))
+    allowed = telegram_loop._allowed_chat_ids(cfg)
+    assert cfg.chat_id in allowed
+    assert 42 in allowed
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_ignores_disallowed_sender() -> None:
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    cfg = replace(make_cfg(FakeTransport(), runner), allowed_user_ids=(999,))
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert runner.calls == []
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_ignores_disallowed_callback() -> None:
+    cfg = replace(make_cfg(FakeTransport()), allowed_user_ids=(999,))
+    bot = cast(FakeBot, cfg.bot)
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramCallbackQuery(
+            transport="telegram",
+            chat_id=123,
+            message_id=42,
+            callback_query_id="cbq-ignored",
+            data="takopi:cancel",
+            sender_id=123,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert bot.callback_calls == []
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_allows_allowed_sender() -> None:
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    cfg = replace(make_cfg(FakeTransport(), runner), allowed_user_ids=(123,))
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert runner.calls
+    assert runner.calls[0][0] == "hello"
+
+
 def test_cancel_command_accepts_extra_text() -> None:
     assert is_cancel_command("/cancel now") is True
     assert is_cancel_command("/cancel@takopi please") is True

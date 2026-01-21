@@ -118,6 +118,7 @@ def _allowed_chat_ids(cfg: TelegramBridgeConfig) -> set[int]:
     allowed = set(cfg.chat_ids or ())
     allowed.add(cfg.chat_id)
     allowed.update(cfg.runtime.project_chat_ids())
+    allowed.update(cfg.allowed_user_ids)
     return allowed
 
 
@@ -1779,7 +1780,19 @@ async def run_main_loop(
                     return
                 forward_coalescer.schedule(pending)
 
+            allowed_user_ids = set(cfg.allowed_user_ids)
+
             async def route_update(update: TelegramIncomingUpdate) -> None:
+                if allowed_user_ids:
+                    sender_id = update.sender_id
+                    if sender_id is None or sender_id not in allowed_user_ids:
+                        logger.debug(
+                            "update.ignored",
+                            reason="sender_not_allowed",
+                            chat_id=update.chat_id,
+                            sender_id=sender_id,
+                        )
+                        return
                 if isinstance(update, TelegramCallbackQuery):
                     if update.data == CANCEL_CALLBACK_DATA:
                         tg.start_soon(

@@ -142,6 +142,7 @@ class TelegramBackend(TransportBackend):
             voice_transcription_api_key=settings.voice_transcription_api_key,
             forward_coalesce_s=settings.forward_coalesce_s,
             media_group_debounce_s=settings.media_group_debounce_s,
+            allowed_user_ids=tuple(settings.allowed_user_ids),
             topics=settings.topics,
             files=settings.files,
         )
