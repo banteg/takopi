@@ -1803,7 +1803,9 @@ async def run_main_loop(
                             )
                             # Extract thread_id from raw callback data
                             cb_thread_id: int | None = None
-                            if update.raw and isinstance(update.raw.get("message"), dict):
+                            if update.raw and isinstance(
+                                update.raw.get("message"), dict
+                            ):
                                 cb_thread_id = update.raw["message"].get(
                                     "message_thread_id"
                                 )
