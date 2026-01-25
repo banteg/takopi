@@ -75,3 +75,44 @@ def test_check_setup_marks_invalid_bot_token(monkeypatch, tmp_path: Path) -> Non
 
     titles = {issue.title for issue in result.issues}
     assert "configure telegram" in titles
+
+
+def test_check_setup_skips_telegram_validation_for_external_transport(
+    monkeypatch, tmp_path: Path
+) -> None:
+    backend = engines.get_backend("codex")
+    monkeypatch.setattr(onboarding.shutil, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(
+        onboarding,
+        "load_settings",
+        lambda: (
+            TakopiSettings.model_validate(
+                {"transport": "my-transport", "transports": {}}
+            ),
+            tmp_path / "takopi.toml",
+        ),
+    )
+
+    result = onboarding.check_setup(backend, transport_override="my-transport")
+
+    assert result.ok is True
+    assert len(result.issues) == 0
+
+
+def test_check_setup_external_transport_missing_config(
+    monkeypatch, tmp_path: Path
+) -> None:
+    backend = engines.get_backend("codex")
+    monkeypatch.setattr(onboarding.shutil, "which", lambda _name: "/usr/bin/codex")
+    monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", tmp_path / "takopi.toml")
+
+    def _raise() -> None:
+        raise onboarding.ConfigError("Missing config file")
+
+    monkeypatch.setattr(onboarding, "load_settings", _raise)
+
+    result = onboarding.check_setup(backend, transport_override="my-transport")
+
+    titles = {issue.title for issue in result.issues}
+    assert "create a config" in titles
+    assert "configure telegram" not in titles
