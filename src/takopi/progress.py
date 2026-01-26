@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Callable
+from typing import Any
 
 from .model import Action, ActionEvent, ResumeToken, StartedEvent, TakopiEvent
 
@@ -25,6 +26,7 @@ class ProgressState:
     resume: ResumeToken | None
     resume_line: str | None
     context_line: str | None
+    usage: dict[str, Any] | None = None
 
 
 class ProgressTracker:
@@ -34,6 +36,7 @@ class ProgressTracker:
         self.action_count = 0
         self._actions: dict[str, ActionState] = {}
         self._seq = 0
+        self._usage: dict[str, Any] | None = None
 
     def note_event(self, event: TakopiEvent) -> bool:
         match event:
@@ -77,6 +80,10 @@ class ProgressTracker:
         if resume is not None:
             self.resume = resume
 
+    def set_usage(self, usage: dict[str, Any] | None) -> None:
+        if usage is not None:
+            self._usage = usage
+
     def snapshot(
         self,
         *,
@@ -96,4 +103,5 @@ class ProgressTracker:
             resume=self.resume,
             resume_line=resume_line,
             context_line=context_line,
+            usage=self._usage,
         )

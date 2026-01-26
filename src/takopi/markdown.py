@@ -4,6 +4,7 @@ import os
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from .model import Action, ActionEvent, StartedEvent, TakopiEvent
 from .progress import ProgressState
@@ -16,6 +17,71 @@ HARD_BREAK = "  \n"
 
 MAX_PROGRESS_CMD_LEN = 300
 MAX_FILE_CHANGES_INLINE = 3
+
+
+def format_token_count(count: int) -> str:
+    """Format token count with k suffix for thousands."""
+    if count >= 1000:
+        value = f"{count / 1000:.1f}".rstrip("0").rstrip(".")
+        return f"{value}k"
+    return str(count)
+
+
+def format_usage(usage: dict[str, Any] | None) -> str | None:
+    """Extract and format token usage from engine-specific usage dict.
+
+    Handles different formats:
+    - Codex: {input_tokens, output_tokens, cached_input_tokens}
+    - Claude: {usage: {input_tokens, output_tokens}, total_cost_usd, ...}
+    - Pi/OpenCode: varies
+    """
+    if not usage:
+        return None
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cached_tokens: int | None = None
+    cost_usd: float | None = None
+
+    # Direct token fields (Codex style)
+    if "input_tokens" in usage or "output_tokens" in usage:
+        input_tokens = usage.get("input_tokens")
+        output_tokens = usage.get("output_tokens")
+        cached_tokens = usage.get("cached_input_tokens")
+    # Nested usage dict (Claude style)
+    elif "usage" in usage and isinstance(usage["usage"], dict):
+        nested = usage["usage"]
+        input_tokens = nested.get("input_tokens")
+        output_tokens = nested.get("output_tokens")
+        cached_tokens = nested.get("cache_read_input_tokens")
+
+    # Cost is at top level for Claude
+    if "total_cost_usd" in usage:
+        cost_usd = usage.get("total_cost_usd")
+
+    if input_tokens is None and output_tokens is None:
+        return None
+
+    inp = input_tokens or 0
+    out = output_tokens or 0
+    if inp == 0 and out == 0:
+        return None
+
+    # Format input part with optional cached indicator
+    if cached_tokens and cached_tokens > 0:
+        in_part = (
+            f"{format_token_count(inp)} in ({format_token_count(cached_tokens)} cached)"
+        )
+    else:
+        in_part = f"{format_token_count(inp)} in"
+
+    parts = [f"{in_part} / {format_token_count(out)} out"]
+
+    # Add cost if available
+    if cost_usd is not None and cost_usd > 0:
+        parts.append(f"${cost_usd:.2f}")
+
+    return " · ".join(parts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,13 +113,21 @@ def format_elapsed(elapsed_s: float) -> str:
 
 
 def format_header(
-    elapsed_s: float, item: int | None, *, label: str, engine: str
+    elapsed_s: float,
+    item: int | None,
+    *,
+    label: str,
+    engine: str,
+    usage: dict[str, Any] | None = None,
 ) -> str:
     elapsed = format_elapsed(elapsed_s)
     parts = [label, engine]
     parts.append(elapsed)
     if item is not None:
         parts.append(f"step {item}")
+    usage_str = format_usage(usage)
+    if usage_str:
+        parts.append(usage_str)
     return HEADER_SEP.join(parts)
 
 
@@ -231,6 +305,7 @@ class MarkdownFormatter:
             step,
             label=status,
             engine=state.engine,
+            usage=state.usage,
         )
         answer = (answer or "").strip()
         body = answer if answer else None
