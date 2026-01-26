@@ -39,6 +39,13 @@ def git_ok(args: Sequence[str], *, cwd: Path) -> bool:
     return result is not None and result.returncode == 0
 
 
+def git_is_dirty(cwd: Path) -> bool | None:
+    result = _run_git(["status", "--porcelain"], cwd=cwd)
+    if result is None or result.returncode != 0:
+        return None
+    return bool(result.stdout.strip())
+
+
 def git_is_worktree(path: Path) -> bool:
     top = git_stdout(
         ["rev-parse", "--path-format=absolute", "--show-toplevel"],

@@ -17,10 +17,12 @@ if TYPE_CHECKING:
 __all__ = [
     "_TOPICS_COMMANDS",
     "_maybe_rename_topic",
+    "_maybe_rename_topic_binding",
     "_maybe_update_topic_context",
     "_resolve_topics_scope",
     "_topic_key",
     "_topic_title",
+    "_topic_title_for_binding",
     "_topics_chat_allowed",
     "_topics_chat_project",
     "_topics_command_error",
@@ -133,6 +135,32 @@ def _topic_title(*, runtime: TransportRuntime, context: RunContext) -> str:
     return project or "topic"
 
 
+def _topic_title_for_binding(
+    *,
+    runtime: TransportRuntime,
+    contexts: Iterable[RunContext],
+    active_project: str | None,
+) -> str:
+    contexts_list = [ctx for ctx in contexts if ctx.project is not None]
+    if not contexts_list:
+        return "topic"
+    active_context = None
+    if active_project is not None:
+        for ctx in contexts_list:
+            if ctx.project == active_project:
+                active_context = ctx
+                break
+    if active_context is None:
+        active_context = contexts_list[0]
+    title = _topic_title(runtime=runtime, context=active_context)
+    if len(contexts_list) > 1:
+        suffix = f" +{len(contexts_list) - 1}"
+        if title:
+            return f"{title}{suffix}"
+        return f"topic{suffix}"
+    return title or "topic"
+
+
 async def _maybe_rename_topic(
     cfg: TelegramBridgeConfig,
     store: TopicStateStore,
@@ -142,7 +170,32 @@ async def _maybe_rename_topic(
     context: RunContext,
     snapshot: TopicThreadSnapshot | None = None,
 ) -> None:
-    title = _topic_title(runtime=cfg.runtime, context=context)
+    await _maybe_rename_topic_binding(
+        cfg,
+        store,
+        chat_id=chat_id,
+        thread_id=thread_id,
+        contexts=[context],
+        active_project=context.project,
+        snapshot=snapshot,
+    )
+
+
+async def _maybe_rename_topic_binding(
+    cfg: TelegramBridgeConfig,
+    store: TopicStateStore,
+    *,
+    chat_id: int,
+    thread_id: int,
+    contexts: Iterable[RunContext],
+    active_project: str | None = None,
+    snapshot: TopicThreadSnapshot | None = None,
+) -> None:
+    title = _topic_title_for_binding(
+        runtime=cfg.runtime,
+        contexts=contexts,
+        active_project=active_project,
+    )
     if snapshot is None:
         snapshot = await store.get_thread(chat_id, thread_id)
     if snapshot is not None and snapshot.topic_title == title:
@@ -163,7 +216,13 @@ async def _maybe_rename_topic(
             title=title,
         )
         return
-    await store.set_context(chat_id, thread_id, context, topic_title=title)
+    await store.set_contexts(
+        chat_id,
+        thread_id,
+        list(contexts),
+        active_project=active_project,
+        topic_title=title,
+    )
 
 
 async def _maybe_update_topic_context(
@@ -181,13 +240,34 @@ async def _maybe_update_topic_context(
         or context_source != "directives"
     ):
         return
-    await topic_store.set_context(topic_key[0], topic_key[1], context)
-    await _maybe_rename_topic(
+    binding = await topic_store.get_binding(topic_key[0], topic_key[1])
+    if binding is None or not binding.contexts:
+        await topic_store.set_context(topic_key[0], topic_key[1], context)
+        await _maybe_rename_topic(
+            cfg,
+            topic_store,
+            chat_id=topic_key[0],
+            thread_id=topic_key[1],
+            context=context,
+        )
+        return
+    await topic_store.add_context(topic_key[0], topic_key[1], context)
+    if context.project is not None:
+        await topic_store.set_active_project(
+            topic_key[0],
+            topic_key[1],
+            context.project,
+        )
+    updated = await topic_store.get_binding(topic_key[0], topic_key[1])
+    if updated is None:
+        return
+    await _maybe_rename_topic_binding(
         cfg,
         topic_store,
         chat_id=topic_key[0],
         thread_id=topic_key[1],
-        context=context,
+        contexts=updated.contexts,
+        active_project=updated.active_project,
     )
 
 

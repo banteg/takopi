@@ -31,6 +31,13 @@ For each message, Takopi:
 - attempts to extract a resume token by polling available runners
 - if a resume token is found, routes to the matching runner; otherwise uses the configured default engine
 
+## Chat vs topic routing
+
+- **Chat routing** applies to an entire chat (set with `/ctx` outside topics).
+- **Topic routing** binds a specific forum thread to one or more repo/branch contexts.
+
+When both exist, **topic bindings win inside that thread**.
+
 ## Serialization (why you don’t get overlapping runs)
 
 Takopi allows parallel runs across **different threads**, but enforces serialization within a thread:
