@@ -206,6 +206,30 @@ Command handlers receive a `CommandContext` with:
 Use `ctx.executor.run_one(...)` or `ctx.executor.run_many(...)` to reuse Takopi's
 engine pipeline. Use `mode="capture"` to collect results and build a custom reply.
 
+### invoke_command()
+
+Allows plugins to call other built-in or plugin commands programmatically.
+
+```py
+result = await ctx.executor.invoke_command(
+    "topic",           # command name (with or without leading /)
+    "myproject @main", # arguments string
+    context=RunContext(project="myproject", branch="main"),  # optional override
+)
+```
+
+**Parameters:**
+
+- `command` (str): Command ID, e.g. `"topic"` or `"/topic"`
+- `args` (str): Arguments to pass to the command (default: `""`)
+- `context` (RunContext | None): Context override, takes precedence over ambient context
+
+**Returns:** `CommandResult | None`
+
+**Raises:** `NotImplementedError` if command invocation is not available
+
+**Supported commands:** `file`, `ctx`, `new`, `topic`, `agent`, `model`, `reasoning`, `trigger`
+
 `ctx.message` and `ctx.reply_to` are `MessageRef` objects with:
 
 - `channel_id` (`int | str`, chat/channel id)
