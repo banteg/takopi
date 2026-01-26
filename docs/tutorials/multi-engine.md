@@ -33,7 +33,7 @@ Prefix any message with `/<engine>`:
 The engine only applies to that message. The response will have a resume line for that engine:
 
 !!! takopi "Takopi"
-    done · claude · 8s<br>
+    done · claude · 8s · 10k in / 2k out<br>
     claude --resume abc123
 
 When you reply, Takopi sees `claude --resume` and automatically uses Claude—you don't need to repeat `/claude`.
