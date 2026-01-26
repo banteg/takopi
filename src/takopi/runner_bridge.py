@@ -586,6 +586,7 @@ async def handle_message(
         resume=resume_value,
     )
     sync_resume_token(progress_tracker, completed.resume or outcome.resume)
+    progress_tracker.set_usage(completed.usage)
     state = progress_tracker.snapshot(
         resume_formatter=runner.format_resume,
         context_line=context_line,

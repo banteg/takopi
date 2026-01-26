@@ -406,3 +406,113 @@ def test_progress_renderer_ignores_missing_action_id() -> None:
         formatter.render_progress_parts(tracker.snapshot(), elapsed_s=0.0)
     )
     assert header.startswith("working · codex · 0s")
+
+
+def test_format_token_count() -> None:
+    from takopi.markdown import format_token_count
+
+    assert format_token_count(500) == "500"
+    assert format_token_count(1000) == "1k"
+    assert format_token_count(1500) == "1.5k"
+    assert format_token_count(10000) == "10k"
+    assert format_token_count(12345) == "12.3k"
+
+
+def test_format_usage_codex_style() -> None:
+    from takopi.markdown import format_usage
+
+    # Without cached tokens
+    usage = {"input_tokens": 1000, "output_tokens": 500}
+    assert format_usage(usage) == "1k in / 500 out"
+
+    # With cached tokens
+    usage_cached = {
+        "input_tokens": 1000,
+        "output_tokens": 500,
+        "cached_input_tokens": 200,
+    }
+    assert format_usage(usage_cached) == "1k in (200 cached) / 500 out"
+
+
+def test_format_usage_claude_style() -> None:
+    from takopi.markdown import format_usage
+
+    # Without cost
+    usage = {"usage": {"input_tokens": 2000, "output_tokens": 1000}}
+    assert format_usage(usage) == "2k in / 1k out"
+
+    # With cost
+    usage_cost = {
+        "usage": {"input_tokens": 2000, "output_tokens": 1000},
+        "total_cost_usd": 0.05,
+    }
+    assert format_usage(usage_cost) == "2k in / 1k out · $0.05"
+
+    # With cached tokens (Claude uses cache_read_input_tokens)
+    usage_cached = {
+        "usage": {
+            "input_tokens": 5000,
+            "output_tokens": 1000,
+            "cache_read_input_tokens": 3000,
+        },
+        "total_cost_usd": 0.03,
+    }
+    assert format_usage(usage_cached) == "5k in (3k cached) / 1k out · $0.03"
+
+
+def test_format_usage_empty_or_none() -> None:
+    from takopi.markdown import format_usage
+
+    assert format_usage(None) is None
+    assert format_usage({}) is None
+    assert format_usage({"other": 123}) is None
+
+
+def test_format_usage_zero_tokens() -> None:
+    from takopi.markdown import format_usage
+
+    assert format_usage({"input_tokens": 0, "output_tokens": 0}) is None
+
+
+def test_format_usage_partial_tokens() -> None:
+    from takopi.markdown import format_usage
+
+    # Only input tokens
+    assert format_usage({"input_tokens": 5000}) == "5k in / 0 out"
+    # Only output tokens
+    assert format_usage({"output_tokens": 1500}) == "0 in / 1.5k out"
+
+
+def test_final_render_includes_usage() -> None:
+    tracker = ProgressTracker(engine="claude")
+    for evt in SAMPLE_EVENTS:
+        tracker.note_event(evt)
+
+    tracker.set_usage({"input_tokens": 5000, "output_tokens": 2500})
+    state = tracker.snapshot(resume_formatter=_format_resume)
+
+    formatter = MarkdownFormatter(max_actions=5)
+    final_parts = formatter.render_final_parts(
+        state, elapsed_s=3.0, status="done", answer="answer"
+    )
+    final = assemble_markdown_parts(final_parts)
+
+    assert "5k in / 2.5k out" in final
+    assert final.startswith("done · ")
+
+
+def test_final_render_without_usage() -> None:
+    tracker = ProgressTracker(engine="codex")
+    for evt in SAMPLE_EVENTS:
+        tracker.note_event(evt)
+
+    state = tracker.snapshot(resume_formatter=_format_resume)
+
+    formatter = MarkdownFormatter(max_actions=5)
+    final_parts = formatter.render_final_parts(
+        state, elapsed_s=3.0, status="done", answer="answer"
+    )
+    final = assemble_markdown_parts(final_parts)
+
+    assert "tokens" not in final
+    assert final.startswith("done · codex · 3s · step 2")
