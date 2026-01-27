@@ -49,9 +49,14 @@ from .commands.handlers import (
 )
 from .commands.parse import is_cancel_command
 from .commands.reply import make_reply
-from .context import _merge_topic_context, _usage_ctx_set, _usage_topic
+from .context import (
+    _build_composite_prelude,
+    _merge_topic_context,
+    _usage_ctx_set,
+    _usage_topic,
+)
 from .topics import (
-    _maybe_rename_topic,
+    _maybe_update_topic_context,
     _resolve_topics_scope,
     _topic_key,
     _topics_chat_allowed,
@@ -1099,6 +1104,7 @@ async def run_main_loop(
                 | None = None,
                 engine_override: EngineId | None = None,
                 progress_ref: MessageRef | None = None,
+                prompt_prelude: str | None = None,
             ) -> None:
                 topic_key = (
                     (chat_id, thread_id)
@@ -1151,6 +1157,7 @@ async def run_main_loop(
                     show_resume_line=show_resume_line,
                     progress_ref=progress_ref,
                     run_options=run_options,
+                    prompt_prelude=prompt_prelude,
                 )
 
             async def run_thread_job(job: ThreadJob) -> None:
@@ -1166,6 +1173,7 @@ async def run_main_loop(
                     scheduler.note_thread_known,
                     None,
                     job.progress_ref,
+                    job.prompt_prelude,
                 )
 
             scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
@@ -1176,6 +1184,20 @@ async def run_main_loop(
                 if state.topic_store is None:
                     return None
                 return _topic_key(msg, cfg, scope_chat_ids=state.topics_chat_ids)
+
+            async def build_composite_prelude(
+                topic_key: tuple[int, int] | None,
+            ) -> tuple[str | None, str | None]:
+                if state.topic_store is None or topic_key is None:
+                    return None, None
+                binding = await state.topic_store.get_binding(*topic_key)
+                if binding is None or len(binding.contexts) <= 1:
+                    return None, None
+                return _build_composite_prelude(
+                    runtime=cfg.runtime,
+                    contexts=binding.contexts,
+                    active_project=binding.active_project,
+                )
 
             def _build_upload_prompt(base: str, annotation: str) -> str:
                 if base and base.strip():
@@ -1206,15 +1228,43 @@ async def run_main_loop(
                     and resolved.context is not None
                     and resolved.context_source == "directives"
                 ):
-                    await state.topic_store.set_context(*topic_key, resolved.context)
-                    await _maybe_rename_topic(
-                        cfg,
-                        state.topic_store,
-                        chat_id=topic_key[0],
-                        thread_id=topic_key[1],
+                    await _maybe_update_topic_context(
+                        cfg=cfg,
+                        topic_store=state.topic_store,
+                        topic_key=topic_key,
                         context=resolved.context,
+                        context_source=resolved.context_source,
                     )
                     effective_context = resolved.context
+                binding = None
+                if state.topic_store is not None and topic_key is not None:
+                    binding = await state.topic_store.get_binding(*topic_key)
+                if binding is not None and binding.contexts:
+                    active_ctx = binding.active_context()
+                    context = resolved.context or active_ctx
+                    if context is None:
+                        await reply(
+                            text="multiple projects are bound to this topic.\n"
+                            "use `/ctx use <project>` or `/topic add <project> @branch`.",
+                        )
+                        return None
+                    if context.project not in {ctx.project for ctx in binding.contexts}:
+                        await reply(
+                            text=(
+                                "project is not bound to this topic.\n"
+                                "use `/topic add <project> @branch`."
+                            )
+                        )
+                        return None
+                    effective_context = context
+                    if context is not resolved.context:
+                        resolved = ResolvedMessage(
+                            prompt=resolved.prompt,
+                            resume_token=resolved.resume_token,
+                            engine_override=resolved.engine_override,
+                            context=context,
+                            context_source=resolved.context_source,
+                        )
                 if (
                     state.topic_store is not None
                     and topic_key is not None
@@ -1265,6 +1315,7 @@ async def run_main_loop(
                 prompt_text: str,
                 resolved: ResolvedMessage,
             ) -> None:
+                reply = make_reply(cfg, msg)
                 chat_id = msg.chat_id
                 user_msg_id = msg.message_id
                 reply_id = msg.reply_to_message_id
@@ -1304,6 +1355,9 @@ async def run_main_loop(
                 if resume_decision.handled_by_running_task:
                     return
                 resume_token = resume_decision.resume_token
+                prompt_prelude, warning = await build_composite_prelude(topic_key)
+                if warning:
+                    await reply(text=warning)
                 if resume_token is None:
                     await run_job(
                         chat_id,
@@ -1316,6 +1370,8 @@ async def run_main_loop(
                         reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
+                        None,
+                        prompt_prelude,
                     )
                     return
                 progress_ref = await _send_queued_progress(
@@ -1335,6 +1391,7 @@ async def run_main_loop(
                     msg.thread_id,
                     chat_session_key,
                     progress_ref,
+                    prompt_prelude,
                 )
 
             async def _dispatch_pending_prompt(pending: _PendingPrompt) -> None:
@@ -1377,13 +1434,6 @@ async def run_main_loop(
 
                 resume_token = resolved.resume_token
                 context = resolved.context
-                engine_resolution = await resolve_engine_defaults(
-                    explicit_engine=resolved.engine_override,
-                    context=context,
-                    chat_id=chat_id,
-                    topic_key=pending.topic_key,
-                )
-                engine_override = engine_resolution.engine
                 effective_context = pending.ambient_context
                 if (
                     state.topic_store is not None
@@ -1391,17 +1441,35 @@ async def run_main_loop(
                     and resolved.context is not None
                     and resolved.context_source == "directives"
                 ):
-                    await state.topic_store.set_context(
-                        *pending.topic_key, resolved.context
-                    )
-                    await _maybe_rename_topic(
-                        cfg,
-                        state.topic_store,
-                        chat_id=pending.topic_key[0],
-                        thread_id=pending.topic_key[1],
+                    await _maybe_update_topic_context(
+                        cfg=cfg,
+                        topic_store=state.topic_store,
+                        topic_key=pending.topic_key,
                         context=resolved.context,
+                        context_source=resolved.context_source,
                     )
                     effective_context = resolved.context
+                binding = None
+                if state.topic_store is not None and pending.topic_key is not None:
+                    binding = await state.topic_store.get_binding(*pending.topic_key)
+                if binding is not None and binding.contexts:
+                    active_ctx = binding.active_context()
+                    context = resolved.context or active_ctx
+                    if context is None:
+                        await reply(
+                            text="multiple projects are bound to this topic.\n"
+                            "use `/ctx use <project>` or `/topic add <project> @branch`.",
+                        )
+                        return
+                    if context.project not in {ctx.project for ctx in binding.contexts}:
+                        await reply(
+                            text=(
+                                "project is not bound to this topic.\n"
+                                "use `/topic add <project> @branch`."
+                            )
+                        )
+                        return
+                    effective_context = context
                 if (
                     state.topic_store is not None
                     and pending.topic_key is not None
@@ -1414,6 +1482,14 @@ async def run_main_loop(
                         f"{_usage_topic(chat_project=pending.chat_project)}",
                     )
                     return
+                context = effective_context or resolved.context
+                engine_resolution = await resolve_engine_defaults(
+                    explicit_engine=resolved.engine_override,
+                    context=context,
+                    chat_id=chat_id,
+                    topic_key=pending.topic_key,
+                )
+                engine_override = engine_resolution.engine
                 resume_decision = await resume_resolver.resolve(
                     resume_token=resume_token,
                     reply_id=pending.reply_id,
@@ -1429,6 +1505,12 @@ async def run_main_loop(
                     return
                 resume_token = resume_decision.resume_token
 
+                prompt_prelude, warning = await build_composite_prelude(
+                    pending.topic_key
+                )
+                if warning:
+                    await reply(text=warning)
+
                 if resume_token is None:
                     tg.start_soon(
                         run_job,
@@ -1442,6 +1524,8 @@ async def run_main_loop(
                         pending.reply_ref,
                         scheduler.note_thread_known,
                         engine_override,
+                        None,
+                        prompt_prelude,
                     )
                     return
                 progress_ref = await _send_queued_progress(
@@ -1461,6 +1545,7 @@ async def run_main_loop(
                     msg.thread_id,
                     pending.chat_session_key,
                     progress_ref,
+                    prompt_prelude,
                 )
 
             forward_coalescer = ForwardCoalescer(
@@ -1530,11 +1615,12 @@ async def run_main_loop(
                 chat_project = (
                     _topics_chat_project(cfg, chat_id) if cfg.topics.enabled else None
                 )
-                bound_context = (
-                    await state.topic_store.get_context(*topic_key)
+                binding = (
+                    await state.topic_store.get_binding(*topic_key)
                     if state.topic_store is not None and topic_key is not None
                     else None
                 )
+                bound_context = binding.active_context() if binding is not None else None
                 chat_bound_context = None
                 if state.chat_prefs is not None:
                     chat_bound_context = await state.chat_prefs.get_context(chat_id)
@@ -1542,6 +1628,8 @@ async def run_main_loop(
                     ambient_context = _merge_topic_context(
                         chat_project=chat_project, bound=bound_context
                     )
+                elif binding is not None and binding.contexts:
+                    ambient_context = None
                 elif chat_bound_context is not None:
                     ambient_context = chat_bound_context
                 else:

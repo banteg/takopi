@@ -25,6 +25,7 @@ class ThreadJob:
     thread_id: ThreadId | None = None
     session_key: tuple[int, int | None] | None = None
     progress_ref: MessageRef | None = None
+    prompt_prelude: str | None = None
 
 
 RunJob = Callable[[ThreadJob], Awaitable[None]]
@@ -84,6 +85,7 @@ class ThreadScheduler:
         thread_id: ThreadId | None = None,
         session_key: tuple[int, int | None] | None = None,
         progress_ref: MessageRef | None = None,
+        prompt_prelude: str | None = None,
     ) -> None:
         await self.enqueue(
             ThreadJob(
@@ -95,6 +97,7 @@ class ThreadScheduler:
                 thread_id=thread_id,
                 session_key=session_key,
                 progress_ref=progress_ref,
+                prompt_prelude=prompt_prelude,
             )
         )
 

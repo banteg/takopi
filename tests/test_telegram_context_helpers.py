@@ -134,6 +134,8 @@ def test_format_ctx_status_includes_sessions(tmp_path: Path) -> None:
     snapshot = TopicThreadSnapshot(
         chat_id=cfg.chat_id,
         thread_id=1,
+        contexts=(),
+        active_project=None,
         context=None,
         sessions={"b": "token", "a": "token2"},
         topic_title=None,
@@ -142,14 +144,16 @@ def test_format_ctx_status_includes_sessions(tmp_path: Path) -> None:
     text = tg_context._format_ctx_status(
         cfg=cfg,
         runtime=runtime,
-        bound=None,
+        contexts=(),
+        active_project=None,
         resolved=RunContext(project="alpha", branch="main"),
         context_source="directives",
         snapshot=snapshot,
         chat_project=None,
     )
     assert "topics: enabled" in text
-    assert "bound ctx: none" in text
+    assert "bound ctxs: none" in text
+    assert "active ctx: none" in text
     assert "resolved ctx: Alpha @main" in text
     assert "note: unbound topic" in text
     assert "sessions: a, b" in text

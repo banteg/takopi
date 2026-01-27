@@ -119,6 +119,45 @@ async def _check_file_permissions(
     return False
 
 
+async def _select_bound_context(
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    resolved: ResolvedMessage,
+    topic_store: TopicStateStore | None,
+) -> tuple[ResolvedMessage, RunContext | None, str | None]:
+    topic_key = _topic_key(msg, cfg) if topic_store is not None else None
+    if topic_store is None or topic_key is None:
+        return resolved, resolved.context, None
+    binding = await topic_store.get_binding(*topic_key)
+    if binding is None or not binding.contexts:
+        return resolved, resolved.context, None
+    active_ctx = binding.active_context()
+    context = resolved.context or active_ctx
+    if context is None:
+        return (
+            resolved,
+            None,
+            "multiple projects are bound to this topic. "
+            "use `/ctx use <project>` or `/topic add <project> @branch`.",
+        )
+    if context.project not in {ctx.project for ctx in binding.contexts}:
+        return (
+            resolved,
+            None,
+            "project is not bound to this topic. "
+            "use `/topic add <project> @branch`.",
+        )
+    if context is not resolved.context:
+        resolved = ResolvedMessage(
+            prompt=resolved.prompt,
+            resume_token=resolved.resume_token,
+            engine_override=resolved.engine_override,
+            context=context,
+            context_source=resolved.context_source,
+        )
+    return resolved, context, None
+
+
 async def _prepare_file_put_plan(
     cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,
@@ -147,11 +186,17 @@ async def _prepare_file_put_plan(
         context=resolved.context,
         context_source=resolved.context_source,
     )
-    if resolved.context is None or resolved.context.project is None:
+    resolved, context, error = await _select_bound_context(
+        cfg, msg, resolved, topic_store
+    )
+    if error is not None:
+        await reply(text=error)
+        return None
+    if context is None or context.project is None:
         await reply(text="no project context available for file upload.")
         return None
     try:
-        run_root = cfg.runtime.resolve_run_cwd(resolved.context)
+        run_root = cfg.runtime.resolve_run_cwd(context)
     except ConfigError as exc:
         await reply(text=f"error:\n{exc}")
         return None
@@ -515,11 +560,17 @@ async def _handle_file_get(
         context=resolved.context,
         context_source=resolved.context_source,
     )
-    if resolved.context is None or resolved.context.project is None:
+    resolved, context, error = await _select_bound_context(
+        cfg, msg, resolved, topic_store
+    )
+    if error is not None:
+        await reply(text=error)
+        return
+    if context is None or context.project is None:
         await reply(text="no project context available for file download.")
         return
     try:
-        run_root = cfg.runtime.resolve_run_cwd(resolved.context)
+        run_root = cfg.runtime.resolve_run_cwd(context)
     except ConfigError as exc:
         await reply(text=f"error:\n{exc}")
         return

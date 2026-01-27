@@ -159,6 +159,7 @@ async def _run_engine(
     show_resume_line: bool = True,
     progress_ref: MessageRef | None = None,
     run_options: EngineRunOptions | None = None,
+    prompt_prelude: str | None = None,
 ) -> None:
     reply = partial(
         send_plain,
@@ -214,10 +215,16 @@ async def _run_engine(
                 run_fields["cwd"] = str(cwd)
             bind_run_context(**run_fields)
             context_line = runtime.format_context_line(context)
+            prompt_text = text
+            if prompt_prelude:
+                if prompt_text.strip():
+                    prompt_text = f"{prompt_prelude}\n\n{prompt_text}"
+                else:
+                    prompt_text = prompt_prelude
             incoming = RunnerIncomingMessage(
                 channel_id=chat_id,
                 message_id=user_msg_id,
-                text=text,
+                text=prompt_text,
                 reply_to=reply_ref,
                 thread_id=thread_id,
             )

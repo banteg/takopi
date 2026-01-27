@@ -68,6 +68,26 @@ def _runtime(tmp_path: Path) -> tuple[TransportRuntime, Path]:
     return runtime, state_path
 
 
+def _runtime_two(tmp_path: Path) -> TransportRuntime:
+    runner = ScriptRunner([Return(answer="ok")], engine=DEFAULT_ENGINE_ID)
+    projects = ProjectsConfig(
+        projects={
+            "alpha": ProjectConfig(
+                alias="Alpha",
+                path=tmp_path,
+                worktrees_dir=Path(".worktrees"),
+            ),
+            "beta": ProjectConfig(
+                alias="Beta",
+                path=tmp_path / "beta",
+                worktrees_dir=Path(".worktrees"),
+            ),
+        },
+        default_project="alpha",
+    )
+    return TransportRuntime(router=_make_router(runner), projects=projects)
+
+
 @pytest.mark.anyio
 async def test_ctx_command_requires_topic(tmp_path: Path) -> None:
     transport = FakeTransport()
@@ -187,3 +207,49 @@ async def test_topic_command_requires_args(tmp_path: Path) -> None:
 
     text = transport.send_calls[-1]["message"].text
     assert "usage: /topic" in text
+
+
+@pytest.mark.anyio
+async def test_topic_add_and_ctx_use(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    runtime = _runtime_two(tmp_path)
+    cfg = replace(
+        make_cfg(transport),
+        runtime=runtime,
+        topics=TelegramTopicsSettings(enabled=True, scope="all"),
+    )
+    store = TopicStateStore(tmp_path / "topics.json")
+    msg = _msg("/topic add alpha @dev", thread_id=1, chat_type="supergroup")
+
+    await _handle_topic_command(
+        cfg,
+        msg,
+        args_text="add alpha @dev",
+        store=store,
+        resolved_scope="all",
+        scope_chat_ids=frozenset({msg.chat_id}),
+    )
+    await _handle_topic_command(
+        cfg,
+        msg,
+        args_text="add beta @main",
+        store=store,
+        resolved_scope="all",
+        scope_chat_ids=frozenset({msg.chat_id}),
+    )
+    snapshot = await store.get_thread(msg.chat_id, msg.thread_id or 0)
+    assert snapshot is not None
+    assert {ctx.project for ctx in snapshot.contexts} == {"alpha", "beta"}
+
+    msg_ctx = _msg("/ctx use alpha", thread_id=1, chat_type="supergroup")
+    await _handle_ctx_command(
+        cfg,
+        msg_ctx,
+        args_text="use alpha",
+        store=store,
+        resolved_scope="all",
+        scope_chat_ids=frozenset({msg.chat_id}),
+    )
+    updated = await store.get_thread(msg.chat_id, msg.thread_id or 0)
+    assert updated is not None
+    assert updated.active_project == "alpha"

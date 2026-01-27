@@ -20,6 +20,7 @@ from ..files import split_command_args
 from ..render import prepare_telegram
 from ..topic_state import TopicStateStore
 from ..topics import (
+    _maybe_rename_topic_binding,
     _maybe_rename_topic,
     _topic_key,
     _topic_title,
@@ -62,6 +63,8 @@ async def _handle_ctx_command(
     if action in {"show", ""}:
         snapshot = await store.get_thread(*tkey)
         bound = snapshot.context if snapshot is not None else None
+        contexts = snapshot.contexts if snapshot is not None else ()
+        active_project = snapshot.active_project if snapshot is not None else None
         ambient = _merge_topic_context(chat_project=chat_project, bound=bound)
         resolved = cfg.runtime.resolve_message(
             text="",
@@ -72,7 +75,8 @@ async def _handle_ctx_command(
         text = _format_ctx_status(
             cfg=cfg,
             runtime=cfg.runtime,
-            bound=bound,
+            contexts=contexts,
+            active_project=active_project,
             resolved=resolved.context,
             context_source=resolved.context_source,
             snapshot=snapshot,
@@ -110,12 +114,45 @@ async def _handle_ctx_command(
             text=f"topic bound to `{_format_context(cfg.runtime, context)}`",
         )
         return
+    if action == "use":
+        rest = " ".join(tokens[1:]).strip()
+        if not rest:
+            await reply(text="usage: `/ctx use <project>`")
+            return
+        project_key = cfg.runtime.normalize_project_key(rest)
+        if project_key is None:
+            await reply(text=f"unknown project {rest!r}")
+            return
+        updated = await store.set_active_project(tkey[0], tkey[1], project_key)
+        if not updated:
+            await reply(text=f"project {rest!r} is not bound to this topic.")
+            return
+        binding = await store.get_binding(tkey[0], tkey[1])
+        if binding is not None:
+            await _maybe_rename_topic_binding(
+                cfg,
+                store,
+                chat_id=tkey[0],
+                thread_id=tkey[1],
+                contexts=binding.contexts,
+                active_project=binding.active_project,
+            )
+        await reply(text=f"active context set to `{rest}`")
+        return
     if action == "clear":
         await store.clear_context(*tkey)
+        await _maybe_rename_topic_binding(
+            cfg,
+            store,
+            chat_id=tkey[0],
+            thread_id=tkey[1],
+            contexts=[],
+            active_project=None,
+        )
         await reply(text="topic binding cleared.")
         return
     await reply(
-        text="unknown `/ctx` command. use `/ctx`, `/ctx set`, or `/ctx clear`.",
+        text="unknown `/ctx` command. use `/ctx`, `/ctx set`, `/ctx use`, or `/ctx clear`.",
     )
 
 
@@ -282,6 +319,75 @@ async def _handle_topic_command(
         await reply(text=error)
         return
     chat_project = _topics_chat_project(cfg, msg.chat_id)
+    tokens = split_command_args(args_text)
+    action = tokens[0].lower() if tokens else ""
+    if action in {"add", "rm", "remove", "clear"}:
+        tkey = _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
+        if tkey is None:
+            await reply(text="this command only works inside a topic.")
+            return
+        if action == "clear":
+            await store.clear_context(*tkey)
+            await _maybe_rename_topic_binding(
+                cfg,
+                store,
+                chat_id=tkey[0],
+                thread_id=tkey[1],
+                contexts=[],
+                active_project=None,
+            )
+            await reply(text="topic binding cleared.")
+            return
+        if action in {"rm", "remove"}:
+            if len(tokens) < 2:
+                await reply(text="usage: `/topic rm <project>`")
+                return
+            project_token = tokens[1]
+            project_key = cfg.runtime.normalize_project_key(project_token)
+            if project_key is None:
+                await reply(text=f"unknown project {project_token!r}")
+                return
+            await store.remove_context(tkey[0], tkey[1], project_key)
+            binding = await store.get_binding(tkey[0], tkey[1])
+            if binding is not None:
+                await _maybe_rename_topic_binding(
+                    cfg,
+                    store,
+                    chat_id=tkey[0],
+                    thread_id=tkey[1],
+                    contexts=binding.contexts,
+                    active_project=binding.active_project,
+                )
+            await reply(text=f"removed `{project_token}` from this topic.")
+            return
+        if action == "add":
+            rest = " ".join(tokens[1:])
+            context, error = _parse_project_branch_args(
+                rest,
+                runtime=cfg.runtime,
+                require_branch=True,
+                chat_project=chat_project,
+            )
+            if error is not None or context is None:
+                usage = "usage: `/topic add <project> @branch`"
+                text = f"error:\n{error}\n{usage}" if error else usage
+                await reply(text=text)
+                return
+            await store.add_context(tkey[0], tkey[1], context)
+            binding = await store.get_binding(tkey[0], tkey[1])
+            if binding is not None:
+                await _maybe_rename_topic_binding(
+                    cfg,
+                    store,
+                    chat_id=tkey[0],
+                    thread_id=tkey[1],
+                    contexts=binding.contexts,
+                    active_project=binding.active_project,
+                )
+            await reply(
+                text=f"added `{_format_context(cfg.runtime, context)}` to this topic.",
+            )
+            return
     context, error = _parse_project_branch_args(
         args_text,
         runtime=cfg.runtime,
@@ -292,6 +398,20 @@ async def _handle_topic_command(
         usage = _usage_topic(chat_project=chat_project)
         text = f"error:\n{error}\n{usage}" if error else usage
         await reply(text=text)
+        return
+    tkey = _topic_key(msg, cfg, scope_chat_ids=scope_chat_ids)
+    if tkey is not None:
+        await store.set_context(*tkey, context)
+        await _maybe_rename_topic(
+            cfg,
+            store,
+            chat_id=tkey[0],
+            thread_id=tkey[1],
+            context=context,
+        )
+        await reply(
+            text=f"topic bound to `{_format_context(cfg.runtime, context)}`",
+        )
         return
     title = _topic_title(runtime=cfg.runtime, context=context)
     existing = await store.find_thread_for_context(msg.chat_id, context)
