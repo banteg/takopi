@@ -64,13 +64,47 @@ Examples:
 
 Takopi will bind the topic and rename it to match the context.
 
+## Multi-project topics
+
+Bind multiple repo/branch contexts to one topic:
+
+```
+/topic add <project> @branch
+```
+
+Recommended flow:
+
+```
+/topic <project1> @branch1
+/topic add <project2> @branch2
+/ctx
+```
+
+Quick notes:
+- `/topic <project> @branch` replaces the binding with a single context.
+- Use `/ctx use <project>` to switch the active repo.
+
 ## Inspect or change the binding
 
 - `/ctx` shows the current binding
 - `/ctx set <project> @branch` updates it
+- `/ctx use <project>` switches the active project for repo-specific commands
 - `/ctx clear` removes it
+- `/topic rm <project>` removes a project from a multi-bound topic
+- `/topic clear` clears all project bindings
 
 Note: Outside topics (private chats or main group chats), `/ctx` binds the chat context instead of a topic.
+
+## Chat routing vs topic routing
+
+- Chat routing (`/ctx` outside topics) sets a default project for the chat.
+- Topic routing binds a specific forum thread to one or more repo/branch contexts.
+- Topic bindings win inside that thread.
+
+## Monorepo vs multi-repo topics
+
+- Monorepo: one repo, branches move together.
+- Multi-repo: separate repos must move in lockstep.
 
 ## Reset a topic session
 
