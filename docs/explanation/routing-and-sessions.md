@@ -33,10 +33,9 @@ For each message, Takopi:
 
 ## Chat vs topic routing
 
-- **Chat routing** applies to an entire chat (set with `/ctx` outside topics).
-- **Topic routing** binds a specific forum thread to one or more repo/branch contexts.
-
-When both exist, **topic bindings win inside that thread**.
+- Chat routing: default project for the chat (`/ctx` outside topics).
+- Topic routing: bind a forum thread to one or more repo/branch contexts.
+- Topic bindings win inside that thread.
 
 ## Serialization (why you don’t get overlapping runs)
 

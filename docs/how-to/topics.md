@@ -66,28 +66,23 @@ Takopi will bind the topic and rename it to match the context.
 
 ## Multi-project topics
 
-Bind more than one repo/branch to the same topic:
+Bind multiple repo/branch contexts to one topic:
 
 ```
 /topic add <project> @branch
 ```
 
-Example:
+Recommended flow:
 
 ```
-/topic add backend @main
-/topic add infra @prod
+/topic <project1> @branch1
+/topic add <project2> @branch2
+/ctx
 ```
 
-The agent will receive a composite workspace summary that lists **all bound repos**, their absolute paths, branches, and git status (clean/dirty).
-
-Legacy behavior still works:
-
-```
-/topic <project> @branch
-```
-
-This **replaces** the binding with a single context.
+Quick notes:
+- `/topic <project> @branch` replaces the binding with a single context.
+- Use `/ctx use <project>` to switch the active repo.
 
 ## Inspect or change the binding
 
@@ -102,16 +97,14 @@ Note: Outside topics (private chats or main group chats), `/ctx` binds the chat 
 
 ## Chat routing vs topic routing
 
-- **Chat routing** (`/ctx` outside topics) sets a default project for the entire chat.
-- **Topic routing** binds a specific forum thread to one or more repo/branch contexts.
-
-If both are present, **topic bindings take precedence** inside that thread.
+- Chat routing (`/ctx` outside topics) sets a default project for the chat.
+- Topic routing binds a specific forum thread to one or more repo/branch contexts.
+- Topic bindings win inside that thread.
 
 ## Monorepo vs multi-repo topics
 
-Use a **monorepo topic** when all code lives in a single repo and branches move together.
-
-Use a **multi-repo topic** when separate repositories must evolve in lockstep (for example, services joined by WireGuard or a deployment that spans multiple repos).
+- Monorepo: one repo, branches move together.
+- Multi-repo: separate repos must move in lockstep.
 
 ## Reset a topic session
 
