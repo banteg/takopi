@@ -191,6 +191,7 @@ Configuration (under `[transports.telegram]`):
     ```sh
     takopi config set transports.telegram.topics.enabled true
     takopi config set transports.telegram.topics.scope "auto"
+    takopi config set transports.telegram.topics.prompt_mode "party"
     ```
 
 === "toml"
@@ -199,6 +200,7 @@ Configuration (under `[transports.telegram]`):
     [transports.telegram.topics]
     enabled = true
     scope = "auto" # auto | main | projects | all
+    prompt_mode = "default" # default | party
     ```
 
 Requirements:
@@ -209,6 +211,8 @@ Requirements:
 - `all`: both the main chat and each project chat must be forum-enabled.
 - `auto`: if any project chats are configured, uses `projects`; otherwise `main`.
 - The bot needs the **Manage Topics** permission in the relevant chat(s).
+- `prompt_mode = "party"` adds `[timestamp] sender:` headers to topic prompts
+  to mimic forum chat history. `default` leaves prompts untouched.
 
 Commands:
 

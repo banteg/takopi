@@ -32,6 +32,7 @@ Topics bind Telegram **forum threads** to a project/branch context. Each topic k
     ```sh
     takopi config set transports.telegram.topics.enabled true
     takopi config set transports.telegram.topics.scope "auto"
+    takopi config set transports.telegram.topics.prompt_mode "party"
     ```
 
 === "toml"
@@ -40,6 +41,7 @@ Topics bind Telegram **forum threads** to a project/branch context. Each topic k
     [transports.telegram.topics]
     enabled = true
     scope = "auto" # auto | main | projects | all
+    prompt_mode = "default" # default | party
     ```
 
 ### Scope explained
@@ -48,6 +50,12 @@ Topics bind Telegram **forum threads** to a project/branch context. Each topic k
 - `main`: topics only in the main `chat_id`
 - `projects`: topics only in project chats (`projects.<alias>.chat_id`)
 - `all`: topics available in both the main chat and project chats
+
+### Prompt headers (party mode)
+
+Set `prompt_mode = "party"` to prepend `[timestamp] sender:` headers to topic
+prompts so they read like a forum chat transcript. `default` leaves prompts
+untouched. This only applies inside topic threads.
 
 ## Create and bind a topic
 

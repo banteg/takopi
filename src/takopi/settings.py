@@ -58,6 +58,7 @@ class TelegramTopicsSettings(BaseModel):
 
     enabled: bool = False
     scope: Literal["auto", "main", "projects", "all"] = "auto"
+    prompt_mode: Literal["default", "party"] = "default"
 
 
 class TelegramFilesSettings(BaseModel):

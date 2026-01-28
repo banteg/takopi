@@ -88,6 +88,7 @@ class MessageReply(msgspec.Struct, forbid_unknown_fields=False):
 class Message(msgspec.Struct, forbid_unknown_fields=False):
     message_id: int
     chat: Chat
+    date: int | None = None
     message_thread_id: int | None = None
     from_: User | None = msgspec.field(default=None, name="from")
     text: str | None = None
