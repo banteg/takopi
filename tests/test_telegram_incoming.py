@@ -12,6 +12,7 @@ from takopi.telegram.api_models import (
     MessageReply,
     PhotoSize,
     Sticker,
+    TextQuote,
     Update,
     User,
     Video,
@@ -32,6 +33,11 @@ def test_parse_incoming_update_maps_fields() -> None:
                 text="prev",
                 from_=User(id=77, is_bot=True, username="ReplyBot"),
             ),
+            quote=TextQuote(
+                text="quoted",
+                position=1,
+                is_manual=True,
+            ),
         ),
     )
 
@@ -46,6 +52,9 @@ def test_parse_incoming_update_maps_fields() -> None:
     assert msg.reply_to_text == "prev"
     assert msg.reply_to_is_bot is True
     assert msg.reply_to_username == "ReplyBot"
+    assert msg.quote_text == "quoted"
+    assert msg.quote_position == 1
+    assert msg.quote_is_manual is True
     assert msg.sender_id == 99
     assert msg.thread_id is None
     assert msg.is_topic_message is None
@@ -71,6 +80,11 @@ def test_parse_incoming_update_ignores_implicit_topic_reply() -> None:
                 message_id=163,
                 from_=User(id=77, is_bot=True, username="TakopiBot"),
             ),
+            quote=TextQuote(
+                text="quoted",
+                position=4,
+                is_manual=True,
+            ),
         ),
     )
 
@@ -83,6 +97,9 @@ def test_parse_incoming_update_ignores_implicit_topic_reply() -> None:
     assert msg.reply_to_text is None
     assert msg.reply_to_is_bot is None
     assert msg.reply_to_username is None
+    assert msg.quote_text is None
+    assert msg.quote_position is None
+    assert msg.quote_is_manual is None
 
 
 def test_parse_incoming_update_filters_non_matching_chat() -> None:

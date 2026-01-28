@@ -1986,6 +1986,51 @@ async def test_run_main_loop_prompt_upload_uses_caption_directives(
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_includes_manual_quote_block() -> None:
+    transport = FakeTransport()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    cfg = make_cfg(transport, runner)
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            quote_text="quoted line\nsecond line",
+            quote_is_manual=True,
+            raw={},
+        )
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=2,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            quote_text="ignored",
+            quote_is_manual=False,
+            raw={},
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert runner.calls
+    prompt_text, _ = runner.calls[0]
+    assert (
+        prompt_text
+        == "quoted:\n> quoted line\n> second line\nmessage: (empty)"
+    )
+    assert runner.calls[1][0] == "hello"
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_voice_transcript_preserves_directive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
