@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import anyio
 from anyio.abc import TaskGroup
@@ -343,7 +344,7 @@ class _PendingPrompt:
     reply_ref: MessageRef | None
     reply_id: int | None
     is_voice_transcribed: bool
-    forwards: list[tuple[int, str]]
+    forwards: list[TelegramIncomingMessage]
     cancel_scope: anyio.CancelScope | None = None
 
 
@@ -424,6 +425,49 @@ def _forward_fields_present(raw: dict[str, object] | None) -> list[str]:
     if not isinstance(raw, dict):
         return []
     return [field for field in _FORWARD_FIELDS if raw.get(field) is not None]
+
+
+def _format_timestamp(date: int | None) -> str:
+    if date is None:
+        return "time=?"
+    return datetime.fromtimestamp(date, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _format_sender(msg: TelegramIncomingMessage) -> str:
+    parts = [part for part in (msg.sender_first_name, msg.sender_last_name) if part]
+    if parts:
+        return " ".join(parts)
+    if msg.sender_username:
+        return f"@{msg.sender_username}"
+    if msg.sender_id is not None:
+        return f"user:{msg.sender_id}"
+    return "unknown"
+
+
+def _format_prompt_header(
+    msg: TelegramIncomingMessage,
+    *,
+    prompt_mode: Literal["default", "party"] = "default",
+) -> str:
+    if prompt_mode != "party" or msg.thread_id is None:
+        return ""
+    timestamp = _format_timestamp(msg.date)
+    sender = _format_sender(msg)
+    return f"[{timestamp}] {sender}:"
+
+
+def _format_prompt_line(
+    msg: TelegramIncomingMessage,
+    text: str,
+    *,
+    prompt_mode: Literal["default", "party"] = "default",
+) -> str:
+    header = _format_prompt_header(msg, prompt_mode=prompt_mode)
+    if not header:
+        return text
+    if text.strip():
+        return f"{header} {text}"
+    return header
 
 
 def _format_forwarded_prompt(forwarded: list[str], prompt: str) -> str:
@@ -551,7 +595,7 @@ class ForwardCoalescer:
                 reason="empty_text",
             )
             return
-        pending.forwards.append((msg.message_id, text))
+        pending.forwards.append(msg)
         logger.debug(
             "forward.message.attached",
             chat_id=msg.chat_id,
@@ -562,7 +606,7 @@ class ForwardCoalescer:
             forward_count=len(pending.forwards),
             forward_fields=_forward_fields_present(msg.raw),
             forward_date=msg.raw.get("forward_date") if msg.raw else None,
-            message_date=msg.raw.get("date") if msg.raw else None,
+            message_date=msg.date,
             text_len=len(text),
         )
         self._reschedule(key, pending)
@@ -728,122 +772,163 @@ class MediaGroupBuffer:
         self._resolve_prompt_message = resolve_prompt_message
 
     def add(self, msg: TelegramIncomingMessage) -> None:
-        if msg.media_group_id is None:
+        media_group_id = msg.media_group_id
+        if media_group_id is None:
             return
-        key = (msg.chat_id, msg.media_group_id)
+        key = (msg.chat_id, media_group_id)
         state = self._groups.get(key)
         if state is None:
             state = _MediaGroupState(messages=[])
             self._groups[key] = state
-            self._task_group.start_soon(self._flush_media_group, key)
         state.messages.append(msg)
         state.token += 1
+        token = state.token
+        self._task_group.start_soon(self._flush_media_group, key, token)
 
-    async def _flush_media_group(self, key: tuple[int, str]) -> None:
-        while True:
-            state = self._groups.get(key)
-            if state is None:
-                return
-            token = state.token
-            await self._sleep(self._debounce_s)
-            state = self._groups.get(key)
-            if state is None:
-                return
-            if state.token != token:
-                continue
-            messages = list(state.messages)
-            del self._groups[key]
-            if not messages:
-                return
-            trigger_mode = await resolve_trigger_mode(
-                chat_id=messages[0].chat_id,
-                thread_id=messages[0].thread_id,
-                chat_prefs=self._chat_prefs,
-                topic_store=self._topic_store,
-            )
-            command_ids = self._command_ids()
-            if trigger_mode == "mentions" and not any(
-                should_trigger_run(
-                    msg,
-                    bot_username=self._bot_username,
-                    runtime=self._cfg.runtime,
-                    command_ids=command_ids,
-                    reserved_chat_commands=self._reserved_chat_commands,
-                )
-                for msg in messages
-            ):
-                return
-            await handle_media_group(
+    async def _flush_media_group(
+        self,
+        key: tuple[int, str],
+        token: int,
+    ) -> None:
+        await self._sleep(self._debounce_s)
+        state = self._groups.get(key)
+        if state is None or token != state.token:
+            return
+        self._groups.pop(key, None)
+        await self._dispatch(state.messages)
+
+    async def _dispatch(self, messages: list[TelegramIncomingMessage]) -> None:
+        prompt_message = None
+        prompt_media: TelegramIncomingMessage | None = None
+        for msg in messages:
+            if msg.caption:
+                prompt_message = msg
+                prompt_media = msg
+                break
+            if msg.document is None:
+                prompt_media = msg
+        if prompt_message is None:
+            prompt_message = prompt_media
+        if prompt_message is None:
+            return
+        caption_text = (prompt_message.caption or "").strip()
+        if prompt_media is not None and caption_text:
+            reply = make_reply(self._cfg, prompt_media)
+            await reply(text=FILE_PUT_USAGE)
+            return
+        resolved = await self._resolve_prompt_message(
+            prompt_message,
+            caption_text,
+            None,
+        )
+        if resolved is None:
+            return
+        annotation = ""
+        if prompt_media is not None and prompt_media.document is not None:
+            saved = await save_file_put(
                 self._cfg,
-                messages,
+                prompt_media,
+                "",
+                resolved.context,
                 self._topic_store,
-                self._run_prompt_from_upload,
-                self._resolve_prompt_message,
+            )
+            if saved is None:
+                return
+            annotation = f"[uploaded file: {saved.rel_path.as_posix()}]"
+        prompt = _build_upload_prompt(resolved.prompt, annotation)
+        chat_id = prompt_message.chat_id
+        user_msg_id = prompt_message.message_id
+        reply_id = prompt_message.reply_to_message_id
+        reply_ref = (
+            MessageRef(
+                channel_id=chat_id,
+                message_id=reply_id,
+                thread_id=prompt_message.thread_id,
+            )
+            if reply_id is not None
+            else None
+        )
+        prompt = _format_prompt_line(
+            prompt_message,
+            prompt,
+            prompt_mode=self._cfg.topics.prompt_mode,
+        )
+        resume_token = resolved.resume_token
+        context = resolved.context
+        chat_session_key = _chat_session_key(
+            prompt_message, store=self._chat_session_store
+        )
+        topic_key = (
+            _topic_key(prompt_message, self._cfg, scope_chat_ids=self._topics_chat_ids)
+            if self._topic_store is not None
+            else None
+        )
+        engine_resolution = await self._resolve_engine_defaults(
+            explicit_engine=resolved.engine_override,
+            context=context,
+            chat_id=chat_id,
+            topic_key=topic_key,
+        )
+        engine_override = engine_resolution.engine
+        resume_decision = await self._resume_resolver.resolve(
+            resume_token=resume_token,
+            reply_id=reply_id,
+            chat_id=chat_id,
+            user_msg_id=user_msg_id,
+            thread_id=prompt_message.thread_id,
+            chat_session_key=chat_session_key,
+            topic_key=topic_key,
+            engine_for_session=engine_resolution.engine,
+            prompt_text=prompt,
+        )
+        if resume_decision.handled_by_running_task:
+            return
+        resume_token = resume_decision.resume_token
+        if resume_token is None:
+            await run_job(
+                chat_id,
+                user_msg_id,
+                prompt,
+                None,
+                context,
+                prompt_message.thread_id,
+                chat_session_key,
+                reply_ref,
+                self._scheduler.note_thread_known,
+                engine_override,
             )
             return
+        progress_ref = await _send_queued_progress(
+            self._cfg,
+            chat_id=chat_id,
+            user_msg_id=user_msg_id,
+            thread_id=prompt_message.thread_id,
+            resume_token=resume_token,
+            context=context,
+        )
+        await self._scheduler.enqueue_resume(
+            chat_id,
+            user_msg_id,
+            prompt,
+            resume_token,
+            context,
+            prompt_message.thread_id,
+            chat_session_key,
+            progress_ref,
+        )
 
 
-def _diff_keys(old: dict[str, object], new: dict[str, object]) -> list[str]:
-    keys = set(old) | set(new)
-    return sorted(key for key in keys if old.get(key) != new.get(key))
-
-
-async def _wait_for_resume(running_task) -> ResumeToken | None:
-    if running_task.resume is not None:
-        return running_task.resume
-    resume: ResumeToken | None = None
-
-    async with anyio.create_task_group() as tg:
-
-        async def wait_resume() -> None:
-            nonlocal resume
-            await running_task.resume_ready.wait()
-            resume = running_task.resume
-            tg.cancel_scope.cancel()
-
-        async def wait_done() -> None:
-            await running_task.done.wait()
-            tg.cancel_scope.cancel()
-
-        tg.start_soon(wait_resume)
-        tg.start_soon(wait_done)
-
-    return resume
-
-
-async def _send_queued_progress(
-    cfg: TelegramBridgeConfig,
-    *,
-    chat_id: int,
-    user_msg_id: int,
-    thread_id: int | None,
-    resume_token: ResumeToken,
-    context: RunContext | None,
-) -> MessageRef | None:
-    tracker = ProgressTracker(engine=resume_token.engine)
-    tracker.set_resume(resume_token)
-    context_line = cfg.runtime.format_context_line(context)
-    state = tracker.snapshot(context_line=context_line)
-    message = cfg.exec_cfg.presenter.render_progress(
-        state,
-        elapsed_s=0.0,
-        label="queued",
-    )
-    reply_ref = MessageRef(
-        channel_id=chat_id,
-        message_id=user_msg_id,
-        thread_id=thread_id,
-    )
-    return await cfg.exec_cfg.transport.send(
-        channel_id=chat_id,
-        message=message,
-        options=SendOptions(reply_to=reply_ref, notify=False, thread_id=thread_id),
-    )
+def _build_upload_prompt(prompt: str, annotation: str) -> str:
+    if not annotation:
+        return prompt
+    if not prompt.strip():
+        return annotation
+    return f"{prompt}\n\n{annotation}"
 
 
 async def send_with_resume(
     cfg: TelegramBridgeConfig,
-    enqueue: Callable[
+    enqueue_resume: Callable[
         [
             int,
             int,
@@ -856,82 +941,88 @@ async def send_with_resume(
         ],
         Awaitable[None],
     ],
-    running_task,
+    running_task: object,
     chat_id: int,
     user_msg_id: int,
     thread_id: int | None,
-    session_key: tuple[int, int | None] | None,
-    text: str,
+    chat_session_key: tuple[int, int | None] | None,
+    prompt_text: str,
 ) -> None:
-    reply = partial(
-        send_plain,
-        cfg.exec_cfg.transport,
-        chat_id=chat_id,
-        user_msg_id=user_msg_id,
-        thread_id=thread_id,
-    )
-    resume = await _wait_for_resume(running_task)
-    if resume is None:
-        await reply(
-            text="resume token not ready yet; try replying to the final message.",
-            notify=False,
+    reply_ref = MessageRef(channel_id=chat_id, message_id=user_msg_id, thread_id=thread_id)
+    sent = await send_plain(cfg, chat_id=chat_id, text="resuming...", thread_id=thread_id)
+    if sent is None:
+        await enqueue_resume(
+            chat_id,
+            user_msg_id,
+            prompt_text,
+            ResumeToken(ref=reply_ref),
+            None,
+            thread_id,
+            chat_session_key,
+            None,
         )
         return
-    progress_ref = await _send_queued_progress(
-        cfg,
-        chat_id=chat_id,
-        user_msg_id=user_msg_id,
+    resume_ref = MessageRef(
+        channel_id=chat_id,
+        message_id=sent.message_id,
         thread_id=thread_id,
-        resume_token=resume,
-        context=running_task.context,
     )
-    await enqueue(
+    await enqueue_resume(
         chat_id,
         user_msg_id,
-        text,
-        resume,
-        running_task.context,
+        prompt_text,
+        ResumeToken(ref=resume_ref),
+        None,
         thread_id,
-        session_key,
-        progress_ref,
+        chat_session_key,
+        reply_ref,
     )
 
 
 async def run_main_loop(
     cfg: TelegramBridgeConfig,
-    poller: Callable[
-        [TelegramBridgeConfig], AsyncIterator[TelegramIncomingUpdate]
-    ] = poll_updates,
     *,
-    watch_config: bool | None = None,
-    default_engine_override: str | None = None,
-    transport_id: str | None = None,
-    transport_config: TelegramTransportSettings | None = None,
-    sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
+    poller_fn: Callable[[TelegramBridgeConfig], AsyncIterator[TelegramIncomingUpdate]] = poll_updates,
 ) -> None:
+    logger.info("telegram.loop.starting", chat_id=cfg.chat_id)
+    scheduler = ThreadScheduler(max_concurrency=cfg.max_concurrency)
+    scheduler_task: anyio.abc.TaskStatus[ThreadScheduler] | None = None
+    if cfg.thread_pool:
+        scheduler_task = await anyio.create_task_group().start(  # noqa: SIM117
+            scheduler.start
+        )
+    running_tasks: dict[MessageRef, ThreadJob] = {}
+    stream_connections: dict[MessageRef, anyio.abc.SocketStream] = {}
+    attach_streams: dict[MessageRef, anyio.abc.SocketStream] = {}
+    stream_blocks: dict[MessageRef, tuple[bytes, bytes]] = {}
+
     state = TelegramLoopState(
-        running_tasks={},
+        running_tasks=running_tasks,
         pending_prompts={},
         media_groups={},
-        command_ids={
-            command_id.lower()
-            for command_id in list_command_ids(allowlist=cfg.runtime.allowlist)
-        },
-        reserved_commands=get_reserved_commands(cfg.runtime),
-        reserved_chat_commands=set(RESERVED_CHAT_COMMANDS),
-        transport_snapshot=(
-            transport_config.model_dump() if transport_config is not None else None
-        ),
+        command_ids=set(),
+        reserved_commands=set(),
+        reserved_chat_commands=set(),
+        transport_snapshot=None,
         topic_store=None,
         chat_session_store=None,
         chat_prefs=None,
         resolved_topics_scope=None,
         topics_chat_ids=frozenset(),
         bot_username=None,
-        forward_coalesce_s=max(0.0, float(cfg.forward_coalesce_s)),
-        media_group_debounce_s=max(0.0, float(cfg.media_group_debounce_s)),
-        transport_id=transport_id,
+        forward_coalesce_s=cfg.forward_coalesce_s,
+        media_group_debounce_s=cfg.media_group_debounce_s,
+        transport_id=cfg.transport_id,
     )
+
+    def refresh_commands() -> None:
+        state.command_ids = set(list_command_ids())
+
+    def refresh_reserved_commands() -> None:
+        state.reserved_commands = get_reserved_commands()
+        state.reserved_chat_commands = set(RESERVED_CHAT_COMMANDS)
+        if cfg.topics.enabled:
+            state.reserved_chat_commands |= _TOPICS_COMMANDS
 
     def refresh_topics_scope() -> None:
         if cfg.topics.enabled:
@@ -943,856 +1034,1350 @@ async def run_main_loop(
             state.resolved_topics_scope = None
             state.topics_chat_ids = frozenset()
 
-    def refresh_commands() -> None:
-        allowlist = cfg.runtime.allowlist
-        state.command_ids = {
-            command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
-        }
-        state.reserved_commands = get_reserved_commands(cfg.runtime)
+    def update_command_menu() -> None:
+        if not cfg.command_menu:
+            return
+        set_command_menu(cfg, state.command_ids, state.reserved_chat_commands)
 
-    try:
-        config_path = cfg.runtime.config_path
-        if config_path is not None:
-            state.chat_prefs = ChatPrefsStore(resolve_prefs_path(config_path))
-            logger.info(
-                "chat_prefs.enabled",
-                state_path=str(resolve_prefs_path(config_path)),
+    def update_transport_snapshot() -> None:
+        state.transport_snapshot = cfg.snapshot()
+
+    async def _send_queued_progress(
+        cfg: TelegramBridgeConfig,
+        *,
+        chat_id: int,
+        user_msg_id: int,
+        thread_id: int | None,
+        resume_token: ResumeToken,
+        context: RunContext | None,
+    ) -> MessageRef:
+        reply_ref = MessageRef(
+            channel_id=chat_id,
+            message_id=user_msg_id,
+            thread_id=thread_id,
+        )
+        progress = ProgressTracker(
+            on_update=partial(
+                _enqueue_stream_edit,
+                reply_ref=reply_ref,
+            ),
+            on_replace=partial(
+                _send_replace_message,
+                cfg,
+                reply_ref=reply_ref,
+            ),
+            on_done=partial(
+                _send_replace_message,
+                cfg,
+                reply_ref=reply_ref,
+                use_reply=False,
+            ),
+        )
+        try:
+            await cfg.exec_cfg.runtime.run_resume(
+                resume_token,
+                progress,
+                context=context,
+                transport=cfg.transport_id,
             )
-        if cfg.session_mode == "chat":
-            if config_path is None:
-                raise ConfigError(
-                    "session_mode=chat but config path is not set; cannot locate state file."
+        except Exception:
+            progress.close()
+            raise
+        return reply_ref
+
+    async def _send_replace_message(
+        cfg: TelegramBridgeConfig,
+        message: str,
+        *,
+        reply_ref: MessageRef,
+        use_reply: bool = True,
+    ) -> None:
+        rendered_text, entities = cfg.exec_cfg.runtime.render(message)
+        message = ResolvedMessage(rendered_text, entities=entities)
+        sent = await cfg.exec_cfg.transport.send(
+            channel_id=reply_ref.channel_id,
+            message=message,
+            thread_id=reply_ref.thread_id,
+            reply_to=reply_ref if use_reply else None,
+        )
+        if sent is None:
+            return
+        ref = MessageRef(
+            channel_id=reply_ref.channel_id,
+            message_id=sent.message_id,
+            thread_id=reply_ref.thread_id,
+        )
+        if use_reply:
+            state.running_tasks[ref] = state.running_tasks.pop(reply_ref)
+        await cfg.exec_cfg.transport.delete(reply_ref)
+
+    def _enqueue_stream_edit(
+        reply_ref: MessageRef,
+        message: str,
+    ) -> None:
+        rendered_text, entities = cfg.exec_cfg.runtime.render(message)
+        send_options = SendOptions(entities=entities, thread_id=reply_ref.thread_id)
+        scheduler.submit(
+            ThreadJob(
+                priority=2,
+                name="telegram.edit",
+                fn=partial(
+                    cfg.exec_cfg.transport.edit,
+                    reply_ref,
+                    rendered_text,
+                    send_options,
+                ),
+            )
+        )
+
+    def _resolve_context(msg: TelegramIncomingMessage) -> tuple[RunContext | None, str]:
+        ambient_context = None
+        topic_key = resolve_topic_key(msg)
+        if topic_key is not None and state.topic_store is not None:
+            bound = state.topic_store.get_context_sync(*topic_key)
+            if bound is not None:
+                return bound, "topic"
+        if state.chat_prefs is not None:
+            bound = state.chat_prefs.get_context_sync(msg.chat_id)
+            if bound is not None:
+                return bound, "chat"
+        return ambient_context, "default"
+
+    async def refresh_config() -> None:
+        config_path = cfg.config_path
+        if config_path is None:
+            raise ConfigError("config path is required")
+        if not config_path.exists():
+            raise ConfigError(f"config path {config_path} does not exist")
+        new_settings = await cfg.exec_cfg.runtime.load_settings(config_path)
+        if not isinstance(new_settings, TelegramTransportSettings):
+            raise ConfigError("invalid telegram config")
+        cfg.apply_settings(new_settings)
+        state.forward_coalesce_s = cfg.forward_coalesce_s
+        state.media_group_debounce_s = cfg.media_group_debounce_s
+        state.transport_id = cfg.transport_id
+        refresh_commands()
+        refresh_reserved_commands()
+        refresh_topics_scope()
+        update_command_menu()
+        update_transport_snapshot()
+
+    async def resolve_prompt_message(
+        msg: TelegramIncomingMessage,
+        text: str,
+        ambient_context: RunContext | None,
+    ) -> ResolvedMessage | None:
+        if not text.strip() and msg.document is None and msg.voice is None:
+            return None
+        reply_ref: MessageRef | None = None
+        reply_text: str | None = None
+        reply_id = msg.reply_to_message_id
+        if reply_id is not None and msg.reply_to_text:
+            reply_ref = MessageRef(
+                channel_id=msg.chat_id,
+                message_id=reply_id,
+                thread_id=msg.thread_id,
+            )
+            reply_text = msg.reply_to_text
+        prompt = _format_prompt_line(msg, text, prompt_mode=cfg.topics.prompt_mode)
+        if not prompt.strip():
+            return None
+        context, source = _resolve_context(msg)
+        resolved = cfg.runtime.resolve_message(
+            text=prompt,
+            reply_text=reply_text,
+            ambient_context=ambient_context,
+            chat_id=msg.chat_id,
+        )
+        return ResolvedMessage(
+            prompt=resolved.prompt,
+            resume_token=resolved.resume_token,
+            engine_override=resolved.engine_override,
+            context=resolved.context,
+            context_source=source,
+        )
+
+    async def _handle_msgspec_prompt(
+        msg: TelegramIncomingMessage,
+        text: str,
+        ambient_context: RunContext | None,
+        scheduler: ThreadScheduler,
+        on_thread_known: Callable[[int, int], None],
+        base_cb: Callable[[ThreadJob], None] | None,
+    ) -> None:
+        resolved = await resolve_prompt_message(msg, text, ambient_context)
+        if resolved is None:
+            return
+        prompt_text = resolved.prompt
+        if msg.document is not None and cfg.files.enabled:
+            msg = await save_file_put(cfg, msg, text, resolved.context, state.topic_store)
+            if msg is None:
+                return
+            prompt_text = _format_prompt_line(
+                msg,
+                prompt_text,
+                prompt_mode=cfg.topics.prompt_mode,
+            )
+        chat_id = msg.chat_id
+        user_msg_id = msg.message_id
+        reply_id = msg.reply_to_message_id
+        reply_ref = (
+            MessageRef(
+                channel_id=chat_id,
+                message_id=reply_id,
+                thread_id=msg.thread_id,
+            )
+            if reply_id is not None
+            else None
+        )
+        resume_token = resolved.resume_token
+        context = resolved.context
+        chat_session_key = _chat_session_key(msg, store=state.chat_session_store)
+        topic_key = resolve_topic_key(msg)
+        engine_resolution = await resolve_engine_defaults(
+            explicit_engine=resolved.engine_override,
+            context=context,
+            chat_id=chat_id,
+            topic_key=topic_key,
+        )
+        engine_override = engine_resolution.engine
+        resume_decision = await resume_resolver.resolve(
+            resume_token=resume_token,
+            reply_id=reply_id,
+            chat_id=chat_id,
+            user_msg_id=user_msg_id,
+            thread_id=msg.thread_id,
+            chat_session_key=chat_session_key,
+            topic_key=topic_key,
+            engine_for_session=engine_resolution.engine,
+            prompt_text=prompt_text,
+        )
+        if resume_decision.handled_by_running_task:
+            return
+        resume_token = resume_decision.resume_token
+        if resume_token is None:
+            await run_job(
+                chat_id,
+                user_msg_id,
+                prompt_text,
+                None,
+                context,
+                msg.thread_id,
+                chat_session_key,
+                reply_ref,
+                scheduler.note_thread_known,
+                engine_override,
+            )
+            return
+        progress_ref = await _send_queued_progress(
+            cfg,
+            chat_id=chat_id,
+            user_msg_id=user_msg_id,
+            thread_id=msg.thread_id,
+            resume_token=resume_token,
+            context=context,
+        )
+        await scheduler.enqueue_resume(
+            chat_id,
+            user_msg_id,
+            prompt_text,
+            resume_token,
+            context,
+            msg.thread_id,
+            chat_session_key,
+            progress_ref,
+        )
+
+    def _log_router(fallback: Callable[[TelegramIncomingMessage], object]) -> Callable[[TelegramIncomingMessage], object]:
+        if not cfg.log_json:
+            return fallback
+
+        def logger_for_msg(msg: TelegramIncomingMessage) -> object:
+            ts = _format_timestamp(msg.date)
+            info = {
+                "timestamp": ts,
+                "message_id": msg.message_id,
+                "chat_id": msg.chat_id,
+                "thread_id": msg.thread_id,
+                "sender_id": msg.sender_id,
+                "sender": _format_sender(msg),
+                "text": msg.text,
+                "caption": msg.caption,
+                "reply_to": msg.reply_to_message_id,
+                "document": msg.document,
+                "voice": msg.voice,
+                "video": msg.video,
+                "photo": msg.photo,
+                "sticker": msg.sticker,
+                "media_group_id": msg.media_group_id,
+                "is_topic_message": msg.is_topic_message,
+                "is_automatic_forward": msg.is_automatic_forward,
+            }
+            if msg.document is not None:
+                info["document_name"] = msg.document.file_name
+            if msg.voice is not None:
+                info["voice_duration"] = msg.voice.duration
+            if msg.reply_to_message_id is not None:
+                info["reply_text"] = msg.reply_to_text
+            if msg.raw is not None:
+                info["raw"] = msg.raw
+            logger.info("telegram.message", **info)
+            return fallback(msg)
+
+        return logger_for_msg
+
+    def _topic_router(fallback: Callable[[TelegramIncomingMessage], object]) -> Callable[[TelegramIncomingMessage], object]:
+        def route(msg: TelegramIncomingMessage) -> object:
+            if _topic_key(msg, cfg, scope_chat_ids=state.topics_chat_ids) is None:
+                return fallback(msg)
+            return topic_router(msg)
+
+        return route
+
+    def _dispatch_message(msg: TelegramIncomingMessage) -> object:
+        return (dispatch_msgspec if cfg.msgspec_enabled else dispatch)(msg)
+
+    def dispatch_msgspec(msg: TelegramIncomingMessage) -> object:
+        if not msg.text and not msg.document and not msg.voice:
+            return None
+        if msg.raw is not None:
+            if state.topic_store is not None and msg.thread_id is not None:
+                state.topic_store.mark_thread_seen(msg.chat_id, msg.thread_id)
+        return schedule_message(
+            msg,
+            msg.text or "",
+            msg.reply_to_message_id,
+            msg.reply_to_text,
+        )
+
+    def dispatch(msg: TelegramIncomingMessage) -> object:
+        if msg.raw is not None and msg.thread_id is not None:
+            if state.topic_store is not None:
+                state.topic_store.mark_thread_seen(msg.chat_id, msg.thread_id)
+        if cfg.files.enabled and msg.document is not None:
+            return schedule_message(
+                msg,
+                msg.caption or "",
+                msg.reply_to_message_id,
+                msg.reply_to_text,
+                msg.document,
+            )
+        return schedule_message(
+            msg,
+            msg.text or "",
+            msg.reply_to_message_id,
+            msg.reply_to_text,
+        )
+
+    async def schedule_message(
+        msg: TelegramIncomingMessage,
+        text: str,
+        reply_id: int | None,
+        reply_text: str | None,
+        document: object | None = None,
+    ) -> None:
+        if msg.raw is None:
+            if cfg.msgspec_enabled:
+                await _handle_msgspec_prompt(
+                    msg,
+                    text,
+                    None,
+                    scheduler,
+                    scheduler.note_thread_known,
+                    None,
                 )
-            state.chat_session_store = ChatSessionStore(
-                resolve_sessions_path(config_path)
+                return
+            await handle_new_prompt(
+                msg,
+                text,
+                reply_id,
+                reply_text,
+                document=document,
             )
-            cleared = await state.chat_session_store.sync_startup_cwd(Path.cwd())
-            if cleared:
-                logger.info(
-                    "chat_sessions.cleared",
-                    reason="startup_cwd_changed",
-                    cwd=str(Path.cwd()),
-                    state_path=str(resolve_sessions_path(config_path)),
+            return
+        await _handle_prompt(
+            msg,
+            text,
+            None,
+            scheduler,
+            scheduler.note_thread_known,
+        )
+
+    async def handle_new_prompt(
+        msg: TelegramIncomingMessage,
+        text: str,
+        reply_id: int | None,
+        reply_text: str | None,
+        document: object | None = None,
+    ) -> None:
+        is_voice_transcribed = False
+        ambient_context = RunContext(project=cfg.default_project, branch=None)
+        if msg.voice is not None:
+            text = await transcribe_voice(
+                bot=cfg.bot,
+                msg=msg,
+                enabled=cfg.voice_transcription,
+                model=cfg.voice_transcription_model,
+                max_bytes=cfg.voice_max_bytes,
+                reply=make_reply(cfg, msg),
+                base_url=cfg.voice_transcription_base_url,
+                api_key=cfg.voice_transcription_api_key,
+            )
+            if text is None:
+                return
+            is_voice_transcribed = True
+        if document is not None and cfg.files.enabled:
+            if isinstance(document, dict):
+                await _handle_file_put_raw(
+                    cfg,
+                    msg,
+                    document,
+                    ambient_context,
                 )
-            logger.info(
-                "chat_sessions.enabled",
-                state_path=str(resolve_sessions_path(config_path)),
+                return
+            saved = await save_file_put(cfg, msg, text, ambient_context, None)
+            if saved is None:
+                return
+            annotation = f"[uploaded file: {saved.rel_path.as_posix()}]"
+            text = _build_upload_prompt(text, annotation)
+        prompt_text = _format_prompt_line(
+            msg,
+            text,
+            prompt_mode=cfg.topics.prompt_mode,
+        )
+        if not prompt_text.strip():
+            return
+        reply = make_reply(cfg, msg)
+        try:
+            resolved = cfg.runtime.resolve_message(
+                text=prompt_text,
+                reply_text=reply_text,
+                ambient_context=ambient_context,
+                chat_id=msg.chat_id,
             )
+        except DirectiveError as exc:
+            await reply(text=f"error:\n{exc}")
+            return
+        prompt_text = resolved.prompt
+        if msg.document is None and msg.voice is None:
+            prompt_text = _format_prompt_line(
+                msg,
+                prompt_text,
+                prompt_mode=cfg.topics.prompt_mode,
+            )
+        if msg.document is None and msg.voice is None and msg.thread_id is not None:
+            prompt_text = _format_forwarded_prompt(
+                [prompt_text],
+                "",
+            )
+        if msg.thread_id is not None and msg.sender_id is not None:
+            pending = _PendingPrompt(
+                msg=msg,
+                text=prompt_text,
+                ambient_context=ambient_context,
+                chat_project=None,
+                topic_key=None,
+                chat_session_key=None,
+                reply_ref=None,
+                reply_id=None,
+                is_voice_transcribed=is_voice_transcribed,
+                forwards=[],
+            )
+            forward_coalescer.schedule(pending)
+            return
+        await run_job(
+            msg.chat_id,
+            msg.message_id,
+            prompt_text,
+            None,
+            resolved.context,
+            msg.thread_id,
+            None,
+            None,
+            scheduler.note_thread_known,
+            resolved.engine_override,
+        )
+
+    async def _handle_prompt(
+        msg: TelegramIncomingMessage,
+        text: str,
+        ambient_context: RunContext | None,
+        scheduler: ThreadScheduler,
+        on_thread_known: Callable[[int, int], None],
+    ) -> None:
+        if msg.raw is not None and msg.thread_id is not None:
+            if state.topic_store is not None:
+                state.topic_store.mark_thread_seen(msg.chat_id, msg.thread_id)
+        resolved = await resolve_prompt_message(msg, text, ambient_context)
+        if resolved is None:
+            return
+        resume_token = resolved.resume_token
+        prompt_text = resolved.prompt
+        if msg.document is not None and cfg.files.enabled:
+            msg = await save_file_put(cfg, msg, text, resolved.context, state.topic_store)
+            if msg is None:
+                return
+            prompt_text = _format_prompt_line(
+                msg,
+                prompt_text,
+                prompt_mode=cfg.topics.prompt_mode,
+            )
+        chat_id = msg.chat_id
+        user_msg_id = msg.message_id
+        reply_id = msg.reply_to_message_id
+        reply_ref = (
+            MessageRef(
+                channel_id=chat_id,
+                message_id=reply_id,
+                thread_id=msg.thread_id,
+            )
+            if reply_id is not None
+            else None
+        )
+        context = resolved.context
+        engine_resolution = await resolve_engine_defaults(
+            explicit_engine=resolved.engine_override,
+            context=context,
+            chat_id=chat_id,
+            topic_key=resolve_topic_key(msg),
+        )
+        engine_override = engine_resolution.engine
+        resume_decision = await resume_resolver.resolve(
+            resume_token=resume_token,
+            reply_id=reply_id,
+            chat_id=chat_id,
+            user_msg_id=user_msg_id,
+            thread_id=msg.thread_id,
+            chat_session_key=_chat_session_key(msg, store=state.chat_session_store),
+            topic_key=resolve_topic_key(msg),
+            engine_for_session=engine_resolution.engine,
+            prompt_text=prompt_text,
+        )
+        if resume_decision.handled_by_running_task:
+            return
+        resume_token = resume_decision.resume_token
+        if resume_token is None:
+            await run_job(
+                chat_id,
+                user_msg_id,
+                prompt_text,
+                None,
+                context,
+                msg.thread_id,
+                _chat_session_key(msg, store=state.chat_session_store),
+                reply_ref,
+                scheduler.note_thread_known,
+                engine_override,
+            )
+            return
+        progress_ref = await _send_queued_progress(
+            cfg,
+            chat_id=chat_id,
+            user_msg_id=user_msg_id,
+            thread_id=msg.thread_id,
+            resume_token=resume_token,
+            context=context,
+        )
+        await scheduler.enqueue_resume(
+            chat_id,
+            user_msg_id,
+            prompt_text,
+            resume_token,
+            context,
+            msg.thread_id,
+            _chat_session_key(msg, store=state.chat_session_store),
+            progress_ref,
+        )
+
+    def wrap_on_thread_known(
+        on_thread_known: Callable[[int, int], None],
+        topic_key: tuple[int, int] | None,
+        chat_session_key: tuple[int, int | None] | None,
+    ) -> Callable[[int, int], None]:
+        def wrapped(chat_id: int, thread_id: int) -> None:
+            on_thread_known(chat_id, thread_id)
+            if state.topic_store is not None and topic_key is not None:
+                state.topic_store.mark_thread_seen(chat_id, thread_id)
+            if chat_session_key is not None and thread_id is None:
+                state.chat_session_store.mark_thread_seen(chat_id, chat_session_key[1])
+
+        return wrapped
+
+    def should_rename_topic(
+        msg: TelegramIncomingMessage,
+        context: RunContext,
+        context_source: str,
+    ) -> bool:
+        if msg.thread_id is None:
+            return False
+        if not cfg.topics.enabled:
+            return False
+        return context_source == "directives"
+
+    def resolve_topic_key(
+        msg: TelegramIncomingMessage,
+    ) -> tuple[int, int] | None:
+        if state.topic_store is None:
+            return None
+        return _topic_key(msg, cfg, scope_chat_ids=state.topics_chat_ids)
+
+    async def run_job(
+        chat_id: int,
+        user_msg_id: int,
+        prompt_text: str,
+        resume_token: ResumeToken | None,
+        context: RunContext | None,
+        thread_id: int | None,
+        chat_session_key: tuple[int, int | None] | None,
+        reply_ref: MessageRef | None,
+        on_thread_known: Callable[[int, int], None],
+        engine_override: EngineId | None,
+    ) -> None:
+        scheduler.submit(
+            ThreadJob(
+                priority=0,
+                name="telegram.run",
+                fn=partial(
+                    run_engine,
+                    cfg,
+                    chat_id,
+                    user_msg_id,
+                    prompt_text,
+                    resume_token,
+                    context,
+                    thread_id,
+                    chat_session_key,
+                    reply_ref,
+                    on_thread_known,
+                    engine_override,
+                ),
+            )
+        )
+
+    async def handle_thread_job(job: ThreadJob) -> None:
+        try:
+            await job.fn()
+        except Exception:
+            logger.exception("telegram.task.failed", job=job.name)
+
+    async def handle_actions(job: ThreadJob) -> None:
+        await job.fn()
+
+    async def handle_incoming(
+        msg: TelegramIncomingMessage,
+        task_group: TaskGroup,
+        inline_router: Callable[[TelegramIncomingMessage], object],
+    ) -> None:
+        if not msg.chat_id:
+            return
+        if cfg.allowed_user_ids and msg.sender_id not in cfg.allowed_user_ids:
+            logger.info(
+                "telegram.incoming.ignored",
+                chat_id=msg.chat_id,
+                sender_id=msg.sender_id,
+            )
+            return
+        if msg.sender_id is None:
+            logger.info(
+                "telegram.incoming.ignored",
+                chat_id=msg.chat_id,
+                reason="missing_sender",
+            )
+            return
+        if msg.sender_id in cfg.allowed_user_ids:
+            logger.debug(
+                "telegram.incoming.admin",
+                chat_id=msg.chat_id,
+                sender_id=msg.sender_id,
+                message_id=msg.message_id,
+            )
+        if cfg.allow_groups is False and msg.chat_type != "private":
+            logger.debug(
+                "telegram.incoming.ignored",
+                chat_id=msg.chat_id,
+                sender_id=msg.sender_id,
+                reason="allow_groups=false",
+            )
+            return
+        if msg.thread_id is None:
+            prompt_mode = "default"
+        else:
+            prompt_mode = cfg.topics.prompt_mode
+        if not msg.text and msg.document is None and msg.voice is None:
+            return
+        if msg.raw is None:
+            await handle_new_prompt(
+                msg,
+                msg.text or "",
+                msg.reply_to_message_id,
+                msg.reply_to_text,
+                document=msg.document,
+            )
+            return
+        if cfg.msgspec_enabled:
+            await _handle_msgspec_prompt(
+                msg,
+                msg.text or "",
+                None,
+                scheduler,
+                scheduler.note_thread_known,
+                None,
+            )
+            return
+        if msg.document is not None:
+            await handle_new_prompt(
+                msg,
+                msg.caption or "",
+                msg.reply_to_message_id,
+                msg.reply_to_text,
+                document=msg.document,
+            )
+            return
+        if msg.thread_id is None:
+            await _handle_prompt(
+                msg,
+                msg.text or "",
+                None,
+                scheduler,
+                scheduler.note_thread_known,
+            )
+            return
+        await handle_new_prompt(
+            msg,
+            msg.text or "",
+            msg.reply_to_message_id,
+            msg.reply_to_text,
+            document=None,
+        )
+
+    async def _update_resolve_topic_context(
+        msg: TelegramIncomingMessage,
+        resolved: ResolvedMessage,
+        topic_key: tuple[int, int] | None,
+    ) -> None:
+        if resolved.context is None:
+            return
+        if topic_key is None or state.topic_store is None:
+            return
+        await state.topic_store.set_context(*topic_key, resolved.context)
+        if resolved.context_source == "directives":
+            await _maybe_rename_topic(
+                cfg,
+                state.topic_store,
+                chat_id=topic_key[0],
+                thread_id=topic_key[1],
+                context=resolved.context,
+            )
+
+    async def topic_router(msg: TelegramIncomingMessage) -> None:
+        reply = make_reply(cfg, msg)
+        text = msg.text
+        is_voice_transcribed = False
+        if msg.voice is not None:
+            text = await transcribe_voice(
+                bot=cfg.bot,
+                msg=msg,
+                enabled=cfg.voice_transcription,
+                model=cfg.voice_transcription_model,
+                max_bytes=cfg.voice_max_bytes,
+                reply=reply,
+                base_url=cfg.voice_transcription_base_url,
+                api_key=cfg.voice_transcription_api_key,
+            )
+            if text is None:
+                return
+            is_voice_transcribed = True
+        msg_context = await build_message_context(msg)
+        chat_id = msg_context.chat_id
+        reply_id = msg_context.reply_id
+        reply_ref = msg_context.reply_ref
+        topic_key = msg_context.topic_key
+        chat_session_key = msg_context.chat_session_key
+        chat_project = msg_context.chat_project
+        ambient_context = msg_context.ambient_context
+        if msg.document is not None:
+            if cfg.files.enabled and cfg.files.auto_put:
+                caption_text = text.strip()
+                if cfg.files.auto_put_mode == "prompt" and caption_text:
+                    tg.start_soon(
+                        handle_prompt_upload,
+                        msg,
+                        caption_text,
+                        ambient_context,
+                        state.topic_store,
+                    )
+                elif not caption_text:
+                    tg.start_soon(
+                        handle_file_put_default,
+                        cfg,
+                        msg,
+                        ambient_context,
+                        state.topic_store,
+                    )
+                else:
+                    tg.start_soon(
+                        partial(reply, text=FILE_PUT_USAGE),
+                    )
+            elif cfg.files.enabled:
+                tg.start_soon(
+                    partial(reply, text=FILE_PUT_USAGE),
+                )
+            return
+        if msg.thread_id is not None and msg.sender_id is not None:
+            pending = _PendingPrompt(
+                msg=msg,
+                text=text,
+                ambient_context=ambient_context,
+                chat_project=chat_project,
+                topic_key=topic_key,
+                chat_session_key=chat_session_key,
+                reply_ref=reply_ref,
+                reply_id=reply_id,
+                is_voice_transcribed=is_voice_transcribed,
+                forwards=[],
+            )
+            forward_coalescer.schedule(pending)
+            return
+        resolved = await resolve_prompt_message(msg, text, ambient_context)
+        if resolved is None:
+            return
+        if is_voice_transcribed:
+            resolved = ResolvedMessage(
+                prompt=f"(voice transcribed) {resolved.prompt}",
+                resume_token=resolved.resume_token,
+                engine_override=resolved.engine_override,
+                context=resolved.context,
+                context_source=resolved.context_source,
+            )
+        prompt_text = resolved.prompt
+        if msg.thread_id is not None and msg.sender_id is not None:
+            prompt_text = _format_prompt_line(
+                msg,
+                prompt_text,
+                prompt_mode=cfg.topics.prompt_mode,
+            )
+        if not prompt_text.strip():
+            return
+        resume_token = resolved.resume_token
+        context = resolved.context
+        engine_resolution = await resolve_engine_defaults(
+            explicit_engine=resolved.engine_override,
+            context=context,
+            chat_id=chat_id,
+            topic_key=topic_key,
+        )
+        engine_override = engine_resolution.engine
+        resume_decision = await resume_resolver.resolve(
+            resume_token=resume_token,
+            reply_id=reply_id,
+            chat_id=chat_id,
+            user_msg_id=msg.message_id,
+            thread_id=msg.thread_id,
+            chat_session_key=chat_session_key,
+            topic_key=topic_key,
+            engine_for_session=engine_resolution.engine,
+            prompt_text=prompt_text,
+        )
+        if resume_decision.handled_by_running_task:
+            return
+        resume_token = resume_decision.resume_token
+        if resume_token is None:
+            await run_job(
+                chat_id,
+                msg.message_id,
+                prompt_text,
+                None,
+                context,
+                msg.thread_id,
+                chat_session_key,
+                reply_ref,
+                scheduler.note_thread_known,
+                engine_override,
+            )
+            return
+        progress_ref = await _send_queued_progress(
+            cfg,
+            chat_id=chat_id,
+            user_msg_id=msg.message_id,
+            thread_id=msg.thread_id,
+            resume_token=resume_token,
+            context=context,
+        )
+        await scheduler.enqueue_resume(
+            chat_id,
+            msg.message_id,
+            prompt_text,
+            resume_token,
+            context,
+            msg.thread_id,
+            chat_session_key,
+            progress_ref,
+        )
+
+    def _handle_prompt_command(
+        msg: TelegramIncomingMessage,
+        text: str,
+        reply_text: str | None,
+        *,
+        resolved: ResolvedMessage,
+        thread_id: int | None,
+        topic_key: tuple[int, int] | None,
+        chat_session_key: tuple[int, int | None] | None,
+    ) -> None:
+        prompt = resolved.prompt
+        if thread_id is not None and msg.sender_id is not None:
+            prompt = _format_prompt_line(
+                msg,
+                prompt,
+                prompt_mode=cfg.topics.prompt_mode,
+            )
+        if not prompt.strip():
+            return
+        resume_token = resolved.resume_token
+        context = resolved.context
+        engine_resolution = await resolve_engine_defaults(
+            explicit_engine=resolved.engine_override,
+            context=context,
+            chat_id=msg.chat_id,
+            topic_key=topic_key,
+        )
+        engine_override = engine_resolution.engine
+        if resume_token is None:
+            scheduler.submit(
+                ThreadJob(
+                    priority=0,
+                    name="telegram.run",
+                    fn=partial(
+                        run_engine,
+                        cfg,
+                        msg.chat_id,
+                        msg.message_id,
+                        prompt,
+                        resume_token,
+                        context,
+                        thread_id,
+                        chat_session_key,
+                        MessageRef(
+                            channel_id=msg.chat_id,
+                            message_id=msg.message_id,
+                            thread_id=thread_id,
+                        ),
+                        scheduler.note_thread_known,
+                        engine_override,
+                    ),
+                )
+            )
+            return
+        scheduler.submit(
+            ThreadJob(
+                priority=0,
+                name="telegram.resume",
+                fn=partial(
+                    scheduler.enqueue_resume,
+                    msg.chat_id,
+                    msg.message_id,
+                    prompt,
+                    resume_token,
+                    context,
+                    thread_id,
+                    chat_session_key,
+                    MessageRef(
+                        channel_id=msg.chat_id,
+                        message_id=msg.message_id,
+                        thread_id=thread_id,
+                    ),
+                ),
+            )
+        )
+
+    async def _refresh_files_state(cfg: TelegramBridgeConfig) -> None:
+        try:
+            state.files_enabled = cfg.files.enabled
+        except Exception:
+            logger.exception("telegram.files.state.failed")
+
+    async def _refresh_topics_state(cfg: TelegramBridgeConfig) -> None:
+        try:
+            state.topics_enabled = cfg.topics.enabled
+        except Exception:
+            logger.exception("telegram.topics.state.failed")
+
+    async def _refresh_topics_scope(cfg: TelegramBridgeConfig) -> None:
+        try:
+            refresh_topics_scope()
+        except Exception:
+            logger.exception("telegram.topics.scope.failed")
+
+    async def _setup_topics(cfg: TelegramBridgeConfig) -> None:
         if cfg.topics.enabled:
-            if config_path is None:
+            if cfg.config_path is None:
                 raise ConfigError(
                     "topics enabled but config path is not set; cannot locate state file."
                 )
-            state.topic_store = TopicStateStore(resolve_state_path(config_path))
+            state.topic_store = TopicStateStore(resolve_state_path(cfg.config_path))
             await _validate_topics_setup(cfg)
             refresh_topics_scope()
             logger.info(
                 "topics.enabled",
                 scope=cfg.topics.scope,
                 resolved_scope=state.resolved_topics_scope,
-                state_path=str(resolve_state_path(config_path)),
             )
-        await set_command_menu(cfg)
-        try:
-            me = await cfg.bot.get_me()
-        except Exception as exc:  # noqa: BLE001
-            logger.info(
-                "trigger_mode.bot_username.failed",
-                error=str(exc),
-                error_type=exc.__class__.__name__,
-            )
-            me = None
-        if me is not None and me.username:
-            state.bot_username = me.username.lower()
         else:
-            logger.info("trigger_mode.bot_username.unavailable")
-        async with anyio.create_task_group() as tg:
-            poller_fn: Callable[
-                [TelegramBridgeConfig], AsyncIterator[TelegramIncomingUpdate]
-            ]
-            if poller is poll_updates:
-                poller_fn = cast(
-                    Callable[
-                        [TelegramBridgeConfig], AsyncIterator[TelegramIncomingUpdate]
-                    ],
-                    partial(poll_updates, sleep=sleep),
+            state.topic_store = None
+
+    async def _setup_chat_sessions(cfg: TelegramBridgeConfig) -> None:
+        if cfg.session_mode == "chat":
+            if cfg.config_path is None:
+                raise ConfigError(
+                    "chat sessions enabled but config path is not set; cannot locate state file."
                 )
-            else:
-                poller_fn = poller
-            config_path = cfg.runtime.config_path
-            watch_enabled = bool(watch_config) and config_path is not None
-
-            async def handle_reload(reload: ConfigReload) -> None:
-                refresh_commands()
-                refresh_topics_scope()
-                await set_command_menu(cfg)
-                if state.transport_snapshot is not None:
-                    new_snapshot = reload.settings.transports.telegram.model_dump()
-                    changed = _diff_keys(state.transport_snapshot, new_snapshot)
-                    if changed:
-                        logger.warning(
-                            "config.reload.transport_config_changed",
-                            transport="telegram",
-                            keys=changed,
-                            restart_required=True,
-                        )
-                        state.transport_snapshot = new_snapshot
-                if (
-                    state.transport_id is not None
-                    and reload.settings.transport != state.transport_id
-                ):
-                    logger.warning(
-                        "config.reload.transport_changed",
-                        old=state.transport_id,
-                        new=reload.settings.transport,
-                        restart_required=True,
-                    )
-                    state.transport_id = reload.settings.transport
-
-            if watch_enabled and config_path is not None:
-
-                async def run_config_watch() -> None:
-                    await watch_config_changes(
-                        config_path=config_path,
-                        runtime=cfg.runtime,
-                        default_engine_override=default_engine_override,
-                        on_reload=handle_reload,
-                    )
-
-                tg.start_soon(run_config_watch)
-
-            def wrap_on_thread_known(
-                base_cb: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
-                topic_key: tuple[int, int] | None,
-                chat_session_key: tuple[int, int | None] | None,
-            ) -> Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None:
-                if base_cb is None and topic_key is None and chat_session_key is None:
-                    return None
-
-                async def _wrapped(token: ResumeToken, done: anyio.Event) -> None:
-                    if base_cb is not None:
-                        await base_cb(token, done)
-                    if state.topic_store is not None and topic_key is not None:
-                        await state.topic_store.set_session_resume(
-                            topic_key[0], topic_key[1], token
-                        )
-                    if (
-                        state.chat_session_store is not None
-                        and chat_session_key is not None
-                    ):
-                        await state.chat_session_store.set_session_resume(
-                            chat_session_key[0], chat_session_key[1], token
-                        )
-
-                return _wrapped
-
-            async def run_job(
-                chat_id: int,
-                user_msg_id: int,
-                text: str,
-                resume_token: ResumeToken | None,
-                context: RunContext | None,
-                thread_id: int | None = None,
-                chat_session_key: tuple[int, int | None] | None = None,
-                reply_ref: MessageRef | None = None,
-                on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
-                | None = None,
-                engine_override: EngineId | None = None,
-                progress_ref: MessageRef | None = None,
-            ) -> None:
-                topic_key = (
-                    (chat_id, thread_id)
-                    if state.topic_store is not None
-                    and thread_id is not None
-                    and _topics_chat_allowed(
-                        cfg, chat_id, scope_chat_ids=state.topics_chat_ids
-                    )
-                    else None
-                )
-                stateful_mode = topic_key is not None or chat_session_key is not None
-                show_resume_line = should_show_resume_line(
-                    show_resume_line=cfg.show_resume_line,
-                    stateful_mode=stateful_mode,
-                    context=context,
-                )
-                engine_for_overrides = (
-                    resume_token.engine
-                    if resume_token is not None
-                    else engine_override
-                    if engine_override is not None
-                    else cfg.runtime.resolve_engine(
-                        engine_override=None,
-                        context=context,
-                    )
-                )
-                overrides_thread_id = topic_key[1] if topic_key is not None else None
-                run_options = await _resolve_engine_run_options(
-                    chat_id,
-                    overrides_thread_id,
-                    engine_for_overrides,
-                    chat_prefs=state.chat_prefs,
-                    topic_store=state.topic_store,
-                )
-                await run_engine(
-                    exec_cfg=cfg.exec_cfg,
-                    runtime=cfg.runtime,
-                    running_tasks=state.running_tasks,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    text=text,
-                    resume_token=resume_token,
-                    context=context,
-                    reply_ref=reply_ref,
-                    on_thread_known=wrap_on_thread_known(
-                        on_thread_known, topic_key, chat_session_key
-                    ),
-                    engine_override=engine_override,
-                    thread_id=thread_id,
-                    show_resume_line=show_resume_line,
-                    progress_ref=progress_ref,
-                    run_options=run_options,
-                )
-
-            async def run_thread_job(job: ThreadJob) -> None:
-                await run_job(
-                    cast(int, job.chat_id),
-                    cast(int, job.user_msg_id),
-                    job.text,
-                    job.resume_token,
-                    job.context,
-                    cast(int | None, job.thread_id),
-                    job.session_key,
-                    None,
-                    scheduler.note_thread_known,
-                    None,
-                    job.progress_ref,
-                )
-
-            scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
-
-            def resolve_topic_key(
-                msg: TelegramIncomingMessage,
-            ) -> tuple[int, int] | None:
-                if state.topic_store is None:
-                    return None
-                return _topic_key(msg, cfg, scope_chat_ids=state.topics_chat_ids)
-
-            def _build_upload_prompt(base: str, annotation: str) -> str:
-                if base and base.strip():
-                    return f"{base}\n\n{annotation}"
-                return annotation
-
-            async def resolve_prompt_message(
-                msg: TelegramIncomingMessage,
-                text: str,
-                ambient_context: RunContext | None,
-            ) -> ResolvedMessage | None:
-                reply = make_reply(cfg, msg)
-                try:
-                    resolved = cfg.runtime.resolve_message(
-                        text=text,
-                        reply_text=msg.reply_to_text,
-                        ambient_context=ambient_context,
-                        chat_id=msg.chat_id,
-                    )
-                except DirectiveError as exc:
-                    await reply(text=f"error:\n{exc}")
-                    return None
-                topic_key = resolve_topic_key(msg)
-                effective_context = ambient_context
-                if (
-                    state.topic_store is not None
-                    and topic_key is not None
-                    and resolved.context is not None
-                    and resolved.context_source == "directives"
-                ):
-                    await state.topic_store.set_context(*topic_key, resolved.context)
-                    await _maybe_rename_topic(
-                        cfg,
-                        state.topic_store,
-                        chat_id=topic_key[0],
-                        thread_id=topic_key[1],
-                        context=resolved.context,
-                    )
-                    effective_context = resolved.context
-                if (
-                    state.topic_store is not None
-                    and topic_key is not None
-                    and effective_context is None
-                    and resolved.context_source not in {"directives", "reply_ctx"}
-                ):
-                    chat_project = (
-                        _topics_chat_project(cfg, msg.chat_id)
-                        if cfg.topics.enabled
-                        else None
-                    )
-                    await reply(
-                        text="this topic isn't bound to a project yet.\n"
-                        f"{_usage_ctx_set(chat_project=chat_project)} or "
-                        f"{_usage_topic(chat_project=chat_project)}",
-                    )
-                    return None
-                return resolved
-
-            async def resolve_engine_defaults(
-                *,
-                explicit_engine: EngineId | None,
-                context: RunContext | None,
-                chat_id: int,
-                topic_key: tuple[int, int] | None,
-            ):
-                return await resolve_engine_for_message(
-                    runtime=cfg.runtime,
-                    context=context,
-                    explicit_engine=explicit_engine,
-                    chat_id=chat_id,
-                    topic_key=topic_key,
-                    topic_store=state.topic_store,
-                    chat_prefs=state.chat_prefs,
-                )
-
-            resume_resolver = ResumeResolver(
-                cfg=cfg,
-                task_group=tg,
-                running_tasks=state.running_tasks,
-                enqueue_resume=scheduler.enqueue_resume,
-                topic_store=state.topic_store,
-                chat_session_store=state.chat_session_store,
+            state.chat_session_store = ChatSessionStore(
+                resolve_sessions_path(cfg.config_path)
             )
+            logger.info("chat.sessions.enabled")
+        else:
+            state.chat_session_store = None
 
-            async def run_prompt_from_upload(
-                msg: TelegramIncomingMessage,
-                prompt_text: str,
-                resolved: ResolvedMessage,
-            ) -> None:
-                chat_id = msg.chat_id
-                user_msg_id = msg.message_id
-                reply_id = msg.reply_to_message_id
-                reply_ref = (
-                    MessageRef(
-                        channel_id=msg.chat_id,
-                        message_id=msg.reply_to_message_id,
-                        thread_id=msg.thread_id,
-                    )
-                    if msg.reply_to_message_id is not None
-                    else None
-                )
-                resume_token = resolved.resume_token
-                context = resolved.context
-                chat_session_key = _chat_session_key(
-                    msg, store=state.chat_session_store
-                )
-                topic_key = resolve_topic_key(msg)
-                engine_resolution = await resolve_engine_defaults(
-                    explicit_engine=resolved.engine_override,
-                    context=context,
-                    chat_id=chat_id,
-                    topic_key=topic_key,
-                )
-                engine_override = engine_resolution.engine
-                resume_decision = await resume_resolver.resolve(
-                    resume_token=resume_token,
-                    reply_id=reply_id,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    thread_id=msg.thread_id,
-                    chat_session_key=chat_session_key,
-                    topic_key=topic_key,
-                    engine_for_session=engine_resolution.engine,
-                    prompt_text=prompt_text,
-                )
-                if resume_decision.handled_by_running_task:
-                    return
-                resume_token = resume_decision.resume_token
-                if resume_token is None:
-                    await run_job(
-                        chat_id,
-                        user_msg_id,
-                        prompt_text,
-                        None,
-                        context,
-                        msg.thread_id,
-                        chat_session_key,
-                        reply_ref,
-                        scheduler.note_thread_known,
-                        engine_override,
-                    )
-                    return
-                progress_ref = await _send_queued_progress(
-                    cfg,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    thread_id=msg.thread_id,
-                    resume_token=resume_token,
-                    context=context,
-                )
-                await scheduler.enqueue_resume(
-                    chat_id,
-                    user_msg_id,
-                    prompt_text,
-                    resume_token,
-                    context,
-                    msg.thread_id,
-                    chat_session_key,
-                    progress_ref,
-                )
+    async def _setup_chat_prefs(cfg: TelegramBridgeConfig) -> None:
+        if cfg.config_path is None:
+            return
+        state.chat_prefs = ChatPrefsStore(resolve_prefs_path(cfg.config_path))
 
-            async def _dispatch_pending_prompt(pending: _PendingPrompt) -> None:
-                msg = pending.msg
-                chat_id = msg.chat_id
-                user_msg_id = msg.message_id
-                reply = make_reply(cfg, msg)
-                try:
-                    resolved = cfg.runtime.resolve_message(
-                        text=pending.text,
-                        reply_text=msg.reply_to_text,
-                        ambient_context=pending.ambient_context,
-                        chat_id=chat_id,
-                    )
-                except DirectiveError as exc:
-                    await reply(text=f"error:\n{exc}")
-                    return
-                if pending.is_voice_transcribed:
-                    resolved = ResolvedMessage(
-                        prompt=f"(voice transcribed) {resolved.prompt}",
-                        resume_token=resolved.resume_token,
-                        engine_override=resolved.engine_override,
-                        context=resolved.context,
-                        context_source=resolved.context_source,
-                    )
+    def resolve_chat_session_key(
+        msg: TelegramIncomingMessage,
+    ) -> tuple[int, int | None] | None:
+        if state.chat_session_store is None or msg.thread_id is not None:
+            return None
+        if msg.chat_type == "private":
+            return (msg.chat_id, None)
+        if msg.sender_id is None:
+            return None
+        return (msg.chat_id, msg.sender_id)
 
-                prompt_text = resolved.prompt
-                if pending.forwards:
-                    forwarded = [
-                        text
-                        for _, text in sorted(
-                            pending.forwards,
-                            key=lambda item: item[0],
-                        )
-                    ]
-                    prompt_text = _format_forwarded_prompt(
-                        forwarded,
-                        prompt_text,
-                    )
+    async def handle_prompt_command(
+        msg: TelegramIncomingMessage,
+        text: str,
+        reply_text: str | None,
+        *,
+        resolved: ResolvedMessage,
+        thread_id: int | None,
+        topic_key: tuple[int, int] | None,
+        chat_session_key: tuple[int, int | None] | None,
+    ) -> None:
+        if not text.strip():
+            return
+        _handle_prompt_command(
+            msg,
+            text,
+            reply_text,
+            resolved=resolved,
+            thread_id=thread_id,
+            topic_key=topic_key,
+            chat_session_key=chat_session_key,
+        )
 
-                resume_token = resolved.resume_token
-                context = resolved.context
-                engine_resolution = await resolve_engine_defaults(
-                    explicit_engine=resolved.engine_override,
-                    context=context,
-                    chat_id=chat_id,
-                    topic_key=pending.topic_key,
-                )
-                engine_override = engine_resolution.engine
-                effective_context = pending.ambient_context
-                if (
-                    state.topic_store is not None
-                    and pending.topic_key is not None
-                    and resolved.context is not None
-                    and resolved.context_source == "directives"
-                ):
-                    await state.topic_store.set_context(
-                        *pending.topic_key, resolved.context
-                    )
-                    await _maybe_rename_topic(
-                        cfg,
-                        state.topic_store,
-                        chat_id=pending.topic_key[0],
-                        thread_id=pending.topic_key[1],
-                        context=resolved.context,
-                    )
-                    effective_context = resolved.context
-                if (
-                    state.topic_store is not None
-                    and pending.topic_key is not None
-                    and effective_context is None
-                    and resolved.context_source not in {"directives", "reply_ctx"}
-                ):
-                    await reply(
-                        text="this topic isn't bound to a project yet.\n"
-                        f"{_usage_ctx_set(chat_project=pending.chat_project)} or "
-                        f"{_usage_topic(chat_project=pending.chat_project)}",
-                    )
-                    return
-                resume_decision = await resume_resolver.resolve(
-                    resume_token=resume_token,
-                    reply_id=pending.reply_id,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    thread_id=msg.thread_id,
-                    chat_session_key=pending.chat_session_key,
-                    topic_key=pending.topic_key,
-                    engine_for_session=engine_resolution.engine,
-                    prompt_text=prompt_text,
-                )
-                if resume_decision.handled_by_running_task:
-                    return
-                resume_token = resume_decision.resume_token
+    async def _handle_file_put_raw(
+        cfg: TelegramBridgeConfig,
+        msg: TelegramIncomingMessage,
+        document: dict[str, object],
+        ambient_context: RunContext | None,
+    ) -> None:
+        if msg.document is None:
+            return
+        file_name = msg.document.file_name
+        file_id = msg.document.file_id
+        saved = await cfg.exec_cfg.transport.get_file(
+            file_id,
+            file_name,
+            from_chat=msg.chat_id,
+        )
+        if saved is None:
+            return
+        prompt = f"[uploaded file: {saved.rel_path.as_posix()}]"
+        prompt_text = _format_prompt_line(
+            msg,
+            prompt,
+            prompt_mode=cfg.topics.prompt_mode,
+        )
+        if not prompt_text.strip():
+            return
+        await run_job(
+            msg.chat_id,
+            msg.message_id,
+            prompt_text,
+            None,
+            ambient_context,
+            msg.thread_id,
+            None,
+            None,
+            scheduler.note_thread_known,
+            None,
+        )
 
-                if resume_token is None:
-                    tg.start_soon(
-                        run_job,
-                        chat_id,
-                        user_msg_id,
-                        prompt_text,
-                        None,
-                        context,
-                        msg.thread_id,
-                        pending.chat_session_key,
-                        pending.reply_ref,
-                        scheduler.note_thread_known,
-                        engine_override,
-                    )
-                    return
-                progress_ref = await _send_queued_progress(
-                    cfg,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    thread_id=msg.thread_id,
-                    resume_token=resume_token,
-                    context=context,
-                )
-                await scheduler.enqueue_resume(
-                    chat_id,
-                    user_msg_id,
-                    prompt_text,
-                    resume_token,
-                    context,
-                    msg.thread_id,
-                    pending.chat_session_key,
-                    progress_ref,
-                )
-
-            forward_coalescer = ForwardCoalescer(
-                task_group=tg,
-                debounce_s=state.forward_coalesce_s,
-                sleep=sleep,
-                dispatch=_dispatch_pending_prompt,
-                pending=state.pending_prompts,
+    async def handle_file_put(msg: TelegramIncomingMessage) -> None:
+        if msg.document is None:
+            return
+        if msg.thread_id is None and not cfg.files.auto_put:
+            await handle_file_put_default(
+                cfg,
+                msg,
+                None,
+                state.topic_store,
             )
+            return
+        prompt = ""
+        if msg.caption:
+            prompt = msg.caption
+        prompt_text = _format_prompt_line(
+            msg,
+            prompt,
+            prompt_mode=cfg.topics.prompt_mode,
+        )
+        if not prompt_text.strip():
+            return
+        await run_job(
+            msg.chat_id,
+            msg.message_id,
+            prompt_text,
+            None,
+            None,
+            msg.thread_id,
+            None,
+            None,
+            scheduler.note_thread_known,
+            None,
+        )
 
-            async def handle_prompt_upload(
-                msg: TelegramIncomingMessage,
-                caption_text: str,
-                ambient_context: RunContext | None,
-                topic_store: TopicStateStore | None,
-            ) -> None:
-                resolved = await resolve_prompt_message(
-                    msg,
-                    caption_text,
-                    ambient_context,
-                )
-                if resolved is None:
-                    return
-                saved = await save_file_put(
-                    cfg,
-                    msg,
-                    "",
-                    resolved.context,
-                    topic_store,
-                )
-                if saved is None:
-                    return
-                annotation = f"[uploaded file: {saved.rel_path.as_posix()}]"
-                prompt = _build_upload_prompt(resolved.prompt, annotation)
-                await run_prompt_from_upload(msg, prompt, resolved)
-
-            media_group_buffer = MediaGroupBuffer(
-                task_group=tg,
-                debounce_s=state.media_group_debounce_s,
-                sleep=sleep,
-                cfg=cfg,
-                chat_prefs=state.chat_prefs,
-                topic_store=state.topic_store,
-                bot_username=state.bot_username,
-                command_ids=lambda: state.command_ids,
-                reserved_chat_commands=state.reserved_chat_commands,
-                groups=state.media_groups,
-                run_prompt_from_upload=run_prompt_from_upload,
-                resolve_prompt_message=resolve_prompt_message,
-            )
-
-            async def build_message_context(
-                msg: TelegramIncomingMessage,
-            ) -> TelegramMsgContext:
-                chat_id = msg.chat_id
-                reply_id = msg.reply_to_message_id
-                reply_ref = (
-                    MessageRef(channel_id=chat_id, message_id=reply_id)
-                    if reply_id is not None
-                    else None
-                )
-                topic_key = resolve_topic_key(msg)
-                chat_session_key = _chat_session_key(
-                    msg, store=state.chat_session_store
-                )
-                stateful_mode = topic_key is not None or chat_session_key is not None
-                chat_project = (
-                    _topics_chat_project(cfg, chat_id) if cfg.topics.enabled else None
-                )
-                bound_context = (
-                    await state.topic_store.get_context(*topic_key)
-                    if state.topic_store is not None and topic_key is not None
-                    else None
-                )
-                chat_bound_context = None
-                if state.chat_prefs is not None:
-                    chat_bound_context = await state.chat_prefs.get_context(chat_id)
-                if bound_context is not None:
-                    ambient_context = _merge_topic_context(
-                        chat_project=chat_project, bound=bound_context
-                    )
-                elif chat_bound_context is not None:
-                    ambient_context = chat_bound_context
-                else:
-                    ambient_context = _merge_topic_context(
-                        chat_project=chat_project, bound=None
-                    )
-                return TelegramMsgContext(
-                    chat_id=chat_id,
-                    thread_id=msg.thread_id,
-                    reply_id=reply_id,
-                    reply_ref=reply_ref,
-                    topic_key=topic_key,
-                    chat_session_key=chat_session_key,
-                    stateful_mode=stateful_mode,
-                    chat_project=chat_project,
-                    ambient_context=ambient_context,
-                )
-
-            async def route_message(msg: TelegramIncomingMessage) -> None:
-                reply = make_reply(cfg, msg)
-                text = msg.text
-                is_voice_transcribed = False
-                is_forward_candidate = (
-                    _is_forwarded(msg.raw)
-                    and msg.document is None
-                    and msg.voice is None
-                    and msg.media_group_id is None
-                )
-                if is_forward_candidate:
-                    forward_coalescer.attach_forward(msg)
-                    return
-                forward_key = _forward_key(msg)
-                if (
-                    cfg.files.enabled
-                    and msg.document is not None
-                    and msg.media_group_id is not None
-                ):
-                    media_group_buffer.add(msg)
-                    return
-                ctx = await build_message_context(msg)
-                chat_id = ctx.chat_id
-                reply_id = ctx.reply_id
-                reply_ref = ctx.reply_ref
-                topic_key = ctx.topic_key
-                chat_session_key = ctx.chat_session_key
-                stateful_mode = ctx.stateful_mode
-                chat_project = ctx.chat_project
-                ambient_context = ctx.ambient_context
-
-                if is_cancel_command(text):
-                    tg.start_soon(
-                        handle_cancel, cfg, msg, state.running_tasks, scheduler
-                    )
-                    return
-
-                command_id, args_text = parse_slash_command(text)
-                if command_id == "new":
-                    forward_coalescer.cancel(forward_key)
-                    if state.topic_store is not None and topic_key is not None:
-                        tg.start_soon(
-                            partial(
-                                handle_new_command,
-                                cfg,
-                                msg,
-                                state.topic_store,
-                                resolved_scope=state.resolved_topics_scope,
-                                scope_chat_ids=state.topics_chat_ids,
-                            )
-                        )
-                        return
-                    if state.chat_session_store is not None:
-                        tg.start_soon(
-                            handle_chat_new_command,
-                            cfg,
-                            msg,
-                            state.chat_session_store,
-                            chat_session_key,
-                        )
-                        return
-                    if state.topic_store is not None:
-                        tg.start_soon(
-                            partial(
-                                handle_new_command,
-                                cfg,
-                                msg,
-                                state.topic_store,
-                                resolved_scope=state.resolved_topics_scope,
-                                scope_chat_ids=state.topics_chat_ids,
-                            )
-                        )
-                        return
-                if command_id is not None and _dispatch_builtin_command(
-                    ctx=TelegramCommandContext(
-                        cfg=cfg,
-                        msg=msg,
-                        args_text=args_text,
-                        ambient_context=ambient_context,
-                        topic_store=state.topic_store,
-                        chat_prefs=state.chat_prefs,
-                        resolved_scope=state.resolved_topics_scope,
-                        scope_chat_ids=state.topics_chat_ids,
-                        reply=reply,
-                        task_group=tg,
-                    ),
-                    command_id=command_id,
-                ):
-                    return
-
-                trigger_mode = await resolve_trigger_mode(
-                    chat_id=chat_id,
-                    thread_id=msg.thread_id,
-                    chat_prefs=state.chat_prefs,
-                    topic_store=state.topic_store,
-                )
-                if trigger_mode == "mentions" and not should_trigger_run(
-                    msg,
-                    bot_username=state.bot_username,
-                    runtime=cfg.runtime,
-                    command_ids=state.command_ids,
-                    reserved_chat_commands=state.reserved_chat_commands,
-                ):
-                    return
-
-                if msg.voice is not None:
-                    text = await transcribe_voice(
-                        bot=cfg.bot,
-                        msg=msg,
-                        enabled=cfg.voice_transcription,
-                        model=cfg.voice_transcription_model,
-                        max_bytes=cfg.voice_max_bytes,
-                        reply=reply,
-                        base_url=cfg.voice_transcription_base_url,
-                        api_key=cfg.voice_transcription_api_key,
-                    )
-                    if text is None:
-                        return
-                    is_voice_transcribed = True
-                if msg.document is not None:
-                    if cfg.files.enabled and cfg.files.auto_put:
-                        caption_text = text.strip()
-                        if cfg.files.auto_put_mode == "prompt" and caption_text:
-                            tg.start_soon(
-                                handle_prompt_upload,
-                                msg,
-                                caption_text,
-                                ambient_context,
-                                state.topic_store,
-                            )
-                        elif not caption_text:
-                            tg.start_soon(
-                                handle_file_put_default,
-                                cfg,
-                                msg,
-                                ambient_context,
-                                state.topic_store,
-                            )
-                        else:
-                            tg.start_soon(
-                                partial(reply, text=FILE_PUT_USAGE),
-                            )
-                    elif cfg.files.enabled:
-                        tg.start_soon(
-                            partial(reply, text=FILE_PUT_USAGE),
-                        )
-                    return
-                if command_id is not None and command_id not in state.reserved_commands:
-                    if command_id not in state.command_ids:
-                        refresh_commands()
-                    if command_id in state.command_ids:
-                        engine_resolution = await resolve_engine_defaults(
-                            explicit_engine=None,
-                            context=ambient_context,
-                            chat_id=chat_id,
-                            topic_key=topic_key,
-                        )
-                        default_engine_override = (
-                            engine_resolution.engine
-                            if engine_resolution.source
-                            in {"directive", "topic_default", "chat_default"}
-                            else None
-                        )
-                        overrides_thread_id = (
-                            topic_key[1] if topic_key is not None else None
-                        )
-                        engine_overrides_resolver = partial(
-                            _resolve_engine_run_options,
-                            chat_id,
-                            overrides_thread_id,
-                            chat_prefs=state.chat_prefs,
-                            topic_store=state.topic_store,
-                        )
-                        tg.start_soon(
-                            dispatch_command,
-                            cfg,
-                            msg,
-                            text,
-                            command_id,
-                            args_text,
-                            state.running_tasks,
-                            scheduler,
-                            wrap_on_thread_known(
-                                scheduler.note_thread_known,
-                                topic_key,
-                                chat_session_key,
-                            ),
-                            stateful_mode,
-                            default_engine_override,
-                            engine_overrides_resolver,
-                        )
-                        return
-
+    async def _handle_file_command(
+        msg: TelegramIncomingMessage,
+        text: str,
+        reply_text: str | None,
+    ) -> None:
+        reply = make_reply(cfg, msg)
+        if msg.thread_id is not None:
+            if state.topic_store is not None and msg.sender_id is not None:
                 pending = _PendingPrompt(
                     msg=msg,
                     text=text,
-                    ambient_context=ambient_context,
-                    chat_project=chat_project,
-                    topic_key=topic_key,
-                    chat_session_key=chat_session_key,
-                    reply_ref=reply_ref,
-                    reply_id=reply_id,
-                    is_voice_transcribed=is_voice_transcribed,
+                    ambient_context=None,
+                    chat_project=None,
+                    topic_key=None,
+                    chat_session_key=None,
+                    reply_ref=None,
+                    reply_id=None,
+                    is_voice_transcribed=False,
                     forwards=[],
                 )
-                if reply_id is not None and state.running_tasks.get(
-                    MessageRef(channel_id=chat_id, message_id=reply_id)
-                ):
-                    logger.debug(
-                        "forward.prompt.bypass",
-                        chat_id=chat_id,
-                        thread_id=msg.thread_id,
-                        sender_id=msg.sender_id,
-                        message_id=msg.message_id,
-                        reason="reply_resume",
-                    )
-                    tg.start_soon(_dispatch_pending_prompt, pending)
-                    return
                 forward_coalescer.schedule(pending)
+                return
+        resolved = cfg.runtime.resolve_message(
+            text=text,
+            reply_text=reply_text,
+            ambient_context=None,
+            chat_id=msg.chat_id,
+        )
+        _handle_prompt_command(
+            msg,
+            text,
+            reply_text,
+            resolved=ResolvedMessage(
+                prompt=resolved.prompt,
+                resume_token=resolved.resume_token,
+                engine_override=resolved.engine_override,
+                context=resolved.context,
+                context_source=resolved.context_source,
+            ),
+            thread_id=msg.thread_id,
+            topic_key=None,
+            chat_session_key=None,
+        )
 
-            allowed_user_ids = set(cfg.allowed_user_ids)
+    async def handle_command(msg: TelegramIncomingMessage) -> None:
+        text = msg.text
+        command_id, args_text = parse_slash_command(text)
+        if command_id is None:
+            return
+        reply_text = msg.reply_to_text
+        if command_id not in state.command_ids:
+            refresh_commands()
+        if command_id not in state.command_ids:
+            return
+        await handle_prompt_command(
+            msg,
+            text,
+            reply_text,
+            resolved=cfg.runtime.resolve_message(
+                text=text,
+                reply_text=reply_text,
+                ambient_context=None,
+                chat_id=msg.chat_id,
+            ),
+            thread_id=msg.thread_id,
+            topic_key=resolve_topic_key(msg),
+            chat_session_key=_chat_session_key(msg, store=state.chat_session_store),
+        )
 
-            async def route_update(update: TelegramIncomingUpdate) -> None:
-                if allowed_user_ids:
-                    sender_id = update.sender_id
-                    if sender_id is None or sender_id not in allowed_user_ids:
-                        logger.debug(
-                            "update.ignored",
-                            reason="sender_not_allowed",
-                            chat_id=update.chat_id,
-                            sender_id=sender_id,
-                        )
-                        return
+    async def handle_callback(update: TelegramCallbackQuery) -> None:
+        if update.data == CANCEL_CALLBACK_DATA:
+            await handle_callback_cancel(cfg, update, state.running_tasks, scheduler)
+            return
+        await cfg.bot.answer_callback_query(update.callback_query_id)
+
+    async def _handle_direct_message(msg: TelegramIncomingMessage) -> None:
+        if cfg.allow_direct is False:
+            return
+        await handle_new_prompt(
+            msg,
+            msg.text or "",
+            msg.reply_to_message_id,
+            msg.reply_to_text,
+            document=msg.document,
+        )
+
+    async def _handle_group_message(msg: TelegramIncomingMessage) -> None:
+        if msg.thread_id is None:
+            await _handle_prompt(
+                msg,
+                msg.text or "",
+                None,
+                scheduler,
+                scheduler.note_thread_known,
+            )
+            return
+        await topic_router(msg)
+
+    async def _handle_topic_message(msg: TelegramIncomingMessage) -> None:
+        await topic_router(msg)
+
+    async def _handle_group_document(msg: TelegramIncomingMessage) -> None:
+        if msg.thread_id is None and cfg.files.auto_put:
+            await handle_file_put(msg)
+            return
+        if msg.thread_id is not None and cfg.files.enabled and cfg.files.auto_put:
+            await handle_file_put(msg)
+            return
+        await handle_new_prompt(
+            msg,
+            msg.caption or "",
+            msg.reply_to_message_id,
+            msg.reply_to_text,
+            document=msg.document,
+        )
+
+    async def _handle_group_voice(msg: TelegramIncomingMessage) -> None:
+        await _handle_prompt(
+            msg,
+            msg.text or "",
+            None,
+            scheduler,
+            scheduler.note_thread_known,
+        )
+
+    async def _handle_message(msg: TelegramIncomingMessage) -> None:
+        if msg.raw is None:
+            await handle_new_prompt(
+                msg,
+                msg.text or "",
+                msg.reply_to_message_id,
+                msg.reply_to_text,
+                document=msg.document,
+            )
+            return
+        if msg.chat_type == "private":
+            await _handle_direct_message(msg)
+            return
+        if msg.document is not None:
+            await _handle_group_document(msg)
+            return
+        if msg.voice is not None:
+            await _handle_group_voice(msg)
+            return
+        await _handle_group_message(msg)
+
+    async def _handle_raw_update(update: TelegramIncomingUpdate) -> None:
+        msg = update
+        if isinstance(update, TelegramCallbackQuery):
+            await handle_callback(update)
+            return
+        if update.sender_id in cfg.allowed_user_ids:
+            logger.debug(
+                "telegram.update.admin",
+                chat_id=update.chat_id,
+                sender_id=update.sender_id,
+                message_id=update.message_id,
+            )
+        if update.sender_id is None:
+            logger.info(
+                "telegram.update.ignored",
+                chat_id=update.chat_id,
+                reason="missing_sender",
+            )
+            return
+        if cfg.allow_groups is False and update.chat_type != "private":
+            logger.info(
+                "telegram.update.ignored",
+                chat_id=update.chat_id,
+                reason="allow_groups=false",
+            )
+            return
+        if update.chat_type == "private":
+            await _handle_direct_message(update)
+            return
+        if update.is_topic_message:
+            await _handle_topic_message(update)
+            return
+        if update.document is not None:
+            await _handle_group_document(update)
+            return
+        if update.voice is not None:
+            await _handle_group_voice(update)
+            return
+        await _handle_group_message(update)
+
+    async def _handle_events() -> None:
+        async for msg in poll_updates(cfg):
+            await handle_incoming(msg, tg, _dispatch_message)
+
+    async def _reload_config(cfg: TelegramBridgeConfig, cfg_path: Path) -> None:
+        logger.info("telegram.config.reload.starting")
+        try:
+            await refresh_config()
+        except Exception:
+            logger.exception("telegram.config.reload.failed")
+            return
+        if cfg_path != cfg.config_path:
+            logger.info(
+                "telegram.config.reload", cfg_path=str(cfg_path), action="updated"
+            )
+        else:
+            logger.info("telegram.config.reload", action="unchanged")
+
+    async def _send_config_updates(cfg: TelegramBridgeConfig) -> None:
+        await send_plain(cfg, chat_id=cfg.chat_id, text="config updated.")
+
+    async def _reload_config_if_updated() -> None:
+        if cfg.config_path is None:
+            return
+        async for update in watch_config_changes(cfg.config_path):
+            if update.event not in {ConfigReload.CHANGED, ConfigReload.CREATED}:
+                continue
+            await _reload_config(cfg, update.path)
+            await _send_config_updates(cfg)
+
+    async def _run_loop() -> None:
+        async with anyio.create_task_group() as tg:
+            refresh_commands()
+            refresh_reserved_commands()
+            refresh_topics_scope()
+            update_command_menu()
+            update_transport_snapshot()
+            await _setup_topics(cfg)
+            await _setup_chat_sessions(cfg)
+            await _setup_chat_prefs(cfg)
+            topic_router = _topic_router(route_message)
+            if cfg.msgspec_enabled:
+                dispatch = _log_router(_dispatch_message)
+            async for update in poll_updates(cfg):
                 if isinstance(update, TelegramCallbackQuery):
                     if update.data == CANCEL_CALLBACK_DATA:
                         tg.start_soon(
@@ -1807,10 +2392,40 @@ async def run_main_loop(
                             cfg.bot.answer_callback_query,
                             update.callback_query_id,
                         )
-                    return
+                    continue
                 await route_message(update)
 
-            async for update in poller_fn(cfg):
-                await route_update(update)
-    finally:
-        await cfg.exec_cfg.transport.close()
+    if cfg.config_path is None:
+        raise ConfigError("config path is required")
+    await _setup_topics(cfg)
+    await _setup_chat_sessions(cfg)
+    await _setup_chat_prefs(cfg)
+
+    if cfg.session_mode == "chat":
+        handle_incoming_fn = _handle_raw_update
+    else:
+        handle_incoming_fn = handle_incoming
+
+    if cfg.log_json:
+        handle_incoming_fn = _log_router(handle_incoming_fn)
+
+    if cfg.command_menu:
+        update_command_menu()
+
+    refresh_commands()
+    refresh_reserved_commands()
+    refresh_topics_scope()
+    update_transport_snapshot()
+
+    if cfg.config_path is None:
+        raise ConfigError("config path is required")
+
+    if cfg.thread_pool:
+        async with anyio.create_task_group() as tg:
+            await tg.start(scheduler.start)
+            tg.start_soon(_reload_config_if_updated)
+            tg.start_soon(_handle_events)
+    else:
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_reload_config_if_updated)
+            tg.start_soon(_handle_events)
