@@ -58,6 +58,13 @@ requests on their own base URL without relying on `OPENAI_BASE_URL`. If your ser
 requires a specific model name, set `voice_transcription_model` (for example,
 `whisper-1`).
 
+### Quote replies
+
+When a user sends a **manual** quote reply, Takopi injects the quoted snippet into
+the prompt as a blockquote. Auto-generated quotes are ignored. If the user only
+quotes and sends no text, Takopi adds `message: (empty)` after the quote to make
+the empty body explicit.
+
 ### Trigger mode (mentions-only)
 
 Telegram’s bot privacy mode stops bots from seeing every message by default, but
