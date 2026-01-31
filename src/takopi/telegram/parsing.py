@@ -106,6 +106,10 @@ def _parse_incoming_message(
     reply_to_username = (
         reply.from_.username if reply is not None and reply.from_ is not None else None
     )
+    quote = msg.quote
+    quote_text = quote.text if quote is not None else None
+    quote_position = quote.position if quote is not None else None
+    quote_is_manual = quote.is_manual if quote is not None else None
     sender_id = msg.from_.id if msg.from_ is not None else None
     media_group_id = msg.media_group_id
     thread_id = msg.message_thread_id
@@ -115,6 +119,9 @@ def _parse_incoming_message(
         reply_to_text = None
         reply_to_is_bot = None
         reply_to_username = None
+        quote_text = None
+        quote_position = None
+        quote_is_manual = None
     return TelegramIncomingMessage(
         transport="telegram",
         chat_id=msg_chat_id,
@@ -124,6 +131,9 @@ def _parse_incoming_message(
         reply_to_text=reply_to_text,
         reply_to_is_bot=reply_to_is_bot,
         reply_to_username=reply_to_username,
+        quote_text=quote_text,
+        quote_position=quote_position,
+        quote_is_manual=quote_is_manual,
         sender_id=sender_id,
         media_group_id=media_group_id,
         thread_id=thread_id,
