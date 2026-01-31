@@ -24,9 +24,15 @@ def test_parse_incoming_update_maps_fields() -> None:
         update_id=1,
         message=Message(
             message_id=10,
+            date=1_720_000_000,
             text="hello",
             chat=Chat(id=123, type="supergroup", is_forum=True),
-            from_=User(id=99),
+            from_=User(
+                id=99,
+                username="Tester",
+                first_name="Test",
+                last_name="User",
+            ),
             reply_to_message=MessageReply(
                 message_id=5,
                 text="prev",
@@ -47,6 +53,10 @@ def test_parse_incoming_update_maps_fields() -> None:
     assert msg.reply_to_is_bot is True
     assert msg.reply_to_username == "ReplyBot"
     assert msg.sender_id == 99
+    assert msg.sender_username == "Tester"
+    assert msg.sender_first_name == "Test"
+    assert msg.sender_last_name == "User"
+    assert msg.date == 1_720_000_000
     assert msg.thread_id is None
     assert msg.is_topic_message is None
     assert msg.chat_type == "supergroup"

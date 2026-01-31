@@ -107,6 +107,10 @@ def _parse_incoming_message(
         reply.from_.username if reply is not None and reply.from_ is not None else None
     )
     sender_id = msg.from_.id if msg.from_ is not None else None
+    sender_username = msg.from_.username if msg.from_ is not None else None
+    sender_first_name = msg.from_.first_name if msg.from_ is not None else None
+    sender_last_name = msg.from_.last_name if msg.from_ is not None else None
+    date = msg.date
     media_group_id = msg.media_group_id
     thread_id = msg.message_thread_id
     is_topic_message = msg.is_topic_message
@@ -125,6 +129,10 @@ def _parse_incoming_message(
         reply_to_is_bot=reply_to_is_bot,
         reply_to_username=reply_to_username,
         sender_id=sender_id,
+        sender_username=sender_username,
+        sender_first_name=sender_first_name,
+        sender_last_name=sender_last_name,
+        date=date,
         media_group_id=media_group_id,
         thread_id=thread_id,
         is_topic_message=is_topic_message,

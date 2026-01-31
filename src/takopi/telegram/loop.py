@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import anyio
 from anyio.abc import TaskGroup
@@ -343,7 +344,7 @@ class _PendingPrompt:
     reply_ref: MessageRef | None
     reply_id: int | None
     is_voice_transcribed: bool
-    forwards: list[tuple[int, str]]
+    forwards: list[TelegramIncomingMessage]
     cancel_scope: anyio.CancelScope | None = None
 
 
@@ -424,6 +425,49 @@ def _forward_fields_present(raw: dict[str, object] | None) -> list[str]:
     if not isinstance(raw, dict):
         return []
     return [field for field in _FORWARD_FIELDS if raw.get(field) is not None]
+
+
+def _format_timestamp(date: int | None) -> str:
+    if date is None:
+        return "time=?"
+    return datetime.fromtimestamp(date, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _format_sender(msg: TelegramIncomingMessage) -> str:
+    parts = [part for part in (msg.sender_first_name, msg.sender_last_name) if part]
+    if parts:
+        return " ".join(parts)
+    if msg.sender_username:
+        return f"@{msg.sender_username}"
+    if msg.sender_id is not None:
+        return f"user:{msg.sender_id}"
+    return "unknown"
+
+
+def _format_prompt_header(
+    msg: TelegramIncomingMessage,
+    *,
+    prompt_mode: Literal["default", "party"] = "default",
+) -> str:
+    if prompt_mode != "party" or msg.thread_id is None:
+        return ""
+    timestamp = _format_timestamp(msg.date)
+    sender = _format_sender(msg)
+    return f"[{timestamp}] {sender}:"
+
+
+def _format_prompt_line(
+    msg: TelegramIncomingMessage,
+    text: str,
+    *,
+    prompt_mode: Literal["default", "party"] = "default",
+) -> str:
+    header = _format_prompt_header(msg, prompt_mode=prompt_mode)
+    if not header:
+        return text
+    if text.strip():
+        return f"{header} {text}"
+    return header
 
 
 def _format_forwarded_prompt(forwarded: list[str], prompt: str) -> str:
@@ -551,7 +595,7 @@ class ForwardCoalescer:
                 reason="empty_text",
             )
             return
-        pending.forwards.append((msg.message_id, text))
+        pending.forwards.append(msg)
         logger.debug(
             "forward.message.attached",
             chat_id=msg.chat_id,
@@ -562,7 +606,7 @@ class ForwardCoalescer:
             forward_count=len(pending.forwards),
             forward_fields=_forward_fields_present(msg.raw),
             forward_date=msg.raw.get("forward_date") if msg.raw else None,
-            message_date=msg.raw.get("date") if msg.raw else None,
+            message_date=msg.date,
             text_len=len(text),
         )
         self._reschedule(key, pending)
@@ -1277,6 +1321,11 @@ async def run_main_loop(
                     if msg.reply_to_message_id is not None
                     else None
                 )
+                prompt_text = _format_prompt_line(
+                    msg,
+                    prompt_text,
+                    prompt_mode=cfg.topics.prompt_mode,
+                )
                 resume_token = resolved.resume_token
                 context = resolved.context
                 chat_session_key = _chat_session_key(
@@ -1361,13 +1410,21 @@ async def run_main_loop(
                         context_source=resolved.context_source,
                     )
 
-                prompt_text = resolved.prompt
+                prompt_text = _format_prompt_line(
+                    msg,
+                    resolved.prompt,
+                    prompt_mode=cfg.topics.prompt_mode,
+                )
                 if pending.forwards:
                     forwarded = [
-                        text
-                        for _, text in sorted(
+                        _format_prompt_line(
+                            item,
+                            item.text,
+                            prompt_mode=cfg.topics.prompt_mode,
+                        )
+                        for item in sorted(
                             pending.forwards,
-                            key=lambda item: item[0],
+                            key=lambda item: item.message_id,
                         )
                     ]
                     prompt_text = _format_forwarded_prompt(
