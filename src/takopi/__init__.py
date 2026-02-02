@@ -1,1 +1,3 @@
-__version__ = "0.21.4"
+from importlib.metadata import version
+
+__version__ = version("takopi")
