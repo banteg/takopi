@@ -33,6 +33,7 @@ __all__ = [
     "handle_cancel",
     "is_cancel_command",
     "run_main_loop",
+    "send_voice_transcript",
     "send_with_resume",
 ]
 
@@ -309,6 +310,29 @@ async def send_plain(
 ) -> None:
     reply_to = MessageRef(channel_id=chat_id, message_id=user_msg_id)
     rendered_text, entities = prepare_telegram(MarkdownParts(header=text))
+    await transport.send(
+        channel_id=chat_id,
+        message=RenderedMessage(text=rendered_text, extra={"entities": entities}),
+        options=SendOptions(reply_to=reply_to, notify=notify, thread_id=thread_id),
+    )
+
+
+async def send_voice_transcript(
+    transport: Transport,
+    *,
+    chat_id: int,
+    user_msg_id: int,
+    transcript: str,
+    notify: bool = False,
+    thread_id: int | None = None,
+) -> None:
+    text = transcript.strip()
+    if not text:
+        return
+    reply_to = MessageRef(channel_id=chat_id, message_id=user_msg_id)
+    rendered_text, entities = prepare_telegram(
+        MarkdownParts(header="🎤 · voice transcript", body=f"_{text}_")
+    )
     await transport.send(
         channel_id=chat_id,
         message=RenderedMessage(text=rendered_text, extra={"entities": entities}),
