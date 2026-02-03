@@ -8,6 +8,7 @@ from ...directives import DirectiveError
 from ...transport_runtime import ResolvedMessage
 from ..context import _merge_topic_context
 from ..files import parse_file_command
+from ..quote import apply_quote_to_prompt
 from ..topic_state import TopicStateStore
 from ..topics import _topic_key, _topics_chat_project
 from ..types import TelegramIncomingMessage
@@ -122,7 +123,7 @@ async def _handle_media_group(
                 if item.rel_path is not None
             ]
             files_text = "\n".join(f"- {path}" for path in paths)
-            prompt_base = resolved.prompt
+            prompt_base = apply_quote_to_prompt(command_msg, resolved.prompt)
             annotation = f"[uploaded files]\n{files_text}"
             if prompt_base and prompt_base.strip():
                 prompt = f"{prompt_base}\n\n{annotation}"

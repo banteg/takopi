@@ -65,6 +65,7 @@ from .engine_overrides import merge_overrides
 from .engine_defaults import resolve_engine_for_message
 from .topic_state import TopicStateStore, resolve_state_path
 from .trigger_mode import resolve_trigger_mode, should_trigger_run
+from .quote import apply_quote_to_prompt
 from .types import (
     TelegramCallbackQuery,
     TelegramIncomingMessage,
@@ -1361,7 +1362,7 @@ async def run_main_loop(
                         context_source=resolved.context_source,
                     )
 
-                prompt_text = resolved.prompt
+                prompt_text = apply_quote_to_prompt(msg, resolved.prompt)
                 if pending.forwards:
                     forwarded = [
                         text
@@ -1494,7 +1495,8 @@ async def run_main_loop(
                 if saved is None:
                     return
                 annotation = f"[uploaded file: {saved.rel_path.as_posix()}]"
-                prompt = _build_upload_prompt(resolved.prompt, annotation)
+                prompt_base = apply_quote_to_prompt(msg, resolved.prompt)
+                prompt = _build_upload_prompt(prompt_base, annotation)
                 await run_prompt_from_upload(msg, prompt, resolved)
 
             media_group_buffer = MediaGroupBuffer(

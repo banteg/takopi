@@ -16,9 +16,11 @@ __all__ = [
     "File",
     "ForumTopic",
     "Message",
+    "MessageEntity",
     "MessageReply",
     "PhotoSize",
     "Sticker",
+    "TextQuote",
     "Update",
     "User",
     "Video",
@@ -44,6 +46,16 @@ class Chat(msgspec.Struct, forbid_unknown_fields=False):
     first_name: str | None = None
     last_name: str | None = None
     is_forum: bool | None = None
+
+
+class MessageEntity(msgspec.Struct, forbid_unknown_fields=False):
+    type: str
+    offset: int
+    length: int
+    url: str | None = None
+    user: User | None = None
+    language: str | None = None
+    custom_emoji_id: str | None = None
 
 
 class PhotoSize(msgspec.Struct, forbid_unknown_fields=False):
@@ -85,6 +97,13 @@ class MessageReply(msgspec.Struct, forbid_unknown_fields=False):
     from_: User | None = msgspec.field(default=None, name="from")
 
 
+class TextQuote(msgspec.Struct, forbid_unknown_fields=False):
+    text: str
+    position: int
+    entities: list[MessageEntity] | None = None
+    is_manual: bool | None = None
+
+
 class Message(msgspec.Struct, forbid_unknown_fields=False):
     message_id: int
     chat: Chat
@@ -93,6 +112,7 @@ class Message(msgspec.Struct, forbid_unknown_fields=False):
     text: str | None = None
     caption: str | None = None
     reply_to_message: MessageReply | None = None
+    quote: TextQuote | None = None
     forward_from: User | None = None
     forward_from_chat: Chat | None = None
     forward_from_message_id: int | None = None

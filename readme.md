@@ -1,4 +1,12 @@
-# takopi
+# tako-parti, a group chat optimized fork of [takopi](https://github.com/banteg/takopi/)
+
+Takopi is amazing, but it isn't sender-aware. This makes group usage a little difficult, as takopi never knows who is saying what.
+
+This takopi fork prefixes each prompt with a timestamp and telegram handle, allowing takopi to read and understand a group discussion like any human user.
+
+Tako-parti is not documented. All docs reflect Takopi's docs. Takopi's readme is below:
+
+---
 
 🐙 *he just wants to help-pi*
 
