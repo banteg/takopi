@@ -90,6 +90,12 @@ from .config import (
     config_set,
     config_unset,
 )
+from .daemon import (
+    daemon_install,
+    daemon_logs,
+    daemon_status,
+    daemon_uninstall,
+)
 
 
 def _load_settings_optional() -> tuple[TakopiSettings | None, Path | None]:
@@ -167,12 +173,18 @@ def create_app() -> typer.Typer:
     config_app.command(name="get")(config_get)
     config_app.command(name="set")(config_set)
     config_app.command(name="unset")(config_unset)
+    daemon_app = typer.Typer(help="Manage takopi as a systemd user service.")
+    daemon_app.command(name="install")(daemon_install)
+    daemon_app.command(name="uninstall")(daemon_uninstall)
+    daemon_app.command(name="status")(daemon_status)
+    daemon_app.command(name="logs")(daemon_logs)
     app.command(name="init")(init)
     app.command(name="chat-id")(chat_id)
     app.command(name="doctor")(doctor)
     app.command(name="onboarding-paths")(onboarding_paths)
     app.command(name="plugins")(plugins_cmd)
     app.add_typer(config_app, name="config")
+    app.add_typer(daemon_app, name="daemon")
     app.callback()(app_main)
     for engine_id in _engine_ids_for_cli():
         help_text = f"Run with the {engine_id} engine."
