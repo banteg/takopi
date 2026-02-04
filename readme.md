@@ -61,6 +61,18 @@ inspect or update settings with `takopi config list`, `takopi config get`, and `
 
 see [takopi.dev](https://takopi.dev/) for configuration, worktrees, topics, file transfer, and more.
 
+## transcript logging (optional)
+
+takopi can log prompts and final answers to JSONL with an optional SQLite cache.
+
+```sh
+takopi config set logging.enabled true
+takopi config set logging.events_jsonl "~/.takopi/logs/takopi-events.jsonl"
+takopi config set logging.events_sqlite "~/.takopi/logs/takopi-events.db"
+
+takopi logs rebuild
+```
+
 ## plugins
 
 takopi supports entrypoint-based plugins for engines, transports, and commands.
@@ -70,4 +82,3 @@ see [`docs/how-to/write-a-plugin.md`](docs/how-to/write-a-plugin.md) and [`docs/
 ## development
 
 see [`docs/reference/specification.md`](docs/reference/specification.md) and [`docs/developing.md`](docs/developing.md).
-
