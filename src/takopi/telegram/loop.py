@@ -13,6 +13,7 @@ from ..config import ConfigError
 from ..config_watch import ConfigReload, watch_config as watch_config_changes
 from ..commands import list_command_ids
 from ..directives import DirectiveError
+from ..event_log import record_event
 from ..logging import get_logger
 from ..model import EngineId, ResumeToken
 from ..runners.run_options import EngineRunOptions
@@ -1384,6 +1385,23 @@ async def run_main_loop(
                     topic_key=pending.topic_key,
                 )
                 engine_override = engine_resolution.engine
+                if cfg.log_events and cfg.log_events_jsonl:
+                    record_event(
+                        path=Path(cfg.log_events_jsonl),
+                        kind="prompt",
+                        chat_id=chat_id,
+                        thread_id=msg.thread_id,
+                        message_id=user_msg_id,
+                        engine=engine_override,
+                        project=context.project if context is not None else None,
+                        text=prompt_text,
+                        meta={
+                            "voice": pending.is_voice_transcribed,
+                            "session_mode": cfg.session_mode,
+                            "context_source": resolved.context_source,
+                        },
+                        max_text_chars=cfg.log_events_max_text_chars,
+                    )
                 effective_context = pending.ambient_context
                 if (
                     state.topic_store is not None

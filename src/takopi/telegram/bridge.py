@@ -119,6 +119,10 @@ class TelegramBridgeConfig:
     chat_id: int
     startup_msg: str
     exec_cfg: ExecBridgeConfig
+    log_events: bool = False
+    log_events_jsonl: str | None = None
+    log_events_sqlite: str | None = None
+    log_events_max_text_chars: int = 20000
     session_mode: Literal["stateless", "chat"] = "stateless"
     show_resume_line: bool = True
     voice_transcription: bool = False
