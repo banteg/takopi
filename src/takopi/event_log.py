@@ -45,6 +45,22 @@ def _write_jsonl(path: Path, payload: dict[str, Any]) -> None:
         handle.write(json.dumps(payload, default=str) + "\n")
 
 
+def read_events_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    events: list[dict[str, Any]] = []
+    with open(path, "r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return events
+
+
 def _redact(payload: dict[str, Any]) -> dict[str, Any]:
     return _redact_value(payload, memo={})
 
