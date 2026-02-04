@@ -122,10 +122,20 @@ class TelegramBackend(TransportBackend):
         bot = TelegramClient(token)
         transport = TelegramTransport(bot)
         presenter = TelegramPresenter(message_overflow=settings.message_overflow)
+        log_enabled = bool(runtime.logging is not None and runtime.logging.enabled)
         exec_cfg = ExecBridgeConfig(
             transport=transport,
             presenter=presenter,
             final_notify=final_notify,
+            log_events=log_enabled,
+            log_events_jsonl=(
+                runtime.logging.events_jsonl if runtime.logging is not None else None
+            ),
+            log_events_max_text_chars=(
+                int(runtime.logging.max_text_chars)
+                if runtime.logging is not None
+                else 20000
+            ),
         )
         cfg = TelegramBridgeConfig(
             bot=bot,
@@ -133,6 +143,18 @@ class TelegramBackend(TransportBackend):
             chat_id=chat_id,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
+            log_events=log_enabled,
+            log_events_jsonl=(
+                runtime.logging.events_jsonl if runtime.logging is not None else None
+            ),
+            log_events_sqlite=(
+                runtime.logging.events_sqlite if runtime.logging is not None else None
+            ),
+            log_events_max_text_chars=(
+                int(runtime.logging.max_text_chars)
+                if runtime.logging is not None
+                else 20000
+            ),
             session_mode=settings.session_mode,
             show_resume_line=settings.show_resume_line,
             voice_transcription=settings.voice_transcription,

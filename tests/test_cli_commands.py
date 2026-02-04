@@ -6,6 +6,7 @@ import tomllib
 from typer.testing import CliRunner
 
 from takopi import cli
+import takopi.cli.logs as cli_logs
 from takopi.config import ConfigError
 from takopi.plugins import (
     COMMAND_GROUP,
@@ -198,6 +199,50 @@ def test_onboarding_paths_calls_debug(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert called["count"] == 1
+
+
+def test_logs_rebuild(monkeypatch, tmp_path: Path) -> None:
+    jsonl_path = tmp_path / "events.jsonl"
+    sqlite_path = tmp_path / "events.db"
+    settings = TakopiSettings.model_validate(
+        {
+            "transport": "telegram",
+            "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
+            "logging": {
+                "enabled": True,
+                "events_jsonl": str(jsonl_path),
+                "events_sqlite": str(sqlite_path),
+            },
+        }
+    )
+
+    monkeypatch.setattr(cli_logs, "load_settings", lambda: (settings, tmp_path))
+    called: dict[str, Path] = {}
+
+    def _build(jsonl: Path, sqlite: Path) -> int:
+        called["jsonl"] = jsonl
+        called["sqlite"] = sqlite
+        return 2
+
+    monkeypatch.setattr(cli_logs, "build_sqlite_from_jsonl", _build)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.create_app(),
+        [
+            "logs",
+            "rebuild",
+            "--jsonl",
+            str(jsonl_path),
+            "--sqlite",
+            str(sqlite_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "rebuilt 2 rows" in result.output
+    assert called["jsonl"] == jsonl_path
+    assert called["sqlite"] == sqlite_path
 
 
 def test_config_path_cmd_outputs_override(tmp_path: Path) -> None:

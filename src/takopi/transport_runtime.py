@@ -17,6 +17,7 @@ from .model import EngineId, ResumeToken
 from .plugins import normalize_allowlist
 from .router import AutoRouter, EngineStatus
 from .runner import Runner
+from .settings import LoggingSettings
 from .worktrees import WorktreeError, resolve_run_cwd
 
 type ContextSource = Literal[
@@ -53,6 +54,7 @@ class TransportRuntime:
         "_config_path",
         "_plugin_configs",
         "_watch_config",
+        "_logging",
     )
 
     def __init__(
@@ -64,6 +66,7 @@ class TransportRuntime:
         config_path: Path | None = None,
         plugin_configs: Mapping[str, Any] | None = None,
         watch_config: bool = False,
+        logging: LoggingSettings | None = None,
     ) -> None:
         self._apply(
             router=router,
@@ -72,6 +75,7 @@ class TransportRuntime:
             config_path=config_path,
             plugin_configs=plugin_configs,
             watch_config=watch_config,
+            logging=logging,
         )
 
     def update(
@@ -83,6 +87,7 @@ class TransportRuntime:
         config_path: Path | None = None,
         plugin_configs: Mapping[str, Any] | None = None,
         watch_config: bool = False,
+        logging: LoggingSettings | None = None,
     ) -> None:
         self._apply(
             router=router,
@@ -91,6 +96,7 @@ class TransportRuntime:
             config_path=config_path,
             plugin_configs=plugin_configs,
             watch_config=watch_config,
+            logging=logging,
         )
 
     def _apply(
@@ -102,6 +108,7 @@ class TransportRuntime:
         config_path: Path | None,
         plugin_configs: Mapping[str, Any] | None,
         watch_config: bool,
+        logging: LoggingSettings | None,
     ) -> None:
         self._router = router
         self._projects = projects
@@ -109,6 +116,7 @@ class TransportRuntime:
         self._config_path = config_path
         self._plugin_configs = dict(plugin_configs or {})
         self._watch_config = watch_config
+        self._logging = logging
 
     @property
     def default_engine(self) -> EngineId:
@@ -158,6 +166,10 @@ class TransportRuntime:
     @property
     def watch_config(self) -> bool:
         return self._watch_config
+
+    @property
+    def logging(self) -> LoggingSettings | None:
+        return self._logging
 
     def plugin_config(self, plugin_id: str) -> dict[str, Any]:
         if not self._plugin_configs:

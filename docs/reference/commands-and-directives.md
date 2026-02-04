@@ -69,6 +69,7 @@ Takopi’s CLI is an auto-router by default; engine subcommands override the def
 | `takopi doctor` | Validate Telegram connectivity and related config. |
 | `takopi plugins` | List discovered plugins without loading them. |
 | `takopi plugins --load` | Load each plugin to validate types and surface import errors. |
+| `takopi logs rebuild` | Rebuild the SQLite cache from JSONL transcript logs. |
 
 ### Common flags
 

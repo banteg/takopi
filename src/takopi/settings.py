@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 from typing import Annotated, Any, ClassVar, Literal
 from collections.abc import Iterable
 
@@ -121,6 +122,43 @@ class PluginsSettings(BaseModel):
     model_config = ConfigDict(extra="allow", str_strip_whitespace=True)
 
 
+class LoggingSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    enabled: bool = False
+    events_jsonl: NonEmptyStr = "~/.takopi/logs/takopi-events.jsonl"
+    events_sqlite: NonEmptyStr | None = "~/.takopi/logs/takopi-events.db"
+    max_text_chars: StrictInt = 20000
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_env_overrides(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        env = os.environ
+        if "enabled" not in data and env.get("TAKOPI_EVENTS_LOG_ENABLED"):
+            raw = env.get("TAKOPI_EVENTS_LOG_ENABLED", "").strip().lower()
+            data["enabled"] = raw in {"1", "true", "yes", "on"}
+        if "events_jsonl" not in data and env.get("TAKOPI_EVENTS_LOG_JSONL"):
+            data["events_jsonl"] = env["TAKOPI_EVENTS_LOG_JSONL"]
+        if "events_sqlite" not in data and env.get("TAKOPI_EVENTS_LOG_SQLITE"):
+            data["events_sqlite"] = env["TAKOPI_EVENTS_LOG_SQLITE"]
+        if "max_text_chars" not in data and env.get("TAKOPI_EVENTS_MAX_TEXT_CHARS"):
+            value = env.get("TAKOPI_EVENTS_MAX_TEXT_CHARS", "").strip()
+            if value.isdigit():
+                data["max_text_chars"] = int(value)
+        return data
+
+    @field_validator("events_jsonl", "events_sqlite", mode="before")
+    @classmethod
+    def _expand_log_path(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return str(Path(value).expanduser())
+        return value
+
+
 class ProjectSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -148,6 +186,7 @@ class TakopiSettings(BaseSettings):
     transports: TransportsSettings
 
     plugins: PluginsSettings = Field(default_factory=PluginsSettings)
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @model_validator(mode="before")
     @classmethod

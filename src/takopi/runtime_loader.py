@@ -12,7 +12,7 @@ from .engines import get_backend, list_backend_ids
 from .ids import RESERVED_CHAT_COMMANDS
 from .logging import get_logger
 from .router import AutoRouter, EngineStatus, RunnerEntry
-from .settings import TakopiSettings
+from .settings import LoggingSettings, TakopiSettings
 from .transport_runtime import TransportRuntime
 
 logger = get_logger(__name__)
@@ -25,6 +25,7 @@ class RuntimeSpec:
     allowlist: list[str] | None
     plugin_configs: Mapping[str, Any] | None
     watch_config: bool = False
+    logging: LoggingSettings | None = None
 
     def to_runtime(self, *, config_path: Path | None) -> TransportRuntime:
         return TransportRuntime(
@@ -34,6 +35,7 @@ class RuntimeSpec:
             config_path=config_path,
             plugin_configs=self.plugin_configs,
             watch_config=self.watch_config,
+            logging=self.logging,
         )
 
     def apply(self, runtime: TransportRuntime, *, config_path: Path | None) -> None:
@@ -44,6 +46,7 @@ class RuntimeSpec:
             config_path=config_path,
             plugin_configs=self.plugin_configs,
             watch_config=self.watch_config,
+            logging=self.logging,
         )
 
 
@@ -204,4 +207,5 @@ def build_runtime_spec(
         allowlist=allowlist,
         plugin_configs=settings.plugins.model_extra,
         watch_config=settings.watch_config,
+        logging=settings.logging,
     )

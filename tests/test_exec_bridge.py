@@ -1,4 +1,6 @@
+import json
 import uuid
+from pathlib import Path
 
 import anyio
 import pytest
@@ -198,6 +200,32 @@ async def test_final_notify_sends_loud_final_message() -> None:
 
     assert len(transport.send_calls) == 2
     assert transport.send_calls[0]["options"].notify is False
+
+
+@pytest.mark.anyio
+async def test_handle_message_logs_final_answer(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    runner = _return_runner(answer="ok")
+    log_path = tmp_path / "events.jsonl"
+    cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+        log_events=True,
+        log_events_jsonl=str(log_path),
+        log_events_max_text_chars=20000,
+    )
+
+    await handle_message(
+        cfg,
+        runner=runner,
+        incoming=IncomingMessage(channel_id=123, message_id=10, text="hi"),
+        resume_token=None,
+    )
+
+    payload = json.loads(log_path.read_text(encoding="utf-8").strip())
+    assert payload["kind"] == "final"
+    assert payload["text"] == "ok"
     assert transport.send_calls[1]["options"].notify is True
 
 

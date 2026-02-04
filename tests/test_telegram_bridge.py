@@ -1,4 +1,5 @@
 from dataclasses import replace
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -940,6 +941,36 @@ async def test_run_main_loop_allows_allowed_sender() -> None:
 
     assert runner.calls
     assert runner.calls[0][0] == "hello"
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_logs_prompt(tmp_path: Path) -> None:
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    log_path = tmp_path / "events.jsonl"
+    cfg = replace(
+        make_cfg(FakeTransport(), runner),
+        allowed_user_ids=(123,),
+        log_events=True,
+        log_events_jsonl=str(log_path),
+        log_events_max_text_chars=20000,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="hello",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    payload = json.loads(log_path.read_text(encoding="utf-8").strip())
+    assert payload["kind"] == "prompt"
+    assert payload["text"] == "hello"
 
 
 def test_cancel_command_accepts_extra_text() -> None:

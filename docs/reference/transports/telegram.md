@@ -20,6 +20,35 @@ This document captures current behavior so transport changes stay intentional.
 
 `parse_incoming_update` accepts text messages and voice notes.
 
+### Transcript logging
+
+Takopi can log incoming prompts and final answers to an append-only JSONL file,
+with an optional SQLite cache for faster search/analytics. Logging is opt-in.
+
+Configuration (under `[logging]`):
+
+=== "takopi config"
+
+    ```sh
+    takopi config set logging.enabled true
+    takopi config set logging.events_jsonl "~/.takopi/logs/takopi-events.jsonl"
+    takopi config set logging.events_sqlite "~/.takopi/logs/takopi-events.db"
+    ```
+
+=== "toml"
+
+    ```toml
+    [logging]
+    enabled = true
+    events_jsonl = "~/.takopi/logs/takopi-events.jsonl"
+    events_sqlite = "~/.takopi/logs/takopi-events.db"
+    max_text_chars = 20000
+    ```
+
+You can also override paths via `TAKOPI_EVENTS_LOG_JSONL` and
+`TAKOPI_EVENTS_LOG_SQLITE`. Logged text is truncated to `max_text_chars`, and
+Takopi applies the same token redaction rules used in the logging pipeline.
+
 ### Voice transcription
 
 If voice transcription is enabled, takopi downloads the voice payload from Telegram,

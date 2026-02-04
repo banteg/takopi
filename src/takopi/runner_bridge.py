@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 import anyio
 
 from .context import RunContext
+from .event_log import record_event
 from .logging import bind_run_context, get_logger
 from .model import CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
 from .presenter import Presenter
@@ -85,6 +87,9 @@ class ExecBridgeConfig:
     transport: Transport
     presenter: Presenter
     final_notify: bool
+    log_events: bool = False
+    log_events_jsonl: str | None = None
+    log_events_max_text_chars: int = 20000
 
 
 @dataclass(slots=True)
@@ -511,6 +516,19 @@ async def handle_message(
             error=err_body,
             rendered=final_rendered.text,
         )
+        if cfg.log_events and cfg.log_events_jsonl:
+            record_event(
+                path=Path(cfg.log_events_jsonl),
+                kind="final",
+                chat_id=incoming.channel_id,
+                thread_id=incoming.thread_id,
+                message_id=incoming.message_id,
+                engine=runner.engine,
+                project=context.project if context is not None else None,
+                text=err_body,
+                meta={"ok": False, "error": err_body},
+                max_text_chars=cfg.log_events_max_text_chars,
+            )
         await send_result_message(
             cfg,
             channel_id=incoming.channel_id,
@@ -585,6 +603,19 @@ async def handle_message(
         action_count=progress_tracker.action_count,
         resume=resume_value,
     )
+    if cfg.log_events and cfg.log_events_jsonl:
+        record_event(
+            path=Path(cfg.log_events_jsonl),
+            kind="final",
+            chat_id=incoming.channel_id,
+            thread_id=incoming.thread_id,
+            message_id=incoming.message_id,
+            engine=runner.engine,
+            project=context.project if context is not None else None,
+            text=final_answer,
+            meta={"ok": run_ok, "error": run_error},
+            max_text_chars=cfg.log_events_max_text_chars,
+        )
     sync_resume_token(progress_tracker, completed.resume or outcome.resume)
     state = progress_tracker.snapshot(
         resume_formatter=runner.format_resume,

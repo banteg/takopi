@@ -90,6 +90,7 @@ from .config import (
     config_set,
     config_unset,
 )
+from .logs import logs_rebuild
 
 
 def _load_settings_optional() -> tuple[TakopiSettings | None, Path | None]:
@@ -162,6 +163,7 @@ def create_app() -> typer.Typer:
         help="Telegram bridge for coding agents. Docs: https://takopi.dev/",
     )
     config_app = typer.Typer(help="Read and modify takopi config.")
+    logs_app = typer.Typer(help="Manage transcript logs.")
     config_app.command(name="path")(config_path_cmd)
     config_app.command(name="list")(config_list)
     config_app.command(name="get")(config_get)
@@ -172,7 +174,9 @@ def create_app() -> typer.Typer:
     app.command(name="doctor")(doctor)
     app.command(name="onboarding-paths")(onboarding_paths)
     app.command(name="plugins")(plugins_cmd)
+    logs_app.command(name="rebuild")(logs_rebuild)
     app.add_typer(config_app, name="config")
+    app.add_typer(logs_app, name="logs")
     app.callback()(app_main)
     for engine_id in _engine_ids_for_cli():
         help_text = f"Run with the {engine_id} engine."

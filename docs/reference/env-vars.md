@@ -11,6 +11,10 @@ Takopi supports a small set of environment variables for logging and runtime beh
 | `TAKOPI_LOG_COLOR` | Force color on/off (`1/true/yes/on` or `0/false/no/off`). |
 | `TAKOPI_LOG_FILE` | Append JSON lines to a file. `--debug` defaults this to `debug.log`. |
 | `TAKOPI_TRACE_PIPELINE` | Log pipeline events at `info` instead of `debug`. |
+| `TAKOPI_EVENTS_LOG_ENABLED` | Enable transcript logging (JSONL + optional SQLite). |
+| `TAKOPI_EVENTS_LOG_JSONL` | Override JSONL log path for transcript logging. |
+| `TAKOPI_EVENTS_LOG_SQLITE` | Override SQLite cache path for transcript logging. |
+| `TAKOPI_EVENTS_MAX_TEXT_CHARS` | Truncate logged text beyond this length. |
 
 ## CLI behavior
 
@@ -23,4 +27,3 @@ Takopi supports a small set of environment variables for logging and runtime beh
 | Variable | Description |
 |----------|-------------|
 | `PI_CODING_AGENT_DIR` | Override Pi agent session directory base path. |
-
