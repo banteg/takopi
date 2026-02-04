@@ -235,3 +235,26 @@ def test_load_settings_rejects_non_file(tmp_path: Path) -> None:
     config_path.mkdir()
     with pytest.raises(ConfigError, match="exists but is not a file"):
         load_settings(config_path)
+
+
+def test_logging_settings_expand_user(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "takopi.toml"
+    config_path.write_text(
+        'transport = "telegram"\n\n'
+        "[transports.telegram]\n"
+        'bot_token = "token"\n'
+        "chat_id = 123\n\n"
+        "[logging]\n"
+        "enabled = true\n"
+        'events_jsonl = "~/.takopi/logs/events.jsonl"\n'
+        'events_sqlite = "~/.takopi/logs/events.db"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    settings, _ = load_settings(config_path)
+
+    assert settings.logging.enabled is True
+    assert settings.logging.events_jsonl.startswith(str(tmp_path))
+    assert settings.logging.events_sqlite is not None
+    assert settings.logging.events_sqlite.startswith(str(tmp_path))

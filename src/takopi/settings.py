@@ -121,6 +121,24 @@ class PluginsSettings(BaseModel):
     model_config = ConfigDict(extra="allow", str_strip_whitespace=True)
 
 
+class LoggingSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    enabled: bool = False
+    events_jsonl: NonEmptyStr = "~/.takopi/logs/takopi-events.jsonl"
+    events_sqlite: NonEmptyStr | None = "~/.takopi/logs/takopi-events.db"
+    max_text_chars: StrictInt = 20000
+
+    @field_validator("events_jsonl", "events_sqlite", mode="before")
+    @classmethod
+    def _expand_log_path(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return str(Path(value).expanduser())
+        return value
+
+
 class ProjectSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -148,6 +166,7 @@ class TakopiSettings(BaseSettings):
     transports: TransportsSettings
 
     plugins: PluginsSettings = Field(default_factory=PluginsSettings)
+    logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @model_validator(mode="before")
     @classmethod
