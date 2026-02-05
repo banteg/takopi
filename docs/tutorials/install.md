@@ -24,6 +24,8 @@ uv python install 3.14
 uv tool install -U takopi
 ```
 
+(in case if you have a `No solution found when resolving dependencies:` try `uv tool install -U --python 3.14 takopi`)
+
 Verify it's installed:
 
 ```sh
