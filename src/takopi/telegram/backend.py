@@ -136,6 +136,7 @@ class TelegramBackend(TransportBackend):
             session_mode=settings.session_mode,
             show_resume_line=settings.show_resume_line,
             voice_transcription=settings.voice_transcription,
+            voice_transcription_echo=settings.voice_transcription_echo,
             voice_max_bytes=int(settings.voice_max_bytes),
             voice_transcription_model=settings.voice_transcription_model,
             voice_transcription_base_url=settings.voice_transcription_base_url,

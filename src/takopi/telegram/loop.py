@@ -139,6 +139,50 @@ async def _send_startup(cfg: TelegramBridgeConfig) -> None:
         logger.info("startup.sent", chat_id=cfg.chat_id)
 
 
+async def _send_voice_transcript_echo(
+    cfg: TelegramBridgeConfig,
+    *,
+    msg: TelegramIncomingMessage,
+    transcript: str,
+) -> None:
+    if not cfg.voice_transcription_echo:
+        return
+    transcript = transcript.strip()
+    if not transcript:
+        return
+
+    from ..markdown import HARD_BREAK, MarkdownParts
+    from ..transport import RenderedMessage
+    from .render import prepare_telegram
+
+    # Render the transcript as a blockquote (Telegram supports a `blockquote` entity).
+    quoted_lines = [
+        f"> {line}" if line.strip() else ">" for line in transcript.splitlines()
+    ]
+    quoted = HARD_BREAK.join(quoted_lines)
+
+    parts = MarkdownParts(header="`voice transcript:`", body=quoted)
+    text, entities = prepare_telegram(parts)
+    message = RenderedMessage(text=text, extra={"entities": entities})
+    reply_to = MessageRef(channel_id=msg.chat_id, message_id=msg.message_id)
+    try:
+        await cfg.exec_cfg.transport.send(
+            channel_id=msg.chat_id,
+            message=message,
+            options=SendOptions(
+                reply_to=reply_to,
+                notify=False,
+                thread_id=msg.thread_id,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "voice.transcript.echo.error",
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+
+
 def _dispatch_builtin_command(
     *,
     ctx: TelegramCommandContext,
@@ -1679,6 +1723,7 @@ async def run_main_loop(
                     if text is None:
                         return
                     is_voice_transcribed = True
+                    await _send_voice_transcript_echo(cfg, msg=msg, transcript=text)
                 if msg.document is not None:
                     if cfg.files.enabled and cfg.files.auto_put:
                         caption_text = text.strip()

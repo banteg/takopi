@@ -2059,6 +2059,84 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_voice_transcript_echo_sends_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    runtime = TransportRuntime(router=_make_router(runner), projects=_empty_projects())
+    transport = FakeTransport()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=FakeBot(),
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+        voice_transcription=True,
+        voice_transcription_echo=True,
+    )
+
+    async def _fake_transcribe(
+        *,
+        bot: BotClient,
+        msg: TelegramIncomingMessage,
+        enabled: bool,
+        model: str,
+        max_bytes: int | None = None,
+        reply,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> str:
+        _ = bot, msg, enabled, model, max_bytes, reply, base_url, api_key
+        return "hello from stt"
+
+    monkeypatch.setattr(telegram_loop, "transcribe_voice", _fake_transcribe)
+    monkeypatch.setattr(telegram_loop, "list_command_ids", lambda **_: [])
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            voice=TelegramVoice(
+                file_id="voice-1",
+                mime_type=None,
+                file_size=None,
+                duration=None,
+                raw={"file_id": "voice-1"},
+            ),
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert transport.send_calls
+    first = transport.send_calls[0]
+    assert first["message"].text.startswith("voice transcript:")
+    assert "hello from stt" in first["message"].text
+    entities = first["message"].extra.get("entities")
+    assert isinstance(entities, list)
+    assert any(
+        isinstance(e, dict) and e.get("type") == "code" and e.get("offset") == 0
+        for e in entities
+    )
+    assert any(isinstance(e, dict) and e.get("type") == "blockquote" for e in entities)
+    assert first["options"] is not None
+    assert first["options"].reply_to is not None
+    assert first["options"].reply_to.message_id == 1
+    assert first["options"].thread_id is None
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_debounces_forwarded_messages_preserves_directives() -> (
     None
 ):
