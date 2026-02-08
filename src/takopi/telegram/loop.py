@@ -80,6 +80,7 @@ __all__ = ["poll_updates", "run_main_loop", "send_with_resume"]
 ForwardKey = tuple[int, int, int]
 MessageKey = tuple[int, int]
 _SEEN_MESSAGES_LIMIT = 2048
+_SEEN_UPDATES_LIMIT = 4096
 
 _handle_file_put_default = handle_file_put_default
 
@@ -364,6 +365,16 @@ class TelegramMsgContext:
 
 
 @dataclass(frozen=True, slots=True)
+class MessageClassification:
+    text: str
+    command_id: str | None
+    args_text: str
+    is_cancel: bool
+    is_forward_candidate: bool
+    is_media_group_document: bool
+
+
+@dataclass(frozen=True, slots=True)
 class TelegramCommandContext:
     cfg: TelegramBridgeConfig
     msg: TelegramIncomingMessage
@@ -375,6 +386,30 @@ class TelegramCommandContext:
     scope_chat_ids: frozenset[int]
     reply: Callable[..., Awaitable[None]]
     task_group: TaskGroup
+
+
+def _classify_message(
+    msg: TelegramIncomingMessage, *, files_enabled: bool
+) -> MessageClassification:
+    text = msg.text
+    command_id, args_text = parse_slash_command(text)
+    is_forward_candidate = (
+        _is_forwarded(msg.raw)
+        and msg.document is None
+        and msg.voice is None
+        and msg.media_group_id is None
+    )
+    is_media_group_document = (
+        files_enabled and msg.document is not None and msg.media_group_id is not None
+    )
+    return MessageClassification(
+        text=text,
+        command_id=command_id,
+        args_text=args_text,
+        is_cancel=is_cancel_command(text),
+        is_forward_candidate=is_forward_candidate,
+        is_media_group_document=is_media_group_document,
+    )
 
 
 @dataclass(slots=True)
@@ -395,6 +430,8 @@ class TelegramLoopState:
     forward_coalesce_s: float
     media_group_debounce_s: float
     transport_id: str | None
+    seen_update_ids: set[int]
+    seen_update_order: deque[int]
     seen_message_keys: set[MessageKey]
     seen_messages_order: deque[MessageKey]
 
@@ -936,6 +973,8 @@ async def run_main_loop(
         forward_coalesce_s=max(0.0, float(cfg.forward_coalesce_s)),
         media_group_debounce_s=max(0.0, float(cfg.media_group_debounce_s)),
         transport_id=transport_id,
+        seen_update_ids=set(),
+        seen_update_order=deque(),
         seen_message_keys=set(),
         seen_messages_order=deque(),
     )
@@ -1206,6 +1245,45 @@ async def run_main_loop(
                     await reply(text=f"error:\n{exc}")
                     return None
                 topic_key = resolve_topic_key(msg)
+                chat_project = (
+                    _topics_chat_project(cfg, msg.chat_id) if cfg.topics.enabled else None
+                )
+                _, ok = await ensure_topic_context(
+                    resolved=resolved,
+                    ambient_context=ambient_context,
+                    topic_key=topic_key,
+                    chat_project=chat_project,
+                    reply=reply,
+                )
+                if not ok:
+                    return None
+                return resolved
+
+            async def resolve_engine_defaults(
+                *,
+                explicit_engine: EngineId | None,
+                context: RunContext | None,
+                chat_id: int,
+                topic_key: tuple[int, int] | None,
+            ):
+                return await resolve_engine_for_message(
+                    runtime=cfg.runtime,
+                    context=context,
+                    explicit_engine=explicit_engine,
+                    chat_id=chat_id,
+                    topic_key=topic_key,
+                    topic_store=state.topic_store,
+                    chat_prefs=state.chat_prefs,
+                )
+
+            async def ensure_topic_context(
+                *,
+                resolved: ResolvedMessage,
+                ambient_context: RunContext | None,
+                topic_key: tuple[int, int] | None,
+                chat_project: str | None,
+                reply: Callable[..., Awaitable[None]],
+            ) -> tuple[RunContext | None, bool]:
                 effective_context = ambient_context
                 if (
                     state.topic_store is not None
@@ -1228,35 +1306,13 @@ async def run_main_loop(
                     and effective_context is None
                     and resolved.context_source not in {"directives", "reply_ctx"}
                 ):
-                    chat_project = (
-                        _topics_chat_project(cfg, msg.chat_id)
-                        if cfg.topics.enabled
-                        else None
-                    )
                     await reply(
                         text="this topic isn't bound to a project yet.\n"
                         f"{_usage_ctx_set(chat_project=chat_project)} or "
                         f"{_usage_topic(chat_project=chat_project)}",
                     )
-                    return None
-                return resolved
-
-            async def resolve_engine_defaults(
-                *,
-                explicit_engine: EngineId | None,
-                context: RunContext | None,
-                chat_id: int,
-                topic_key: tuple[int, int] | None,
-            ):
-                return await resolve_engine_for_message(
-                    runtime=cfg.runtime,
-                    context=context,
-                    explicit_engine=explicit_engine,
-                    chat_id=chat_id,
-                    topic_key=topic_key,
-                    topic_store=state.topic_store,
-                    chat_prefs=state.chat_prefs,
-                )
+                    return effective_context, False
+                return effective_context, True
 
             resume_resolver = ResumeResolver(
                 cfg=cfg,
@@ -1267,29 +1323,19 @@ async def run_main_loop(
                 chat_session_store=state.chat_session_store,
             )
 
-            async def run_prompt_from_upload(
+            async def dispatch_prompt_run(
+                *,
                 msg: TelegramIncomingMessage,
                 prompt_text: str,
                 resolved: ResolvedMessage,
+                topic_key: tuple[int, int] | None,
+                chat_session_key: tuple[int, int | None] | None,
+                reply_ref: MessageRef | None,
+                reply_id: int | None,
             ) -> None:
                 chat_id = msg.chat_id
                 user_msg_id = msg.message_id
-                reply_id = msg.reply_to_message_id
-                reply_ref = (
-                    MessageRef(
-                        channel_id=msg.chat_id,
-                        message_id=msg.reply_to_message_id,
-                        thread_id=msg.thread_id,
-                    )
-                    if msg.reply_to_message_id is not None
-                    else None
-                )
-                resume_token = resolved.resume_token
                 context = resolved.context
-                chat_session_key = _chat_session_key(
-                    msg, store=state.chat_session_store
-                )
-                topic_key = resolve_topic_key(msg)
                 engine_resolution = await resolve_engine_defaults(
                     explicit_engine=resolved.engine_override,
                     context=context,
@@ -1298,7 +1344,7 @@ async def run_main_loop(
                 )
                 engine_override = engine_resolution.engine
                 resume_decision = await resume_resolver.resolve(
-                    resume_token=resume_token,
+                    resume_token=resolved.resume_token,
                     reply_id=reply_id,
                     chat_id=chat_id,
                     user_msg_id=user_msg_id,
@@ -1344,17 +1390,44 @@ async def run_main_loop(
                     progress_ref,
                 )
 
+            async def run_prompt_from_upload(
+                msg: TelegramIncomingMessage,
+                prompt_text: str,
+                resolved: ResolvedMessage,
+            ) -> None:
+                reply_id = msg.reply_to_message_id
+                reply_ref = (
+                    MessageRef(
+                        channel_id=msg.chat_id,
+                        message_id=msg.reply_to_message_id,
+                        thread_id=msg.thread_id,
+                    )
+                    if msg.reply_to_message_id is not None
+                    else None
+                )
+                chat_session_key = _chat_session_key(
+                    msg, store=state.chat_session_store
+                )
+                topic_key = resolve_topic_key(msg)
+                await dispatch_prompt_run(
+                    msg=msg,
+                    prompt_text=prompt_text,
+                    resolved=resolved,
+                    topic_key=topic_key,
+                    chat_session_key=chat_session_key,
+                    reply_ref=reply_ref,
+                    reply_id=reply_id,
+                )
+
             async def _dispatch_pending_prompt(pending: _PendingPrompt) -> None:
                 msg = pending.msg
-                chat_id = msg.chat_id
-                user_msg_id = msg.message_id
                 reply = make_reply(cfg, msg)
                 try:
                     resolved = cfg.runtime.resolve_message(
                         text=pending.text,
                         reply_text=msg.reply_to_text,
                         ambient_context=pending.ambient_context,
-                        chat_id=chat_id,
+                        chat_id=msg.chat_id,
                     )
                 except DirectiveError as exc:
                     await reply(text=f"error:\n{exc}")
@@ -1382,92 +1455,23 @@ async def run_main_loop(
                         prompt_text,
                     )
 
-                resume_token = resolved.resume_token
-                context = resolved.context
-                engine_resolution = await resolve_engine_defaults(
-                    explicit_engine=resolved.engine_override,
-                    context=context,
-                    chat_id=chat_id,
+                _effective_context, ok = await ensure_topic_context(
+                    resolved=resolved,
+                    ambient_context=pending.ambient_context,
                     topic_key=pending.topic_key,
+                    chat_project=pending.chat_project,
+                    reply=reply,
                 )
-                engine_override = engine_resolution.engine
-                effective_context = pending.ambient_context
-                if (
-                    state.topic_store is not None
-                    and pending.topic_key is not None
-                    and resolved.context is not None
-                    and resolved.context_source == "directives"
-                ):
-                    await state.topic_store.set_context(
-                        *pending.topic_key, resolved.context
-                    )
-                    await _maybe_rename_topic(
-                        cfg,
-                        state.topic_store,
-                        chat_id=pending.topic_key[0],
-                        thread_id=pending.topic_key[1],
-                        context=resolved.context,
-                    )
-                    effective_context = resolved.context
-                if (
-                    state.topic_store is not None
-                    and pending.topic_key is not None
-                    and effective_context is None
-                    and resolved.context_source not in {"directives", "reply_ctx"}
-                ):
-                    await reply(
-                        text="this topic isn't bound to a project yet.\n"
-                        f"{_usage_ctx_set(chat_project=pending.chat_project)} or "
-                        f"{_usage_topic(chat_project=pending.chat_project)}",
-                    )
+                if not ok:
                     return
-                resume_decision = await resume_resolver.resolve(
-                    resume_token=resume_token,
-                    reply_id=pending.reply_id,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    thread_id=msg.thread_id,
-                    chat_session_key=pending.chat_session_key,
-                    topic_key=pending.topic_key,
-                    engine_for_session=engine_resolution.engine,
+                await dispatch_prompt_run(
+                    msg=msg,
                     prompt_text=prompt_text,
-                )
-                if resume_decision.handled_by_running_task:
-                    return
-                resume_token = resume_decision.resume_token
-
-                if resume_token is None:
-                    tg.start_soon(
-                        run_job,
-                        chat_id,
-                        user_msg_id,
-                        prompt_text,
-                        None,
-                        context,
-                        msg.thread_id,
-                        pending.chat_session_key,
-                        pending.reply_ref,
-                        scheduler.note_thread_known,
-                        engine_override,
-                    )
-                    return
-                progress_ref = await _send_queued_progress(
-                    cfg,
-                    chat_id=chat_id,
-                    user_msg_id=user_msg_id,
-                    thread_id=msg.thread_id,
-                    resume_token=resume_token,
-                    context=context,
-                )
-                await scheduler.enqueue_resume(
-                    chat_id,
-                    user_msg_id,
-                    prompt_text,
-                    resume_token,
-                    context,
-                    msg.thread_id,
-                    pending.chat_session_key,
-                    progress_ref,
+                    resolved=resolved,
+                    topic_key=pending.topic_key,
+                    chat_session_key=pending.chat_session_key,
+                    reply_ref=pending.reply_ref,
+                    reply_id=pending.reply_id,
                 )
 
             forward_coalescer = ForwardCoalescer(
@@ -1569,23 +1573,14 @@ async def run_main_loop(
 
             async def route_message(msg: TelegramIncomingMessage) -> None:
                 reply = make_reply(cfg, msg)
-                text = msg.text
+                classification = _classify_message(msg, files_enabled=cfg.files.enabled)
+                text = classification.text
                 is_voice_transcribed = False
-                is_forward_candidate = (
-                    _is_forwarded(msg.raw)
-                    and msg.document is None
-                    and msg.voice is None
-                    and msg.media_group_id is None
-                )
-                if is_forward_candidate:
+                if classification.is_forward_candidate:
                     forward_coalescer.attach_forward(msg)
                     return
                 forward_key = _forward_key(msg)
-                if (
-                    cfg.files.enabled
-                    and msg.document is not None
-                    and msg.media_group_id is not None
-                ):
+                if classification.is_media_group_document:
                     media_group_buffer.add(msg)
                     return
                 ctx = await build_message_context(msg)
@@ -1598,13 +1593,14 @@ async def run_main_loop(
                 chat_project = ctx.chat_project
                 ambient_context = ctx.ambient_context
 
-                if is_cancel_command(text):
+                if classification.is_cancel:
                     tg.start_soon(
                         handle_cancel, cfg, msg, state.running_tasks, scheduler
                     )
                     return
 
-                command_id, args_text = parse_slash_command(text)
+                command_id = classification.command_id
+                args_text = classification.args_text
                 if command_id == "new":
                     forward_coalescer.cancel(forward_key)
                     if state.topic_store is not None and topic_key is not None:
@@ -1800,7 +1796,23 @@ async def run_main_loop(
                             sender_id=sender_id,
                         )
                         return
-                if isinstance(update, TelegramIncomingMessage):
+                if update.update_id is not None:
+                    update_id = update.update_id
+                    if update_id in state.seen_update_ids:
+                        logger.debug(
+                            "update.ignored",
+                            reason="duplicate_update",
+                            update_id=update_id,
+                            chat_id=update.chat_id,
+                            sender_id=update.sender_id,
+                        )
+                        return
+                    state.seen_update_ids.add(update_id)
+                    state.seen_update_order.append(update_id)
+                    if len(state.seen_update_order) > _SEEN_UPDATES_LIMIT:
+                        oldest_update_id = state.seen_update_order.popleft()
+                        state.seen_update_ids.discard(oldest_update_id)
+                elif isinstance(update, TelegramIncomingMessage):
                     key = (update.chat_id, update.message_id)
                     if key in state.seen_message_keys:
                         logger.debug(
