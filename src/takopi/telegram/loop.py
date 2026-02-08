@@ -1246,7 +1246,9 @@ async def run_main_loop(
                     return None
                 topic_key = resolve_topic_key(msg)
                 chat_project = (
-                    _topics_chat_project(cfg, msg.chat_id) if cfg.topics.enabled else None
+                    _topics_chat_project(cfg, msg.chat_id)
+                    if cfg.topics.enabled
+                    else None
                 )
                 _, ok = await ensure_topic_context(
                     resolved=resolved,
