@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
@@ -77,6 +78,8 @@ logger = get_logger(__name__)
 __all__ = ["poll_updates", "run_main_loop", "send_with_resume"]
 
 ForwardKey = tuple[int, int, int]
+MessageKey = tuple[int, int]
+_SEEN_MESSAGES_LIMIT = 2048
 
 _handle_file_put_default = handle_file_put_default
 
@@ -392,6 +395,8 @@ class TelegramLoopState:
     forward_coalesce_s: float
     media_group_debounce_s: float
     transport_id: str | None
+    seen_message_keys: set[MessageKey]
+    seen_messages_order: deque[MessageKey]
 
 
 if TYPE_CHECKING:
@@ -931,6 +936,8 @@ async def run_main_loop(
         forward_coalesce_s=max(0.0, float(cfg.forward_coalesce_s)),
         media_group_debounce_s=max(0.0, float(cfg.media_group_debounce_s)),
         transport_id=transport_id,
+        seen_message_keys=set(),
+        seen_messages_order=deque(),
     )
 
     def refresh_topics_scope() -> None:
@@ -1793,6 +1800,22 @@ async def run_main_loop(
                             sender_id=sender_id,
                         )
                         return
+                if isinstance(update, TelegramIncomingMessage):
+                    key = (update.chat_id, update.message_id)
+                    if key in state.seen_message_keys:
+                        logger.debug(
+                            "update.ignored",
+                            reason="duplicate_message",
+                            chat_id=update.chat_id,
+                            message_id=update.message_id,
+                            sender_id=update.sender_id,
+                        )
+                        return
+                    state.seen_message_keys.add(key)
+                    state.seen_messages_order.append(key)
+                    if len(state.seen_messages_order) > _SEEN_MESSAGES_LIMIT:
+                        oldest = state.seen_messages_order.popleft()
+                        state.seen_message_keys.discard(oldest)
                 if isinstance(update, TelegramCallbackQuery):
                     if update.data == CANCEL_CALLBACK_DATA:
                         tg.start_soon(

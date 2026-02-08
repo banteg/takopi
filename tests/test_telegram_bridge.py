@@ -1650,6 +1650,64 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_ignores_duplicate_message_id_for_replies() -> None:
+    transport = FakeTransport()
+    bot = FakeBot()
+    codex_runner = ScriptRunner([Return(answer="codex")], engine=CODEX_ENGINE)
+    claude_runner = ScriptRunner([Return(answer="claude")], engine="claude")
+    router = AutoRouter(
+        entries=[
+            RunnerEntry(engine=codex_runner.engine, runner=codex_runner),
+            RunnerEntry(engine=claude_runner.engine, runner=claude_runner),
+        ],
+        default_engine=claude_runner.engine,
+    )
+    runtime = TransportRuntime(router=router, projects=_empty_projects())
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=MarkdownPresenter(),
+            final_notify=True,
+        ),
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=42,
+            text="turn on logging in my lemon config for me",
+            reply_to_message_id=900,
+            reply_to_text="done\n`codex resume c-123`",
+            sender_id=123,
+            chat_type="private",
+        )
+        # Telegram can occasionally redeliver the same message id with less reply metadata.
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=42,
+            text="turn on logging in my lemon config for me",
+            reply_to_message_id=900,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert len(codex_runner.calls) == 1
+    assert codex_runner.calls[0][1] == ResumeToken(engine=CODEX_ENGINE, value="c-123")
+    assert claude_runner.calls == []
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_persists_topic_sessions_in_project_scope(
     tmp_path: Path,
 ) -> None:
