@@ -36,9 +36,21 @@ def _decode_fixture(name: str) -> list[str]:
     "fixture",
     [
         "codex_exec_json_all_formats.jsonl",
+        "codex_exec_json_phase_and_unknown.jsonl",
     ],
 )
 def test_codex_schema_parses_fixture(fixture: str) -> None:
     errors = _decode_fixture(fixture)
 
     assert not errors, f"{fixture} had {len(errors)} errors: " + "; ".join(errors[:5])
+
+
+def test_codex_schema_decodes_unknown_item_type() -> None:
+    event = codex_schema.decode_event(
+        '{"type":"item.completed","item":{"id":"item_99","type":"future_item",'
+        '"foo":"bar","count":2}}'
+    )
+    assert isinstance(event, codex_schema.ItemCompleted)
+    assert isinstance(event.item, codex_schema.UnknownItem)
+    assert event.item.item_type == "future_item"
+    assert event.item.payload == {"foo": "bar", "count": 2}

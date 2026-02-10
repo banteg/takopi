@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","phase":"commentary","text":"Inspecting repository state."}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","phase":"final_answer","text":"Implemented the requested changes."}}
+{"type":"item.started","item":{"id":"item_3","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"main-thread","receiver_thread_ids":["worker-thread"],"prompt":"Find failing tests","agents_states":{},"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_3","type":"collab_tool_call","tool":"spawn_agent","sender_thread_id":"main-thread","receiver_thread_ids":["worker-thread"],"prompt":"Find failing tests","agents_states":{"worker-thread":{"status":"completed","message":"done"}},"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_4","type":"future_item","foo":"bar","count":2}}
+{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":0,"output_tokens":5}}
