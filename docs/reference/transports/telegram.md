@@ -33,6 +33,7 @@ Configuration (under `[transports.telegram]`):
     ```sh
     takopi config set transports.telegram.voice_transcription true
     takopi config set transports.telegram.voice_transcription_model "gpt-4o-mini-transcribe"
+    takopi config set transports.telegram.voice_transcription_echo true # optional
 
     # local OpenAI-compatible transcription server (optional)
     takopi config set transports.telegram.voice_transcription_base_url "http://localhost:8000/v1"
@@ -43,6 +44,7 @@ Configuration (under `[transports.telegram]`):
 
     ```toml
     voice_transcription = true
+    voice_transcription_echo = true # optional
     voice_transcription_model = "gpt-4o-mini-transcribe" # optional
     voice_transcription_base_url = "http://localhost:8000/v1" # optional
     voice_transcription_api_key = "local" # optional
@@ -51,6 +53,8 @@ Configuration (under `[transports.telegram]`):
 Set `OPENAI_API_KEY` in the environment (or `voice_transcription_api_key` in config).
 If transcription is enabled but no API key is available or the audio download fails,
 takopi replies with a short error and skips the run.
+
+If `voice_transcription_echo` is enabled, takopi also replies to the voice message with the raw transcript.
 
 To use a local OpenAI-compatible Whisper server, set `voice_transcription_base_url`
 (and `voice_transcription_api_key` if the server expects one). This keeps engine
