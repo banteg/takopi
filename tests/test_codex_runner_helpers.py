@@ -101,7 +101,9 @@ def test_select_final_answer() -> None:
         is None
     )
     assert (
-        _select_final_answer([_AgentMessageSummary(text="intermediate", phase="foobar")])
+        _select_final_answer(
+            [_AgentMessageSummary(text="intermediate", phase="foobar")]
+        )
         is None
     )
 

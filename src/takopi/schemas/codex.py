@@ -231,9 +231,7 @@ def _decode_unknown_item_fallback(data: bytes | str) -> ItemEvent | None:
         id=item_id,
         item_type=item_type,
         payload={
-            str(key): value
-            for key, value in item.items()
-            if key not in {"id", "type"}
+            str(key): value for key, value in item.items() if key not in {"id", "type"}
         },
     )
     if event_type == "item.started":
