@@ -20,7 +20,7 @@ This page explains what those settings mean and how to change them.
     explain what this repo does
 
 !!! takopi "Takopi"
-    done · codex · 8s
+    done · codex · 8s · 5k in / 800 out
     ...
 
 !!! user "You"
@@ -48,14 +48,14 @@ Tip: set a default engine for this chat with `/agent set claude`.
     explain what this repo does
 
 !!! takopi "Takopi"
-    done · codex · 8s
+    done · codex · 8s · 5k in / 800 out
     ...
     codex resume abc123
 
 To continue the same session, **reply** to a message with a resume line:
 
 !!! takopi "Takopi"
-    done · codex · 8s
+    done · codex · 8s · 5k in / 800 out
 
     !!! user "You"
         now add tests

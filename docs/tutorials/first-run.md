@@ -68,14 +68,13 @@ When the agent finishes, Takopi sends a new message and replaces the progress me
 
 
 !!! takopi "Takopi"
-    done · codex · 11s · step 5
-    
+    done · codex · 11s · step 5 · 12k in / 1.5k out
+
     Takopi is a Telegram bridge for AI coding agents (Codex, Claude Code, OpenCode, Pi). It lets you run agents from chat, manage multiple projects and git worktrees, stream progress (commands, file changes, elapsed time), and resume sessions from either chat or terminal. It also supports file transfer, group topics mapped to repo/branch contexts, and multiple engines via chat commands, with a plugin system for engines/transports/commands.
 
     codex resume 019bb89b-1b0b-7e90-96e4-c33181b49714
 
-
-That last line is the **resume line**—it's how Takopi knows which conversation to continue.
+The header shows elapsed time, steps completed, and token usage (input/output). The last line is the **resume line**—it's how Takopi knows which conversation to continue.
 
 ## 5. Continue the conversation
 
@@ -91,7 +90,7 @@ Use `/new` any time you want a fresh thread.
 **If you're in stateless mode:** **reply** to a message that has a resume line.
 
 !!! takopi "Takopi"
-    done · codex · 11s · step 5
+    done · codex · 11s · step 5 · 12k in / 1.5k out
 
     !!! user "You"
         what command line arguments does it support?
