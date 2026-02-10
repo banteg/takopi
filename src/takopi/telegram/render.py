@@ -14,6 +14,8 @@ MAX_BODY_CHARS = 3500
 _MD_RENDERER = MarkdownIt("commonmark", {"html": False})
 _BULLET_RE = re.compile(r"(?m)^(\s*)•")
 _FENCE_RE = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>[`~]{3,})(?P<info>.*)$")
+_ORDERED_ITEM_RE = re.compile(r"^(?P<indent>[ \t]{0,3})(?P<marker>\d+[.)])\s+")
+_UNORDERED_ITEM_RE = re.compile(r"^(?P<indent>[ \t]{0,3})[-+*]\s+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,8 +25,55 @@ class _FenceState:
     header: str
 
 
+def _normalize_nested_list_markers(md: str) -> str:
+    if not md:
+        return md
+
+    lines: list[str] = []
+    ordered_indent: str | None = None
+    fence_state: _FenceState | None = None
+
+    for raw_line in md.splitlines(keepends=True):
+        line, ending = _split_line_ending(raw_line)
+        fence_state = _update_fence_state(line, fence_state)
+        if fence_state is not None:
+            ordered_indent = None
+            lines.append(raw_line)
+            continue
+
+        if not line.strip():
+            ordered_indent = None
+            lines.append(raw_line)
+            continue
+
+        ordered_match = _ORDERED_ITEM_RE.match(line)
+        if ordered_match is not None:
+            ordered_indent = ordered_match.group("indent")
+            lines.append(raw_line)
+            continue
+
+        if ordered_indent is not None:
+            unordered_match = _UNORDERED_ITEM_RE.match(line)
+            if (
+                unordered_match is not None
+                and unordered_match.group("indent") == ordered_indent
+            ):
+                lines.append(f"{ordered_indent}   {line}{ending}")
+                continue
+
+            if line.startswith(ordered_indent) and len(line) > len(ordered_indent):
+                lines.append(raw_line)
+                continue
+
+            ordered_indent = None
+
+        lines.append(raw_line)
+
+    return "".join(lines)
+
+
 def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
-    html = _MD_RENDERER.render(md or "")
+    html = _MD_RENDERER.render(_normalize_nested_list_markers(md or ""))
     rendered = transform_html(html)
 
     text = _BULLET_RE.sub(r"\1-", rendered.text)
