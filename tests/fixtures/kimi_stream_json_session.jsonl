@@ -1,0 +1,6 @@
+{"role":"assistant","content":"Let me check the current directory.","tool_calls":[{"type":"function","id":"tc_001","function":{"name":"Shell","arguments":"{\"command\":\"ls\"}"}}]}
+{"role":"tool","tool_call_id":"tc_001","content":"README.md\npyproject.toml\nsrc/"}
+{"role":"assistant","content":"I can see three items in the current directory:\n- README.md\n- pyproject.toml\n- src/ directory"}
+{"role":"assistant","content":"Now let me write a note.","tool_calls":[{"type":"function","id":"tc_002","function":{"name":"Write","arguments":"{\"file_path\":\"notes.md\",\"content\":\"hello world\"}"}}]}
+{"role":"tool","tool_call_id":"tc_002","content":"File written successfully"}
+{"role":"assistant","content":"Done! I've listed the files and created a notes.md file."}

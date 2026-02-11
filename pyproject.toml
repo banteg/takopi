@@ -44,6 +44,7 @@ codex = "takopi.runners.codex:BACKEND"
 claude = "takopi.runners.claude:BACKEND"
 opencode = "takopi.runners.opencode:BACKEND"
 pi = "takopi.runners.pi:BACKEND"
+kimi = "takopi.runners.kimi:BACKEND"
 
 [project.entry-points."takopi.transport_backends"]
 telegram = "takopi.telegram.backend:BACKEND"
