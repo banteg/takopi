@@ -110,7 +110,7 @@ class TelegramTransportSettings(BaseModel):
 
 
 class TransportsSettings(BaseModel):
-    telegram: TelegramTransportSettings
+    telegram: TelegramTransportSettings | None = None
 
     model_config = ConfigDict(extra="allow")
 
@@ -191,6 +191,8 @@ class TakopiSettings(BaseSettings):
         self, transport_id: str, *, config_path: Path
     ) -> dict[str, Any]:
         if transport_id == "telegram":
+            if self.transports.telegram is None:
+                raise ConfigError(f"Missing [transports.telegram] in {config_path}.")
             return self.transports.telegram.model_dump()
         extra = self.transports.model_extra or {}
         raw = extra.get(transport_id)
@@ -211,7 +213,8 @@ class TakopiSettings(BaseSettings):
         reserved: Iterable[str] = ("cancel",),
     ) -> ProjectsConfig:
         default_project = self.default_project
-        default_chat_id = self.transports.telegram.chat_id
+        tg = self.transports.telegram
+        default_chat_id = tg.chat_id if tg is not None else None
 
         reserved_lower = {value.lower() for value in reserved}
         engine_map = {engine.lower(): engine for engine in engine_ids}
@@ -248,7 +251,7 @@ class TakopiSettings(BaseSettings):
 
             chat_id = entry.chat_id
             if chat_id is not None:
-                if chat_id == default_chat_id:
+                if default_chat_id is not None and chat_id == default_chat_id:
                     raise ConfigError(
                         f"Invalid `projects.{alias}.chat_id` in {config_path}; "
                         "must not match transports.telegram.chat_id."
@@ -323,6 +326,8 @@ def require_telegram(settings: TakopiSettings, config_path: Path) -> tuple[str, 
             "(telegram only for now)."
         )
     tg = settings.transports.telegram
+    if tg is None:
+        raise ConfigError(f"Missing [transports.telegram] in {config_path}.")
     return tg.bot_token, tg.chat_id
 
 
