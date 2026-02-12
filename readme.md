@@ -69,5 +69,7 @@ see [`docs/how-to/write-a-plugin.md`](docs/how-to/write-a-plugin.md) and [`docs/
 
 ## development
 
+install dependencies with `bash scripts/install-deps.sh` (lockfile-driven: `uv`, `bun`, `pnpm`, `npm`, `yarn`).
+
 see [`docs/reference/specification.md`](docs/reference/specification.md) and [`docs/developing.md`](docs/developing.md).
 

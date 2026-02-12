@@ -946,6 +946,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "coverage" },
     { name = "mutmut" },
     { name = "pytest" },
     { name = "pytest-anyio" },
@@ -978,6 +979,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "coverage", specifier = ">=7.13.1" },
     { name = "mutmut", specifier = ">=3.4.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-anyio", specifier = ">=0.0.0" },

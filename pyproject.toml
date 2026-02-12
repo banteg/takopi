@@ -54,6 +54,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "coverage>=7.13.1",
     "mutmut>=3.4.0",
     "pytest>=9.0.2",
     "pytest-anyio>=0.0.0",
