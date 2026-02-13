@@ -112,7 +112,7 @@ def _discover_opencode_modes(*, timeout_s: float) -> tuple[tuple[str, ...], bool
 def discover_engine_modes(
     runtime: TransportRuntime,
     *,
-    timeout_s: float = 3.0,
+    timeout_s: float = 8.0,
 ) -> ModeDiscoveryResult:
     known_modes: dict[str, tuple[str, ...]] = {}
     supports_agent: set[str] = set()

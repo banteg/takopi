@@ -132,7 +132,10 @@ class TelegramBackend(TransportBackend):
         settings = _expect_transport_settings(transport_config)
         token = settings.bot_token
         chat_id = settings.chat_id
-        mode_discovery = discover_engine_modes(runtime)
+        mode_discovery = discover_engine_modes(
+            runtime,
+            timeout_s=settings.mode_discovery_timeout_s,
+        )
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),

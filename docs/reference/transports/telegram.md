@@ -93,6 +93,26 @@ In group chats, changing trigger mode requires the sender to be an admin.
 State is stored in `telegram_chat_prefs_state.json` (chat default) and
 `telegram_topics_state.json` (topic overrides) alongside the config file.
 
+### Agent mode discovery timeout
+
+At startup, Takopi discovers available agent modes (for example via
+`opencode agent list`) so dynamic shortcuts like `/build` and `/plan`
+can be registered.
+
+If your host is slow on cold start, increase the timeout:
+
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.mode_discovery_timeout_s 8.0
+    ```
+
+=== "toml"
+
+    ```toml
+    mode_discovery_timeout_s = 8.0
+    ```
+
 ### Forwarded message coalescing
 
 Telegram sends a "comment + forwards" burst as separate messages, with the comment
