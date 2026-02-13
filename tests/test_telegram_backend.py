@@ -14,6 +14,7 @@ from takopi.settings import (
     TelegramTransportSettings,
 )
 from takopi.telegram import backend as telegram_backend
+from takopi.telegram.agent_modes import ModeDiscoveryResult
 from takopi.transport_runtime import TransportRuntime
 
 
@@ -51,6 +52,7 @@ def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
 
     assert "takopi is ready" in message
     assert "engines: `codex (not installed: pi)`" in message
+    assert "agent modes: `codex: not supported; pi: unavailable`" in message
     assert "projects: `none`" in message
 
 
@@ -93,6 +95,10 @@ def test_build_startup_message_surfaces_unavailable_engine_reasons(
     )
 
     assert "engines: `codex" in message
+    assert (
+        "agent modes: `codex: not supported; pi: not supported; claude: unavailable`"
+        in message
+    )
     assert "misconfigured: pi" in message
     assert "failed to load: claude" in message
 
@@ -136,6 +142,15 @@ def test_telegram_backend_build_and_run_wires_config(
 
     monkeypatch.setattr(telegram_backend, "run_main_loop", fake_run_main_loop)
     monkeypatch.setattr(telegram_backend, "TelegramClient", _FakeClient)
+    monkeypatch.setattr(
+        telegram_backend,
+        "discover_engine_modes",
+        lambda _runtime: ModeDiscoveryResult(
+            supports_agent=frozenset({"codex"}),
+            known_modes={"codex": ("plan", "build")},
+            shortcut_modes=("plan", "build"),
+        ),
+    )
 
     transport_config = TelegramTransportSettings(
         bot_token="token",
@@ -170,6 +185,9 @@ def test_telegram_backend_build_and_run_wires_config(
     assert cfg.files.enabled is True
     assert cfg.files.allowed_user_ids == [1, 2]
     assert cfg.topics.enabled is True
+    assert cfg.mode_supported_engines == frozenset({"codex"})
+    assert cfg.mode_known_modes == {"codex": ("plan", "build")}
+    assert cfg.mode_shortcuts == ("plan", "build")
     assert cfg.bot.token == "token"
     assert kwargs["watch_config"] is True
     assert kwargs["transport_id"] == "telegram"

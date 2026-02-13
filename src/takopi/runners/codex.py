@@ -65,7 +65,7 @@ def _parse_reconnect_message(message: str) -> tuple[int, int] | None:
     try:
         attempt = int(match.group("attempt"))
         max_attempts = int(match.group("max"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return (attempt, max_attempts)
 
@@ -483,6 +483,8 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                         f"model_reasoning_effort={run_options.reasoning}",
                     ]
                 )
+            if run_options.mode:
+                args.extend(["--agent", str(run_options.mode)])
         args.extend(
             [
                 "exec",

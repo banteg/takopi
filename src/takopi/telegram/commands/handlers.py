@@ -12,6 +12,9 @@ from .file_transfer import _save_file_put as save_file_put
 from .media import _handle_media_group as handle_media_group
 from .menu import _reserved_commands as get_reserved_commands
 from .menu import _set_command_menu as set_command_menu
+from .menu import _set_command_menu_with_shortcuts as set_command_menu_with_shortcuts
+from .mode import _handle_mode_command as handle_mode_command
+from .mode import _set_mode_for_message as set_mode_for_message
 from .model import _handle_model_command as handle_model_command
 from .parse import _parse_slash_command as parse_slash_command
 from .reasoning import _handle_reasoning_command as handle_reasoning_command
@@ -32,6 +35,7 @@ __all__ = [
     "handle_file_command",
     "handle_file_put_default",
     "handle_media_group",
+    "handle_mode_command",
     "handle_model_command",
     "handle_new_command",
     "handle_reasoning_command",
@@ -40,6 +44,8 @@ __all__ = [
     "parse_slash_command",
     "run_engine",
     "save_file_put",
+    "set_mode_for_message",
     "set_command_menu",
+    "set_command_menu_with_shortcuts",
     "should_show_resume_line",
 ]

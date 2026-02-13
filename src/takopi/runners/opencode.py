@@ -335,6 +335,8 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             model = run_options.model
         if model is not None:
             args.extend(["--model", str(model)])
+        if run_options is not None and run_options.mode:
+            args.extend(["--agent", str(run_options.mode)])
         args.extend(["--", prompt])
         return args
 
