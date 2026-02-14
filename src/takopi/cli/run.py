@@ -327,6 +327,14 @@ def _version_callback(value: bool) -> None:
         _print_version_and_exit()
 
 
+def _daemon_callback(value: bool) -> None:
+    if value:
+        from .daemon import daemon_install
+
+        daemon_install(enable=True, start=True, force=False)
+        raise typer.Exit()
+
+
 def app_main(
     ctx: typer.Context,
     version: bool = typer.Option(
@@ -334,6 +342,13 @@ def app_main(
         "--version",
         help="Show the version and exit.",
         callback=_version_callback,
+        is_eager=True,
+    ),
+    daemon: bool = typer.Option(
+        False,
+        "--daemon",
+        help="Install and start takopi as a systemd user service.",
+        callback=_daemon_callback,
         is_eager=True,
     ),
     final_notify: bool = typer.Option(
