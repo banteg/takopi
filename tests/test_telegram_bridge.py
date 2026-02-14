@@ -2125,6 +2125,8 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
         voice_transcription=True,
     )
 
+    transcript_text = "/codex do thing"
+
     async def _fake_transcribe(
         *,
         bot: BotClient,
@@ -2137,7 +2139,7 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
         api_key: str | None = None,
     ) -> str:
         _ = bot, msg, enabled, model, max_bytes, reply, base_url, api_key
-        return "/codex do thing"
+        return transcript_text
 
     monkeypatch.setattr(telegram_loop, "transcribe_voice", _fake_transcribe)
     monkeypatch.setattr(telegram_loop, "list_command_ids", lambda **_: [])
@@ -2165,6 +2167,100 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
     assert not claude_runner.calls
     assert len(codex_runner.calls) == 1
     assert codex_runner.calls[0][0].startswith("(voice transcribed) do thing")
+    assert transport.send_calls
+    transcript_call = next(
+        call
+        for call in transport.send_calls
+        if call["message"].text.startswith("🎤 · voice transcript")
+    )
+    transcript_message = transcript_call["message"]
+    transcript_options = transcript_call["options"]
+    assert transcript_message.text.startswith("🎤 · voice transcript")
+    assert transcript_text in transcript_message.text
+    assert transcript_message.extra is not None
+    assert any(
+        entity.get("type") == "italic"
+        for entity in transcript_message.extra.get("entities", [])
+    )
+    assert transcript_options is not None
+    assert transcript_options.notify is False
+    assert transcript_options.reply_to is not None
+    assert transcript_options.reply_to.message_id == 1
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_voice_transcript_trimmed(monkeypatch) -> None:
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    runtime = TransportRuntime(router=_make_router(runner), projects=_empty_projects())
+    transport = FakeTransport()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=FakeBot(),
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+        voice_transcription=True,
+    )
+    long_transcript = "x" * (MAX_BODY_CHARS + 100)
+
+    async def _fake_transcribe(
+        *,
+        bot: BotClient,
+        msg: TelegramIncomingMessage,
+        enabled: bool,
+        model: str,
+        max_bytes: int | None = None,
+        reply,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> str:
+        _ = bot, msg, enabled, model, max_bytes, reply, base_url, api_key
+        return long_transcript
+
+    monkeypatch.setattr(telegram_loop, "transcribe_voice", _fake_transcribe)
+    monkeypatch.setattr(telegram_loop, "list_command_ids", lambda **_: [])
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            voice=TelegramVoice(
+                file_id="voice-1",
+                mime_type=None,
+                file_size=None,
+                duration=None,
+                raw={"file_id": "voice-1"},
+            ),
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert transport.send_calls
+    transcript_call = next(
+        call
+        for call in transport.send_calls
+        if call["message"].text.startswith("🎤 · voice transcript")
+    )
+    transcript_text = transcript_call["message"].text
+    transcript_lines = transcript_text.splitlines()
+    assert transcript_lines[0].startswith("🎤 · voice transcript")
+    assert transcript_lines[1] == ""
+    body = "".join(transcript_lines[2:]).strip()
+    assert body.startswith("_")
+    inner_body = body[1:]
+    assert inner_body.endswith("\u2026")
 
 
 @pytest.mark.anyio

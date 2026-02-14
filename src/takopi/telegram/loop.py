@@ -24,7 +24,12 @@ from ..transport import MessageRef, SendOptions
 from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
 from ..ids import RESERVED_CHAT_COMMANDS
-from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
+from .bridge import (
+    CANCEL_CALLBACK_DATA,
+    TelegramBridgeConfig,
+    send_plain,
+    send_voice_transcript,
+)
 from .commands.cancel import handle_callback_cancel, handle_cancel
 from .commands.file_transfer import FILE_PUT_USAGE
 from .commands.handlers import (
@@ -1683,6 +1688,14 @@ async def run_main_loop(
                     )
                     if text is None:
                         return
+                    await send_voice_transcript(
+                        cfg.exec_cfg.transport,
+                        chat_id=chat_id,
+                        user_msg_id=msg.message_id,
+                        transcript=text,
+                        notify=False,
+                        thread_id=msg.thread_id,
+                    )
                     is_voice_transcribed = True
                 if msg.document is not None:
                     if cfg.files.enabled and cfg.files.auto_put:
