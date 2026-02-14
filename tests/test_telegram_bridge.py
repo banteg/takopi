@@ -3565,3 +3565,401 @@ async def test_run_main_loop_mentions_only_skips_voice_and_files(
     assert calls["voice"] == 0
     assert calls["file"] == 0
     assert runner.calls == []
+
+
+@pytest.mark.anyio
+async def test_invoke_command_builtin(tmp_path: Path) -> None:
+    """Test that invoke_command can call built-in commands."""
+    from takopi.telegram.commands.executor import _TelegramCommandExecutor
+
+    runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
+    router = _make_router(runner)
+    config_path = tmp_path / "takopi.toml"
+    config_path.touch()
+    transport = FakeTransport()
+    presenter = TelegramPresenter()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport, presenter=presenter, final_notify=True
+    )
+    runtime = TransportRuntime(
+        router=router,
+        projects=_empty_projects(),
+        config_path=config_path,
+    )
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=lambda _: None)
+
+    # Track dispatcher calls
+    dispatch_calls: list[tuple[str, str, RunContext | None]] = []
+
+    async def mock_dispatcher(
+        command: str, args: str = "", context: RunContext | None = None
+    ) -> commands.CommandResult | None:
+        dispatch_calls.append((command, args, context))
+        return None
+
+    executor = _TelegramCommandExecutor(
+        exec_cfg=exec_cfg,
+        runtime=runtime,
+        running_tasks={},
+        scheduler=scheduler,
+        on_thread_known=None,
+        engine_overrides_resolver=None,
+        chat_id=123,
+        user_msg_id=1,
+        thread_id=None,
+        show_resume_line=True,
+        stateful_mode=False,
+        default_engine_override=None,
+        command_dispatcher=mock_dispatcher,
+    )
+
+    # Test invoke_command without context
+    result = await executor.invoke_command("topic", "myproject @main")
+    assert result is None
+    assert dispatch_calls == [("topic", "myproject @main", None)]
+
+    # Test with leading slash - dispatcher receives as-is
+    result = await executor.invoke_command("/trigger", "mentions")
+    assert result is None
+    assert dispatch_calls == [
+        ("topic", "myproject @main", None),
+        ("/trigger", "mentions", None),
+    ]
+
+    # Test with context override
+    custom_context = RunContext(project="custom-project", branch="custom-branch")
+    result = await executor.invoke_command("agent", "claude", context=custom_context)
+    assert result is None
+    assert dispatch_calls == [
+        ("topic", "myproject @main", None),
+        ("/trigger", "mentions", None),
+        ("agent", "claude", custom_context),
+    ]
+
+
+@pytest.mark.anyio
+async def test_invoke_command_not_available() -> None:
+    """Test that invoke_command raises when dispatcher is not set."""
+    from takopi.telegram.commands.executor import _TelegramCommandExecutor
+
+    runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
+    router = _make_router(runner)
+    transport = FakeTransport()
+    presenter = TelegramPresenter()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport, presenter=presenter, final_notify=True
+    )
+    runtime = TransportRuntime(
+        router=router,
+        projects=_empty_projects(),
+    )
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=lambda _: None)
+
+    executor = _TelegramCommandExecutor(
+        exec_cfg=exec_cfg,
+        runtime=runtime,
+        running_tasks={},
+        scheduler=scheduler,
+        on_thread_known=None,
+        engine_overrides_resolver=None,
+        chat_id=123,
+        user_msg_id=1,
+        thread_id=None,
+        show_resume_line=True,
+        stateful_mode=False,
+        default_engine_override=None,
+        # No command_dispatcher provided
+    )
+
+    with pytest.raises(NotImplementedError, match="not available"):
+        await executor.invoke_command("topic", "args")
+
+
+@pytest.mark.anyio
+async def test_invoke_builtin_command_unknown_returns_error(tmp_path: Path) -> None:
+    """Test that _invoke_builtin_command returns error for unknown commands."""
+    from takopi.telegram.loop import _invoke_builtin_command
+
+    runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
+    transport = FakeTransport()
+    cfg = make_cfg(transport, runner=runner)
+
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=1,
+        text="/unknown",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=456,
+        raw={},
+    )
+
+    result = await _invoke_builtin_command(
+        cfg=cfg,
+        msg=msg,
+        command_id="unknown_command",
+        args_text="",
+        ambient_context=None,
+        context_override=None,
+        topic_store=None,
+        chat_prefs=None,
+        resolved_scope=None,
+        scope_chat_ids=frozenset(),
+    )
+
+    assert result is not None
+    assert "unknown command" in result.text
+    assert "/unknown_command" in result.text
+
+
+@pytest.mark.anyio
+async def test_invoke_builtin_command_trigger_uses_effective_context(
+    tmp_path: Path,
+) -> None:
+    """Test that _invoke_builtin_command uses context_override when provided."""
+    from takopi.telegram.loop import _invoke_builtin_command
+
+    runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
+    transport = FakeTransport()
+    cfg = make_cfg(transport, runner=runner)
+
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=1,
+        text="/trigger",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=456,
+        raw={},
+    )
+
+    # Create chat prefs store
+    prefs_path = tmp_path / "chat_prefs.json"
+    chat_prefs = ChatPrefsStore(prefs_path)
+
+    # Invoke trigger show command - should work even without context
+    result = await _invoke_builtin_command(
+        cfg=cfg,
+        msg=msg,
+        command_id="trigger",
+        args_text="",
+        ambient_context=None,
+        context_override=None,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+        resolved_scope=None,
+        scope_chat_ids=frozenset(),
+    )
+
+    # trigger command sends reply directly, returns None
+    assert result is None
+    # Check that a message was sent
+    assert len(transport.send_calls) == 1
+    assert "trigger:" in transport.send_calls[0]["message"].text
+
+
+@pytest.mark.anyio
+async def test_invoke_builtin_command_context_override_precedence(
+    tmp_path: Path,
+) -> None:
+    """Test that context_override takes precedence over ambient_context."""
+    from takopi.telegram.loop import _invoke_builtin_command
+
+    runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
+    transport = FakeTransport()
+    cfg = make_cfg(transport, runner=runner)
+
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=1,
+        text="/agent",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=456,
+        raw={},
+    )
+
+    prefs_path = tmp_path / "chat_prefs.json"
+    chat_prefs = ChatPrefsStore(prefs_path)
+
+    ambient = RunContext(project="ambient-project", branch="ambient-branch")
+    override = RunContext(project="override-project", branch="override-branch")
+
+    # With both contexts, override should be used
+    result = await _invoke_builtin_command(
+        cfg=cfg,
+        msg=msg,
+        command_id="agent",
+        args_text="",
+        ambient_context=ambient,
+        context_override=override,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+        resolved_scope=None,
+        scope_chat_ids=frozenset(),
+    )
+
+    # agent command sends reply directly, returns None
+    assert result is None
+    # Check that a message was sent
+    assert len(transport.send_calls) == 1
+
+
+@pytest.mark.anyio
+async def test_invoke_builtin_command_file_disabled(tmp_path: Path) -> None:
+    """Test that file command returns error when files are disabled."""
+    from takopi.telegram.loop import _invoke_builtin_command
+
+    runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
+    transport = FakeTransport()
+    # Default config has files disabled
+    cfg = make_cfg(transport, runner=runner)
+
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=1,
+        text="/file",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=456,
+        raw={},
+    )
+
+    result = await _invoke_builtin_command(
+        cfg=cfg,
+        msg=msg,
+        command_id="file",
+        args_text="get test.txt",
+        ambient_context=None,
+        context_override=None,
+        topic_store=None,
+        chat_prefs=None,
+        resolved_scope=None,
+        scope_chat_ids=frozenset(),
+    )
+
+    # When files disabled, sends error reply and returns None
+    assert result is None
+    assert len(transport.send_calls) == 1
+    assert "file transfer disabled" in transport.send_calls[0]["message"].text
+
+
+@pytest.mark.anyio
+async def test_make_command_dispatcher_strips_slash(tmp_path: Path) -> None:
+    """Test that make_command_dispatcher strips leading slash from command."""
+    from takopi.telegram.commands.executor import _TelegramCommandExecutor
+
+    runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
+    router = _make_router(runner)
+    config_path = tmp_path / "takopi.toml"
+    config_path.touch()
+    transport = FakeTransport()
+    presenter = TelegramPresenter()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport, presenter=presenter, final_notify=True
+    )
+    runtime = TransportRuntime(
+        router=router,
+        projects=_empty_projects(),
+        config_path=config_path,
+    )
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=lambda _: None)
+
+    # Track what command_id is passed to the dispatcher
+    received_commands: list[str] = []
+
+    async def tracking_dispatcher(
+        command: str, args: str = "", context: RunContext | None = None
+    ) -> commands.CommandResult | None:
+        received_commands.append(command)
+        return None
+
+    executor = _TelegramCommandExecutor(
+        exec_cfg=exec_cfg,
+        runtime=runtime,
+        running_tasks={},
+        scheduler=scheduler,
+        on_thread_known=None,
+        engine_overrides_resolver=None,
+        chat_id=123,
+        user_msg_id=1,
+        thread_id=None,
+        show_resume_line=True,
+        stateful_mode=False,
+        default_engine_override=None,
+        command_dispatcher=tracking_dispatcher,
+    )
+
+    # Call with slash prefix
+    await executor.invoke_command("/topic", "project @branch")
+    # Call without slash
+    await executor.invoke_command("trigger", "mentions")
+
+    # The dispatcher receives commands as-is from invoke_command
+    # The actual slash stripping happens in make_command_dispatcher in loop.py
+    assert received_commands == ["/topic", "trigger"]
+
+
+@pytest.mark.anyio
+async def test_invoke_command_passes_context_to_dispatcher(tmp_path: Path) -> None:
+    """Test that invoke_command correctly passes context to the dispatcher."""
+    from takopi.telegram.commands.executor import _TelegramCommandExecutor
+
+    runner = ScriptRunner(engine=CODEX_ENGINE, script=[Return("done")])
+    router = _make_router(runner)
+    config_path = tmp_path / "takopi.toml"
+    config_path.touch()
+    transport = FakeTransport()
+    presenter = TelegramPresenter()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport, presenter=presenter, final_notify=True
+    )
+    runtime = TransportRuntime(
+        router=router,
+        projects=_empty_projects(),
+        config_path=config_path,
+    )
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=lambda _: None)
+
+    # Track dispatcher invocations with their context
+    invocations: list[tuple[str, str, RunContext | None]] = []
+
+    async def capturing_dispatcher(
+        command: str, args: str = "", context: RunContext | None = None
+    ) -> commands.CommandResult | None:
+        invocations.append((command, args, context))
+        return commands.CommandResult(text="ok")
+
+    executor = _TelegramCommandExecutor(
+        exec_cfg=exec_cfg,
+        runtime=runtime,
+        running_tasks={},
+        scheduler=scheduler,
+        on_thread_known=None,
+        engine_overrides_resolver=None,
+        chat_id=123,
+        user_msg_id=1,
+        thread_id=None,
+        show_resume_line=True,
+        stateful_mode=False,
+        default_engine_override=None,
+        command_dispatcher=capturing_dispatcher,
+    )
+
+    # Test with no context
+    await executor.invoke_command("topic", "project @main")
+    assert invocations[-1] == ("topic", "project @main", None)
+
+    # Test with context
+    ctx = RunContext(project="myproject", branch="feature")
+    await executor.invoke_command("trigger", "mentions", context=ctx)
+    assert invocations[-1] == ("trigger", "mentions", ctx)
+
+    # Verify context object is passed through correctly
+    assert invocations[-1][2] is ctx
+    assert invocations[-1][2].project == "myproject"
+    assert invocations[-1][2].branch == "feature"

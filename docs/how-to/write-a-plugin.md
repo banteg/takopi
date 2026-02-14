@@ -117,6 +117,29 @@ Configure under `[plugins.<id>]`:
 
 The parsed dict is available as `ctx.plugin_config` in `handle()`.
 
+### Invoking built-in commands
+
+Plugins can invoke built-in commands using `ctx.executor.invoke_command()`:
+
+```py
+async def handle(self, ctx: CommandContext) -> CommandResult | None:
+    # Set up a topic before running
+    await ctx.executor.invoke_command("topic", "myproject @feature")
+
+    # Then run the user's prompt
+    return await ctx.executor.run_one(
+        RunRequest(prompt=ctx.args_text)
+    )
+```
+
+This is useful for:
+
+- **Workflow commands** that chain multiple operations
+- **Commands that configure state** before running an engine
+- **Plugins that extend** built-in behavior
+
+See [invoke_command() reference](../reference/plugin-api.md#invoke_command) for parameters and supported commands.
+
 ## Enable/disable installed plugins
 
 === "takopi config"

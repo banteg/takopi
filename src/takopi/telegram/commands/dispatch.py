@@ -15,7 +15,7 @@ from ...scheduler import ThreadScheduler
 from ...transport import MessageRef
 from ..files import split_command_args
 from ..types import TelegramIncomingMessage
-from .executor import _TelegramCommandExecutor
+from .executor import CommandDispatcher, _TelegramCommandExecutor
 
 if TYPE_CHECKING:
     from ..bridge import TelegramBridgeConfig
@@ -36,6 +36,7 @@ async def _dispatch_command(
     default_engine_override: EngineId | None,
     engine_overrides_resolver: Callable[[EngineId], Awaitable[EngineRunOptions | None]]
     | None,
+    command_dispatcher: CommandDispatcher | None = None,
 ) -> None:
     allowlist = cfg.runtime.allowlist
     chat_id = msg.chat_id
@@ -62,6 +63,7 @@ async def _dispatch_command(
         show_resume_line=cfg.show_resume_line,
         stateful_mode=stateful_mode,
         default_engine_override=default_engine_override,
+        command_dispatcher=command_dispatcher,
     )
     message_ref = MessageRef(
         channel_id=chat_id,
