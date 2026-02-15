@@ -22,6 +22,7 @@ def build_bot_commands(
     *,
     include_file: bool = True,
     include_topics: bool = False,
+    mode_shortcuts: tuple[str, ...] = (),
 ) -> list[dict[str, str]]:
     commands: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -74,6 +75,7 @@ def build_bot_commands(
         ("new", "start a new thread"),
         ("ctx", "show or update context"),
         ("agent", "set default engine"),
+        ("mode", "set agent mode"),
         ("model", "set model override"),
         ("reasoning", "set reasoning override"),
         ("trigger", "set trigger mode"),
@@ -81,6 +83,14 @@ def build_bot_commands(
         if cmd in seen:
             continue
         commands.append({"command": cmd, "description": description})
+        seen.add(cmd)
+    for shortcut in mode_shortcuts:
+        cmd = shortcut.lower()
+        if cmd in seen:
+            continue
+        if not is_valid_id(cmd):
+            continue
+        commands.append({"command": cmd, "description": f"set mode: {cmd}"})
         seen.add(cmd)
     if include_topics:
         for cmd, description in [("topic", "create or bind a topic")]:
@@ -114,10 +124,19 @@ def _reserved_commands(runtime: TransportRuntime) -> set[str]:
 
 
 async def _set_command_menu(cfg: TelegramBridgeConfig) -> None:
+    await _set_command_menu_with_shortcuts(cfg)
+
+
+async def _set_command_menu_with_shortcuts(
+    cfg: TelegramBridgeConfig,
+    *,
+    mode_shortcuts: tuple[str, ...] | None = None,
+) -> None:
     commands = build_bot_commands(
         cfg.runtime,
         include_file=cfg.files.enabled,
         include_topics=cfg.topics.enabled,
+        mode_shortcuts=cfg.mode_shortcuts if mode_shortcuts is None else mode_shortcuts,
     )
     if not commands:
         return

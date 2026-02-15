@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .backends import EngineBackend, EngineConfig, SetupIssue
+from .agent_modes import AgentModeCapabilities
 from .commands import (
     CommandBackend,
     CommandContext,
@@ -55,6 +56,7 @@ __all__ = [
     # Core types
     "Action",
     "ActionEvent",
+    "AgentModeCapabilities",
     "BaseRunner",
     "CompletedEvent",
     "ConfigError",

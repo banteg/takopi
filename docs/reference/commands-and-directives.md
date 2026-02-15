@@ -36,6 +36,7 @@ This line is parsed from replies and takes precedence over new directives.
 |---------|-------------|
 | `/cancel` | Reply to the progress message to stop the current run. |
 | `/agent` | Show/set the default engine for the current scope. |
+| `/mode` | Show/set the agent mode override for the current scope. |
 | `/model` | Show/set the model override for the current scope. |
 | `/reasoning` | Show/set the reasoning override for the current scope. |
 | `/trigger` | Show/set trigger mode (mentions-only vs all). |
@@ -52,6 +53,8 @@ Notes:
 - Outside topics, `/ctx` binds the chat context.
 - In topics, `/ctx` binds the topic context.
 - `/new` clears sessions but does **not** clear a bound context.
+- Dynamic `/<mode>` shortcuts (for example `/plan`, `/build`) are available
+  when the selected engine reports known modes at startup.
 
 ## CLI
 

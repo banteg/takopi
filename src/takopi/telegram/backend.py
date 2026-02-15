@@ -39,6 +39,8 @@ def _build_startup_message(
     session_mode: Literal["stateless", "chat"],
     show_resume_line: bool,
     topics: TelegramTopicsSettings,
+    mode_supported_engines: frozenset[str] = frozenset(),
+    mode_known_modes: dict[str, tuple[str, ...]] | None = None,
 ) -> str:
     available_engines = list(runtime.available_engine_ids())
     missing_engines = list(runtime.missing_engine_ids())
@@ -56,6 +58,23 @@ def _build_startup_message(
         notes.append(f"failed to load: {', '.join(failed_engines)}")
     if notes:
         engine_list = f"{engine_list} ({'; '.join(notes)})"
+    known_modes = mode_known_modes or {}
+    mode_parts: list[str] = []
+    available_set = {engine.lower() for engine in runtime.available_engine_ids()}
+    for engine in runtime.engine_ids:
+        key = engine.lower()
+        if key not in available_set:
+            mode_parts.append(f"{engine}: unavailable")
+            continue
+        if key not in mode_supported_engines:
+            mode_parts.append(f"{engine}: not supported")
+            continue
+        modes = known_modes.get(key)
+        if modes:
+            mode_parts.append(f"{engine}: {', '.join(modes)}")
+            continue
+        mode_parts.append(f"{engine}: supported")
+    mode_list = "; ".join(mode_parts) if mode_parts else "none"
     project_aliases = sorted(set(runtime.project_aliases()), key=str.lower)
     project_list = ", ".join(project_aliases) if project_aliases else "none"
     resume_label = "shown" if show_resume_line else "hidden"
@@ -72,6 +91,7 @@ def _build_startup_message(
         f"\N{OCTOPUS} **takopi is ready**\n\n"
         f"default: `{runtime.default_engine}`  \n"
         f"engines: `{engine_list}`  \n"
+        f"agent modes: `{mode_list}`  \n"
         f"projects: `{project_list}`  \n"
         f"mode: `{session_mode}`  \n"
         f"topics: `{topics_label}`  \n"
@@ -111,6 +131,9 @@ class TelegramBackend(TransportBackend):
         settings = _expect_transport_settings(transport_config)
         token = settings.bot_token
         chat_id = settings.chat_id
+        mode_discovery = runtime.discover_agent_modes(
+            timeout_s=settings.mode_discovery_timeout_s,
+        )
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),
@@ -118,6 +141,8 @@ class TelegramBackend(TransportBackend):
             session_mode=settings.session_mode,
             show_resume_line=settings.show_resume_line,
             topics=settings.topics,
+            mode_supported_engines=mode_discovery.supports_agent,
+            mode_known_modes=mode_discovery.known_modes,
         )
         bot = TelegramClient(token)
         transport = TelegramTransport(bot)
@@ -145,6 +170,10 @@ class TelegramBackend(TransportBackend):
             allowed_user_ids=tuple(settings.allowed_user_ids),
             topics=settings.topics,
             files=settings.files,
+            mode_supported_engines=mode_discovery.supports_agent,
+            mode_known_modes=mode_discovery.known_modes,
+            mode_shortcuts=mode_discovery.shortcut_modes,
+            mode_discovery_timeout_s=settings.mode_discovery_timeout_s,
         )
 
         async def run_loop() -> None:

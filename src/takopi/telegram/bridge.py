@@ -132,6 +132,10 @@ class TelegramBridgeConfig:
     files: TelegramFilesSettings = field(default_factory=TelegramFilesSettings)
     chat_ids: tuple[int, ...] | None = None
     topics: TelegramTopicsSettings = field(default_factory=TelegramTopicsSettings)
+    mode_supported_engines: frozenset[str] = field(default_factory=frozenset)
+    mode_known_modes: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    mode_shortcuts: tuple[str, ...] = ()
+    mode_discovery_timeout_s: float = 8.0
 
 
 class TelegramTransport:
@@ -321,6 +325,7 @@ def build_bot_commands(
     *,
     include_file: bool = True,
     include_topics: bool = False,
+    mode_shortcuts: tuple[str, ...] = (),
 ):
     from .commands import build_bot_commands as _build
 
@@ -328,6 +333,7 @@ def build_bot_commands(
         runtime,
         include_file=include_file,
         include_topics=include_topics,
+        mode_shortcuts=mode_shortcuts,
     )
 
 

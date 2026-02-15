@@ -52,6 +52,22 @@ BACKEND = EngineBackend(
 )
 ```
 
+Optional: if your engine supports agent modes (for example `--agent`), expose them
+to Telegram `/mode` by adding `discover_agent_modes`:
+
+```py
+from takopi.api import AgentModeCapabilities
+
+
+def discover_agent_modes(timeout_s: float) -> AgentModeCapabilities:
+    _ = timeout_s
+    return AgentModeCapabilities(
+        supports_agent=True,
+        known_modes=("plan", "build"),
+        shortcut_modes=("plan", "build"),
+    )
+```
+
 Engine config is a raw table in `takopi.toml`:
 
 === "takopi config"
