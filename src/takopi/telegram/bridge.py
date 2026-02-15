@@ -135,6 +135,7 @@ class TelegramBridgeConfig:
     mode_supported_engines: frozenset[str] = field(default_factory=frozenset)
     mode_known_modes: dict[str, tuple[str, ...]] = field(default_factory=dict)
     mode_shortcuts: tuple[str, ...] = ()
+    mode_discovery_timeout_s: float = 8.0
 
 
 class TelegramTransport:

@@ -162,6 +162,8 @@ def _dispatch_builtin_command(
     chat_prefs = ctx.chat_prefs
     resolved_scope = ctx.resolved_scope
     scope_chat_ids = ctx.scope_chat_ids
+    mode_supported_engines = ctx.mode_supported_engines
+    mode_known_modes = ctx.mode_known_modes
     reply = ctx.reply
     task_group = ctx.task_group
     if command_id == "file":
@@ -194,7 +196,7 @@ def _dispatch_builtin_command(
                 cfg,
                 msg,
                 args_text,
-                topic_store,
+                cast(TopicStateStore, topic_store),
                 resolved_scope=resolved_scope,
                 scope_chat_ids=scope_chat_ids,
             )
@@ -276,6 +278,8 @@ def _dispatch_builtin_command(
             chat_prefs,
             resolved_scope=resolved_scope,
             scope_chat_ids=scope_chat_ids,
+            mode_supported_engines=mode_supported_engines,
+            mode_known_modes=mode_known_modes,
         )
         task_group.start_soon(handler)
         return True
@@ -405,6 +409,8 @@ class TelegramCommandContext:
     chat_prefs: ChatPrefsStore | None
     resolved_scope: str | None
     scope_chat_ids: frozenset[int]
+    mode_supported_engines: frozenset[str]
+    mode_known_modes: dict[str, tuple[str, ...]]
     reply: Callable[..., Awaitable[None]]
     task_group: TaskGroup
 
@@ -441,8 +447,11 @@ class TelegramLoopState:
     command_ids: set[str]
     reserved_commands: set[str]
     reserved_chat_commands: set[str]
+    mode_supported_engines: frozenset[str]
+    mode_known_modes: dict[str, tuple[str, ...]]
     mode_shortcuts: tuple[str, ...]
     active_mode_shortcuts: tuple[str, ...]
+    mode_discovery_timeout_s: float
     transport_snapshot: dict[str, object] | None
     topic_store: TopicStateStore | None
     chat_session_store: ChatSessionStore | None
@@ -1006,8 +1015,11 @@ async def run_main_loop(
         },
         reserved_commands=get_reserved_commands(cfg.runtime),
         reserved_chat_commands=set(RESERVED_CHAT_COMMANDS),
+        mode_supported_engines=frozenset(cfg.mode_supported_engines),
+        mode_known_modes=dict(cfg.mode_known_modes),
         mode_shortcuts=tuple(mode.lower() for mode in cfg.mode_shortcuts),
         active_mode_shortcuts=(),
+        mode_discovery_timeout_s=float(cfg.mode_discovery_timeout_s),
         transport_snapshot=(
             transport_config.model_dump() if transport_config is not None else None
         ),
@@ -1035,6 +1047,14 @@ async def run_main_loop(
         else:
             state.resolved_topics_scope = None
             state.topics_chat_ids = frozenset()
+
+    def refresh_mode_capabilities() -> None:
+        discovered = cfg.runtime.discover_agent_modes(
+            timeout_s=state.mode_discovery_timeout_s,
+        )
+        state.mode_supported_engines = discovered.supports_agent
+        state.mode_known_modes = dict(discovered.known_modes)
+        state.mode_shortcuts = tuple(mode.lower() for mode in discovered.shortcut_modes)
 
     def refresh_mode_shortcuts() -> None:
         state.active_mode_shortcuts = _active_mode_shortcuts(
@@ -1133,6 +1153,11 @@ async def run_main_loop(
             watch_enabled = bool(watch_config) and config_path is not None
 
             async def handle_reload(reload: ConfigReload) -> None:
+                state.mode_discovery_timeout_s = max(
+                    0.1,
+                    float(reload.settings.transports.telegram.mode_discovery_timeout_s),
+                )
+                refresh_mode_capabilities()
                 refresh_commands()
                 refresh_topics_scope()
                 await set_command_menu_with_shortcuts(
@@ -1245,7 +1270,7 @@ async def run_main_loop(
                     engine_for_overrides,
                     chat_prefs=state.chat_prefs,
                     topic_store=state.topic_store,
-                    mode_supported_engines=cfg.mode_supported_engines,
+                    mode_supported_engines=state.mode_supported_engines,
                 )
                 await run_engine(
                     exec_cfg=cfg.exec_cfg,
@@ -1716,6 +1741,8 @@ async def run_main_loop(
                         chat_prefs=state.chat_prefs,
                         resolved_scope=state.resolved_topics_scope,
                         scope_chat_ids=state.topics_chat_ids,
+                        mode_supported_engines=state.mode_supported_engines,
+                        mode_known_modes=state.mode_known_modes,
                         reply=reply,
                         task_group=tg,
                     ),
@@ -1737,6 +1764,8 @@ async def run_main_loop(
                                 chat_prefs=state.chat_prefs,
                                 scope_chat_ids=state.topics_chat_ids,
                                 announce=True,
+                                mode_supported_engines=state.mode_supported_engines,
+                                mode_known_modes=state.mode_known_modes,
                             )
                         )
                         return
@@ -1749,6 +1778,8 @@ async def run_main_loop(
                         chat_prefs=state.chat_prefs,
                         scope_chat_ids=state.topics_chat_ids,
                         announce=False,
+                        mode_supported_engines=state.mode_supported_engines,
+                        mode_known_modes=state.mode_known_modes,
                     )
                     if not mode_set:
                         return
@@ -1837,7 +1868,7 @@ async def run_main_loop(
                             overrides_thread_id,
                             chat_prefs=state.chat_prefs,
                             topic_store=state.topic_store,
-                            mode_supported_engines=cfg.mode_supported_engines,
+                            mode_supported_engines=state.mode_supported_engines,
                         )
                         tg.start_soon(
                             dispatch_command,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from ...context import RunContext
@@ -24,21 +25,41 @@ if TYPE_CHECKING:
 MODE_USAGE = "usage: `/mode`, `/mode <name>`, `/mode set <name>`, or `/mode clear`"
 
 
-def _known_modes_for_engine(cfg: TelegramBridgeConfig, engine: str) -> tuple[str, ...]:
-    return cfg.mode_known_modes.get(engine, ())
+def _known_modes_for_engine(
+    cfg: TelegramBridgeConfig,
+    engine: str,
+    *,
+    mode_known_modes: Mapping[str, tuple[str, ...]] | None = None,
+) -> tuple[str, ...]:
+    known_modes = cfg.mode_known_modes if mode_known_modes is None else mode_known_modes
+    return known_modes.get(engine, ())
 
 
-def _supports_mode_overrides(cfg: TelegramBridgeConfig, engine: str) -> bool:
-    return engine in cfg.mode_supported_engines
+def _supports_mode_overrides(
+    cfg: TelegramBridgeConfig,
+    engine: str,
+    *,
+    mode_supported_engines: frozenset[str] | None = None,
+) -> bool:
+    supported = (
+        cfg.mode_supported_engines
+        if mode_supported_engines is None
+        else mode_supported_engines
+    )
+    return engine in supported
 
 
 def _validate_mode_name(
-    cfg: TelegramBridgeConfig, *, engine: str, mode: str
+    cfg: TelegramBridgeConfig,
+    *,
+    engine: str,
+    mode: str,
+    mode_known_modes: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[str | None, str | None]:
     normalized = mode.strip().lower()
     if not normalized:
         return None, MODE_USAGE
-    known = _known_modes_for_engine(cfg, engine)
+    known = _known_modes_for_engine(cfg, engine, mode_known_modes=mode_known_modes)
     if known and normalized not in known:
         available = ", ".join(known)
         return (
@@ -58,6 +79,8 @@ async def _set_mode_for_message(
     chat_prefs: ChatPrefsStore | None,
     scope_chat_ids: frozenset[int] | None,
     announce: bool,
+    mode_supported_engines: frozenset[str] | None = None,
+    mode_known_modes: Mapping[str, tuple[str, ...]] | None = None,
 ) -> bool:
     reply = make_reply(cfg, msg)
     tkey = (
@@ -76,13 +99,18 @@ async def _set_mode_for_message(
     if selection is None:
         return False
     engine, _engine_source = selection
-    if not _supports_mode_overrides(cfg, engine):
+    if not _supports_mode_overrides(
+        cfg,
+        engine,
+        mode_supported_engines=mode_supported_engines,
+    ):
         await reply(text=f"engine `{engine}` does not support mode overrides.")
         return False
     normalized_mode, validation_error = _validate_mode_name(
         cfg,
         engine=engine,
         mode=mode,
+        mode_known_modes=mode_known_modes,
     )
     if validation_error is not None:
         await reply(text=validation_error)
@@ -142,6 +170,8 @@ async def _handle_mode_command(
     *,
     resolved_scope: str | None = None,
     scope_chat_ids: frozenset[int] | None = None,
+    mode_supported_engines: frozenset[str] | None = None,
+    mode_known_modes: Mapping[str, tuple[str, ...]] | None = None,
 ) -> None:
     _ = resolved_scope
     reply = make_reply(cfg, msg)
@@ -188,10 +218,18 @@ async def _handle_mode_command(
             "unavailable" if chat_prefs is None else resolution.chat_value or "none"
         )
         defaults_line = f"defaults: topic: {topic_label}, chat: {chat_label}"
-        if not _supports_mode_overrides(cfg, engine):
+        if not _supports_mode_overrides(
+            cfg,
+            engine,
+            mode_supported_engines=mode_supported_engines,
+        ):
             available_line = "available modes: not supported"
         else:
-            known = _known_modes_for_engine(cfg, engine)
+            known = _known_modes_for_engine(
+                cfg,
+                engine,
+                mode_known_modes=mode_known_modes,
+            )
             if known:
                 available_line = f"available modes: {', '.join(known)}"
             else:
@@ -224,7 +262,11 @@ async def _handle_mode_command(
         if selection is None:
             return
         engine, _engine_source = selection
-        if not _supports_mode_overrides(cfg, engine):
+        if not _supports_mode_overrides(
+            cfg,
+            engine,
+            mode_supported_engines=mode_supported_engines,
+        ):
             await reply(text=f"engine `{engine}` does not support mode overrides.")
             return
         scope = await apply_engine_override(
@@ -270,4 +312,6 @@ async def _handle_mode_command(
         chat_prefs=chat_prefs,
         scope_chat_ids=scope_chat_ids,
         announce=True,
+        mode_supported_engines=mode_supported_engines,
+        mode_known_modes=mode_known_modes,
     )

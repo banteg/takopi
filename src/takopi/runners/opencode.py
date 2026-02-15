@@ -14,12 +14,14 @@ Session IDs use the format: ses_XXXX (e.g., ses_494719016ffe85dkDMj0FPRbHK)
 from __future__ import annotations
 
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 import msgspec
 
+from ..agent_modes import AgentModeCapabilities
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
 from ..logging import get_logger
@@ -46,6 +48,71 @@ ENGINE: EngineId = "opencode"
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?opencode(?:\s+run)?\s+(?:--session|-s)\s+(?P<token>ses_[A-Za-z0-9]+)`?\s*$"
 )
+_DEFAULT_OPENCODE_MODES: tuple[str, ...] = ("build", "plan")
+
+
+def _parse_agent_modes(raw: str) -> tuple[str, ...]:
+    found: list[str] = []
+    seen: set[str] = set()
+    for line in raw.splitlines():
+        match = re.match(r"^([a-z0-9_\-]{1,64})\s+\(", line.strip().lower())
+        if match is None:
+            continue
+        mode = match.group(1)
+        if mode in seen:
+            continue
+        seen.add(mode)
+        found.append(mode)
+    return tuple(found)
+
+
+def discover_agent_modes(timeout_s: float) -> AgentModeCapabilities:
+    try:
+        proc = subprocess.run(
+            ["opencode", "agent", "list"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_s,
+            check=False,
+        )
+    except OSError as exc:
+        logger.info(
+            "opencode.agent_modes.failed",
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+        return AgentModeCapabilities(
+            supports_agent=True,
+            known_modes=_DEFAULT_OPENCODE_MODES,
+        )
+    except subprocess.TimeoutExpired:
+        logger.info("opencode.agent_modes.timeout", timeout_s=timeout_s)
+        return AgentModeCapabilities(
+            supports_agent=True,
+            known_modes=_DEFAULT_OPENCODE_MODES,
+        )
+
+    raw = f"{proc.stdout}\n{proc.stderr}".strip()
+    if proc.returncode != 0:
+        logger.info("opencode.agent_modes.nonzero", rc=proc.returncode)
+        return AgentModeCapabilities(
+            supports_agent=True,
+            known_modes=_DEFAULT_OPENCODE_MODES,
+        )
+    discovered = _parse_agent_modes(raw)
+    if not discovered:
+        logger.info("opencode.agent_modes.empty")
+        return AgentModeCapabilities(
+            supports_agent=True,
+            known_modes=_DEFAULT_OPENCODE_MODES,
+        )
+    return AgentModeCapabilities(
+        supports_agent=True,
+        known_modes=discovered,
+        shortcut_modes=discovered,
+    )
 
 
 @dataclass(slots=True)
@@ -501,4 +568,5 @@ BACKEND = EngineBackend(
     id="opencode",
     build_runner=build_runner,
     install_cmd="npm install -g opencode-ai@latest",
+    discover_agent_modes=discover_agent_modes,
 )

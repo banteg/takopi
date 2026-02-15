@@ -4,7 +4,7 @@ import os
 import signal
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 import anyio
 from anyio.abc import Process
@@ -12,6 +12,11 @@ from anyio.abc import Process
 from ..logging import get_logger
 
 logger = get_logger(__name__)
+
+_SIGKILL_FALLBACK = cast(
+    int | signal.Signals,
+    getattr(signal, "SIGKILL", signal.SIGTERM),
+)
 
 
 async def wait_for_process(proc: Process, timeout: float) -> bool:
@@ -32,7 +37,7 @@ def terminate_process(proc: Process) -> None:
 def kill_process(proc: Process) -> None:
     _signal_process(
         proc,
-        signal.SIGKILL,
+        _SIGKILL_FALLBACK,
         fallback=proc.kill,
         log_event="subprocess.kill.failed",
     )
@@ -40,16 +45,18 @@ def kill_process(proc: Process) -> None:
 
 def _signal_process(
     proc: Process,
-    sig: signal.Signals,
+    sig: int | signal.Signals,
     *,
     fallback: Callable[[], None],
     log_event: str,
 ) -> None:
     if proc.returncode is not None:
         return
-    if os.name == "posix" and proc.pid is not None:
+    killpg = getattr(os, "killpg", None)
+    if os.name == "posix" and proc.pid is not None and killpg is not None:
+        killpg_fn = cast(Callable[[int, int | signal.Signals], None], killpg)
         try:
-            os.killpg(proc.pid, sig)
+            killpg_fn(proc.pid, sig)
             return
         except ProcessLookupError:
             return

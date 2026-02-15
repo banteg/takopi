@@ -12,7 +12,6 @@ from ..runner_bridge import ExecBridgeConfig
 from ..settings import TelegramTopicsSettings, TelegramTransportSettings
 from ..transport_runtime import TransportRuntime
 from ..transports import SetupResult, TransportBackend
-from .agent_modes import discover_engine_modes
 from .bridge import (
     TelegramBridgeConfig,
     TelegramPresenter,
@@ -132,8 +131,7 @@ class TelegramBackend(TransportBackend):
         settings = _expect_transport_settings(transport_config)
         token = settings.bot_token
         chat_id = settings.chat_id
-        mode_discovery = discover_engine_modes(
-            runtime,
+        mode_discovery = runtime.discover_agent_modes(
             timeout_s=settings.mode_discovery_timeout_s,
         )
         startup_msg = _build_startup_message(
@@ -175,6 +173,7 @@ class TelegramBackend(TransportBackend):
             mode_supported_engines=mode_discovery.supports_agent,
             mode_known_modes=mode_discovery.known_modes,
             mode_shortcuts=mode_discovery.shortcut_modes,
+            mode_discovery_timeout_s=settings.mode_discovery_timeout_s,
         )
 
         async def run_loop() -> None:

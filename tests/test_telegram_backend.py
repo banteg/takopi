@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from takopi.agent_modes import ModeDiscoveryResult
 from takopi.config import ProjectsConfig
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
@@ -14,7 +15,6 @@ from takopi.settings import (
     TelegramTransportSettings,
 )
 from takopi.telegram import backend as telegram_backend
-from takopi.telegram.agent_modes import ModeDiscoveryResult
 from takopi.transport_runtime import TransportRuntime
 
 
@@ -144,7 +144,8 @@ def test_telegram_backend_build_and_run_wires_config(
     monkeypatch.setattr(telegram_backend, "TelegramClient", _FakeClient)
     discovery_timeout: dict[str, float] = {}
 
-    def fake_discover(_runtime, *, timeout_s: float) -> ModeDiscoveryResult:
+    def fake_discover(self, *, timeout_s: float) -> ModeDiscoveryResult:
+        _ = self
         discovery_timeout["value"] = timeout_s
         return ModeDiscoveryResult(
             supports_agent=frozenset({"codex"}),
@@ -152,7 +153,7 @@ def test_telegram_backend_build_and_run_wires_config(
             shortcut_modes=("plan", "build"),
         )
 
-    monkeypatch.setattr(telegram_backend, "discover_engine_modes", fake_discover)
+    monkeypatch.setattr(TransportRuntime, "discover_agent_modes", fake_discover)
 
     transport_config = TelegramTransportSettings(
         bot_token="token",
@@ -191,6 +192,7 @@ def test_telegram_backend_build_and_run_wires_config(
     assert cfg.mode_supported_engines == frozenset({"codex"})
     assert cfg.mode_known_modes == {"codex": ("plan", "build")}
     assert cfg.mode_shortcuts == ("plan", "build")
+    assert cfg.mode_discovery_timeout_s == 9.5
     assert discovery_timeout["value"] == 9.5
     assert cfg.bot.token == "token"
     assert kwargs["watch_config"] is True
