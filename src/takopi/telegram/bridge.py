@@ -297,6 +297,19 @@ class TelegramTransport:
             message_id=cast(int, ref.message_id),
         )
 
+    async def send_action(
+        self,
+        *,
+        channel_id: int | str,
+        action: str = "typing",
+        thread_id: int | str | None = None,
+    ) -> bool:
+        return await self._bot.send_chat_action(
+            chat_id=cast(int, channel_id),
+            action=action,
+            message_thread_id=cast(int | None, thread_id),
+        )
+
 
 async def send_plain(
     transport: Transport,

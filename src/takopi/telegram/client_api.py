@@ -126,6 +126,13 @@ class BotClient(Protocol):
         name: str,
     ) -> bool: ...
 
+    async def send_chat_action(
+        self,
+        chat_id: int,
+        action: str,
+        message_thread_id: int | None = None,
+    ) -> bool: ...
+
 
 class HttpBotClient:
     def __init__(
@@ -536,4 +543,16 @@ class HttpBotClient:
                 "name": name,
             },
         )
+        return bool(result)
+
+    async def send_chat_action(
+        self,
+        chat_id: int,
+        action: str,
+        message_thread_id: int | None = None,
+    ) -> bool:
+        params: dict[str, Any] = {"chat_id": chat_id, "action": action}
+        if message_thread_id is not None:
+            params["message_thread_id"] = message_thread_id
+        result = await self._post("sendChatAction", params)
         return bool(result)
