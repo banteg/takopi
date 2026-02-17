@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, Literal
 from collections.abc import Iterable
 
 from pydantic import (
@@ -58,14 +58,13 @@ class TelegramTopicsSettings(BaseModel):
 
     enabled: bool = False
     scope: Literal["auto", "main", "projects", "all"] = "auto"
-    prompt_mode: Literal["default", "party"] = "default"
 
 
 class TelegramFilesSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    max_upload_bytes: ClassVar[int] = 20 * 1024 * 1024
-    max_download_bytes: ClassVar[int] = 50 * 1024 * 1024
+    max_upload_bytes: int = 20 * 1024 * 1024
+    max_download_bytes: int = 50 * 1024 * 1024
 
     enabled: bool = False
     auto_put: bool = True
@@ -327,7 +326,7 @@ def require_telegram(settings: TakopiSettings, config_path: Path) -> tuple[str, 
     return tg.bot_token, tg.chat_id
 
 
-def _resolve_config_path(path: str | Path | None) -> Path:
+def _resolve_config_path(path: str | Path | None = None) -> Path:
     return Path(path).expanduser() if path else HOME_CONFIG_PATH
 
 
