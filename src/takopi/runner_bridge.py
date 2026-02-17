@@ -474,9 +474,8 @@ async def handle_message(
         thread_id=incoming.thread_id,
     )
 
-    running_task: RunningTask | None = None
+    running_task = RunningTask(context=context)
     if running_tasks is not None and progress_ref is not None:
-        running_task = RunningTask(context=context)
         running_tasks[progress_ref] = running_task
 
     cancel_exc_type = anyio.get_cancelled_exc_class()
@@ -514,10 +513,9 @@ async def handle_message(
                 error_type=exc.__class__.__name__,
             )
         finally:
-            if running_task is not None and running_tasks is not None:
-                running_task.done.set()
-                if progress_ref is not None:
-                    running_tasks.pop(progress_ref, None)
+            running_task.done.set()
+            if running_tasks is not None and progress_ref is not None:
+                running_tasks.pop(progress_ref, None)
             if not outcome.cancelled and error is None:
                 # Give pending progress edits a chance to flush if they're ready.
                 await anyio.sleep(0)
