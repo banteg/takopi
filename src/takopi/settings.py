@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Literal
+from typing import Annotated, Any, Literal
 from collections.abc import Iterable
 
 from pydantic import (
@@ -63,8 +63,8 @@ class TelegramTopicsSettings(BaseModel):
 class TelegramFilesSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    max_upload_bytes: ClassVar[int] = 20 * 1024 * 1024
-    max_download_bytes: ClassVar[int] = 50 * 1024 * 1024
+    max_upload_bytes: int = 20 * 1024 * 1024
+    max_download_bytes: int = 50 * 1024 * 1024
 
     enabled: bool = False
     auto_put: bool = True
