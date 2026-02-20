@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -192,10 +192,53 @@ def _todo_title(summary: _TodoSummary) -> str:
     return f"todo {summary.done}/{summary.total}: done"
 
 
+@dataclass(frozen=True, slots=True)
+class _AgentMessageSummary:
+    text: str
+    phase: str | None
+
+
+def _select_final_answer(agent_messages: list[_AgentMessageSummary]) -> str | None:
+    for message in reversed(agent_messages):
+        if message.phase == "final_answer":
+            return message.text
+    for message in reversed(agent_messages):
+        if message.phase in {None, ""}:
+            return message.text
+    return None
+
+
 def _translate_item_event(
     phase: ActionPhase, item: codex_schema.ThreadItem, *, factory: EventFactory
 ) -> list[TakopiEvent]:
     match item:
+        case codex_schema.AgentMessageItem(
+            id=action_id,
+            text=text,
+            phase="commentary",
+        ):
+            detail = {"phase": "commentary"}
+            if phase in {"started", "updated"}:
+                return [
+                    factory.action(
+                        phase=phase,
+                        action_id=action_id,
+                        kind="note",
+                        title=text,
+                        detail=detail,
+                    )
+                ]
+            if phase == "completed":
+                return [
+                    factory.action_completed(
+                        action_id=action_id,
+                        kind="note",
+                        title=text,
+                        detail=detail,
+                        ok=True,
+                    )
+                ]
+            return []
         case codex_schema.AgentMessageItem():
             return []
         case codex_schema.ErrorItem(id=action_id, message=message):
@@ -398,6 +441,7 @@ class CodexRunState:
     factory: EventFactory
     note_seq: int = 0
     final_answer: str | None = None
+    turn_agent_messages: list[_AgentMessageSummary] = field(default_factory=list)
     turn_index: int = 0
 
 
@@ -532,6 +576,8 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             case codex_schema.TurnStarted():
                 action_id = f"turn_{state.turn_index}"
                 state.turn_index += 1
+                state.final_answer = None
+                state.turn_agent_messages.clear()
                 return [
                     factory.action_started(
                         action_id=action_id,
@@ -549,13 +595,16 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                     )
                 ]
             case codex_schema.ItemCompleted(
-                item=codex_schema.AgentMessageItem(text=text)
+                item=codex_schema.AgentMessageItem(text=text, phase=message_phase)
             ):
-                if state.final_answer is None:
-                    state.final_answer = text
-                else:
+                state.turn_agent_messages.append(
+                    _AgentMessageSummary(text=text, phase=message_phase)
+                )
+                selected = _select_final_answer(state.turn_agent_messages)
+                if selected is not None:
+                    state.final_answer = selected
+                if len(state.turn_agent_messages) > 1:
                     logger.debug("codex.multiple_agent_messages")
-                    state.final_answer = text
             case _:
                 pass
 

@@ -83,6 +83,32 @@ def test_should_trigger_run_reply_to_bot() -> None:
     )
 
 
+def test_should_trigger_run_ignores_implicit_topic_reply_to_root() -> None:
+    runtime = _runtime()
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=1,
+        message_id=187,
+        text="hello",
+        reply_to_message_id=163,
+        reply_to_text=None,
+        reply_to_is_bot=True,
+        reply_to_username="TakopiBot",
+        sender_id=1,
+        thread_id=163,
+        is_topic_message=True,
+        chat_type="supergroup",
+        is_forum=True,
+    )
+    assert not should_trigger_run(
+        msg,
+        bot_username=None,
+        runtime=runtime,
+        command_ids=set(),
+        reserved_chat_commands=set(RESERVED_CHAT_COMMANDS),
+    )
+
+
 def test_should_trigger_run_known_commands() -> None:
     runtime = _runtime()
     assert should_trigger_run(

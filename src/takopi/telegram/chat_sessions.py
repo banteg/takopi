@@ -24,6 +24,7 @@ class _ChatState(msgspec.Struct, forbid_unknown_fields=False):
 
 class _ChatSessionsState(msgspec.Struct, forbid_unknown_fields=False):
     version: int
+    cwd: str | None = None
     chats: dict[str, _ChatState] = msgspec.field(default_factory=dict)
 
 
@@ -64,11 +65,27 @@ class ChatSessionStore(JsonStateStore[_ChatSessionsState]):
                 return None
             return ResumeToken(engine=engine, value=entry.resume)
 
+    async def sync_startup_cwd(self, cwd: Path) -> bool:
+        normalized = str(cwd.expanduser().resolve())
+        async with self._lock:
+            self._reload_locked_if_needed()
+            previous = self._state.cwd
+            cleared = False
+            if previous is not None and previous != normalized:
+                self._state.chats = {}
+                cleared = True
+            if previous != normalized:
+                self._state.cwd = normalized
+                self._save_locked()
+            return cleared
+
     async def set_session_resume(
         self, chat_id: int, owner_id: int | None, token: ResumeToken
     ) -> None:
         async with self._lock:
             self._reload_locked_if_needed()
+            if self._state.cwd is None:
+                self._state.cwd = str(Path.cwd().expanduser().resolve())
             chat = self._ensure_chat_locked(chat_id, owner_id)
             chat.sessions[token.engine] = _SessionState(resume=token.value)
             self._save_locked()

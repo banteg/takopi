@@ -9,10 +9,12 @@ from takopi.config import ConfigError
 from takopi.events import EventFactory
 from takopi.model import ActionEvent, CompletedEvent, StartedEvent
 from takopi.runners.codex import (
+    _AgentMessageSummary,
     CodexRunner,
     _format_change_summary,
     _normalize_change_list,
     _parse_reconnect_message,
+    _select_final_answer,
     _short_tool_name,
     _summarize_todo_list,
     _summarize_tool_result,
@@ -73,6 +75,39 @@ def test_summarize_todo_list_and_title() -> None:
     assert _todo_title(_summarize_todo_list("nope")) == "todo"
 
 
+def test_select_final_answer() -> None:
+    assert (
+        _select_final_answer(
+            [
+                _AgentMessageSummary(text="working", phase="commentary"),
+                _AgentMessageSummary(text="done", phase="final_answer"),
+            ]
+        )
+        == "done"
+    )
+
+    assert (
+        _select_final_answer(
+            [
+                _AgentMessageSummary(text="first", phase=None),
+                _AgentMessageSummary(text="second", phase=None),
+            ]
+        )
+        == "second"
+    )
+
+    assert (
+        _select_final_answer([_AgentMessageSummary(text="working", phase="commentary")])
+        is None
+    )
+    assert (
+        _select_final_answer(
+            [_AgentMessageSummary(text="intermediate", phase="foobar")]
+        )
+        is None
+    )
+
+
 def test_translate_codex_events_for_items() -> None:
     factory = EventFactory("codex")
     event = codex_schema.ItemStarted(
@@ -99,6 +134,20 @@ def test_translate_codex_events_for_items() -> None:
     assert isinstance(out[0], ActionEvent)
     assert out[0].action.kind == "note"
     assert out[0].action.title == "thinking"
+
+    event = codex_schema.ItemCompleted(
+        item=codex_schema.AgentMessageItem(
+            id="m1",
+            text="working",
+            phase="commentary",
+        )
+    )
+    out = translate_codex_event(event, title="Codex", factory=factory)
+    assert isinstance(out[0], ActionEvent)
+    assert out[0].action.kind == "note"
+    assert out[0].action.title == "working"
+    assert out[0].phase == "completed"
+    assert out[0].ok is True
 
     event = codex_schema.ItemUpdated(
         item=codex_schema.TodoListItem(

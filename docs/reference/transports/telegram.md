@@ -76,6 +76,11 @@ Explicit invocation includes any of:
 - Replying to a bot message.
 - Built-in or plugin slash commands (for example `/agent`, `/model`, `/reasoning`, `/file`, `/trigger`).
 
+Note: In forum topics, some Telegram clients include `reply_to_message` on every
+message, pointing at the topic’s root service message (`message_id ==
+message_thread_id`). Takopi treats those as implicit topic references, not
+explicit replies, so they do not trigger mentions-only mode.
+
 Commands:
 
 - `/trigger` shows the current mode and defaults.

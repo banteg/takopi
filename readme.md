@@ -71,6 +71,3 @@ see [`docs/how-to/write-a-plugin.md`](docs/how-to/write-a-plugin.md) and [`docs/
 
 see [`docs/reference/specification.md`](docs/reference/specification.md) and [`docs/developing.md`](docs/developing.md).
 
-## community
-
-[takopi dev](https://t.me/+jFvQTLE8m183MjBi) telegram group

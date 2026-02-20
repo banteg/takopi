@@ -1,5 +1,65 @@
 # changelog
 
+## v0.22.1 (2026-02-10)
+
+### fixes
+
+- preserve ordered list numbering when nested list indentation is malformed in telegram render output [#202](https://github.com/banteg/takopi/pull/202)
+
+## v0.22.0 (2026-02-10)
+
+### changes
+
+- support Codex `phase` values and unknown action kinds in commentary rendering [#201](https://github.com/banteg/takopi/pull/201)
+
+## v0.21.5 (2026-02-08)
+
+### fixes
+
+- dedupe redelivered telegram updates to prevent duplicate runs in DMs [#198](https://github.com/banteg/takopi/pull/198)
+
+### changes
+
+- read package version from metadata instead of a hardcoded `__version__` constant
+
+### docs
+
+- rotate telegram invite link
+
+## v0.21.4 (2026-01-22)
+
+### changes
+
+- add allowed user gate to telegram [#179](https://github.com/banteg/takopi/pull/179)
+
+## v0.21.3 (2026-01-21)
+
+### fixes
+
+- ignore implicit topic root replies in telegram [#175](https://github.com/banteg/takopi/pull/175)
+
+## v0.21.2 (2026-01-20)
+
+### fixes
+
+- clear chat sessions on cwd change [#172](https://github.com/banteg/takopi/pull/172)
+
+### docs
+
+- add takopi-slack plugin to reference [#168](https://github.com/banteg/takopi/pull/168)
+
+## v0.21.1 (2026-01-18)
+
+### fixes
+
+- separate telegram voice transcription client [#166](https://github.com/banteg/takopi/pull/166)
+- disable telegram link previews by default [#160](https://github.com/banteg/takopi/pull/160)
+
+### docs
+
+- align engine terminology in telegram and docs [#162](https://github.com/banteg/takopi/pull/162)
+- add takopi-discord plugin to plugins reference [#164](https://github.com/banteg/takopi/pull/164)
+
 ## v0.21.0 (2026-01-16)
 
 ### changes
