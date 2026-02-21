@@ -113,6 +113,24 @@ async def test_telegram_429_defaults_retry_after_on_bad_body() -> None:
 
 
 @pytest.mark.anyio
+async def test_telegram_network_error_raises_retry_after() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("read timed out", request=request)
+
+    transport = httpx.MockTransport(handler)
+
+    client = httpx.AsyncClient(transport=transport)
+    try:
+        api = HttpBotClient("123:abcDEF_ghij", http_client=client)
+        with pytest.raises(TelegramRetryAfter) as exc:
+            await api._post("sendMessage", {"chat_id": 1, "text": "hi"})
+    finally:
+        await client.aclose()
+
+    assert exc.value.retry_after == 2.0
+
+
+@pytest.mark.anyio
 async def test_telegram_ok_false_returns_none() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -229,4 +247,33 @@ async def test_telegram_download_file_429_defaults_retry_after_on_bad_body() -> 
 
     assert payload == b"ok"
     assert sleeps == [5.0]
+    assert len(calls) == 2
+
+
+@pytest.mark.anyio
+async def test_telegram_download_file_retries_on_network_error() -> None:
+    sleeps: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("read timed out", request=request)
+        return httpx.Response(200, content=b"ok", request=request)
+
+    transport = httpx.MockTransport(handler)
+
+    client = httpx.AsyncClient(transport=transport)
+    try:
+        tg = TelegramClient("123:abcDEF_ghij", http_client=client, sleep=sleep)
+        payload = await tg.download_file("path")
+    finally:
+        await client.aclose()
+
+    assert payload == b"ok"
+    assert sleeps == [2.0]
     assert len(calls) == 2

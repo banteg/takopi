@@ -11,6 +11,7 @@ from .api_models import Chat, ChatMember, File, ForumTopic, Message, Update, Use
 logger = get_logger(__name__)
 
 T = TypeVar("T")
+_NETWORK_RETRY_AFTER_S = 2.0
 
 
 class RetryAfter(Exception):
@@ -203,14 +204,15 @@ class HttpBotClient:
                 )
         except httpx.HTTPError as exc:
             url = getattr(exc.request, "url", None)
+            error = str(exc) or repr(exc)
             logger.error(
                 "telegram.network_error",
                 method=method,
                 url=str(url) if url is not None else None,
-                error=str(exc),
+                error=error,
                 error_type=exc.__class__.__name__,
             )
-            return None
+            raise TelegramRetryAfter(_NETWORK_RETRY_AFTER_S, error) from exc
 
         try:
             resp.raise_for_status()
@@ -330,13 +332,14 @@ class HttpBotClient:
             resp = await self._http_client.get(url)
         except httpx.HTTPError as exc:
             request_url = getattr(exc.request, "url", None)
+            error = str(exc) or repr(exc)
             logger.error(
                 "telegram.file_network_error",
                 url=str(request_url) if request_url is not None else None,
-                error=str(exc),
+                error=error,
                 error_type=exc.__class__.__name__,
             )
-            return None
+            raise TelegramRetryAfter(_NETWORK_RETRY_AFTER_S, error) from exc
         try:
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
