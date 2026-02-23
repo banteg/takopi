@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -181,6 +182,8 @@ def translate_claude_event(
                 if value is not None:
                     meta[key] = value
             model = event.model
+            if isinstance(model, str) and model:
+                meta["model"] = model
             token = ResumeToken(engine=ENGINE, value=session_id)
             event_title = str(model) if isinstance(model, str) and model else title
             return [factory.started(token, title=event_title, meta=meta or None)]
@@ -278,6 +281,21 @@ def translate_claude_event(
             return []
 
 
+def _detect_cli_version(cmd: str) -> str | None:
+    try:
+        result = subprocess.run(
+            [cmd, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
 @dataclass(slots=True)
 class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     engine: EngineId = ENGINE
@@ -290,6 +308,15 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     use_api_billing: bool = False
     session_title: str = "claude"
     logger = logger
+    _cli_version: str | None = field(default=None, repr=False)
+    _cli_version_detected: bool = field(default=False, repr=False)
+
+    @property
+    def cli_version(self) -> str | None:
+        if not self._cli_version_detected:
+            self._cli_version = _detect_cli_version(self.claude_cmd)
+            self._cli_version_detected = True
+        return self._cli_version
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:

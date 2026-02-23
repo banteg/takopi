@@ -121,11 +121,15 @@ class TelegramBackend(TransportBackend):
         )
         bot = TelegramClient(token)
         transport = TelegramTransport(bot)
-        presenter = TelegramPresenter(message_overflow=settings.message_overflow)
+        presenter = TelegramPresenter(
+            message_overflow=settings.message_overflow,
+            show_runner_version=settings.show_runner_version,
+        )
         exec_cfg = ExecBridgeConfig(
             transport=transport,
             presenter=presenter,
             final_notify=final_notify,
+            show_runner_version=settings.show_runner_version,
         )
         cfg = TelegramBridgeConfig(
             bot=bot,

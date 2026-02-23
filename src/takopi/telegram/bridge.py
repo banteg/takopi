@@ -49,8 +49,11 @@ class TelegramPresenter:
         *,
         formatter: MarkdownFormatter | None = None,
         message_overflow: str = "trim",
+        show_runner_version: bool = False,
     ) -> None:
-        self._formatter = formatter or MarkdownFormatter()
+        self._formatter = formatter or MarkdownFormatter(
+            show_runner_version=show_runner_version,
+        )
         self._message_overflow = message_overflow
 
     def render_progress(

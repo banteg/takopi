@@ -103,6 +103,7 @@ class TelegramTransportSettings(BaseModel):
     voice_transcription_api_key: NonEmptyStr | None = None
     session_mode: Literal["stateless", "chat"] = "stateless"
     show_resume_line: bool = True
+    show_runner_version: bool = False
     forward_coalesce_s: float = Field(default=1.0, ge=0)
     media_group_debounce_s: float = Field(default=1.0, ge=0)
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
