@@ -22,6 +22,22 @@ def test_render_markdown_code_fence_language_is_string() -> None:
     assert any(e.get("type") == "code" for e in entities)
 
 
+def test_render_markdown_drops_local_text_links() -> None:
+    text, entities = render_markdown("[/tmp/file.py#L12](/tmp/file.py#L12)")
+
+    assert "/tmp/file.py#L12" in text
+    assert not any(e.get("type") == "text_link" for e in entities)
+
+
+def test_render_markdown_keeps_https_text_links() -> None:
+    _, entities = render_markdown("[docs](https://example.com/path)")
+
+    assert any(
+        e.get("type") == "text_link" and e.get("url") == "https://example.com/path"
+        for e in entities
+    )
+
+
 def test_render_markdown_keeps_ordered_numbering_with_unindented_sub_bullets() -> None:
     md = (
         "1. Tune maker\n"
