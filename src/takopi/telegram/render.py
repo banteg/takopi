@@ -99,9 +99,7 @@ def _is_supported_text_link_url(url: str) -> bool:
     parsed = urlparse(url)
     if parsed.scheme in {"http", "https"} and bool(parsed.netloc):
         return True
-    if parsed.scheme == "tg" and (bool(parsed.netloc) or bool(parsed.path)):
-        return True
-    return False
+    return parsed.scheme == "tg" and (bool(parsed.netloc) or bool(parsed.path))
 
 
 def _split_line_ending(line: str) -> tuple[str, str]:
