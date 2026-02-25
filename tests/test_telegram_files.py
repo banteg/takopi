@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from takopi.settings import TelegramFilesSettings
 from takopi.telegram import files as tg_files
 from takopi.telegram.files import ZipTooLargeError, zip_directory
 
@@ -98,6 +99,14 @@ def test_resolve_path_within_root_rejects_escape(tmp_path: Path) -> None:
 def test_deny_reason_matches_patterns() -> None:
     assert tg_files.deny_reason(Path(".git/config"), ["**/*.pem"]) == ".git/**"
     assert tg_files.deny_reason(Path("secrets/key.pem"), ["**/*.pem"]) == "**/*.pem"
+
+
+def test_default_deny_globs_cover_sensitive_paths() -> None:
+    patterns = TelegramFilesSettings().deny_globs
+    assert tg_files.deny_reason(Path("key.pem"), patterns) == "*.pem"
+    assert tg_files.deny_reason(Path(".ssh/id_rsa"), patterns) == ".ssh/**"
+    assert tg_files.deny_reason(Path("secrets/key.pem"), patterns) == "*.pem"
+    assert tg_files.deny_reason(Path("configs/.ssh/id_rsa"), patterns) == ".ssh/**"
 
 
 def test_format_bytes_various_units() -> None:

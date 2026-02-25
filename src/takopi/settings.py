@@ -76,8 +76,8 @@ class TelegramFilesSettings(BaseModel):
             ".git/**",
             ".env",
             ".envrc",
-            "**/*.pem",
-            "**/.ssh/**",
+            "*.pem",
+            ".ssh/**",
         ]
     )
 
