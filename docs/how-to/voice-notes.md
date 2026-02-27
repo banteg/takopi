@@ -35,8 +35,12 @@ requires a specific model name, set `voice_transcription_model` (for example,
 
 ## Behavior
 
-When you send a voice note, Takopi transcribes it and runs the result as a normal text message.
-If transcription fails, you’ll get an error message and the run is skipped.
+When you send a voice note, Takopi transcribes it and shows you the transcript as a
+reply message (with a 🎤 header and italic formatting) before running it as a normal
+text message. This gives you immediate visual feedback and lets you verify what was
+heard before the run starts.
+
+If transcription fails, you'll get an error message and the run is skipped.
 
 ## Related
 

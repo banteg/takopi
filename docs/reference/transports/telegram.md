@@ -58,6 +58,11 @@ requests on their own base URL without relying on `OPENAI_BASE_URL`. If your ser
 requires a specific model name, set `voice_transcription_model` (for example,
 `whisper-1`).
 
+When transcription succeeds, takopi sends a reply message showing the transcript
+(with a 🎤 header and italic formatting) before running the transcribed text.
+This provides immediate visual feedback as a reply to the original voice message,
+without sending a notification.
+
 ### Trigger mode (mentions-only)
 
 Telegram’s bot privacy mode stops bots from seeing every message by default, but
