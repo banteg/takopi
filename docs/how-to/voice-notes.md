@@ -40,7 +40,7 @@ requires a specific model name, set `voice_transcription_model` (for example,
 When you send a voice note, Takopi transcribes it and runs the result as a normal text message.
 If transcription fails, you'll get an error message and the run is skipped.
 
-With `voice_transcription_echo` enabled (the default), Takopi also sends a visual echo of the transcript with a 🎤 microphone emoji header, so you can verify what was heard before the run starts.
+With `voice_transcription_echo` enabled (the default), Takopi also sends a visual echo of the transcript with a 🎤 microphone emoji header, so you can verify what was heard.
 
 ## Related
 
