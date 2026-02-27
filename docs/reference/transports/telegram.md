@@ -32,6 +32,7 @@ Configuration (under `[transports.telegram]`):
 
     ```sh
     takopi config set transports.telegram.voice_transcription true
+    takopi config set transports.telegram.voice_transcription_echo true # optional
     takopi config set transports.telegram.voice_transcription_model "gpt-4o-mini-transcribe"
 
     # local OpenAI-compatible transcription server (optional)
@@ -43,6 +44,7 @@ Configuration (under `[transports.telegram]`):
 
     ```toml
     voice_transcription = true
+    voice_transcription_echo = true # optional, defaults to true
     voice_transcription_model = "gpt-4o-mini-transcribe" # optional
     voice_transcription_base_url = "http://localhost:8000/v1" # optional
     voice_transcription_api_key = "local" # optional
@@ -62,6 +64,9 @@ When transcription succeeds, takopi sends a reply message showing the transcript
 (with a 🎤 header and italic formatting) before running the transcribed text.
 This provides immediate visual feedback as a reply to the original voice message,
 without sending a notification.
+
+This echo behavior is enabled by default (`voice_transcription_echo = true`).
+Set it to `false` if you prefer not to see the transcript before the run starts.
 
 ### Trigger mode (mentions-only)
 

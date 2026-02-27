@@ -49,6 +49,7 @@ If you expect to edit config while Takopi is running, set:
 | `message_overflow` | `"trim"`\|`"split"` | `"trim"` | How to handle long final responses. |
 | `forward_coalesce_s` | float | `1.0` | Quiet window for combining a prompt with immediately-following forwarded messages; set `0` to disable. |
 | `voice_transcription` | bool | `false` | Enable voice note transcription. |
+| `voice_transcription_echo` | bool | `true` | Reply with transcript before running (enabled by default). |
 | `voice_max_bytes` | int | `10485760` | Max voice note size (bytes). |
 | `voice_transcription_model` | string | `"gpt-4o-mini-transcribe"` | OpenAI transcription model name. |
 | `voice_transcription_base_url` | string\|null | `null` | Override base URL for voice transcription only. |

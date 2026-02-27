@@ -1675,14 +1675,15 @@ async def run_main_loop(
                         return
                     # After transcription, provide immediate visual feedback to user
                     # This happens BEFORE the main prompt processing so user sees "I was heard"
-                    await send_voice_transcript(
-                        cfg.exec_cfg.transport,
-                        chat_id=chat_id,
-                        user_msg_id=msg.message_id,
-                        transcript=text,
-                        notify=False,  # Silent to avoid notification spam
-                        thread_id=msg.thread_id,
-                    )
+                    if cfg.voice_transcription_echo:
+                        await send_voice_transcript(
+                            cfg.exec_cfg.transport,
+                            chat_id=chat_id,
+                            user_msg_id=msg.message_id,
+                            transcript=text,
+                            notify=False,  # Silent to avoid notification spam
+                            thread_id=msg.thread_id,
+                        )
                     is_voice_transcribed = True  # Flag for later to prefix prompt with "(voice transcribed)"
                 if msg.document is not None:
                     if cfg.files.enabled and cfg.files.auto_put:
