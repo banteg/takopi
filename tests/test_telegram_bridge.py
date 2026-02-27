@@ -1919,6 +1919,15 @@ async def test_run_main_loop_prompt_upload_uses_caption_directives(
 async def test_run_main_loop_voice_transcript_preserves_directive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that voice transcripts are sent as replies and directives are preserved.
+
+    GIVEN: Voice message with /codex directive in transcript
+    WHEN: Message is processed through main loop
+    THEN: Two things happen:
+      1. Transcript message sent with 🎤 emoji header (immediate visual feedback)
+      2. Original prompt processed with directive preserved for correct routing
+    """
+    # Setup: Create two runners to test directive routing (should use codex, not claude)
     codex_runner = ScriptRunner([Return(answer="codex")], engine=CODEX_ENGINE)
     claude_runner = ScriptRunner([Return(answer="claude")], engine="claude")
     router = AutoRouter(
@@ -1946,6 +1955,7 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
         voice_transcription=True,
     )
 
+    # Simulate transcript containing a codex directive
     transcript_text = "/codex do thing"
 
     async def _fake_transcribe(
@@ -1985,9 +1995,12 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
 
     await run_main_loop(cfg, poller)
 
+    # THEN: Verify routing used codex (not claude) because directive was preserved
     assert not claude_runner.calls
     assert len(codex_runner.calls) == 1
     assert codex_runner.calls[0][0].startswith("(voice transcribed) do thing")
+
+    # THEN: Verify transcript message was sent with correct formatting
     assert transport.send_calls
     transcript_call = next(
         call
@@ -1996,6 +2009,8 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
     )
     transcript_message = transcript_call["message"]
     transcript_options = transcript_call["options"]
+
+    # Verify: Header with emoji, body contains original transcript, proper formatting
     assert transcript_message.text.startswith("🎤 · voice transcript")
     assert transcript_text in transcript_message.text
     assert transcript_message.extra is not None
@@ -2003,6 +2018,8 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
         entity.get("type") == "italic"
         for entity in transcript_message.extra.get("entities", [])
     )
+
+    # Verify: Silent notification, replies to original voice message
     assert transcript_options is not None
     assert transcript_options.notify is False
     assert transcript_options.reply_to is not None
@@ -2011,6 +2028,15 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
 
 @pytest.mark.anyio
 async def test_run_main_loop_voice_transcript_trimmed(monkeypatch) -> None:
+    """Test that very long voice transcripts are properly truncated.
+
+    GIVEN: Voice message that transcribes to text exceeding MAX_BODY_CHARS
+    WHEN: Message is processed through main loop
+    THEN: Transcript message is sent with proper truncation (ellipsis at end)
+
+    Note: Truncation happens via prepare_telegram() which limits body length
+    to prevent Telegram message size limits from being exceeded.
+    """
     runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
     runtime = TransportRuntime(router=_make_router(runner), projects=_empty_projects())
     transport = FakeTransport()
@@ -2029,6 +2055,8 @@ async def test_run_main_loop_voice_transcript_trimmed(monkeypatch) -> None:
         media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
         voice_transcription=True,
     )
+
+    # Create transcript exceeding body limit by 100 chars to test truncation
     long_transcript = "x" * (MAX_BODY_CHARS + 100)
 
     async def _fake_transcribe(
@@ -2068,20 +2096,25 @@ async def test_run_main_loop_voice_transcript_trimmed(monkeypatch) -> None:
 
     await run_main_loop(cfg, poller)
 
+    # THEN: Verify transcript was sent despite length
     assert transport.send_calls
     transcript_call = next(
         call
         for call in transport.send_calls
         if call["message"].text.startswith("🎤 · voice transcript")
     )
+
+    # Verify: Structure is header + empty line + body
     transcript_text = transcript_call["message"].text
     transcript_lines = transcript_text.splitlines()
     assert transcript_lines[0].startswith("🎤 · voice transcript")
-    assert transcript_lines[1] == ""
+    assert transcript_lines[1] == ""  # Empty line between header and body
+
+    # Verify: Body starts with italic marker and ends with ellipsis (truncated)
     body = "".join(transcript_lines[2:]).strip()
-    assert body.startswith("_")
-    inner_body = body[1:]
-    assert inner_body.endswith("\u2026")
+    assert body.startswith("_")  # Italic formatting preserved
+    inner_body = body[1:]  # Remove leading underscore
+    assert inner_body.endswith("\u2026")  # Ends with ellipsis (... was truncated)
 
 
 @pytest.mark.anyio

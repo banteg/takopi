@@ -325,13 +325,36 @@ async def send_voice_transcript(
     notify: bool = False,
     thread_id: int | None = None,
 ) -> None:
+    """Send a formatted transcript reply for voice messages.
+
+    UX goals:
+    - Visual feedback: User sees their voice was heard and transcribed (🎤 emoji)
+    - Context preservation: Reply attaches to original voice message
+    - Non-intrusive: Silent notification (notify=False) to avoid spam
+    - Editable appearance: Italic formatting implies "this was transcribed, may have errors"
+
+    Args:
+        transport: Telegram transport for sending messages
+        chat_id: Target chat ID
+        user_msg_id: Message ID of the original voice message (for reply threading)
+        transcript: The transcribed text to display
+        notify: Whether to send notification (default False for non-intrusive UX)
+        thread_id: Optional thread/topic ID for forum chats
+    """
     text = transcript.strip()
     if not text:
+        # Skip empty transcripts (e.g., unintelligible audio or silence)
         return
+
+    # Reply to the original voice message so user sees which message was transcribed
     reply_to = MessageRef(channel_id=chat_id, message_id=user_msg_id)
+
+    # Format with header for visual distinction, body in italics for "transcribed" feel
+    # The underscore prefix/suffix creates italic formatting via Markdown
     rendered_text, entities = prepare_telegram(
         MarkdownParts(header="🎤 · voice transcript", body=f"_{text}_")
     )
+
     await transport.send(
         channel_id=chat_id,
         message=RenderedMessage(text=rendered_text, extra={"entities": entities}),
