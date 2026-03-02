@@ -68,6 +68,7 @@ from .topic_state import TopicStateStore, resolve_state_path
 from .trigger_mode import resolve_trigger_mode, should_trigger_run
 from .types import (
     TelegramCallbackQuery,
+    TelegramDocument,
     TelegramIncomingMessage,
     TelegramIncomingUpdate,
 )
@@ -78,6 +79,7 @@ logger = get_logger(__name__)
 __all__ = ["poll_updates", "run_main_loop", "send_with_resume"]
 
 ForwardKey = tuple[int, int, int]
+PhotoKey = tuple[int, int | None, int | None]  # (chat_id, thread_id, sender_id)
 MessageKey = tuple[int, int]
 _SEEN_MESSAGES_LIMIT = 2048
 _SEEN_UPDATES_LIMIT = 4096
@@ -351,6 +353,53 @@ class _PendingPrompt:
     cancel_scope: anyio.CancelScope | None = None
 
 
+@dataclass(slots=True)
+class _PendingPhotos:
+    image_paths: list[str]
+    msg: TelegramIncomingMessage
+    ambient_context: RunContext | None
+    topic_key: tuple[int, int] | None
+    chat_session_key: tuple[int, int | None] | None
+    chat_project: str | None
+    reply_ref: MessageRef | None
+    reply_id: int | None
+    cancel_scope: anyio.CancelScope | None = None
+
+
+def _is_image_document(doc: TelegramDocument | None) -> bool:
+    if doc is None:
+        return False
+    if doc.is_photo:
+        return True
+    if doc.mime_type and doc.mime_type.startswith("image/"):
+        return True
+    return False
+
+
+async def _download_telegram_photo(bot, doc: TelegramDocument) -> str | None:
+    file_info = await bot.get_file(doc.file_id)
+    if file_info is None or file_info.file_path is None:
+        return None
+    data = await bot.download_file(file_info.file_path)
+    if data is None:
+        return None
+    ext = Path(file_info.file_path).suffix or ".jpg"
+    tmp_dir = Path("/tmp/takopi-images")
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp_path = tmp_dir / f"{doc.file_id}{ext}"
+    tmp_path.write_bytes(data)
+    return str(tmp_path)
+
+
+def _build_image_prompt(image_paths: list[str], text: str) -> str:
+    images_block = "\n".join(
+        f"[attached image: {path}]" for path in image_paths
+    )
+    if text.strip():
+        return f"{images_block}\n\n{text}"
+    return images_block
+
+
 @dataclass(frozen=True, slots=True)
 class TelegramMsgContext:
     chat_id: int
@@ -416,6 +465,7 @@ def _classify_message(
 class TelegramLoopState:
     running_tasks: RunningTasks
     pending_prompts: dict[ForwardKey, _PendingPrompt]
+    pending_photos: dict[PhotoKey, _PendingPhotos]
     media_groups: dict[tuple[int, str], _MediaGroupState]
     command_ids: set[str]
     reserved_commands: set[str]
@@ -755,6 +805,10 @@ class MediaGroupBuffer:
             [TelegramIncomingMessage, str, RunContext | None],
             Awaitable[ResolvedMessage | None],
         ],
+        handle_photo_group: Callable[
+            [list[TelegramIncomingMessage]], Awaitable[None]
+        ]
+        | None = None,
     ) -> None:
         self._task_group = task_group
         self._debounce_s = debounce_s
@@ -768,6 +822,7 @@ class MediaGroupBuffer:
         self._groups = groups
         self._run_prompt_from_upload = run_prompt_from_upload
         self._resolve_prompt_message = resolve_prompt_message
+        self._handle_photo_group = handle_photo_group
 
     def add(self, msg: TelegramIncomingMessage) -> None:
         if msg.media_group_id is None:
@@ -814,6 +869,18 @@ class MediaGroupBuffer:
                 )
                 for msg in messages
             ):
+                return
+            # Check if all documents in the group are images
+            if (
+                self._handle_photo_group is not None
+                and any(m.document is not None for m in messages)
+                and all(
+                    _is_image_document(m.document)
+                    for m in messages
+                    if m.document is not None
+                )
+            ):
+                await self._handle_photo_group(messages)
                 return
             await handle_media_group(
                 self._cfg,
@@ -954,6 +1021,7 @@ async def run_main_loop(
     state = TelegramLoopState(
         running_tasks={},
         pending_prompts={},
+        pending_photos={},
         media_groups={},
         command_ids={
             command_id.lower()
@@ -1510,6 +1578,131 @@ async def run_main_loop(
                 prompt = _build_upload_prompt(resolved.prompt, annotation)
                 await run_prompt_from_upload(msg, prompt, resolved)
 
+            async def _dispatch_photo_prompt(
+                image_paths: list[str],
+                text: str,
+                msg: TelegramIncomingMessage,
+                ctx: TelegramMsgContext,
+            ) -> None:
+                reply_fn = make_reply(cfg, msg)
+                prompt_text = _build_image_prompt(image_paths, text)
+                try:
+                    resolved = cfg.runtime.resolve_message(
+                        text=text,
+                        reply_text=msg.reply_to_text,
+                        ambient_context=ctx.ambient_context,
+                        chat_id=msg.chat_id,
+                    )
+                except DirectiveError as exc:
+                    await reply_fn(text=f"error:\n{exc}")
+                    return
+                _effective_context, ok = await ensure_topic_context(
+                    resolved=resolved,
+                    ambient_context=ctx.ambient_context,
+                    topic_key=ctx.topic_key,
+                    chat_project=ctx.chat_project,
+                    reply=reply_fn,
+                )
+                if not ok:
+                    return
+                resolved_with_images = ResolvedMessage(
+                    prompt=prompt_text,
+                    resume_token=resolved.resume_token,
+                    engine_override=resolved.engine_override,
+                    context=resolved.context,
+                    context_source=resolved.context_source,
+                )
+                await dispatch_prompt_run(
+                    msg=msg,
+                    prompt_text=prompt_text,
+                    resolved=resolved_with_images,
+                    topic_key=ctx.topic_key,
+                    chat_session_key=ctx.chat_session_key,
+                    reply_ref=ctx.reply_ref,
+                    reply_id=ctx.reply_id,
+                )
+
+            async def _buffer_pending_photos(
+                image_paths: list[str],
+                msg: TelegramIncomingMessage,
+                ctx: TelegramMsgContext,
+            ) -> None:
+                photo_key: PhotoKey = (msg.chat_id, msg.thread_id, msg.sender_id)
+                existing = state.pending_photos.get(photo_key)
+                if existing is not None and existing.cancel_scope is not None:
+                    existing.cancel_scope.cancel()
+                pending = _PendingPhotos(
+                    image_paths=image_paths,
+                    msg=msg,
+                    ambient_context=ctx.ambient_context,
+                    topic_key=ctx.topic_key,
+                    chat_session_key=ctx.chat_session_key,
+                    chat_project=ctx.chat_project,
+                    reply_ref=ctx.reply_ref,
+                    reply_id=ctx.reply_id,
+                )
+                state.pending_photos[photo_key] = pending
+
+                async def _photo_timeout() -> None:
+                    try:
+                        with anyio.CancelScope() as scope:
+                            pending.cancel_scope = scope
+                            await sleep(120)
+                    except anyio.get_cancelled_exc_class():
+                        return
+                    if state.pending_photos.get(photo_key) is pending:
+                        state.pending_photos.pop(photo_key, None)
+
+                tg.start_soon(_photo_timeout)
+
+            async def _handle_single_photo(
+                msg: TelegramIncomingMessage,
+                text: str,
+                ctx: TelegramMsgContext,
+            ) -> None:
+                reply_fn = make_reply(cfg, msg)
+                if msg.document is None:
+                    return
+                image_path = await _download_telegram_photo(cfg.bot, msg.document)
+                if image_path is None:
+                    await reply_fn(text="failed to download image")
+                    return
+                caption_text = text.strip()
+                if caption_text:
+                    await _dispatch_photo_prompt([image_path], caption_text, msg, ctx)
+                else:
+                    await _buffer_pending_photos([image_path], msg, ctx)
+
+            async def _handle_photo_group_from_media(
+                messages: list[TelegramIncomingMessage],
+            ) -> None:
+                if not messages:
+                    return
+                ordered = sorted(messages, key=lambda m: m.message_id)
+                primary_msg = ordered[0]
+                image_paths: list[str] = []
+                for m in ordered:
+                    if m.document is not None and _is_image_document(m.document):
+                        path = await _download_telegram_photo(cfg.bot, m.document)
+                        if path is not None:
+                            image_paths.append(path)
+                if not image_paths:
+                    return
+                caption = ""
+                for m in ordered:
+                    if m.text.strip():
+                        caption = m.text.strip()
+                        break
+                ctx = await build_message_context(primary_msg)
+                if caption:
+                    await _dispatch_photo_prompt(
+                        image_paths, caption, primary_msg, ctx
+                    )
+                else:
+                    await _buffer_pending_photos(
+                        image_paths, primary_msg, ctx
+                    )
+
             media_group_buffer = MediaGroupBuffer(
                 task_group=tg,
                 debounce_s=state.media_group_debounce_s,
@@ -1523,6 +1716,7 @@ async def run_main_loop(
                 groups=state.media_groups,
                 run_prompt_from_upload=run_prompt_from_upload,
                 resolve_prompt_message=resolve_prompt_message,
+                handle_photo_group=_handle_photo_group_from_media,
             )
 
             async def build_message_context(
@@ -1685,6 +1879,13 @@ async def run_main_loop(
                         return
                     is_voice_transcribed = True
                 if msg.document is not None:
+                    # Images go directly to Claude session, not through file put
+                    if _is_image_document(msg.document):
+                        tg.start_soon(
+                            _handle_single_photo, msg, text, ctx,
+                        )
+                        return
+                    # Non-image documents: keep existing file put behavior
                     if cfg.files.enabled and cfg.files.auto_put:
                         caption_text = text.strip()
                         if cfg.files.auto_put_mode == "prompt" and caption_text:
@@ -1757,6 +1958,21 @@ async def run_main_loop(
                             engine_overrides_resolver,
                         )
                         return
+
+                # Check if there are pending photos waiting for text
+                photo_key: PhotoKey = (msg.chat_id, msg.thread_id, msg.sender_id)
+                pending_photo = state.pending_photos.pop(photo_key, None)
+                if pending_photo is not None:
+                    if pending_photo.cancel_scope is not None:
+                        pending_photo.cancel_scope.cancel()
+                    tg.start_soon(
+                        _dispatch_photo_prompt,
+                        pending_photo.image_paths,
+                        text,
+                        pending_photo.msg,
+                        ctx,
+                    )
+                    return
 
                 pending = _PendingPrompt(
                     msg=msg,

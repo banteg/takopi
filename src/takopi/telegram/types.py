@@ -20,6 +20,7 @@ class TelegramDocument:
     mime_type: str | None
     file_size: int | None
     raw: dict[str, Any]
+    is_photo: bool = False
 
 
 @dataclass(frozen=True, slots=True)
