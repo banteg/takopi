@@ -56,9 +56,7 @@ def _normalize_project_path(value: str, *, config_path: Path) -> Path:
 
 def _coerce_chat_id(value: Any) -> Any:
     if isinstance(value, str):
-        value = value.strip()
-        if value:
-            return int(value)
+        return int(value.strip())
     return value
 
 
