@@ -58,10 +58,7 @@ def _coerce_chat_id(value: Any) -> Any:
     if isinstance(value, str):
         value = value.strip()
         if value:
-            try:
-                return int(value)
-            except ValueError:
-                return value
+            return int(value)
     return value
 
 
