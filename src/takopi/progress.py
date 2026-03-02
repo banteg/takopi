@@ -25,11 +25,17 @@ class ProgressState:
     resume: ResumeToken | None
     resume_line: str | None
     context_line: str | None
+    runner_version: str | None = None
+    model: str | None = None
 
 
 class ProgressTracker:
-    def __init__(self, *, engine: str) -> None:
+    def __init__(
+        self, *, engine: str, runner_version: str | None = None
+    ) -> None:
         self.engine = engine
+        self.runner_version = runner_version
+        self.model: str | None = None
         self.resume: ResumeToken | None = None
         self.action_count = 0
         self._actions: dict[str, ActionState] = {}
@@ -37,8 +43,10 @@ class ProgressTracker:
 
     def note_event(self, event: TakopiEvent) -> bool:
         match event:
-            case StartedEvent(resume=resume):
+            case StartedEvent(resume=resume, meta=meta):
                 self.resume = resume
+                if isinstance(meta, dict) and "model" in meta:
+                    self.model = meta["model"]
                 return True
             case ActionEvent(action=action, phase=phase, ok=ok):
                 if action.kind == "turn":
@@ -96,4 +104,6 @@ class ProgressTracker:
             resume=self.resume,
             resume_line=resume_line,
             context_line=context_line,
+            runner_version=self.runner_version,
+            model=self.model,
         )

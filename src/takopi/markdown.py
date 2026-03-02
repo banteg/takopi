@@ -188,15 +188,34 @@ def render_event_cli(event: TakopiEvent) -> list[str]:
             return []
 
 
+def shorten_model(model: str) -> str:
+    """Shorten a Claude model ID for display.
+
+    ``claude-opus-4-6`` → ``opus 4.6``
+    ``claude-sonnet-4-5-20250929`` → ``sonnet 4.5``
+    """
+    import re
+
+    m = re.match(
+        r"^claude-(\w+)-(\d+)-(\d+)(?:-\d+)?$",
+        model,
+    )
+    if m:
+        return f"{m.group(1)} {m.group(2)}.{m.group(3)}"
+    return model
+
+
 class MarkdownFormatter:
     def __init__(
         self,
         *,
         max_actions: int = 5,
         command_width: int | None = MAX_PROGRESS_CMD_LEN,
+        show_runner_version: bool = False,
     ) -> None:
         self.max_actions = max(0, int(max_actions))
         self.command_width = command_width
+        self.show_runner_version = show_runner_version
 
     def render_progress_parts(
         self,
@@ -240,6 +259,14 @@ class MarkdownFormatter:
 
     def _format_footer(self, state: ProgressState) -> str | None:
         lines: list[str] = []
+        if self.show_runner_version:
+            info_parts: list[str] = []
+            if state.runner_version:
+                info_parts.append(f"claude code {state.runner_version}")
+            if state.model:
+                info_parts.append(shorten_model(state.model))
+            if info_parts:
+                lines.append(HEADER_SEP.join(info_parts))
         if state.context_line:
             lines.append(state.context_line)
         if state.resume_line:
