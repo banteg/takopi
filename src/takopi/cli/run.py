@@ -289,6 +289,8 @@ def _run_auto_router(
         )
         if settings.transport == "telegram":
             transport_config = settings.transports.telegram
+            if transport_config is None:
+                raise ConfigError(f"Missing [transports.telegram] in {config_path}.")
         else:
             transport_config = settings.transport_config(
                 settings.transport, config_path=config_path
