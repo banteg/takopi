@@ -2098,6 +2098,15 @@ async def test_run_main_loop_prompt_upload_uses_caption_directives(
 async def test_run_main_loop_voice_transcript_preserves_directive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test that voice transcripts are sent as replies and directives are preserved.
+
+    GIVEN: Voice message with /codex directive in transcript
+    WHEN: Message is processed through main loop
+    THEN: Two things happen:
+      1. Transcript message sent with 🎤 emoji header (immediate visual feedback)
+      2. Original prompt processed with directive preserved for correct routing
+    """
+    # Setup: Create two runners to test directive routing (should use codex, not claude)
     codex_runner = ScriptRunner([Return(answer="codex")], engine=CODEX_ENGINE)
     claude_runner = ScriptRunner([Return(answer="claude")], engine="claude")
     router = AutoRouter(
@@ -2123,7 +2132,11 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
         forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
         voice_transcription=True,
+        voice_transcription_echo=True,
     )
+
+    # Simulate transcript containing a codex directive
+    transcript_text = "/codex do thing"
 
     async def _fake_transcribe(
         *,
@@ -2137,7 +2150,7 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
         api_key: str | None = None,
     ) -> str:
         _ = bot, msg, enabled, model, max_bytes, reply, base_url, api_key
-        return "/codex do thing"
+        return transcript_text
 
     monkeypatch.setattr(telegram_loop, "transcribe_voice", _fake_transcribe)
     monkeypatch.setattr(telegram_loop, "list_command_ids", lambda **_: [])
@@ -2162,9 +2175,211 @@ async def test_run_main_loop_voice_transcript_preserves_directive(
 
     await run_main_loop(cfg, poller)
 
+    # THEN: Verify routing used codex (not claude) because directive was preserved
     assert not claude_runner.calls
     assert len(codex_runner.calls) == 1
     assert codex_runner.calls[0][0].startswith("(voice transcribed) do thing")
+
+    # THEN: Verify transcript message was sent with correct formatting
+    assert transport.send_calls
+    transcript_call = next(
+        call
+        for call in transport.send_calls
+        if call["message"].text.startswith("🎤 · voice transcript")
+    )
+    transcript_message = transcript_call["message"]
+    transcript_options = transcript_call["options"]
+
+    # Verify: Header with emoji, body contains original transcript, proper formatting
+    assert transcript_message.text.startswith("🎤 · voice transcript")
+    assert transcript_text in transcript_message.text
+    assert transcript_message.extra is not None
+    assert any(
+        entity.get("type") == "italic"
+        for entity in transcript_message.extra.get("entities", [])
+    )
+
+    # Verify: Silent notification, replies to original voice message
+    assert transcript_options is not None
+    assert transcript_options.notify is False
+    assert transcript_options.reply_to is not None
+    assert transcript_options.reply_to.message_id == 1
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_voice_transcript_trimmed(monkeypatch) -> None:
+    """Test that very long voice transcripts are properly truncated.
+
+    GIVEN: Voice message that transcribes to text exceeding MAX_BODY_CHARS
+    WHEN: Message is processed through main loop
+    THEN: Transcript message is sent with proper truncation (ellipsis at end)
+
+    Note: Truncation happens via prepare_telegram() which limits body length
+    to prevent Telegram message size limits from being exceeded.
+    """
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    runtime = TransportRuntime(router=_make_router(runner), projects=_empty_projects())
+    transport = FakeTransport()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=FakeBot(),
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+        voice_transcription=True,
+        voice_transcription_echo=True,
+    )
+
+    # Create transcript exceeding body limit by 100 chars to test truncation
+    long_transcript = "x" * (MAX_BODY_CHARS + 100)
+
+    async def _fake_transcribe(
+        *,
+        bot: BotClient,
+        msg: TelegramIncomingMessage,
+        enabled: bool,
+        model: str,
+        max_bytes: int | None = None,
+        reply,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> str:
+        _ = bot, msg, enabled, model, max_bytes, reply, base_url, api_key
+        return long_transcript
+
+    monkeypatch.setattr(telegram_loop, "transcribe_voice", _fake_transcribe)
+    monkeypatch.setattr(telegram_loop, "list_command_ids", lambda **_: [])
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            voice=TelegramVoice(
+                file_id="voice-1",
+                mime_type=None,
+                file_size=None,
+                duration=None,
+                raw={"file_id": "voice-1"},
+            ),
+        )
+
+    await run_main_loop(cfg, poller)
+
+    # THEN: Verify transcript was sent despite length
+    assert transport.send_calls
+    transcript_call = next(
+        call
+        for call in transport.send_calls
+        if call["message"].text.startswith("🎤 · voice transcript")
+    )
+
+    # Verify: Structure is header + empty line + body
+    transcript_text = transcript_call["message"].text
+    transcript_lines = transcript_text.splitlines()
+    assert transcript_lines[0].startswith("🎤 · voice transcript")
+    assert transcript_lines[1] == ""  # Empty line between header and body
+
+    # Verify: Body starts with italic marker and ends with ellipsis (truncated)
+    body = "".join(transcript_lines[2:]).strip()
+    assert body.startswith("_")  # Italic formatting preserved
+    inner_body = body[1:]  # Remove leading underscore
+    assert inner_body.endswith("\u2026")  # Ends with ellipsis (... was truncated)
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_voice_transcript_echo_disabled_skips_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that voice transcript echo can be disabled.
+
+    GIVEN: Voice transcription enabled but echo disabled (voice_transcription_echo=False)
+    WHEN: Voice message is processed through main loop
+    THEN: Transcript is processed but NO echo message is sent to Telegram
+
+    This verifies the configurable echo behavior works correctly when disabled.
+    """
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    runtime = TransportRuntime(router=_make_router(runner), projects=_empty_projects())
+    transport = FakeTransport()
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    cfg = TelegramBridgeConfig(
+        bot=FakeBot(),
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+        voice_transcription=True,
+        voice_transcription_echo=False,  # DISABLED
+    )
+
+    transcript_text = "hello from voice"
+
+    async def _fake_transcribe(
+        *,
+        bot: BotClient,
+        msg: TelegramIncomingMessage,
+        enabled: bool,
+        model: str,
+        max_bytes: int | None = None,
+        reply,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> str:
+        _ = bot, msg, enabled, model, max_bytes, reply, base_url, api_key
+        return transcript_text
+
+    monkeypatch.setattr(telegram_loop, "transcribe_voice", _fake_transcribe)
+    monkeypatch.setattr(telegram_loop, "list_command_ids", lambda **_: [])
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            voice=TelegramVoice(
+                file_id="voice-1",
+                mime_type=None,
+                file_size=None,
+                duration=None,
+                raw={"file_id": "voice-1"},
+            ),
+        )
+
+    await run_main_loop(cfg, poller)
+
+    # THEN: Verify transcript was NOT sent (no 🎤 echo message)
+    echo_calls = [
+        call
+        for call in transport.send_calls
+        if call["message"].text.startswith("🎤 · voice transcript")
+    ]
+    assert len(echo_calls) == 0, "Echo message should NOT be sent when echo is disabled"
+
+    # BUT: Verify the actual run still happened (transcript was processed)
+    assert len(runner.calls) == 1
+    assert transcript_text in runner.calls[0][0]
 
 
 @pytest.mark.anyio
@@ -3515,6 +3730,7 @@ async def test_run_main_loop_mentions_only_skips_voice_and_files(
         forward_coalesce_s=FAST_FORWARD_COALESCE_S,
         media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
         voice_transcription=True,
+        voice_transcription_echo=True,
         files=TelegramFilesSettings(enabled=True, auto_put=True),
     )
 
