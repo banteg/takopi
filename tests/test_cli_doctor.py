@@ -57,7 +57,9 @@ def test_doctor_errors_exit_nonzero(monkeypatch) -> None:
 
 
 def test_doctor_missing_telegram_config_exits(monkeypatch) -> None:
-    settings = TakopiSettings.model_validate({"transport": "telegram", "transports": {}})
+    settings = TakopiSettings.model_validate(
+        {"transport": "telegram", "transports": {}}
+    )
     monkeypatch.setattr(cli, "load_settings", lambda: (settings, Path("x")))
 
     runner = CliRunner()

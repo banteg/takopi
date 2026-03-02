@@ -184,7 +184,9 @@ def test_run_auto_router_rejects_missing_telegram_config(
     setup = SetupResult(issues=[], config_path=tmp_path / "takopi.toml")
     transport = _FakeTransport(setup)
     config_path = tmp_path / "takopi.toml"
-    settings = TakopiSettings.model_validate({"transport": "telegram", "transports": {}})
+    settings = TakopiSettings.model_validate(
+        {"transport": "telegram", "transports": {}}
+    )
 
     monkeypatch.setattr(
         cli,
