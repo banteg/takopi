@@ -5,6 +5,7 @@ from typing import Annotated, Any, ClassVar, Literal
 from collections.abc import Iterable
 
 from pydantic import (
+    BeforeValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -63,9 +64,10 @@ def _coerce_chat_id(value: Any) -> Any:
                 return int(value)
             except ValueError:
                 return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
     return value
+
+
+ChatId = Annotated[StrictInt, BeforeValidator(_coerce_chat_id)]
 
 
 class TelegramTopicsSettings(BaseModel):
@@ -108,7 +110,7 @@ class TelegramTransportSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     bot_token: NonEmptyStr
-    chat_id: int
+    chat_id: ChatId
     allowed_user_ids: list[StrictInt] = Field(default_factory=list)
     message_overflow: Literal["trim", "split"] = "trim"
     voice_transcription: bool = False
@@ -122,11 +124,6 @@ class TelegramTransportSettings(BaseModel):
     media_group_debounce_s: float = Field(default=1.0, ge=0)
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
     files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
-
-    @field_validator("chat_id", mode="before")
-    @classmethod
-    def _validate_chat_id(cls, value: Any) -> Any:
-        return _coerce_chat_id(value)
 
 
 class TransportsSettings(BaseModel):
@@ -148,14 +145,7 @@ class ProjectSettings(BaseModel):
     worktrees_dir: NonEmptyStr = ".worktrees"
     default_engine: NonEmptyStr | None = None
     worktree_base: NonEmptyStr | None = None
-    chat_id: int | None = None
-
-    @field_validator("chat_id", mode="before")
-    @classmethod
-    def _validate_chat_id(cls, value: Any) -> Any:
-        if value is None:
-            return value
-        return _coerce_chat_id(value)
+    chat_id: ChatId | None = None
 
 
 class TakopiSettings(BaseSettings):

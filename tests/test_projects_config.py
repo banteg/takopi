@@ -130,6 +130,22 @@ def test_projects_chat_id_must_be_unique() -> None:
         )
 
 
+def test_projects_string_chat_id_is_coerced() -> None:
+    config = {
+        "transports": {"telegram": {"bot_token": "token", "chat_id": 123}},
+        "projects": {"z80": {"path": "/tmp/repo", "chat_id": "-10"}},
+    }
+    settings = TakopiSettings.model_validate(config)
+    projects = settings.to_projects_config(
+        config_path=Path("takopi.toml"),
+        engine_ids=["codex"],
+        reserved=RESERVED_CHAT_COMMANDS,
+    )
+
+    assert projects.projects["z80"].chat_id == -10
+    assert projects.chat_map[-10] == "z80"
+
+
 def test_projects_relative_path_resolves(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
     settings = TakopiSettings.model_validate(
