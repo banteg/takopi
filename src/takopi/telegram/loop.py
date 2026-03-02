@@ -12,7 +12,7 @@ from anyio.abc import TaskGroup
 
 from ..config import ConfigError
 from ..config_watch import ConfigReload, watch_config as watch_config_changes
-from ..commands import list_command_ids
+from ..commands import CommandResult, list_command_ids
 from ..directives import DirectiveError
 from ..logging import get_logger
 from ..model import EngineId, ResumeToken
@@ -26,6 +26,7 @@ from ..context import RunContext
 from ..ids import RESERVED_CHAT_COMMANDS
 from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
 from .commands.cancel import handle_callback_cancel, handle_cancel
+from .commands.executor import CommandDispatcher
 from .commands.file_transfer import FILE_PUT_USAGE
 from .commands.handlers import (
     dispatch_command,
@@ -290,6 +291,138 @@ def _dispatch_builtin_command(
         return True
 
     return False
+
+
+async def _invoke_builtin_command(
+    *,
+    cfg: TelegramBridgeConfig,
+    msg: TelegramIncomingMessage,
+    command_id: str,
+    args_text: str,
+    ambient_context: RunContext | None,
+    context_override: RunContext | None,
+    topic_store: TopicStateStore | None,
+    chat_prefs: ChatPrefsStore | None,
+    resolved_scope: str | None,
+    scope_chat_ids: frozenset[int],
+) -> CommandResult | None:
+    """Invoke a built-in command directly (synchronously).
+
+    Unlike _dispatch_builtin_command, this awaits the handler and returns
+    None (built-in commands send replies as side effects).
+
+    If context_override is provided, it takes precedence over ambient_context.
+    """
+    effective_context = (
+        context_override if context_override is not None else ambient_context
+    )
+    handlers: dict[str, Callable[[], Awaitable[None]]] = {}
+    reply = make_reply(cfg, msg)
+
+    if command_id == "file":
+        if not cfg.files.enabled:
+            await reply(
+                text="file transfer disabled; enable `[transports.telegram.files]`.",
+            )
+            return None
+        handlers["file"] = partial(
+            handle_file_command,
+            cfg,
+            msg,
+            args_text,
+            effective_context,
+            topic_store,
+        )
+
+    if cfg.topics.enabled and topic_store is not None:
+        handlers.update(
+            {
+                "ctx": partial(
+                    handle_ctx_command,
+                    cfg,
+                    msg,
+                    args_text,
+                    topic_store,
+                    resolved_scope=resolved_scope,
+                    scope_chat_ids=scope_chat_ids,
+                ),
+                "new": partial(
+                    handle_new_command,
+                    cfg,
+                    msg,
+                    topic_store,
+                    resolved_scope=resolved_scope,
+                    scope_chat_ids=scope_chat_ids,
+                ),
+                "topic": partial(
+                    handle_topic_command,
+                    cfg,
+                    msg,
+                    args_text,
+                    topic_store,
+                    resolved_scope=resolved_scope,
+                    scope_chat_ids=scope_chat_ids,
+                ),
+            }
+        )
+
+    if command_id == "agent":
+        handlers["agent"] = partial(
+            handle_agent_command,
+            cfg,
+            msg,
+            args_text,
+            effective_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
+        )
+
+    if command_id == "model":
+        handlers["model"] = partial(
+            handle_model_command,
+            cfg,
+            msg,
+            args_text,
+            effective_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
+        )
+
+    if command_id == "reasoning":
+        handlers["reasoning"] = partial(
+            handle_reasoning_command,
+            cfg,
+            msg,
+            args_text,
+            effective_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
+        )
+
+    if command_id == "trigger":
+        handlers["trigger"] = partial(
+            handle_trigger_command,
+            cfg,
+            msg,
+            args_text,
+            effective_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
+        )
+
+    handler = handlers.get(command_id)
+    if handler is None:
+        return CommandResult(text=f"unknown command: /{command_id}", notify=True)
+    await handler()
+    return None
 
 
 async def _drain_backlog(cfg: TelegramBridgeConfig, offset: int | None) -> int | None:
@@ -1573,6 +1706,32 @@ async def run_main_loop(
                     ambient_context=ambient_context,
                 )
 
+            def make_command_dispatcher(
+                msg: TelegramIncomingMessage,
+                ambient_context: RunContext | None,
+            ) -> CommandDispatcher:
+                """Create a command dispatcher for plugin invocation."""
+
+                async def dispatch(
+                    command: str,
+                    args: str = "",
+                    context_override: RunContext | None = None,
+                ) -> CommandResult | None:
+                    return await _invoke_builtin_command(
+                        cfg=cfg,
+                        msg=msg,
+                        command_id=command.lower().lstrip("/"),
+                        args_text=args,
+                        ambient_context=ambient_context,
+                        context_override=context_override,
+                        topic_store=state.topic_store,
+                        chat_prefs=state.chat_prefs,
+                        resolved_scope=state.resolved_topics_scope,
+                        scope_chat_ids=state.topics_chat_ids,
+                    )
+
+                return dispatch
+
             async def route_message(msg: TelegramIncomingMessage) -> None:
                 reply = make_reply(cfg, msg)
                 classification = _classify_message(msg, files_enabled=cfg.files.enabled)
@@ -1755,6 +1914,7 @@ async def run_main_loop(
                             stateful_mode,
                             default_engine_override,
                             engine_overrides_resolver,
+                            make_command_dispatcher(msg, ambient_context),
                         )
                         return
 
