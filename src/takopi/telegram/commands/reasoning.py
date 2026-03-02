@@ -153,6 +153,7 @@ async def _handle_reasoning_command(
             update=lambda current: EngineOverrides(
                 model=current.model if current is not None else None,
                 reasoning=normalized_level,
+                mode=current.mode if current is not None else None,
             ),
             topic_unavailable="topic reasoning overrides are unavailable.",
             chat_unavailable="chat reasoning overrides are unavailable (no config path).",
@@ -219,6 +220,7 @@ async def _handle_reasoning_command(
             update=lambda current: EngineOverrides(
                 model=current.model if current is not None else None,
                 reasoning=None,
+                mode=current.mode if current is not None else None,
             ),
             topic_unavailable="topic reasoning overrides are unavailable.",
             chat_unavailable="chat reasoning overrides are unavailable (no config path).",

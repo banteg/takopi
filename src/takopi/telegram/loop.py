@@ -36,6 +36,7 @@ from .commands.handlers import (
     handle_file_command,
     handle_file_put_default,
     handle_media_group,
+    handle_mode_command,
     handle_model_command,
     handle_new_command,
     handle_reasoning_command,
@@ -45,7 +46,8 @@ from .commands.handlers import (
     get_reserved_commands,
     run_engine,
     save_file_put,
-    set_command_menu,
+    set_mode_for_message,
+    set_command_menu_with_shortcuts,
     should_show_resume_line,
 )
 from .commands.parse import is_cancel_command
@@ -103,6 +105,7 @@ async def _resolve_engine_run_options(
     engine: EngineId,
     chat_prefs: ChatPrefsStore | None,
     topic_store: TopicStateStore | None,
+    mode_supported_engines: frozenset[str] = frozenset(),
 ) -> EngineRunOptions | None:
     topic_override = None
     if topic_store is not None and thread_id is not None:
@@ -115,7 +118,10 @@ async def _resolve_engine_run_options(
     merged = merge_overrides(topic_override, chat_override)
     if merged is None:
         return None
-    return EngineRunOptions(model=merged.model, reasoning=merged.reasoning)
+    mode = None
+    if engine in mode_supported_engines:
+        mode = merged.mode
+    return EngineRunOptions(model=merged.model, reasoning=merged.reasoning, mode=mode)
 
 
 def _allowed_chat_ids(cfg: TelegramBridgeConfig) -> set[int]:
@@ -156,6 +162,8 @@ def _dispatch_builtin_command(
     chat_prefs = ctx.chat_prefs
     resolved_scope = ctx.resolved_scope
     scope_chat_ids = ctx.scope_chat_ids
+    mode_supported_engines = ctx.mode_supported_engines
+    mode_known_modes = ctx.mode_known_modes
     reply = ctx.reply
     task_group = ctx.task_group
     if command_id == "file":
@@ -188,7 +196,7 @@ def _dispatch_builtin_command(
                 cfg,
                 msg,
                 args_text,
-                topic_store,
+                cast(TopicStateStore, topic_store),
                 resolved_scope=resolved_scope,
                 scope_chat_ids=scope_chat_ids,
             )
@@ -255,6 +263,23 @@ def _dispatch_builtin_command(
             chat_prefs,
             resolved_scope=resolved_scope,
             scope_chat_ids=scope_chat_ids,
+        )
+        task_group.start_soon(handler)
+        return True
+
+    if command_id == "mode":
+        handler = partial(
+            handle_mode_command,
+            cfg,
+            msg,
+            args_text,
+            ambient_context,
+            topic_store,
+            chat_prefs,
+            resolved_scope=resolved_scope,
+            scope_chat_ids=scope_chat_ids,
+            mode_supported_engines=mode_supported_engines,
+            mode_known_modes=mode_known_modes,
         )
         task_group.start_soon(handler)
         return True
@@ -384,6 +409,8 @@ class TelegramCommandContext:
     chat_prefs: ChatPrefsStore | None
     resolved_scope: str | None
     scope_chat_ids: frozenset[int]
+    mode_supported_engines: frozenset[str]
+    mode_known_modes: dict[str, tuple[str, ...]]
     reply: Callable[..., Awaitable[None]]
     task_group: TaskGroup
 
@@ -420,6 +447,11 @@ class TelegramLoopState:
     command_ids: set[str]
     reserved_commands: set[str]
     reserved_chat_commands: set[str]
+    mode_supported_engines: frozenset[str]
+    mode_known_modes: dict[str, tuple[str, ...]]
+    mode_shortcuts: tuple[str, ...]
+    active_mode_shortcuts: tuple[str, ...]
+    mode_discovery_timeout_s: float
     transport_snapshot: dict[str, object] | None
     topic_store: TopicStateStore | None
     chat_session_store: ChatSessionStore | None
@@ -434,6 +466,28 @@ class TelegramLoopState:
     seen_update_order: deque[int]
     seen_message_keys: set[MessageKey]
     seen_messages_order: deque[MessageKey]
+
+
+def _active_mode_shortcuts(
+    *,
+    mode_shortcuts: tuple[str, ...],
+    reserved_commands: set[str],
+    command_ids: set[str],
+) -> tuple[str, ...]:
+    blocked = {*(item.lower() for item in reserved_commands), *command_ids}
+    active: list[str] = []
+    seen: set[str] = set()
+    for raw in mode_shortcuts:
+        command = raw.strip().lower()
+        if not command:
+            continue
+        if command in seen:
+            continue
+        if command in blocked:
+            continue
+        seen.add(command)
+        active.append(command)
+    return tuple(active)
 
 
 if TYPE_CHECKING:
@@ -961,6 +1015,11 @@ async def run_main_loop(
         },
         reserved_commands=get_reserved_commands(cfg.runtime),
         reserved_chat_commands=set(RESERVED_CHAT_COMMANDS),
+        mode_supported_engines=frozenset(cfg.mode_supported_engines),
+        mode_known_modes=dict(cfg.mode_known_modes),
+        mode_shortcuts=tuple(mode.lower() for mode in cfg.mode_shortcuts),
+        active_mode_shortcuts=(),
+        mode_discovery_timeout_s=float(cfg.mode_discovery_timeout_s),
         transport_snapshot=(
             transport_config.model_dump() if transport_config is not None else None
         ),
@@ -989,12 +1048,34 @@ async def run_main_loop(
             state.resolved_topics_scope = None
             state.topics_chat_ids = frozenset()
 
+    def refresh_mode_capabilities() -> None:
+        discovered = cfg.runtime.discover_agent_modes(
+            timeout_s=state.mode_discovery_timeout_s,
+        )
+        state.mode_supported_engines = discovered.supports_agent
+        state.mode_known_modes = dict(discovered.known_modes)
+        state.mode_shortcuts = tuple(mode.lower() for mode in discovered.shortcut_modes)
+
+    def refresh_mode_shortcuts() -> None:
+        state.active_mode_shortcuts = _active_mode_shortcuts(
+            mode_shortcuts=state.mode_shortcuts,
+            reserved_commands=state.reserved_commands,
+            command_ids=state.command_ids,
+        )
+        state.reserved_chat_commands = {
+            *RESERVED_CHAT_COMMANDS,
+            *state.active_mode_shortcuts,
+        }
+
     def refresh_commands() -> None:
         allowlist = cfg.runtime.allowlist
         state.command_ids = {
             command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
         }
         state.reserved_commands = get_reserved_commands(cfg.runtime)
+        refresh_mode_shortcuts()
+
+    refresh_mode_shortcuts()
 
     try:
         config_path = cfg.runtime.config_path
@@ -1038,7 +1119,10 @@ async def run_main_loop(
                 resolved_scope=state.resolved_topics_scope,
                 state_path=str(resolve_state_path(config_path)),
             )
-        await set_command_menu(cfg)
+        await set_command_menu_with_shortcuts(
+            cfg,
+            mode_shortcuts=state.active_mode_shortcuts,
+        )
         try:
             me = await cfg.bot.get_me()
         except Exception as exc:  # noqa: BLE001
@@ -1069,9 +1153,17 @@ async def run_main_loop(
             watch_enabled = bool(watch_config) and config_path is not None
 
             async def handle_reload(reload: ConfigReload) -> None:
+                state.mode_discovery_timeout_s = max(
+                    0.1,
+                    float(reload.settings.transports.telegram.mode_discovery_timeout_s),
+                )
+                refresh_mode_capabilities()
                 refresh_commands()
                 refresh_topics_scope()
-                await set_command_menu(cfg)
+                await set_command_menu_with_shortcuts(
+                    cfg,
+                    mode_shortcuts=state.active_mode_shortcuts,
+                )
                 if state.transport_snapshot is not None:
                     new_snapshot = reload.settings.transports.telegram.model_dump()
                     changed = _diff_keys(state.transport_snapshot, new_snapshot)
@@ -1178,6 +1270,7 @@ async def run_main_loop(
                     engine_for_overrides,
                     chat_prefs=state.chat_prefs,
                     topic_store=state.topic_store,
+                    mode_supported_engines=state.mode_supported_engines,
                 )
                 await run_engine(
                     exec_cfg=cfg.exec_cfg,
@@ -1648,12 +1741,50 @@ async def run_main_loop(
                         chat_prefs=state.chat_prefs,
                         resolved_scope=state.resolved_topics_scope,
                         scope_chat_ids=state.topics_chat_ids,
+                        mode_supported_engines=state.mode_supported_engines,
+                        mode_known_modes=state.mode_known_modes,
                         reply=reply,
                         task_group=tg,
                     ),
                     command_id=command_id,
                 ):
                     return
+
+                if command_id is not None and command_id in state.active_mode_shortcuts:
+                    forward_coalescer.cancel(forward_key)
+                    if not args_text.strip():
+                        tg.start_soon(
+                            partial(
+                                set_mode_for_message,
+                                cfg,
+                                msg,
+                                mode=command_id,
+                                ambient_context=ambient_context,
+                                topic_store=state.topic_store,
+                                chat_prefs=state.chat_prefs,
+                                scope_chat_ids=state.topics_chat_ids,
+                                announce=True,
+                                mode_supported_engines=state.mode_supported_engines,
+                                mode_known_modes=state.mode_known_modes,
+                            )
+                        )
+                        return
+                    mode_set = await set_mode_for_message(
+                        cfg,
+                        msg,
+                        mode=command_id,
+                        ambient_context=ambient_context,
+                        topic_store=state.topic_store,
+                        chat_prefs=state.chat_prefs,
+                        scope_chat_ids=state.topics_chat_ids,
+                        announce=False,
+                        mode_supported_engines=state.mode_supported_engines,
+                        mode_known_modes=state.mode_known_modes,
+                    )
+                    if not mode_set:
+                        return
+                    text = args_text
+                    command_id = None
 
                 trigger_mode = await resolve_trigger_mode(
                     chat_id=chat_id,
@@ -1737,6 +1868,7 @@ async def run_main_loop(
                             overrides_thread_id,
                             chat_prefs=state.chat_prefs,
                             topic_store=state.topic_store,
+                            mode_supported_engines=state.mode_supported_engines,
                         )
                         tg.start_soon(
                             dispatch_command,

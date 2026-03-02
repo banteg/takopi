@@ -135,6 +135,7 @@ async def _handle_model_command(
             update=lambda current: EngineOverrides(
                 model=model,
                 reasoning=current.reasoning if current is not None else None,
+                mode=current.mode if current is not None else None,
             ),
             topic_unavailable="topic model overrides are unavailable.",
             chat_unavailable="chat model overrides are unavailable (no config path).",
@@ -200,6 +201,7 @@ async def _handle_model_command(
             update=lambda current: EngineOverrides(
                 model=None,
                 reasoning=current.reasoning if current is not None else None,
+                mode=current.mode if current is not None else None,
             ),
             topic_unavailable="topic model overrides are unavailable.",
             chat_unavailable="chat model overrides are unavailable (no config path).",

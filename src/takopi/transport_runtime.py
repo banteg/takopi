@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from .agent_modes import AgentModeCapabilities, ModeDiscoveryResult
+from .backends import AgentModeProbe
 from .config import ConfigError, ProjectsConfig
 from .context import RunContext
 from .directives import (
@@ -14,10 +16,13 @@ from .directives import (
     parse_directives,
 )
 from .model import EngineId, ResumeToken
+from .logging import get_logger
 from .plugins import normalize_allowlist
 from .router import AutoRouter, EngineStatus
 from .runner import Runner
 from .worktrees import WorktreeError, resolve_run_cwd
+
+logger = get_logger(__name__)
 
 type ContextSource = Literal[
     "reply_ctx",
@@ -52,6 +57,7 @@ class TransportRuntime:
         "_allowlist",
         "_config_path",
         "_plugin_configs",
+        "_engine_mode_probers",
         "_watch_config",
     )
 
@@ -63,6 +69,7 @@ class TransportRuntime:
         allowlist: Iterable[str] | None = None,
         config_path: Path | None = None,
         plugin_configs: Mapping[str, Any] | None = None,
+        engine_mode_probers: Mapping[EngineId, AgentModeProbe] | None = None,
         watch_config: bool = False,
     ) -> None:
         self._apply(
@@ -71,6 +78,7 @@ class TransportRuntime:
             allowlist=allowlist,
             config_path=config_path,
             plugin_configs=plugin_configs,
+            engine_mode_probers=engine_mode_probers,
             watch_config=watch_config,
         )
 
@@ -82,6 +90,7 @@ class TransportRuntime:
         allowlist: Iterable[str] | None = None,
         config_path: Path | None = None,
         plugin_configs: Mapping[str, Any] | None = None,
+        engine_mode_probers: Mapping[EngineId, AgentModeProbe] | None = None,
         watch_config: bool = False,
     ) -> None:
         self._apply(
@@ -90,6 +99,7 @@ class TransportRuntime:
             allowlist=allowlist,
             config_path=config_path,
             plugin_configs=plugin_configs,
+            engine_mode_probers=engine_mode_probers,
             watch_config=watch_config,
         )
 
@@ -101,6 +111,7 @@ class TransportRuntime:
         allowlist: Iterable[str] | None,
         config_path: Path | None,
         plugin_configs: Mapping[str, Any] | None,
+        engine_mode_probers: Mapping[EngineId, AgentModeProbe] | None,
         watch_config: bool,
     ) -> None:
         self._router = router
@@ -108,7 +119,73 @@ class TransportRuntime:
         self._allowlist = normalize_allowlist(allowlist)
         self._config_path = config_path
         self._plugin_configs = dict(plugin_configs or {})
+        self._engine_mode_probers = dict(engine_mode_probers or {})
         self._watch_config = watch_config
+
+    @staticmethod
+    def _normalize_modes(raw: Iterable[str]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            mode = str(item).strip().lower()
+            if not mode:
+                continue
+            if mode in seen:
+                continue
+            seen.add(mode)
+            normalized.append(mode)
+        return tuple(normalized)
+
+    def probe_engine_agent_modes(
+        self,
+        engine: EngineId,
+        *,
+        timeout_s: float,
+    ) -> AgentModeCapabilities:
+        probe = self._engine_mode_probers.get(engine)
+        if probe is None:
+            return AgentModeCapabilities()
+        try:
+            discovered = probe(timeout_s)
+        except Exception as exc:  # noqa: BLE001  # pragma: no cover - safety net
+            logger.info(
+                "agent_modes.probe.failed",
+                engine=engine,
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            return AgentModeCapabilities()
+        return AgentModeCapabilities(
+            supports_agent=bool(discovered.supports_agent),
+            known_modes=self._normalize_modes(discovered.known_modes),
+            shortcut_modes=self._normalize_modes(discovered.shortcut_modes),
+        )
+
+    def discover_agent_modes(self, *, timeout_s: float) -> ModeDiscoveryResult:
+        supports: set[str] = set()
+        known_modes: dict[str, tuple[str, ...]] = {}
+        shortcut_modes: list[str] = []
+        seen_shortcuts: set[str] = set()
+
+        for engine in self.available_engine_ids():
+            discovered = self.probe_engine_agent_modes(engine, timeout_s=timeout_s)
+            if not discovered.supports_agent:
+                continue
+            key = engine.lower()
+            supports.add(key)
+            if discovered.known_modes:
+                known_modes[key] = discovered.known_modes
+            for mode in discovered.shortcut_modes:
+                if mode in seen_shortcuts:
+                    continue
+                seen_shortcuts.add(mode)
+                shortcut_modes.append(mode)
+
+        return ModeDiscoveryResult(
+            supports_agent=frozenset(supports),
+            known_modes=known_modes,
+            shortcut_modes=tuple(shortcut_modes),
+        )
 
     @property
     def default_engine(self) -> EngineId:

@@ -74,7 +74,7 @@ Explicit invocation includes any of:
 - `@botname` mention in the message.
 - `/<engine-id>` or `/<project-alias>` as the first token.
 - Replying to a bot message.
-- Built-in or plugin slash commands (for example `/agent`, `/model`, `/reasoning`, `/file`, `/trigger`).
+- Built-in or plugin slash commands (for example `/agent`, `/mode`, `/model`, `/reasoning`, `/file`, `/trigger`).
 
 Note: In forum topics, some Telegram clients include `reply_to_message` on every
 message, pointing at the topic’s root service message (`message_id ==
@@ -92,6 +92,30 @@ In group chats, changing trigger mode requires the sender to be an admin.
 
 State is stored in `telegram_chat_prefs_state.json` (chat default) and
 `telegram_topics_state.json` (topic overrides) alongside the config file.
+
+### Agent mode discovery timeout
+
+At startup, Takopi discovers available agent modes (for example via
+`opencode agent list`) so dynamic shortcuts like `/build` and `/plan`
+can be registered.
+
+Shortcuts are best-effort: if discovery times out or fails, Takopi still starts,
+`/mode` remains available, and shortcut commands are omitted until a successful
+discovery cycle.
+
+If your host is slow on cold start, increase the timeout:
+
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.mode_discovery_timeout_s 8.0
+    ```
+
+=== "toml"
+
+    ```toml
+    mode_discovery_timeout_s = 8.0
+    ```
 
 ### Forwarded message coalescing
 

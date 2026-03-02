@@ -29,6 +29,7 @@ dependencies = ["takopi>=0.14,<0.15"]
 | Symbol | Purpose |
 |--------|---------|
 | `EngineBackend` | Declares an engine backend (id + runner builder) |
+| `AgentModeCapabilities` | Optional engine capability payload for `/mode` support |
 | `EngineConfig` | Dict-based engine config table |
 | `Runner` | Runner protocol |
 | `BaseRunner` | Helper base class with resume locking |
@@ -143,6 +144,7 @@ EngineBackend(
     build_runner: Callable[[EngineConfig, Path], Runner],
     cli_cmd: str | None = None,
     install_cmd: str | None = None,
+    discover_agent_modes: Callable[[float], AgentModeCapabilities] | None = None,
 )
 ```
 
@@ -150,6 +152,8 @@ EngineBackend(
 - `build_runner` should raise `ConfigError` for invalid config.
 - `cli_cmd` is used to check whether the engine CLI is on `PATH`.
 - `install_cmd` is surfaced in onboarding output.
+- `discover_agent_modes` is optional; when provided it should return
+  `AgentModeCapabilities` for that engine (for Telegram `/mode` support).
 
 ---
 
