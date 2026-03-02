@@ -376,28 +376,31 @@ def _is_image_document(doc: TelegramDocument | None) -> bool:
     return False
 
 
-async def _download_telegram_photo(bot, doc: TelegramDocument) -> str | None:
+async def _download_telegram_file(bot, doc: TelegramDocument) -> str | None:
     file_info = await bot.get_file(doc.file_id)
     if file_info is None or file_info.file_path is None:
         return None
     data = await bot.download_file(file_info.file_path)
     if data is None:
         return None
-    ext = Path(file_info.file_path).suffix or ".jpg"
-    tmp_dir = Path("/tmp/takopi-images")
+    tmp_dir = Path("/tmp/takopi-attachments")
     tmp_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = tmp_dir / f"{doc.file_id}{ext}"
+    if doc.file_name:
+        tmp_path = tmp_dir / f"{doc.file_id}_{doc.file_name}"
+    else:
+        ext = Path(file_info.file_path).suffix or ".jpg"
+        tmp_path = tmp_dir / f"{doc.file_id}{ext}"
     tmp_path.write_bytes(data)
     return str(tmp_path)
 
 
-def _build_image_prompt(image_paths: list[str], text: str) -> str:
-    images_block = "\n".join(
-        f"[attached image: {path}]" for path in image_paths
+def _build_attachment_prompt(file_paths: list[str], text: str) -> str:
+    files_block = "\n".join(
+        f"[attached file: {path}]" for path in file_paths
     )
     if text.strip():
-        return f"{images_block}\n\n{text}"
-    return images_block
+        return f"{files_block}\n\n{text}"
+    return files_block
 
 
 @dataclass(frozen=True, slots=True)
@@ -870,15 +873,10 @@ class MediaGroupBuffer:
                 for msg in messages
             ):
                 return
-            # Check if all documents in the group are images
+            # All file groups go directly to Claude session
             if (
                 self._handle_photo_group is not None
                 and any(m.document is not None for m in messages)
-                and all(
-                    _is_image_document(m.document)
-                    for m in messages
-                    if m.document is not None
-                )
             ):
                 await self._handle_photo_group(messages)
                 return
@@ -1585,7 +1583,7 @@ async def run_main_loop(
                 ctx: TelegramMsgContext,
             ) -> None:
                 reply_fn = make_reply(cfg, msg)
-                prompt_text = _build_image_prompt(image_paths, text)
+                prompt_text = _build_attachment_prompt(image_paths, text)
                 try:
                     resolved = cfg.runtime.resolve_message(
                         text=text,
@@ -1655,7 +1653,7 @@ async def run_main_loop(
 
                 tg.start_soon(_photo_timeout)
 
-            async def _handle_single_photo(
+            async def _handle_single_file(
                 msg: TelegramIncomingMessage,
                 text: str,
                 ctx: TelegramMsgContext,
@@ -1663,7 +1661,7 @@ async def run_main_loop(
                 reply_fn = make_reply(cfg, msg)
                 if msg.document is None:
                     return
-                image_path = await _download_telegram_photo(cfg.bot, msg.document)
+                image_path = await _download_telegram_file(cfg.bot, msg.document)
                 if image_path is None:
                     await reply_fn(text="failed to download image")
                     return
@@ -1683,7 +1681,7 @@ async def run_main_loop(
                 image_paths: list[str] = []
                 for m in ordered:
                     if m.document is not None and _is_image_document(m.document):
-                        path = await _download_telegram_photo(cfg.bot, m.document)
+                        path = await _download_telegram_file(cfg.bot, m.document)
                         if path is not None:
                             image_paths.append(path)
                 if not image_paths:
@@ -1879,39 +1877,10 @@ async def run_main_loop(
                         return
                     is_voice_transcribed = True
                 if msg.document is not None:
-                    # Images go directly to Claude session, not through file put
-                    if _is_image_document(msg.document):
-                        tg.start_soon(
-                            _handle_single_photo, msg, text, ctx,
-                        )
-                        return
-                    # Non-image documents: keep existing file put behavior
-                    if cfg.files.enabled and cfg.files.auto_put:
-                        caption_text = text.strip()
-                        if cfg.files.auto_put_mode == "prompt" and caption_text:
-                            tg.start_soon(
-                                handle_prompt_upload,
-                                msg,
-                                caption_text,
-                                ambient_context,
-                                state.topic_store,
-                            )
-                        elif not caption_text:
-                            tg.start_soon(
-                                handle_file_put_default,
-                                cfg,
-                                msg,
-                                ambient_context,
-                                state.topic_store,
-                            )
-                        else:
-                            tg.start_soon(
-                                partial(reply, text=FILE_PUT_USAGE),
-                            )
-                    elif cfg.files.enabled:
-                        tg.start_soon(
-                            partial(reply, text=FILE_PUT_USAGE),
-                        )
+                    # All files go directly to Claude session
+                    tg.start_soon(
+                        _handle_single_file, msg, text, ctx,
+                    )
                     return
                 if command_id is not None and command_id not in state.reserved_commands:
                     if command_id not in state.command_ids:
