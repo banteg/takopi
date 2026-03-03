@@ -176,3 +176,88 @@ async def test_decode_result_invalid_payload_returns_none() -> None:
     client = HttpBotClient("token", http_client=httpx.AsyncClient())
     assert client._decode_result(method="getMe", payload=["bad"], model=User) is None
     await client.close()
+
+
+@pytest.mark.anyio
+async def test_edit_message_text_uses_send_message_draft_for_private_wait_false() -> None:
+    class _StubClient(HttpBotClient):
+        def __init__(self) -> None:
+            super().__init__("token", http_client=httpx.AsyncClient())
+            self.calls: list[tuple[str, dict | None, dict | None, dict | None]] = []
+
+        async def _request(
+            self,
+            method: str,
+            *,
+            json: dict | None = None,
+            data: dict | None = None,
+            files: dict | None = None,
+        ) -> object | None:
+            self.calls.append((method, json, data, files))
+            if method == "sendMessageDraft":
+                return True
+            if method == "editMessageText":
+                return {"message_id": 999, "chat": {"id": 1, "type": "private"}}
+            return None
+
+    client = _StubClient()
+    edited = await client.edit_message_text(
+        chat_id=1,
+        message_id=42,
+        text="draft",
+        parse_mode="Markdown",
+        reply_markup={"inline_keyboard": []},
+        wait=False,
+    )
+
+    await client.close()
+
+    assert edited is not None
+    assert edited.message_id == 42
+    assert len(client.calls) == 1
+    assert client.calls[0][0] == "sendMessageDraft"
+    assert client.calls[0][1] == {
+        "chat_id": 1,
+        "text": "draft",
+        "parse_mode": "Markdown",
+        "reply_markup": {"inline_keyboard": []},
+        "link_preview_options": {"is_disabled": True},
+    }
+
+
+@pytest.mark.anyio
+async def test_edit_message_text_wait_false_keeps_edit_for_group_chat() -> None:
+    class _StubClient(HttpBotClient):
+        def __init__(self) -> None:
+            super().__init__("token", http_client=httpx.AsyncClient())
+            self.calls: list[tuple[str, dict | None, dict | None, dict | None]] = []
+
+        async def _request(
+            self,
+            method: str,
+            *,
+            json: dict | None = None,
+            data: dict | None = None,
+            files: dict | None = None,
+        ) -> object | None:
+            self.calls.append((method, json, data, files))
+            if method == "editMessageText":
+                return {"message_id": 5, "chat": {"id": -100123, "type": "supergroup"}}
+            return None
+
+    client = _StubClient()
+    edited = await client.edit_message_text(
+        chat_id=-100123,
+        message_id=5,
+        text="group draft",
+        wait=False,
+    )
+
+    await client.close()
+
+    assert edited is not None
+    assert edited.message_id == 5
+    assert len(client.calls) == 1
+    assert client.calls[0][0] == "editMessageText"
+    assert client.calls[0][1]["chat_id"] == -100123
+    assert client.calls[0][1]["message_id"] == 5
