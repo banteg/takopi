@@ -435,6 +435,27 @@ class HttpBotClient:
         *,
         wait: bool = True,
     ) -> Message | None:
+        if not wait and chat_id > 0:
+            draft_params: dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": text,
+                "link_preview_options": {"is_disabled": True},
+            }
+            if entities is not None:
+                draft_params["entities"] = entities
+            if parse_mode is not None:
+                draft_params["parse_mode"] = parse_mode
+            if reply_markup is not None:
+                draft_params["reply_markup"] = reply_markup
+
+            draft_result = await self._post("sendMessageDraft", draft_params)
+            if bool(draft_result):
+                return Message(
+                    message_id=message_id,
+                    chat=Chat(id=chat_id, type="private"),
+                    text=text,
+                )
+
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
