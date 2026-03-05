@@ -7,6 +7,7 @@ from .dispatch import _dispatch_command as dispatch_command
 from .executor import _run_engine as run_engine
 from .executor import _should_show_resume_line as should_show_resume_line
 from .file_transfer import _handle_file_command as handle_file_command
+from .issues import _handle_issues_command as handle_issues_command
 from .file_transfer import _handle_file_put_default as handle_file_put_default
 from .file_transfer import _save_file_put as save_file_put
 from .media import _handle_media_group as handle_media_group
@@ -31,6 +32,7 @@ __all__ = [
     "handle_ctx_command",
     "handle_file_command",
     "handle_file_put_default",
+    "handle_issues_command",
     "handle_media_group",
     "handle_model_command",
     "handle_new_command",

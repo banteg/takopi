@@ -35,6 +35,7 @@ from .commands.handlers import (
     handle_ctx_command,
     handle_file_command,
     handle_file_put_default,
+    handle_issues_command,
     handle_media_group,
     handle_model_command,
     handle_new_command,
@@ -216,6 +217,16 @@ def _dispatch_builtin_command(
         elif command_id == "topic":
             handler = partial(
                 handle_topic_command,
+                cfg,
+                msg,
+                args_text,
+                topic_store,
+                resolved_scope=resolved_scope,
+                scope_chat_ids=scope_chat_ids,
+            )
+        elif command_id == "issues":
+            handler = partial(
+                handle_issues_command,
                 cfg,
                 msg,
                 args_text,
