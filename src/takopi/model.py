@@ -22,6 +22,7 @@ type ActionKind = Literal[
 type TakopiEventType = Literal[
     "started",
     "action",
+    "text_delta",
     "completed",
 ]
 
@@ -64,6 +65,13 @@ class ActionEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class TextDeltaEvent:
+    type: Literal["text_delta"] = field(default="text_delta", init=False)
+    engine: EngineId
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class CompletedEvent:
     type: Literal["completed"] = field(default="completed", init=False)
     engine: EngineId
@@ -74,4 +82,4 @@ class CompletedEvent:
     usage: dict[str, Any] | None = None
 
 
-type TakopiEvent = StartedEvent | ActionEvent | CompletedEvent
+type TakopiEvent = StartedEvent | ActionEvent | TextDeltaEvent | CompletedEvent

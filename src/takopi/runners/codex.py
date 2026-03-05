@@ -11,7 +11,7 @@ from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
 from ..events import EventFactory
 from ..logging import get_logger
-from ..model import ActionPhase, EngineId, ResumeToken, TakopiEvent
+from ..model import ActionPhase, EngineId, ResumeToken, TakopiEvent, TextDeltaEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from .run_options import get_run_options
 from ..schemas import codex as codex_schema
@@ -608,11 +608,19 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             case _:
                 pass
 
-        return translate_codex_event(
+        events = translate_codex_event(
             data,
             title=self.session_title,
             factory=factory,
         )
+        match data:
+            case codex_schema.ItemCompleted(
+                item=codex_schema.AgentMessageItem(text=text)
+            ) if text:
+                events.append(TextDeltaEvent(engine=ENGINE, text=text))
+            case _:
+                pass
+        return events
 
     def process_error_events(
         self,

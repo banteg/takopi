@@ -85,6 +85,7 @@ class ExecBridgeConfig:
     transport: Transport
     presenter: Presenter
     final_notify: bool
+    streaming: bool = False
 
 
 @dataclass(slots=True)
@@ -165,6 +166,7 @@ class ProgressEdits:
         resume_formatter: Callable[[ResumeToken], str] | None = None,
         label: str = "working",
         context_line: str | None = None,
+        streaming: bool = False,
     ) -> None:
         self.transport = transport
         self.presenter = presenter
@@ -177,6 +179,8 @@ class ProgressEdits:
         self.resume_formatter = resume_formatter
         self.label = label
         self.context_line = context_line
+        self.streaming = streaming
+        self.did_stream = False
         self.event_seq = 0
         self.rendered_seq = 0
         self.signal_send, self.signal_recv = anyio.create_memory_object_stream(1)
@@ -197,9 +201,15 @@ class ProgressEdits:
                 resume_formatter=self.resume_formatter,
                 context_line=self.context_line,
             )
-            rendered = self.presenter.render_progress(
-                state, elapsed_s=now - self.started_at, label=self.label
-            )
+            if self.streaming and state.streaming_text:
+                self.did_stream = True
+                rendered = self.presenter.render_streaming(
+                    state, elapsed_s=now - self.started_at, label=self.label
+                )
+            else:
+                rendered = self.presenter.render_progress(
+                    state, elapsed_s=now - self.started_at, label=self.label
+                )
             if rendered != self.last_rendered:
                 logger.debug(
                     "transport.edit_message",
@@ -440,6 +450,7 @@ async def handle_message(
         last_rendered=progress_state.last_rendered,
         resume_formatter=runner.format_resume,
         context_line=context_line,
+        streaming=cfg.streaming,
     )
 
     running_task: RunningTask | None = None
@@ -603,7 +614,9 @@ async def handle_message(
     )
 
     can_edit_final = progress_ref is not None
-    edit_ref = None if cfg.final_notify or not can_edit_final else progress_ref
+    # When streaming was active, prefer editing in-place to avoid message flicker.
+    streamed = edits.did_stream
+    edit_ref = None if (cfg.final_notify and not streamed) or not can_edit_final else progress_ref
 
     await send_result_message(
         cfg,

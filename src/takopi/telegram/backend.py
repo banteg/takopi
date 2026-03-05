@@ -126,6 +126,7 @@ class TelegramBackend(TransportBackend):
             transport=transport,
             presenter=presenter,
             final_notify=final_notify,
+            streaming=settings.streaming,
         )
         cfg = TelegramBridgeConfig(
             bot=bot,

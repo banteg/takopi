@@ -10,6 +10,7 @@ from takopi.model import (
     ResumeToken,
     StartedEvent,
     TakopiEvent,
+    TextDeltaEvent,
 )
 from takopi.runners.codex import CodexRunner, find_exec_only_flag
 
@@ -261,7 +262,7 @@ async def test_codex_runner_preserves_warning_order(tmp_path) -> None:
     runner = CodexRunner(codex_cmd=str(codex_path), extra_args=[])
     seen = [evt async for evt in runner.run("hi", None)]
 
-    assert len(seen) == 3
+    assert len(seen) == 4
     assert isinstance(seen[0], ActionEvent)
     assert seen[0].phase == "completed"
     assert seen[0].ok is False
@@ -271,9 +272,12 @@ async def test_codex_runner_preserves_warning_order(tmp_path) -> None:
     assert isinstance(seen[1], StartedEvent)
     assert seen[1].resume.value == thread_id
 
-    assert isinstance(seen[2], CompletedEvent)
-    assert seen[2].resume == seen[1].resume
-    assert seen[2].answer == "ok"
+    assert isinstance(seen[2], TextDeltaEvent)
+    assert seen[2].text == "ok"
+
+    assert isinstance(seen[3], CompletedEvent)
+    assert seen[3].resume == seen[1].resume
+    assert seen[3].answer == "ok"
 
 
 @pytest.mark.anyio
@@ -297,7 +301,7 @@ async def test_codex_runner_reconnect_notice_is_non_fatal(tmp_path) -> None:
     runner = CodexRunner(codex_cmd=str(codex_path), extra_args=[])
     seen = [evt async for evt in runner.run("hi", None)]
 
-    assert len(seen) == 3
+    assert len(seen) == 4
     assert isinstance(seen[0], ActionEvent)
     assert seen[0].phase == "started"
     assert seen[0].ok is None
@@ -307,9 +311,12 @@ async def test_codex_runner_reconnect_notice_is_non_fatal(tmp_path) -> None:
     assert isinstance(seen[1], StartedEvent)
     assert seen[1].resume.value == thread_id
 
-    assert isinstance(seen[2], CompletedEvent)
-    assert seen[2].resume == seen[1].resume
-    assert seen[2].answer == "ok"
+    assert isinstance(seen[2], TextDeltaEvent)
+    assert seen[2].text == "ok"
+
+    assert isinstance(seen[3], CompletedEvent)
+    assert seen[3].resume == seen[1].resume
+    assert seen[3].answer == "ok"
 
 
 @pytest.mark.anyio
@@ -335,7 +342,7 @@ async def test_codex_runner_reconnect_notice_updates_phase(tmp_path) -> None:
     runner = CodexRunner(codex_cmd=str(codex_path), extra_args=[])
     seen = [evt async for evt in runner.run("hi", None)]
 
-    assert len(seen) == 4
+    assert len(seen) == 5
     first = seen[0]
     second = seen[1]
     assert isinstance(first, ActionEvent)
@@ -344,7 +351,9 @@ async def test_codex_runner_reconnect_notice_updates_phase(tmp_path) -> None:
     assert second.phase == "updated"
     assert first.action.id == second.action.id == "codex.reconnect"
     assert isinstance(seen[2], StartedEvent)
-    assert isinstance(seen[3], CompletedEvent)
+    assert isinstance(seen[3], TextDeltaEvent)
+    assert seen[3].text == "ok"
+    assert isinstance(seen[4], CompletedEvent)
 
 
 @pytest.mark.anyio
@@ -370,7 +379,7 @@ async def test_codex_runner_prefers_final_answer_phase(tmp_path) -> None:
     runner = CodexRunner(codex_cmd=str(codex_path), extra_args=[])
     seen = [evt async for evt in runner.run("hi", None)]
 
-    assert len(seen) == 4
+    assert len(seen) == 6
     assert isinstance(seen[0], StartedEvent)
     assert isinstance(seen[1], ActionEvent)
     assert seen[1].action.kind == "turn"
@@ -379,8 +388,12 @@ async def test_codex_runner_prefers_final_answer_phase(tmp_path) -> None:
     assert seen[2].action.title == "Working through the task."
     assert seen[2].phase == "completed"
     assert seen[2].ok is True
-    assert isinstance(seen[3], CompletedEvent)
-    assert seen[3].answer == "Done."
+    assert isinstance(seen[3], TextDeltaEvent)
+    assert seen[3].text == "Working through the task."
+    assert isinstance(seen[4], TextDeltaEvent)
+    assert seen[4].text == "Done."
+    assert isinstance(seen[5], CompletedEvent)
+    assert seen[5].answer == "Done."
 
 
 @pytest.mark.anyio

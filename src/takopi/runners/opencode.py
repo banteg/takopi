@@ -32,6 +32,7 @@ from ..model import (
     ResumeToken,
     StartedEvent,
     TakopiEvent,
+    TextDeltaEvent,
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from .run_options import get_run_options
@@ -242,6 +243,7 @@ def translate_opencode_event(
                     state.last_text = text
                 else:
                     state.last_text += text
+                return [TextDeltaEvent(engine=ENGINE, text=text)]
             return []
 
         case opencode_schema.StepFinish(part=part):
