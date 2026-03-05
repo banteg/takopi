@@ -12,7 +12,7 @@ import msgspec
 from ..backends import EngineBackend, EngineConfig
 from ..events import EventFactory
 from ..logging import get_logger
-from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
+from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent, TextDeltaEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from .run_options import get_run_options
 from ..schemas import claude as claude_schema
@@ -227,7 +227,14 @@ def translate_claude_event(
                         )
                     case claude_schema.StreamTextBlock(text=text):
                         if text:
+                            prev = state.last_assistant_text or ""
                             state.last_assistant_text = text
+                            if len(text) > len(prev) and text.startswith(prev):
+                                delta = text[len(prev):]
+                            else:
+                                delta = text
+                            if delta:
+                                out.append(TextDeltaEvent(engine=ENGINE, text=delta))
                     case _:
                         continue
             return out

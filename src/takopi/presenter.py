@@ -15,6 +15,14 @@ class Presenter(Protocol):
         label: str = "working",
     ) -> RenderedMessage: ...
 
+    def render_streaming(
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        label: str = "streaming",
+    ) -> RenderedMessage: ...
+
     def render_final(
         self,
         state: ProgressState,

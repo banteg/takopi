@@ -217,6 +217,30 @@ class MarkdownFormatter:
             header=header, body=body, footer=self._format_footer(state)
         )
 
+    def render_streaming_parts(
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        label: str = "streaming",
+        max_text_chars: int = 3500,
+    ) -> MarkdownParts:
+        step = state.action_count or None
+        header = format_header(
+            elapsed_s,
+            step,
+            label=label,
+            engine=state.engine,
+        )
+        text = state.streaming_text or ""
+        if len(text) > max_text_chars:
+            text = text[-max_text_chars:]
+            text = "…" + text
+        body = text if text else None
+        return MarkdownParts(
+            header=header, body=body, footer=self._format_footer(state)
+        )
+
     def render_final_parts(
         self,
         state: ProgressState,
@@ -280,6 +304,18 @@ class MarkdownPresenter:
         label: str = "working",
     ) -> RenderedMessage:
         parts = self._formatter.render_progress_parts(
+            state, elapsed_s=elapsed_s, label=label
+        )
+        return RenderedMessage(text=assemble_markdown_parts(parts))
+
+    def render_streaming(
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        label: str = "streaming",
+    ) -> RenderedMessage:
+        parts = self._formatter.render_streaming_parts(
             state, elapsed_s=elapsed_s, label=label
         )
         return RenderedMessage(text=assemble_markdown_parts(parts))

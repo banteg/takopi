@@ -25,6 +25,7 @@ from ..model import (
     ResumeToken,
     StartedEvent,
     TakopiEvent,
+    TextDeltaEvent,
 )
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from .run_options import get_run_options
@@ -228,7 +229,11 @@ def translate_pi_event(
             if isinstance(message, dict) and message.get("role") == "assistant":
                 text = _extract_text_blocks(message.get("content"))
                 if text:
+                    prev = state.last_assistant_text or ""
                     state.last_assistant_text = text
+                    delta = text[len(prev):] if text.startswith(prev) and len(text) > len(prev) else text
+                    if delta:
+                        out.append(TextDeltaEvent(engine=ENGINE, text=delta))
                 usage = message.get("usage")
                 if isinstance(usage, dict):
                     state.last_usage = usage

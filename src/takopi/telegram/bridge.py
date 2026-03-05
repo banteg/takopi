@@ -70,6 +70,22 @@ class TelegramPresenter:
             extra={"entities": entities, "reply_markup": reply_markup},
         )
 
+    def render_streaming(
+        self,
+        state: ProgressState,
+        *,
+        elapsed_s: float,
+        label: str = "streaming",
+    ) -> RenderedMessage:
+        parts = self._formatter.render_streaming_parts(
+            state, elapsed_s=elapsed_s, label=label
+        )
+        text, entities = prepare_telegram(parts)
+        return RenderedMessage(
+            text=text,
+            extra={"entities": entities, "reply_markup": CANCEL_MARKUP},
+        )
+
     def render_final(
         self,
         state: ProgressState,

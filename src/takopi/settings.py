@@ -111,6 +111,8 @@ class TelegramTransportSettings(BaseModel):
     voice_transcription_model: NonEmptyStr = "gpt-4o-mini-transcribe"
     voice_transcription_base_url: NonEmptyStr | None = None
     voice_transcription_api_key: NonEmptyStr | None = None
+    streaming: bool = False
+    streaming_throttle_ms: StrictInt = Field(default=500, ge=100)
     session_mode: Literal["stateless", "chat"] = "stateless"
     show_resume_line: bool = True
     forward_coalesce_s: float = Field(default=1.0, ge=0)
