@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 from markdown_it import MarkdownIt
 from sulguk import transform_html
@@ -78,8 +79,27 @@ def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
 
     text = _BULLET_RE.sub(r"\1-", rendered.text)
 
-    entities = [dict(e) for e in rendered.entities]
+    entities = _sanitize_entities(rendered.entities)
     return text, entities
+
+
+def _sanitize_entities(entities: list[Any]) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for raw in entities:
+        entity = dict(raw)
+        if entity.get("type") == "text_link":
+            url = entity.get("url")
+            if not isinstance(url, str) or not _is_supported_text_link_url(url):
+                continue
+        sanitized.append(entity)
+    return sanitized
+
+
+def _is_supported_text_link_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme in {"http", "https"} and bool(parsed.netloc):
+        return True
+    return parsed.scheme == "tg" and (bool(parsed.netloc) or bool(parsed.path))
 
 
 def _split_line_ending(line: str) -> tuple[str, str]:

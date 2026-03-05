@@ -1,5 +1,22 @@
 # changelog
 
+## v0.22.3 (2026-03-02)
+
+### changes
+
+- allow coercible `chat_id` values in config [#186](https://github.com/banteg/takopi/pull/186)
+
+### fixes
+
+- make `[transports.telegram]` optional for external transports and validate it only when telegram is used [#177](https://github.com/banteg/takopi/pull/177)
+- deny root-level files with default `deny_globs` [#216](https://github.com/banteg/takopi/pull/216)
+
+## v0.22.2 (2026-02-24)
+
+### fixes
+
+- prevent Telegram `400 Bad Request` failures on local/relative markdown links by dropping invalid `text_link` entities [#214](https://github.com/banteg/takopi/pull/214)
+
 ## v0.22.1 (2026-02-10)
 
 ### fixes

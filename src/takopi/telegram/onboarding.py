@@ -207,17 +207,23 @@ def check_setup(
         settings, config_path = load_settings()
         if transport_override:
             settings = settings.model_copy(update={"transport": transport_override})
-        try:
-            require_telegram(settings, config_path)
-        except ConfigError:
-            issues.append(config_issue(config_path, title=_CONFIGURE_TELEGRAM_TITLE))
+        if settings.transport == "telegram":
+            try:
+                require_telegram(settings, config_path)
+            except ConfigError:
+                issues.append(
+                    config_issue(config_path, title=_CONFIGURE_TELEGRAM_TITLE)
+                )
     except ConfigError:
         issues.extend(backend_issues)
-        title = (
-            _CONFIGURE_TELEGRAM_TITLE
-            if config_path.exists() and config_path.is_file()
-            else _CREATE_CONFIG_TITLE
-        )
+        if transport_override and transport_override != "telegram":
+            title = _CREATE_CONFIG_TITLE
+        else:
+            title = (
+                _CONFIGURE_TELEGRAM_TITLE
+                if config_path.exists() and config_path.is_file()
+                else _CREATE_CONFIG_TITLE
+            )
         issues.append(config_issue(config_path, title=title))
         return SetupResult(issues=issues, config_path=config_path)
 
