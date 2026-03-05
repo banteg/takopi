@@ -126,6 +126,8 @@ class TelegramBackend(TransportBackend):
             transport=transport,
             presenter=presenter,
             final_notify=final_notify,
+            progress_updates=settings.progress_updates,
+            show_typing=settings.show_typing,
         )
         cfg = TelegramBridgeConfig(
             bot=bot,

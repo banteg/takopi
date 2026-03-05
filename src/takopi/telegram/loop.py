@@ -862,6 +862,8 @@ async def _send_queued_progress(
     resume_token: ResumeToken,
     context: RunContext | None,
 ) -> MessageRef | None:
+    if cfg.exec_cfg.progress_updates == "none":
+        return None
     tracker = ProgressTracker(engine=resume_token.engine)
     tracker.set_resume(resume_token)
     context_line = cfg.runtime.format_context_line(context)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Literal
 
 import anyio
 
@@ -85,6 +86,8 @@ class ExecBridgeConfig:
     transport: Transport
     presenter: Presenter
     final_notify: bool
+    progress_updates: Literal["full", "once", "none"] = "full"
+    show_typing: bool = False
 
 
 @dataclass(slots=True)
@@ -165,6 +168,9 @@ class ProgressEdits:
         resume_formatter: Callable[[ResumeToken], str] | None = None,
         label: str = "working",
         context_line: str | None = None,
+        progress_updates: Literal["full", "once", "none"] = "full",
+        show_typing: bool = False,
+        thread_id: ThreadId | None = None,
     ) -> None:
         self.transport = transport
         self.presenter = presenter
@@ -177,11 +183,23 @@ class ProgressEdits:
         self.resume_formatter = resume_formatter
         self.label = label
         self.context_line = context_line
+        self.progress_updates = progress_updates
+        self.show_typing = show_typing
+        self.thread_id = thread_id
         self.event_seq = 0
         self.rendered_seq = 0
         self.signal_send, self.signal_recv = anyio.create_memory_object_stream(1)
 
-    async def run(self) -> None:
+    async def _typing_loop(self) -> None:
+        while True:
+            await self.transport.send_action(
+                channel_id=self.channel_id,
+                action="typing",
+                thread_id=self.thread_id,
+            )
+            await anyio.sleep(4.0)
+
+    async def _render_loop(self) -> None:
         if self.progress_ref is None:
             return
         while True:
@@ -216,6 +234,14 @@ class ProgressEdits:
                     self.last_rendered = rendered
 
             self.rendered_seq = seq_at_render
+
+    async def run(self) -> None:
+        async with anyio.create_task_group() as tg:
+            if self.show_typing:
+                tg.start_soon(self._typing_loop)
+
+            if self.progress_updates == "full" and self.progress_ref is not None:
+                tg.start_soon(self._render_loop)
 
     async def on_event(self, evt: TakopiEvent) -> None:
         if not self.tracker.note_event(evt):
@@ -416,17 +442,19 @@ async def handle_message(
         channel_id=incoming.channel_id,
         message_id=incoming.message_id,
     )
-    progress_state = await send_initial_progress(
-        cfg,
-        channel_id=incoming.channel_id,
-        reply_to=user_ref,
-        label="starting",
-        tracker=progress_tracker,
-        progress_ref=progress_ref,
-        resume_formatter=runner.format_resume,
-        context_line=context_line,
-        thread_id=incoming.thread_id,
-    )
+    progress_state = ProgressMessageState(ref=None, last_rendered=None)
+    if cfg.progress_updates != "none":
+        progress_state = await send_initial_progress(
+            cfg,
+            channel_id=incoming.channel_id,
+            reply_to=user_ref,
+            label="starting",
+            tracker=progress_tracker,
+            progress_ref=progress_ref,
+            resume_formatter=runner.format_resume,
+            context_line=context_line,
+            thread_id=incoming.thread_id,
+        )
     progress_ref = progress_state.ref
 
     edits = ProgressEdits(
@@ -438,13 +466,16 @@ async def handle_message(
         started_at=started_at,
         clock=clock,
         last_rendered=progress_state.last_rendered,
+
         resume_formatter=runner.format_resume,
         context_line=context_line,
+        progress_updates=cfg.progress_updates,
+        show_typing=cfg.show_typing,
+        thread_id=incoming.thread_id,
     )
 
-    running_task: RunningTask | None = None
+    running_task = RunningTask(context=context)
     if running_tasks is not None and progress_ref is not None:
-        running_task = RunningTask(context=context)
         running_tasks[progress_ref] = running_task
 
     cancel_exc_type = anyio.get_cancelled_exc_class()
@@ -462,7 +493,7 @@ async def handle_message(
     error: Exception | None = None
 
     async with anyio.create_task_group() as tg:
-        if progress_ref is not None:
+        if progress_ref is not None or cfg.show_typing:
             tg.start_soon(run_edits)
 
         try:
@@ -482,10 +513,9 @@ async def handle_message(
                 error_type=exc.__class__.__name__,
             )
         finally:
-            if running_task is not None and running_tasks is not None:
-                running_task.done.set()
-                if progress_ref is not None:
-                    running_tasks.pop(progress_ref, None)
+            running_task.done.set()
+            if running_tasks is not None and progress_ref is not None:
+                running_tasks.pop(progress_ref, None)
             if not outcome.cancelled and error is None:
                 # Give pending progress edits a chance to flush if they're ready.
                 await anyio.sleep(0)

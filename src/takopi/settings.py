@@ -116,6 +116,8 @@ class TelegramTransportSettings(BaseModel):
     forward_coalesce_s: float = Field(default=1.0, ge=0)
     media_group_debounce_s: float = Field(default=1.0, ge=0)
     topics: TelegramTopicsSettings = Field(default_factory=TelegramTopicsSettings)
+    progress_updates: Literal["full", "once", "none"] = "full"
+    show_typing: bool = False
     files: TelegramFilesSettings = Field(default_factory=TelegramFilesSettings)
 
 
