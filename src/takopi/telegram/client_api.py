@@ -528,12 +528,28 @@ class HttpBotClient:
         message_thread_id: int,
         name: str,
     ) -> bool:
-        result = await self._post(
-            "editForumTopic",
-            {
-                "chat_id": chat_id,
-                "message_thread_id": message_thread_id,
-                "name": name,
-            },
-        )
-        return bool(result)
+        # Use _request directly so we can inspect the response body
+        # for "not modified" errors (topic exists but name unchanged).
+        json_data = {
+            "chat_id": chat_id,
+            "message_thread_id": message_thread_id,
+            "name": name,
+        }
+        logger.debug("telegram.request", method="editForumTopic", payload=json_data)
+        try:
+            resp = await self._http_client.post(
+                f"{self._base}/editForumTopic", json=json_data
+            )
+        except httpx.HTTPError:
+            return False
+        try:
+            payload = resp.json()
+        except Exception:  # noqa: BLE001
+            return resp.is_success
+        if isinstance(payload, dict) and payload.get("ok"):
+            return True
+        # "Bad Request: TOPIC_NOT_MODIFIED" means the topic exists.
+        description = payload.get("description", "") if isinstance(payload, dict) else ""
+        if "not_modified" in description.lower().replace(" ", "_"):
+            return True
+        return False

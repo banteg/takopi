@@ -84,6 +84,37 @@ Use `/agent set` inside the topic:
 /agent set claude
 ```
 
+## Create topics from GitHub issues
+
+The `/issues` command (in Telegram) and `takopi issues sync` (CLI) fetch open issues from the project's GitHub repo and create a topic per issue. Each topic is bound to a branch named `issue/<number>`.
+
+### From Telegram
+
+Inside a topics-enabled chat:
+
+```
+/issues sync
+/issues sync myproject
+/issues sync -label=bug -limit=5
+```
+
+### From the CLI
+
+```sh
+takopi issues sync
+takopi issues sync --project=myproject --label=bug --limit=10
+takopi issues sync --dry-run  # preview without creating
+```
+
+### How it works
+
+1. Derives `owner/repo` from the project's git remote
+2. Fetches open issues via the GitHub API (uses `GITHUB_TOKEN` or `gh auth token`)
+3. For each issue, creates a forum topic named `project @issue/42`
+4. Skips issues that already have a bound topic
+
+When you send a message in one of these topics, takopi will resolve the context and run the agent in the corresponding `issue/<number>` worktree.
+
 ## State files
 
 Topic bindings and sessions live in:
