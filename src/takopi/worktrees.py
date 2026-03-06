@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 from .config import ProjectConfig, ProjectsConfig
@@ -57,6 +59,7 @@ def ensure_worktree(project: ProjectConfig, branch: str) -> Path:
         cwd=root,
     ):
         _git_worktree_add(root, worktree_path, branch)
+        _maybe_run_setup_script(project, root, worktree_path, branch)
         return worktree_path
 
     if git_ok(
@@ -70,6 +73,7 @@ def ensure_worktree(project: ProjectConfig, branch: str) -> Path:
             base_ref=f"origin/{branch}",
             create_branch=True,
         )
+        _maybe_run_setup_script(project, root, worktree_path, branch)
         return worktree_path
 
     base = project.worktree_base or resolve_default_base(root)
@@ -83,6 +87,7 @@ def ensure_worktree(project: ProjectConfig, branch: str) -> Path:
         base_ref=base,
         create_branch=True,
     )
+    _maybe_run_setup_script(project, root, worktree_path, branch)
     return worktree_path
 
 
@@ -107,6 +112,35 @@ def _git_worktree_add(
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip()
         raise WorktreeError(message or "git worktree add failed")
+
+
+def _maybe_run_setup_script(
+    project: ProjectConfig, root: Path, worktree_path: Path, branch: str
+) -> None:
+    if project.worktree_setup_script:
+        _run_setup_script(
+            project.worktree_setup_script,
+            project_path=root,
+            worktree_path=worktree_path,
+            branch=branch,
+        )
+
+
+def _run_setup_script(
+    script: str, *, project_path: Path, worktree_path: Path, branch: str
+) -> None:
+    env = {
+        **os.environ,
+        "TAKOPI_WORKTREE_PATH": str(worktree_path),
+        "TAKOPI_PROJECT_PATH": str(project_path),
+        "TAKOPI_BRANCH": branch,
+    }
+    result = subprocess.run(
+        script, shell=True, cwd=project_path, env=env, text=True, capture_output=True
+    )
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise WorktreeError(f"worktree setup script failed: {message or 'no output'}")
 
 
 def _sanitize_branch(branch: str) -> str:

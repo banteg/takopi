@@ -112,6 +112,7 @@ File size limits (not configurable):
 | `default_engine` | string\|null | `null` | Per-project default engine. |
 | `worktree_base` | string\|null | `null` | Base branch for new worktrees. |
 | `chat_id` | int\|null | `null` | Bind a Telegram chat to this project. |
+| `worktree_setup_script` | string\|null | `null` | Shell command run after a new worktree is created. Env: `TAKOPI_WORKTREE_PATH`, `TAKOPI_PROJECT_PATH`, `TAKOPI_BRANCH`. |
 
 Legacy config note: top-level `bot_token` / `chat_id` are auto-migrated into `[transports.telegram]` on startup.
 
