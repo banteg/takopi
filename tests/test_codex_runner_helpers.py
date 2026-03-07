@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+import takopi.runners.codex as codex_runner
 from takopi.backends import EngineConfig
 from takopi.config import ConfigError
 from takopi.events import EventFactory
@@ -251,3 +252,26 @@ def test_codex_build_runner_configs(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError):
         build_runner({"profile": 123}, tmp_path)
+
+
+def test_codex_build_runner_resolves_windows_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    codex_calls: list[str] = []
+
+    def fake_which(name: str) -> str | None:
+        codex_calls.append(name)
+        if name == "codex":
+            return None
+        if name == "codex.cmd":
+            return r"C:\Tools\codex.cmd"
+        return None
+
+    monkeypatch.setattr(codex_runner.shutil, "which", fake_which, raising=False)
+    monkeypatch.setattr(codex_runner.sys, "platform", "win32")
+
+    runner = build_runner({}, Path("takopi.toml"))
+
+    assert isinstance(runner, CodexRunner)
+    assert codex_calls == ["codex", "codex.cmd"]
+    assert runner.codex_cmd == r"C:\Tools\codex.cmd"
