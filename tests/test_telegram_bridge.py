@@ -1399,6 +1399,74 @@ async def test_reasoning_command_show_reports_overrides(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_reasoning_command_show_claude_levels(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport, engine_id="claude")
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+        thread_id=None,
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=None,
+    )
+
+    text = transport.send_calls[-1]["message"].text
+    assert "engine: claude (global default)" in text
+    assert "available levels: low, medium, high" in text
+    assert "minimal" not in text
+    assert "xhigh" not in text
+
+
+@pytest.mark.anyio
+async def test_reasoning_command_set_minimal_rejected_for_claude(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport, engine_id="claude")
+    chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning set minimal",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+        chat_type="private",
+        thread_id=None,
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "set minimal",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+    )
+
+    text = transport.send_calls[-1]["message"].text
+    assert "unknown reasoning level" in text
+    assert "low, medium, high" in text
+
+    # Verify nothing was stored
+    override = await chat_prefs.get_engine_override(123, "claude")
+    assert override is None
+
+
+@pytest.mark.anyio
 async def test_send_with_resume_waits_for_token() -> None:
     transport = FakeTransport()
     cfg = make_cfg(transport)

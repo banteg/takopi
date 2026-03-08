@@ -1,12 +1,54 @@
 import pytest
 
 from takopi.telegram.chat_prefs import ChatPrefsStore
+from takopi.runners.run_options import EngineRunOptions
+from takopi.telegram.commands.executor import _reasoning_warning
 from takopi.telegram.engine_overrides import (
     EngineOverrides,
+    allowed_reasoning_levels,
     merge_overrides,
     resolve_override_value,
+    supports_reasoning,
 )
 from takopi.telegram.topic_state import TopicStateStore
+
+
+def test_supports_reasoning_includes_claude() -> None:
+    assert supports_reasoning("claude") is True
+    assert supports_reasoning("codex") is True
+    assert supports_reasoning("opencode") is False
+
+
+def test_allowed_reasoning_levels_per_engine() -> None:
+    claude_levels = allowed_reasoning_levels("claude")
+    assert claude_levels == ("low", "medium", "high")
+    assert "minimal" not in claude_levels
+    assert "xhigh" not in claude_levels
+
+    codex_levels = allowed_reasoning_levels("codex")
+    assert codex_levels == ("minimal", "low", "medium", "high", "xhigh")
+
+    # Unknown engines get the full set as fallback
+    assert allowed_reasoning_levels("unknown") == codex_levels
+
+
+def test_reasoning_warning_none_for_supported_engine() -> None:
+    opts = EngineRunOptions(reasoning="high")
+    assert _reasoning_warning(engine="claude", run_options=opts) is None
+    assert _reasoning_warning(engine="codex", run_options=opts) is None
+
+
+def test_reasoning_warning_emitted_for_unsupported_engine() -> None:
+    opts = EngineRunOptions(reasoning="high")
+    warning = _reasoning_warning(engine="opencode", run_options=opts)
+    assert warning is not None
+    assert "not supported" in warning.action.title
+    assert warning.engine == "opencode"
+
+
+def test_reasoning_warning_none_when_no_reasoning() -> None:
+    assert _reasoning_warning(engine="opencode", run_options=None) is None
+    assert _reasoning_warning(engine="opencode", run_options=EngineRunOptions()) is None
 
 
 def test_merge_overrides_prefers_topic_values() -> None:

@@ -37,6 +37,49 @@ def test_claude_run_options_override_model() -> None:
     assert args[model_idx] == "claude-opus"
 
 
+def test_claude_run_options_reasoning_medium() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    with apply_run_options(EngineRunOptions(reasoning="medium")):
+        args = runner.build_args("hi", None, state=None)
+
+    assert "--effort" in args
+    assert args[args.index("--effort") + 1] == "medium"
+    assert "--settings" in args
+    assert args[args.index("--settings") + 1] == '{"alwaysThinkingEnabled":true}'
+    assert args[-1] == "hi"
+
+
+def test_claude_run_options_reasoning_effort_passthrough() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+
+    for level in ["low", "medium", "high"]:
+        with apply_run_options(EngineRunOptions(reasoning=level)):
+            args = runner.build_args("hi", None, state=None)
+        assert args[args.index("--effort") + 1] == level, (
+            f"{level} should pass through as {level}"
+        )
+
+
+def test_claude_run_options_reasoning_unknown_falls_back_to_medium() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+
+    for level in ["minimal", "xhigh", "bogus"]:
+        with apply_run_options(EngineRunOptions(reasoning=level)):
+            args = runner.build_args("hi", None, state=None)
+        assert args[args.index("--effort") + 1] == "medium", (
+            f"unknown level {level} should fall back to medium"
+        )
+
+
+def test_claude_run_options_no_reasoning_no_effort_flag() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    with apply_run_options(EngineRunOptions(model=None, reasoning=None)):
+        args = runner.build_args("hi", None, state=None)
+
+    assert "--effort" not in args
+    assert "--settings" not in args
+
+
 def test_opencode_run_options_override_model() -> None:
     runner = OpenCodeRunner(opencode_cmd="opencode", model="claude-sonnet")
     state = OpenCodeStreamState()
