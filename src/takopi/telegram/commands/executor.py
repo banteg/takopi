@@ -26,7 +26,7 @@ from ...scheduler import ThreadScheduler
 from ...transport import MessageRef, RenderedMessage, SendOptions
 from ...transport_runtime import TransportRuntime
 from ...utils.paths import reset_run_base_dir, set_run_base_dir
-from ..bridge import send_plain
+from ..bridge import format_prompt_text, prompt_markup, send_plain
 from ..engine_overrides import supports_reasoning
 
 logger = get_logger(__name__)
@@ -233,6 +233,8 @@ async def _run_engine(
                     running_tasks=running_tasks,
                     on_thread_known=on_thread_known,
                     progress_ref=progress_ref,
+                    prompt_markup_fn=prompt_markup,
+                    format_prompt_fn=format_prompt_text,
                 )
         finally:
             reset_run_base_dir(run_base_token)

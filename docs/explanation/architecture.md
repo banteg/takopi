@@ -201,7 +201,7 @@ flowchart TD
     B --> C[Build Command]
 
     C --> D{Engine?}
-    D -->|Claude| D1["claude --print --output-format stream-json<br/>[--resume id] prompt"]
+    D -->|Claude| D1["claude --print --input-format stream-json<br/>--output-format stream-json<br/>[--resume id] (prompt on stdin)"]
     D -->|Codex| D2["codex exec --json<br/>[resume &lt;token&gt;] -"]
     D -->|Pi| D3["pi --print --mode json<br/>--session &lt;id&gt; &lt;prompt&gt;"]
     D -->|OpenCode| D4["opencode run --format json<br/>[--session id] -- &lt;prompt&gt;"]

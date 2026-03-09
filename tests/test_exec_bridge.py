@@ -5,7 +5,7 @@ import pytest
 
 from takopi.runner_bridge import ExecBridgeConfig, IncomingMessage, handle_message
 from takopi.markdown import MarkdownParts, MarkdownPresenter
-from takopi.model import ResumeToken, TakopiEvent
+from takopi.model import Action, ActionEvent, ResumeToken, TakopiEvent
 from takopi.telegram.render import prepare_telegram
 from takopi.runners.codex import CodexRunner
 from takopi.runners.mock import Advance, Emit, Raise, Return, ScriptRunner, Wait
@@ -411,6 +411,84 @@ async def test_handle_message_cancelled_renders_cancelled_state() -> None:
     last_edit = transport.edit_calls[-1]["message"].text
     assert "cancelled" in last_edit.lower()
     assert session_id in last_edit
+
+
+@pytest.mark.anyio
+async def test_handle_message_cancelled_cleans_up_prompt_messages() -> None:
+    transport = FakeTransport()
+    session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+    hold = anyio.Event()
+    prompt_event = ActionEvent(
+        engine=CODEX_ENGINE,
+        action=Action(
+            id="req-1",
+            kind="prompt",
+            title="Permission: Bash",
+            detail={
+                "request_id": "req-1",
+                "request_type": "can_use_tool",
+                "tool_name": "Bash",
+                "input": {"command": "echo hi"},
+                "permission_suggestions": None,
+            },
+        ),
+        phase="started",
+    )
+    runner = ScriptRunner(
+        [Emit(prompt_event), Wait(hold)],
+        engine=CODEX_ENGINE,
+        resume_value=session_id,
+    )
+    cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    running_tasks: dict = {}
+
+    def _format_prompt(tool_name: str, tool_input: dict) -> str:
+        return f"Permission: {tool_name}"
+
+    def _prompt_markup(local_id: str, suggestions: object, **kw: object) -> dict:
+        return {"inline_keyboard": [[{"text": "Allow", "callback_data": "x"}]]}
+
+    async def run_handle_message() -> None:
+        await handle_message(
+            cfg,
+            runner=runner,
+            incoming=IncomingMessage(
+                channel_id=123, message_id=10, text="do something"
+            ),
+            resume_token=None,
+            running_tasks=running_tasks,
+            prompt_markup_fn=_prompt_markup,
+            format_prompt_fn=_format_prompt,
+        )
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(run_handle_message)
+        for _ in range(100):
+            if running_tasks:
+                break
+            await anyio.sleep(0)
+        assert running_tasks
+        running_task = running_tasks[next(iter(running_tasks))]
+        with anyio.fail_after(1):
+            await running_task.resume_ready.wait()
+        # Wait for prompt message to be sent
+        for _ in range(100):
+            if running_task.prompt_messages:
+                break
+            await anyio.sleep(0)
+        running_task.cancel_requested.set()
+
+    # Find the prompt message edit (should say "cancelled" with cleared markup)
+    prompt_edits = [
+        e for e in transport.edit_calls
+        if e["message"].extra.get("reply_markup") == {"inline_keyboard": []}
+        and "cancelled" in e["message"].text.lower()
+    ]
+    assert len(prompt_edits) >= 1
 
 
 @pytest.mark.anyio

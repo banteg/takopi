@@ -13,19 +13,24 @@ The goal is to make a Claude runner feel identical to the Codex runner from the 
 Claude Code CLI emits **one JSON object per line** (JSONL) when invoked with
 `--output-format stream-json` (only valid with `-p/--print`).
 
-Recommended invocation (matches claudecode-go):
+Recommended invocation:
 
 ```
-claude -p --output-format stream-json --verbose -- <query>
+claude -p --input-format stream-json --output-format stream-json --verbose
+```
+
+The prompt is sent on **stdin** as a stream-json user message:
+
+```json
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<query>"}]}}
 ```
 
 Notes:
-- `--verbose` is required for `stream-json` output (clis may otherwise drop events).
-- `-p/--print` is required for `--output-format` and `--include-partial-messages`.
-- `-- <query>` is required to safely pass prompts that start with `-`.
+- `--verbose` is required for `stream-json` output (CLIs may otherwise drop events).
+- `-p/--print` is required for `--output-format`.
+- `--input-format stream-json` keeps stdin open for bidirectional communication
+  (prompt delivery and tool approval responses).
 - Resuming uses `--resume <session_id>` and optional `--fork-session`.
-- The CLI does **not** read the prompt from stdin in claudecode-go; it passes the
-  prompt as the final positional argument after `--`.
 
 ---
 

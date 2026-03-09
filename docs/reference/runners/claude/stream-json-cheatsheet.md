@@ -1,7 +1,7 @@
 # Claude `stream-json` event cheatsheet
 
-`claude -p --output-format stream-json --verbose` writes **one JSON object per line**
-(JSONL) with a required `type` field. (`--output-format` only works with `-p`.)
+`claude -p --input-format stream-json --output-format stream-json --verbose` writes **one JSON object per line**
+(JSONL) with a required `type` field. (`--output-format` only works with `-p`; `--input-format stream-json` keeps stdin open for prompt delivery and tool approval responses.)
 
 This cheatsheet is derived from `humanlayer/claudecode-go/types.go` and
 `client_test.go`.

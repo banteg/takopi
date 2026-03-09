@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -8,7 +9,7 @@ import anyio
 
 from .context import RunContext
 from .logging import bind_run_context, get_logger
-from .model import CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
+from .model import ActionEvent, CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
 from .presenter import Presenter
 from .markdown import render_event_cli
 from .runner import Runner
@@ -94,6 +95,13 @@ class RunningTask:
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
     done: anyio.Event = field(default_factory=anyio.Event)
     context: RunContext | None = None
+    prompt_seq: int = 0
+    pending_prompts: dict[str, anyio.Event] = field(default_factory=dict)
+    prompt_responses: dict[str, dict[str, object] | None] = field(default_factory=dict)
+    prompt_responders: dict[str, Callable[[dict[str, object]], Awaitable[None]]] = field(
+        default_factory=dict
+    )
+    prompt_messages: dict[str, MessageRef] = field(default_factory=dict)
 
 
 RunningTasks = dict[MessageRef, RunningTask]
@@ -165,6 +173,9 @@ class ProgressEdits:
         resume_formatter: Callable[[ResumeToken], str] | None = None,
         label: str = "working",
         context_line: str | None = None,
+        running_task: RunningTask | None = None,
+        prompt_markup_fn: Callable[..., dict] | None = None,
+        format_prompt_fn: Callable[[str, dict], str] | None = None,
     ) -> None:
         self.transport = transport
         self.presenter = presenter
@@ -180,6 +191,9 @@ class ProgressEdits:
         self.event_seq = 0
         self.rendered_seq = 0
         self.signal_send, self.signal_recv = anyio.create_memory_object_stream(1)
+        self._running_task = running_task
+        self._prompt_markup_fn = prompt_markup_fn
+        self._format_prompt_fn = format_prompt_fn
 
     async def run(self) -> None:
         if self.progress_ref is None:
@@ -218,6 +232,15 @@ class ProgressEdits:
             self.rendered_seq = seq_at_render
 
     async def on_event(self, evt: TakopiEvent) -> None:
+        if (
+            isinstance(evt, ActionEvent)
+            and evt.action.kind == "prompt"
+            and self._running_task is not None
+            and self.progress_ref is not None
+        ):
+            await self._handle_prompt_event(evt)
+            return
+
         if not self.tracker.note_event(evt):
             return
         if self.progress_ref is None:
@@ -229,6 +252,40 @@ class ProgressEdits:
             pass
         except (anyio.BrokenResourceError, anyio.ClosedResourceError):
             pass
+
+    async def _handle_prompt_event(self, evt: ActionEvent) -> None:
+        task = self._running_task
+        if task is None or self.progress_ref is None:
+            return
+        detail = evt.action.detail
+        local_id = detail.get("local_id", "")
+        tool_name = detail.get("tool_name", "tool")
+        tool_input = detail.get("input", {})
+        permission_suggestions = detail.get("permission_suggestions")
+
+        if self._format_prompt_fn is not None:
+            text = self._format_prompt_fn(tool_name, tool_input)
+        else:
+            text = f"Permission requested: {tool_name}"
+
+        extra: dict[str, object] = {}
+        if self._prompt_markup_fn is not None:
+            extra["reply_markup"] = self._prompt_markup_fn(
+                local_id,
+                permission_suggestions,
+                progress_msg_id=self.progress_ref.message_id,
+            )
+
+        sent = await self.transport.send(
+            channel_id=self.channel_id,
+            message=RenderedMessage(text=text, extra=extra),
+            options=SendOptions(
+                reply_to=self.progress_ref,
+                notify=True,
+            ),
+        )
+        if sent is not None and local_id:
+            task.prompt_messages[local_id] = sent
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +348,62 @@ class RunOutcome:
     resume: ResumeToken | None = None
 
 
+PROMPT_TIMEOUT_S = 300.0
+
+
+async def _wait_prompt_response(
+    running_task: RunningTask,
+    local_id: str,
+    timeout_s: float,
+    transport: Transport | None = None,
+) -> None:
+    timed_out = False
+    try:
+        with anyio.fail_after(timeout_s):
+            await running_task.pending_prompts[local_id].wait()
+    except TimeoutError:
+        timed_out = True
+
+    try:
+        if timed_out:
+            if transport is not None:
+                prompt_ref = running_task.prompt_messages.get(local_id)
+                if prompt_ref is not None:
+                    with contextlib.suppress(Exception):
+                        await transport.edit(
+                            ref=prompt_ref,
+                            message=RenderedMessage(
+                                text="timed out",
+                                extra={"reply_markup": {"inline_keyboard": []}},
+                            ),
+                        )
+            responder = running_task.prompt_responders.get(local_id)
+            if responder is not None:
+                with contextlib.suppress(Exception):
+                    await responder({"error": "timed out"})
+            return
+
+        response = running_task.prompt_responses.get(local_id)
+        responder = running_task.prompt_responders.get(local_id)
+        if responder is not None and response is not None:
+            allowed = response.get("allowed", False)
+            if allowed:
+                payload: dict[str, object] = {"allowed": True}
+            else:
+                payload = {"error": "denied by user"}
+            with contextlib.suppress(Exception):
+                await responder(payload)
+    finally:
+        _cleanup_prompt(running_task, local_id)
+
+
+def _cleanup_prompt(running_task: RunningTask, local_id: str) -> None:
+    running_task.pending_prompts.pop(local_id, None)
+    running_task.prompt_responses.pop(local_id, None)
+    running_task.prompt_responders.pop(local_id, None)
+    running_task.prompt_messages.pop(local_id, None)
+
+
 async def run_runner_with_cancel(
     runner: Runner,
     *,
@@ -299,6 +412,7 @@ async def run_runner_with_cancel(
     edits: ProgressEdits,
     running_task: RunningTask | None,
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
+    prompt_timeout_s: float = PROMPT_TIMEOUT_S,
 ) -> RunOutcome:
     outcome = RunOutcome()
     async with anyio.create_task_group() as tg:
@@ -320,6 +434,27 @@ async def run_runner_with_cancel(
                     elif isinstance(evt, CompletedEvent):
                         outcome.resume = evt.resume or outcome.resume
                         outcome.completed = evt
+                    elif (
+                        isinstance(evt, ActionEvent)
+                        and evt.action.kind == "prompt"
+                        and running_task is not None
+                    ):
+                        request_id = evt.action.detail.get("request_id")
+                        respond_fn = evt.action.detail.pop("_respond", None)
+                        if request_id is not None:
+                            running_task.prompt_seq += 1
+                            local_id = f"p{running_task.prompt_seq}"
+                            evt.action.detail["local_id"] = local_id
+                            running_task.pending_prompts[local_id] = anyio.Event()
+                            if respond_fn is not None:
+                                running_task.prompt_responders[local_id] = respond_fn
+                            tg.start_soon(
+                                _wait_prompt_response,
+                                running_task,
+                                local_id,
+                                prompt_timeout_s,
+                                edits.transport,
+                            )
                     await edits.on_event(evt)
             finally:
                 tg.cancel_scope.cancel()
@@ -397,6 +532,8 @@ async def handle_message(
     | None = None,
     progress_ref: MessageRef | None = None,
     clock: Callable[[], float] = time.monotonic,
+    prompt_markup_fn: Callable[..., dict] | None = None,
+    format_prompt_fn: Callable[[str, dict], str] | None = None,
 ) -> None:
     logger.info(
         "handle.incoming",
@@ -440,12 +577,15 @@ async def handle_message(
         last_rendered=progress_state.last_rendered,
         resume_formatter=runner.format_resume,
         context_line=context_line,
+        prompt_markup_fn=prompt_markup_fn,
+        format_prompt_fn=format_prompt_fn,
     )
 
     running_task: RunningTask | None = None
     if running_tasks is not None and progress_ref is not None:
         running_task = RunningTask(context=context)
         running_tasks[progress_ref] = running_task
+        edits._running_task = running_task
 
     cancel_exc_type = anyio.get_cancelled_exc_class()
     edits_scope = anyio.CancelScope()
@@ -526,6 +666,16 @@ async def handle_message(
         return
 
     if outcome.cancelled:
+        if running_task is not None:
+            for prompt_ref in running_task.prompt_messages.values():
+                with contextlib.suppress(Exception):
+                    await cfg.transport.edit(
+                        ref=prompt_ref,
+                        message=RenderedMessage(
+                            text="cancelled",
+                            extra={"reply_markup": {"inline_keyboard": []}},
+                        ),
+                    )
         resume = sync_resume_token(progress_tracker, outcome.resume)
         logger.info(
             "handle.cancelled",
