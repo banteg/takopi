@@ -492,6 +492,51 @@ async def test_handle_message_cancelled_cleans_up_prompt_messages() -> None:
 
 
 @pytest.mark.anyio
+async def test_handle_message_prompt_auto_denied_without_running_tasks() -> None:
+    transport = FakeTransport()
+    session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"
+    denied: list[dict] = []
+
+    async def fake_respond(payload: dict) -> None:
+        denied.append(payload)
+
+    prompt_event = ActionEvent(
+        engine=CODEX_ENGINE,
+        action=Action(
+            id="req-1",
+            kind="prompt",
+            title="Permission: Bash",
+            detail={
+                "request_id": "req-1",
+                "_respond": fake_respond,
+            },
+        ),
+        phase="started",
+    )
+    runner = ScriptRunner(
+        [Emit(prompt_event)],
+        engine=CODEX_ENGINE,
+        resume_value=session_id,
+    )
+    cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+
+    await handle_message(
+        cfg,
+        runner=runner,
+        incoming=IncomingMessage(channel_id=123, message_id=10, text="do something"),
+        resume_token=None,
+        running_tasks=None,
+    )
+
+    assert len(denied) == 1
+    assert "error" in denied[0]
+
+
+@pytest.mark.anyio
 async def test_handle_message_error_preserves_resume_token() -> None:
     transport = FakeTransport()
     session_id = "019b66fc-64c2-7a71-81cd-081c504cfeb2"

@@ -437,24 +437,28 @@ async def run_runner_with_cancel(
                     elif (
                         isinstance(evt, ActionEvent)
                         and evt.action.kind == "prompt"
-                        and running_task is not None
                     ):
-                        request_id = evt.action.detail.get("request_id")
                         respond_fn = evt.action.detail.pop("_respond", None)
-                        if request_id is not None:
-                            running_task.prompt_seq += 1
-                            local_id = f"p{running_task.prompt_seq}"
-                            evt.action.detail["local_id"] = local_id
-                            running_task.pending_prompts[local_id] = anyio.Event()
-                            if respond_fn is not None:
-                                running_task.prompt_responders[local_id] = respond_fn
-                            tg.start_soon(
-                                _wait_prompt_response,
-                                running_task,
-                                local_id,
-                                prompt_timeout_s,
-                                edits.transport,
-                            )
+                        if running_task is not None:
+                            request_id = evt.action.detail.get("request_id")
+                            if request_id is not None:
+                                running_task.prompt_seq += 1
+                                local_id = f"p{running_task.prompt_seq}"
+                                evt.action.detail["local_id"] = local_id
+                                running_task.pending_prompts[local_id] = anyio.Event()
+                                if respond_fn is not None:
+                                    running_task.prompt_responders[local_id] = respond_fn
+                                tg.start_soon(
+                                    _wait_prompt_response,
+                                    running_task,
+                                    local_id,
+                                    prompt_timeout_s,
+                                    edits.transport,
+                                )
+                        elif respond_fn is not None:
+                            logger.warning("prompt.no_task", detail=evt.action.detail)
+                            with contextlib.suppress(Exception):
+                                await respond_fn({"error": "no interactive session"})
                     await edits.on_event(evt)
             finally:
                 tg.cancel_scope.cancel()
