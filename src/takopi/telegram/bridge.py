@@ -454,13 +454,12 @@ async def handle_callback_prompt(
         response["allowed"] = False
         feedback = "Denied"
 
+    prompt_msg_ref = running_task.prompt_messages.get(local_id)
+
     running_task.prompt_responses[local_id] = response
     running_task.pending_prompts[local_id].set()
 
     await cfg.bot.answer_callback_query(query.callback_query_id, text=feedback)
-
-    # Edit the prompt message to show the decision and remove buttons
-    prompt_msg_ref = running_task.prompt_messages.get(local_id)
     if prompt_msg_ref is not None:
         icon = "✓" if action == "allow" else "✗"
         await cfg.bot.edit_message_text(
