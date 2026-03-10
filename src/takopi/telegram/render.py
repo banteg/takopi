@@ -17,6 +17,18 @@ _BULLET_RE = re.compile(r"(?m)^(\s*)•")
 _FENCE_RE = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>[`~]{3,})(?P<info>.*)$")
 _ORDERED_ITEM_RE = re.compile(r"^(?P<indent>[ \t]{0,3})(?P<marker>\d+[.)])\s+")
 _UNORDERED_ITEM_RE = re.compile(r"^(?P<indent>[ \t]{0,3})[-+*]\s+")
+_BARE_URL_RE = re.compile(
+    r"("
+    r"(?:[a-z][a-z0-9+.\-]*:(?://)?[^\s<>]+)"
+    r"|"
+    r"(?:www\.[^\s<>]*[^\s<>.,;:!?\)\]\"'])"
+    r"|"
+    r"(?:[a-z0-9-]+\.)+[a-z]{2,}(?:/[^\s<>]*[^\s<>.,;:!?\)\]\"'])?"
+    r")",
+    re.IGNORECASE,
+)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]+`")
+_INLINE_LINK_RE = re.compile(r"\[[^\]\n]*\]\([^)]+\)")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,8 +85,76 @@ def _normalize_nested_list_markers(md: str) -> str:
     return "".join(lines)
 
 
+def _collect_fence_ranges(md: str) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    state: _FenceState | None = None
+    offset = 0
+
+    for raw_line in md.splitlines(keepends=True):
+        line, _ = _split_line_ending(raw_line)
+        line_end = offset + len(raw_line)
+
+        if state is not None:
+            ranges.append((offset, line_end))
+            state = _update_fence_state(line, state)
+            offset = line_end
+            continue
+
+        next_state = _update_fence_state(line, None)
+        if next_state is not None:
+            ranges.append((offset, line_end))
+            state = next_state
+
+        offset = line_end
+
+    return ranges
+
+
+def _linkify_bare_urls(md: str) -> str:
+    if not md:
+        return md
+
+    skip_ranges = _collect_fence_ranges(md)
+    skip_ranges.extend((m.start(), m.end()) for m in _INLINE_CODE_RE.finditer(md))
+    skip_ranges.extend((m.start(), m.end()) for m in _INLINE_LINK_RE.finditer(md))
+
+    def _in_skip(start: int, end: int) -> bool:
+        return any(
+            skip_start < end and start < skip_end
+            for skip_start, skip_end in skip_ranges
+        )
+
+    def _already_linked(start: int) -> bool:
+        before = md[:start].rstrip()
+        if before.endswith("](") or before.endswith("<"):
+            return True
+        link_open_idx = before.rfind("](")
+        if link_open_idx == -1:
+            return False
+        return before.rfind(")") < link_open_idx
+
+    parts: list[str] = []
+    last = 0
+    for match in _BARE_URL_RE.finditer(md):
+        start = match.start(1)
+        end = match.end(1)
+        if _in_skip(start, end) or _already_linked(start):
+            continue
+        parts.append(md[last:start])
+        url = match.group(1)
+        if url.startswith(("http://", "https://")):
+            parts.append(f"<{url}>")
+        else:
+            parts.append(f"[{url}]({url})")
+        last = end
+
+    parts.append(md[last:])
+    return "".join(parts)
+
+
 def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
-    html = _MD_RENDERER.render(_normalize_nested_list_markers(md or ""))
+    normalized = _normalize_nested_list_markers(md or "")
+    html = _MD_RENDERER.render(_linkify_bare_urls(normalized))
     rendered = transform_html(html)
 
     text = _BULLET_RE.sub(r"\1-", rendered.text)
@@ -99,6 +179,13 @@ def _is_supported_text_link_url(url: str) -> bool:
     parsed = urlparse(url)
     if parsed.scheme in {"http", "https"} and bool(parsed.netloc):
         return True
+    if not parsed.scheme and not parsed.netloc:
+        candidate = parsed.path or ""
+        if candidate.startswith("/"):
+            return False
+        host = candidate.split("/", 1)[0]
+        if host.startswith("www.") or "." in host:
+            return True
     return parsed.scheme == "tg" and (bool(parsed.netloc) or bool(parsed.path))
 
 
