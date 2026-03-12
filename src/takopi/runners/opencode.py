@@ -14,6 +14,7 @@ Session IDs use the format: ses_XXXX (e.g., ses_494719016ffe85dkDMj0FPRbHK)
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -478,7 +479,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
     """Build an OpenCodeRunner from configuration."""
-    opencode_cmd = "opencode"
+    opencode_cmd = shutil.which("opencode") or "opencode"
 
     model = config.get("model")
     if model is not None and not isinstance(model, str):

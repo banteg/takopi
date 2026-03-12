@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime, UTC
@@ -282,7 +283,9 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         extra_args: list[str],
         model: str | None,
         provider: str | None,
+        pi_cmd: str = "pi",
     ) -> None:
+        self.pi_cmd = pi_cmd
         self.extra_args = extra_args
         self.model = model
         self.provider = provider
@@ -314,7 +317,7 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         return ResumeToken(engine=self.engine, value=found)
 
     def command(self) -> str:
-        return "pi"
+        return self.pi_cmd
 
     def build_args(
         self,
@@ -488,6 +491,7 @@ def _default_session_dir(cwd: PurePath) -> Path:
 
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
+    pi_cmd = shutil.which("pi") or "pi"
     extra_args_value = config.get("extra_args")
     if extra_args_value is None:
         extra_args = []
@@ -512,6 +516,7 @@ def build_runner(config: EngineConfig, config_path: Path) -> Runner:
         extra_args=extra_args,
         model=model,
         provider=provider,
+        pi_cmd=pi_cmd,
     )
 
 
