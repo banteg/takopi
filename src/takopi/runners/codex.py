@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import subprocess
 import uuid
 from collections.abc import AsyncIterator
@@ -1360,7 +1361,7 @@ class AppServerCodexRunner(ResumeTokenMixin, BaseRunner):
 
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
-    codex_cmd = "codex"
+    codex_cmd = shutil.which("codex") or "codex"
 
     mode_value = config.get("mode", "app_server")
     if mode_value not in {"app_server", "exec"}:
