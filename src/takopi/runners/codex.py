@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -664,7 +665,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
-    codex_cmd = "codex"
+    codex_cmd = shutil.which("codex") or "codex"
 
     extra_args_value = config.get("extra_args")
     if extra_args_value is None:

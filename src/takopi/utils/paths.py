@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from contextvars import ContextVar, Token
 from pathlib import Path
 
@@ -20,6 +19,21 @@ def reset_run_base_dir(token: Token[Path | None]) -> None:
     _run_base_dir.reset(token)
 
 
+def _path_variants(base: str) -> tuple[str, ...]:
+    normalized = base.rstrip("/\\")
+    if not normalized:
+        return ()
+    variants: list[str] = []
+    for candidate in (
+        normalized,
+        normalized.replace("\\", "/"),
+        normalized.replace("/", "\\"),
+    ):
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+    return tuple(variants)
+
+
 def relativize_path(value: str, *, base_dir: Path | None = None) -> str:
     if not value:
         return value
@@ -29,13 +43,14 @@ def relativize_path(value: str, *, base_dir: Path | None = None) -> str:
     base_str = str(base)
     if not base_str:
         return value
-    if value == base_str:
-        return "."
-    for sep in (os.sep, "/"):
-        prefix = base_str if base_str.endswith(sep) else f"{base_str}{sep}"
-        if value.startswith(prefix):
-            suffix = value[len(prefix) :]
-            return suffix or "."
+    for base_variant in _path_variants(base_str):
+        if value == base_variant:
+            return "."
+        for sep in ("/", "\\"):
+            prefix = f"{base_variant}{sep}"
+            if value.startswith(prefix):
+                suffix = value[len(prefix) :]
+                return (suffix or ".").replace("\\", "/")
     return value
 
 
@@ -43,5 +58,9 @@ def relativize_command(value: str, *, base_dir: Path | None = None) -> str:
     base = get_run_base_dir() if base_dir is None else base_dir
     if base is None:
         base = Path.cwd()
-    base_with_sep = f"{base}{os.sep}"
-    return value.replace(base_with_sep, "")
+    base_str = str(base)
+    out = value
+    for base_variant in _path_variants(base_str):
+        for sep in ("/", "\\"):
+            out = out.replace(f"{base_variant}{sep}", "")
+    return out

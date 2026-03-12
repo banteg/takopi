@@ -4,11 +4,13 @@ from pathlib import Path
 import anyio
 import pytest
 
+import takopi.runners.opencode as opencode_runner
 from takopi.model import ActionEvent, CompletedEvent, ResumeToken, StartedEvent
 from takopi.runners.opencode import (
     OpenCodeRunner,
     OpenCodeStreamState,
     ENGINE,
+    build_runner,
     translate_opencode_event,
 )
 from takopi.schemas import opencode as opencode_schema
@@ -366,3 +368,19 @@ async def test_run_serializes_same_session() -> None:
         await anyio.sleep(0)
         gate.set()
     assert max_in_flight == 1
+
+
+def test_opencode_build_runner_uses_shutil_which(monkeypatch) -> None:
+    expected = r"C:\Tools\opencode.cmd"
+    called: dict[str, str] = {}
+
+    def fake_which(name: str) -> str | None:
+        called["name"] = name
+        return expected
+
+    monkeypatch.setattr(opencode_runner.shutil, "which", fake_which)
+    runner = build_runner({}, Path("takopi.toml"))
+
+    assert called["name"] == "opencode"
+    assert isinstance(runner, OpenCodeRunner)
+    assert runner.opencode_cmd == expected

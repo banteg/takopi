@@ -4,12 +4,14 @@ from unittest.mock import patch
 import anyio
 import pytest
 
+import takopi.runners.pi as pi_runner
 from takopi.model import ActionEvent, CompletedEvent, ResumeToken, StartedEvent
 from takopi.runners.pi import (
     ENGINE,
     PiRunner,
     PiStreamState,
     _default_session_dir,
+    build_runner,
     translate_pi_event,
 )
 from takopi.schemas import pi as pi_schema
@@ -228,3 +230,19 @@ def test_session_path_sanitizes_windows_separators() -> None:
     name = session_dir.name
     assert "\\" not in name
     assert ":" not in name
+
+
+def test_pi_build_runner_uses_shutil_which(monkeypatch) -> None:
+    expected = r"C:\Tools\pi.cmd"
+    called: dict[str, str] = {}
+
+    def fake_which(name: str) -> str | None:
+        called["name"] = name
+        return expected
+
+    monkeypatch.setattr(pi_runner.shutil, "which", fake_which)
+    runner = build_runner({}, Path("takopi.toml"))
+
+    assert called["name"] == "pi"
+    assert isinstance(runner, PiRunner)
+    assert runner.pi_cmd == expected
