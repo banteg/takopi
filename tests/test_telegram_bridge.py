@@ -1424,7 +1424,7 @@ async def test_reasoning_command_show_claude_levels(tmp_path: Path) -> None:
 
     text = transport.send_calls[-1]["message"].text
     assert "engine: claude (global default)" in text
-    assert "available levels: low, medium, high" in text
+    assert "available levels: low, medium, high, max" in text
     assert "minimal" not in text
     assert "xhigh" not in text
 
@@ -1459,11 +1459,42 @@ async def test_reasoning_command_set_minimal_rejected_for_claude(
 
     text = transport.send_calls[-1]["message"].text
     assert "unknown reasoning level" in text
-    assert "low, medium, high" in text
+    assert "low, medium, high, max" in text
 
     # Verify nothing was stored
     override = await chat_prefs.get_engine_override(123, "claude")
     assert override is None
+
+
+@pytest.mark.anyio
+async def test_reasoning_command_set_max_accepted_for_claude(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport, engine_id="claude")
+    chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning set max",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+        chat_type="private",
+        thread_id=None,
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "set max",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+    )
+
+    override = await chat_prefs.get_engine_override(123, "claude")
+    assert override is not None
+    assert override.reasoning == "max"
 
 
 @pytest.mark.anyio
