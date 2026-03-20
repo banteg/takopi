@@ -10,7 +10,7 @@ OverrideSource = Literal["topic_override", "chat_default", "default"]
 REASONING_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
 
 _ENGINE_REASONING_LEVELS: dict[str, tuple[str, ...]] = {
-    "claude": ("low", "medium", "high"),
+    "claude": ("low", "medium", "high", "max"),
     "codex": REASONING_LEVELS,
 }
 

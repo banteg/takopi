@@ -52,7 +52,7 @@ def test_claude_run_options_reasoning_medium() -> None:
 def test_claude_run_options_reasoning_effort_passthrough() -> None:
     runner = ClaudeRunner(claude_cmd="claude")
 
-    for level in ["low", "medium", "high"]:
+    for level in ["low", "medium", "high", "max"]:
         with apply_run_options(EngineRunOptions(reasoning=level)):
             args = runner.build_args("hi", None, state=None)
         assert args[args.index("--effort") + 1] == level, (

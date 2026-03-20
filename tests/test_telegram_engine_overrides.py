@@ -21,7 +21,7 @@ def test_supports_reasoning_includes_claude() -> None:
 
 def test_allowed_reasoning_levels_per_engine() -> None:
     claude_levels = allowed_reasoning_levels("claude")
-    assert claude_levels == ("low", "medium", "high")
+    assert claude_levels == ("low", "medium", "high", "max")
     assert "minimal" not in claude_levels
     assert "xhigh" not in claude_levels
 
