@@ -7,15 +7,6 @@ import msgspec
 
 OverrideSource = Literal["topic_override", "chat_default", "default"]
 
-REASONING_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
-
-_ENGINE_REASONING_LEVELS: dict[str, tuple[str, ...]] = {
-    "claude": ("low", "medium", "high", "max"),
-    "codex": REASONING_LEVELS,
-}
-
-REASONING_SUPPORTED_ENGINES: frozenset[str] = frozenset(_ENGINE_REASONING_LEVELS)
-
 
 class EngineOverrides(msgspec.Struct, forbid_unknown_fields=False):
     model: str | None = None
@@ -100,11 +91,3 @@ def resolve_override_value(
         topic_value=topic_value,
         chat_value=chat_value,
     )
-
-
-def allowed_reasoning_levels(engine: str) -> tuple[str, ...]:
-    return _ENGINE_REASONING_LEVELS.get(engine, REASONING_LEVELS)
-
-
-def supports_reasoning(engine: str) -> bool:
-    return engine in REASONING_SUPPORTED_ENGINES

@@ -3,12 +3,11 @@ import pytest
 from takopi.telegram.chat_prefs import ChatPrefsStore
 from takopi.runners.run_options import EngineRunOptions
 from takopi.telegram.commands.executor import _reasoning_warning
+from takopi.engine_capabilities import allowed_reasoning_levels, supports_reasoning
 from takopi.telegram.engine_overrides import (
     EngineOverrides,
-    allowed_reasoning_levels,
     merge_overrides,
     resolve_override_value,
-    supports_reasoning,
 )
 from takopi.telegram.topic_state import TopicStateStore
 

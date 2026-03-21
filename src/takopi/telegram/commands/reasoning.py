@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING
 
 from ...context import RunContext
 from ..chat_prefs import ChatPrefsStore
+from ...engine_capabilities import allowed_reasoning_levels
 from ..engine_overrides import (
     EngineOverrides,
-    allowed_reasoning_levels,
     resolve_override_value,
 )
 from ..files import split_command_args

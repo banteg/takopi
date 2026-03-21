@@ -27,7 +27,7 @@ from ...transport import MessageRef, RenderedMessage, SendOptions
 from ...transport_runtime import TransportRuntime
 from ...utils.paths import reset_run_base_dir, set_run_base_dir
 from ..bridge import send_plain
-from ..engine_overrides import supports_reasoning
+from ...engine_capabilities import supports_reasoning
 
 logger = get_logger(__name__)
 
