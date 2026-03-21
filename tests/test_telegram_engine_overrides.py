@@ -27,8 +27,8 @@ def test_allowed_reasoning_levels_per_engine() -> None:
     codex_levels = allowed_reasoning_levels("codex")
     assert codex_levels == ("minimal", "low", "medium", "high", "xhigh")
 
-    # Unknown engines get the full set as fallback
-    assert allowed_reasoning_levels("unknown") == codex_levels
+    # Unknown engines get no levels
+    assert allowed_reasoning_levels("unknown") == ()
 
 
 def test_reasoning_warning_none_for_supported_engine() -> None:

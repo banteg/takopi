@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from ...context import RunContext
 from ..chat_prefs import ChatPrefsStore
-from ...engine_capabilities import allowed_reasoning_levels
+from ...engine_capabilities import allowed_reasoning_levels, supports_reasoning
 from ..engine_overrides import (
     EngineOverrides,
     resolve_override_value,
@@ -65,6 +65,11 @@ async def _handle_reasoning_command(
         if selection is None:
             return
         engine, engine_source = selection
+        if not supports_reasoning(engine):
+            await reply(
+                text=f"reasoning is not supported for `{engine}`."
+            )
+            return
         topic_override = None
         if tkey is not None and topic_store is not None:
             topic_override = await topic_store.get_engine_override(
@@ -133,6 +138,11 @@ async def _handle_reasoning_command(
                     text=f"unknown engine `{engine}`.\navailable engines: `{available}`"
                 )
                 return
+        if not supports_reasoning(engine):
+            await reply(
+                text=f"reasoning is not supported for `{engine}`."
+            )
+            return
         normalized_level = level.strip().lower()
         allowed = allowed_reasoning_levels(engine)
         if normalized_level not in allowed:

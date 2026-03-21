@@ -13,8 +13,12 @@ REASONING_SUPPORTED_ENGINES: frozenset[str] = frozenset(_ENGINE_REASONING_LEVELS
 
 
 def allowed_reasoning_levels(engine: str) -> tuple[str, ...]:
-    """UI-facing helper — returns Codex levels as fallback for unknown engines."""
-    return _ENGINE_REASONING_LEVELS.get(engine, REASONING_LEVELS)
+    """Return the allowed reasoning levels for *engine*.
+
+    Returns an empty tuple for engines not in the capability map —
+    callers should check ``supports_reasoning()`` first.
+    """
+    return _ENGINE_REASONING_LEVELS.get(engine, ())
 
 
 def reasoning_levels_for_engine(engine: str) -> tuple[str, ...]:
