@@ -610,6 +610,8 @@ class JsonlSubprocessRunner(BaseRunner):
             ):
                 yield evt
             await self.flush_stdin_writes(state=state)
+            if stream.did_emit_completed:
+                break
 
     async def run_impl(
         self, prompt: str, resume: ResumeToken | None
@@ -678,6 +680,8 @@ class JsonlSubprocessRunner(BaseRunner):
                     ):
                         yield evt
 
+                    if stdin_kept_open and proc.stdin is not None:
+                        await proc.stdin.aclose()
                     rc = await proc.wait()
             finally:
                 if stdin_kept_open and proc.stdin is not None:

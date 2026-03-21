@@ -426,6 +426,61 @@ async def test_run_strips_anthropic_api_key_by_default(tmp_path, monkeypatch) ->
     assert answer == "api=set"
 
 
+@pytest.mark.anyio
+async def test_run_closes_stdin_after_completed_event(tmp_path) -> None:
+    claude_path = tmp_path / "claude"
+    claude_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "\n"
+        "session_id = 'session_01'\n"
+        "payload = sys.stdin.readline()\n"
+        "assert payload\n"
+        "init = {\n"
+        "    'type': 'system',\n"
+        "    'subtype': 'init',\n"
+        "    'uuid': 'uuid',\n"
+        "    'session_id': session_id,\n"
+        "    'apiKeySource': 'env',\n"
+        "    'cwd': '.',\n"
+        "    'tools': [],\n"
+        "    'mcp_servers': [],\n"
+        "    'model': 'claude',\n"
+        "    'permissionMode': 'default',\n"
+        "    'slash_commands': [],\n"
+        "    'output_style': 'default',\n"
+        "}\n"
+        "print(json.dumps(init), flush=True)\n"
+        "result = {\n"
+        "    'type': 'result',\n"
+        "    'subtype': 'success',\n"
+        "    'uuid': 'uuid-result',\n"
+        "    'session_id': session_id,\n"
+        "    'duration_ms': 0,\n"
+        "    'duration_api_ms': 0,\n"
+        "    'is_error': False,\n"
+        "    'num_turns': 1,\n"
+        "    'result': 'done',\n"
+        "    'total_cost_usd': 0.0,\n"
+        "    'usage': {'input_tokens': 0, 'output_tokens': 0},\n"
+        "}\n"
+        "print(json.dumps(result), flush=True)\n"
+        "sys.stdin.read()\n",
+        encoding="utf-8",
+    )
+    claude_path.chmod(0o755)
+
+    runner = ClaudeRunner(claude_cmd=str(claude_path))
+    answer: str | None = None
+
+    with anyio.fail_after(2):
+        async for event in runner.run("hello", None):
+            if isinstance(event, CompletedEvent):
+                answer = event.answer
+
+    assert answer == "done"
+
 
 def _make_control_request(
     subtype: str,
