@@ -9,6 +9,7 @@ import msgspec
 
 from ..backends import EngineBackend, EngineConfig
 from ..config import ConfigError
+from ..engine_capabilities import reasoning_levels_for_engine
 from ..events import EventFactory
 from ..logging import get_logger
 from ..model import ActionPhase, EngineId, ResumeToken, TakopiEvent
@@ -20,6 +21,7 @@ from ..utils.paths import relativize_command
 logger = get_logger(__name__)
 
 ENGINE: EngineId = "codex"
+_VALID_REASONING_LEVELS = frozenset(reasoning_levels_for_engine("codex"))
 
 __all__ = [
     "ENGINE",
@@ -476,12 +478,18 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         if run_options is not None:
             if run_options.model:
                 args.extend(["--model", str(run_options.model)])
-            if run_options.reasoning:
+            if run_options.reasoning in _VALID_REASONING_LEVELS:
                 args.extend(
                     [
                         "-c",
                         f"model_reasoning_effort={run_options.reasoning}",
                     ]
+                )
+            elif run_options.reasoning:
+                self.get_logger().warning(
+                    "reasoning.invalid_level",
+                    engine="codex",
+                    reasoning_level=run_options.reasoning,
                 )
         args.extend(
             [

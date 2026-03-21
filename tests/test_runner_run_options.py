@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock
+
 from takopi.model import ResumeToken
 from takopi.runners.claude import ClaudeRunner
 from takopi.runners.codex import CodexRunner
@@ -25,6 +27,31 @@ def test_codex_run_options_override_model_and_reasoning() -> None:
         "--color=never",
         "-",
     ]
+
+
+def test_codex_run_options_reasoning_valid_levels() -> None:
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    state = runner.new_state("hi", None)
+
+    for level in ["minimal", "low", "medium", "high", "xhigh"]:
+        with apply_run_options(EngineRunOptions(reasoning=level)):
+            args = runner.build_args("hi", None, state=state)
+        joined = " ".join(args)
+        assert f"model_reasoning_effort={level}" in joined, (
+            f"valid Codex level {level!r} should add reasoning flag"
+        )
+
+
+def test_codex_run_options_reasoning_unknown_skips_flag() -> None:
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    state = runner.new_state("hi", None)
+
+    for level in ["bogus", "max", "turbo", "auto", "none"]:
+        with apply_run_options(EngineRunOptions(reasoning=level)):
+            args = runner.build_args("hi", None, state=state)
+        assert "model_reasoning_effort" not in " ".join(args), (
+            f"unknown level {level} should not add reasoning flag"
+        )
 
 
 def test_claude_run_options_override_model() -> None:
@@ -60,14 +87,17 @@ def test_claude_run_options_reasoning_effort_passthrough() -> None:
         )
 
 
-def test_claude_run_options_reasoning_unknown_falls_back_to_medium() -> None:
+def test_claude_run_options_reasoning_unknown_skips_effort_flag() -> None:
     runner = ClaudeRunner(claude_cmd="claude")
 
-    for level in ["minimal", "xhigh", "bogus"]:
+    for level in ["minimal", "xhigh", "bogus", "auto", "none"]:
         with apply_run_options(EngineRunOptions(reasoning=level)):
             args = runner.build_args("hi", None, state=None)
-        assert args[args.index("--effort") + 1] == "medium", (
-            f"unknown level {level} should fall back to medium"
+        assert "--effort" not in args, (
+            f"unknown level {level} should not add --effort flag"
+        )
+        assert "--settings" not in args, (
+            f"unknown level {level} should not add --settings flag"
         )
 
 
@@ -78,6 +108,39 @@ def test_claude_run_options_no_reasoning_no_effort_flag() -> None:
 
     assert "--effort" not in args
     assert "--settings" not in args
+
+
+def test_claude_run_options_reasoning_invalid_logs_warning() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    mock_logger = MagicMock()
+    runner.get_logger = MagicMock(return_value=mock_logger)
+
+    with apply_run_options(EngineRunOptions(reasoning="bogus")):
+        args = runner.build_args("hi", None, state=None)
+
+    assert "--effort" not in args
+    mock_logger.warning.assert_called_once_with(
+        "reasoning.invalid_level",
+        engine="claude",
+        reasoning_level="bogus",
+    )
+
+
+def test_codex_run_options_reasoning_invalid_logs_warning() -> None:
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    mock_logger = MagicMock()
+    runner.get_logger = MagicMock(return_value=mock_logger)
+    state = runner.new_state("hi", None)
+
+    with apply_run_options(EngineRunOptions(reasoning="auto")):
+        args = runner.build_args("hi", None, state=state)
+
+    assert "model_reasoning_effort" not in " ".join(args)
+    mock_logger.warning.assert_called_once_with(
+        "reasoning.invalid_level",
+        engine="codex",
+        reasoning_level="auto",
+    )
 
 
 def test_opencode_run_options_override_model() -> None:

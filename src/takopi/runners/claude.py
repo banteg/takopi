@@ -10,6 +10,7 @@ from typing import Any
 import msgspec
 
 from ..backends import EngineBackend, EngineConfig
+from ..engine_capabilities import reasoning_levels_for_engine
 from ..events import EventFactory
 from ..logging import get_logger
 from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
@@ -22,6 +23,7 @@ logger = get_logger(__name__)
 
 ENGINE: EngineId = "claude"
 DEFAULT_ALLOWED_TOOLS = ["Bash", "Read", "Edit", "Write"]
+_VALID_EFFORTS = frozenset(reasoning_levels_for_engine("claude"))
 
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?claude\s+(?:--resume|-r)\s+(?P<token>[^`\s]+)`?\s*$"
@@ -313,10 +315,15 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             args.append("--dangerously-skip-permissions")
         if run_options is not None and run_options.reasoning:
             effort = run_options.reasoning
-            if effort not in {"low", "medium", "high", "max"}:
-                effort = "medium"
-            args.extend(["--effort", effort])
-            args.extend(["--settings", '{"alwaysThinkingEnabled":true}'])
+            if effort in _VALID_EFFORTS:
+                args.extend(["--effort", effort])
+                args.extend(["--settings", '{"alwaysThinkingEnabled":true}'])
+            else:
+                self.get_logger().warning(
+                    "reasoning.invalid_level",
+                    engine="claude",
+                    reasoning_level=effort,
+                )
         args.append("--")
         args.append(prompt)
         return args
