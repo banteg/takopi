@@ -68,6 +68,16 @@ def _build_startup_message(
             f"auto ({resolved_scope})" if topics.scope == "auto" else resolved_scope
         )
         topics_label = f"enabled (scope={scope_label})"
+    claude_runner = runtime.runner_for_engine("claude")
+    interactive_label: str | None = None
+    if claude_runner is not None:
+        skip = getattr(claude_runner, "dangerously_skip_permissions", True)
+        interactive_label = "disabled" if skip else "enabled"
+    interactive_line = (
+        f"interactive permissions: `{interactive_label}`  \n"
+        if interactive_label is not None
+        else ""
+    )
     return (
         f"\N{OCTOPUS} **takopi is ready**\n\n"
         f"default: `{runtime.default_engine}`  \n"
@@ -76,6 +86,7 @@ def _build_startup_message(
         f"mode: `{session_mode}`  \n"
         f"topics: `{topics_label}`  \n"
         f"resume lines: `{resume_label}`  \n"
+        f"{interactive_line}"
         f"working in: `{startup_pwd}`"
     )
 

@@ -13,6 +13,7 @@ from takopi.runners.claude import (
     ENGINE,
     translate_claude_event,
 )
+from takopi.runners.run_options import EngineRunOptions, apply_run_options
 from takopi.schemas import claude as claude_schema
 
 
@@ -423,3 +424,38 @@ async def test_run_strips_anthropic_api_key_by_default(tmp_path, monkeypatch) ->
         if isinstance(event, CompletedEvent):
             answer = event.answer
     assert answer == "api=set"
+
+
+def test_dangerously_skip_permissions_adds_flag() -> None:
+    runner = ClaudeRunner(claude_cmd="claude", dangerously_skip_permissions=True)
+    args = runner._build_args("hello", None)
+    assert "--dangerously-skip-permissions" in args
+
+
+def test_dangerously_skip_permissions_false_omits_flag() -> None:
+    runner = ClaudeRunner(claude_cmd="claude", dangerously_skip_permissions=False)
+    args = runner._build_args("hello", None)
+    assert "--dangerously-skip-permissions" not in args
+
+
+def test_dangerously_skip_permissions_flag_even_with_interactive_handler() -> None:
+    """--dangerously-skip-permissions must be passed even when an interactive handler
+    is present, so that explicit config is respected and stdin stays closed."""
+    runner = ClaudeRunner(claude_cmd="claude", dangerously_skip_permissions=True)
+
+    async def fake_handler(request):  # type: ignore[no-untyped-def]
+        return "allow"
+
+    opts = EngineRunOptions(interactive_handler=fake_handler)
+    with apply_run_options(opts):
+        args = runner._build_args("hello", None)
+
+    assert "--dangerously-skip-permissions" in args
+
+
+def test_keep_stdin_open_matches_skip_permissions() -> None:
+    skip = ClaudeRunner(claude_cmd="claude", dangerously_skip_permissions=True)
+    no_skip = ClaudeRunner(claude_cmd="claude", dangerously_skip_permissions=False)
+
+    assert skip.keep_stdin_open() is False
+    assert no_skip.keep_stdin_open() is True

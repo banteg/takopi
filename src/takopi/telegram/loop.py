@@ -25,6 +25,7 @@ from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
 from ..ids import RESERVED_CHAT_COMMANDS
 from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
+from .interactive import INTERACTIVE_CB_PREFIX, handle_callback_interactive
 from .commands.cancel import handle_callback_cancel, handle_cancel
 from .commands.file_transfer import FILE_PUT_USAGE
 from .commands.handlers import (
@@ -1838,6 +1839,15 @@ async def run_main_loop(
                             update,
                             state.running_tasks,
                             scheduler,
+                        )
+                    elif update.data and update.data.startswith(
+                        INTERACTIVE_CB_PREFIX + ":"
+                    ):
+                        tg.start_soon(
+                            handle_callback_interactive,
+                            cfg,
+                            update,
+                            state.running_tasks,
                         )
                     else:
                         tg.start_soon(

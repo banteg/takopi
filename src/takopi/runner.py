@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 from weakref import WeakValueDictionary
@@ -182,6 +182,9 @@ class JsonlSubprocessRunner(BaseRunner):
         state: Any,
     ) -> None:
         return None
+
+    def keep_stdin_open(self) -> bool:
+        return False
 
     def pipes_error_message(self) -> str:
         return f"{self.tag()} failed to open subprocess pipes"
@@ -360,7 +363,8 @@ class JsonlSubprocessRunner(BaseRunner):
         if payload is not None:
             assert proc.stdin is not None
             await proc.stdin.send(payload)
-            await proc.stdin.aclose()
+            if not self.keep_stdin_open():
+                await proc.stdin.aclose()
             logger.info(
                 "subprocess.stdin.send",
                 pid=proc.pid,
@@ -368,7 +372,20 @@ class JsonlSubprocessRunner(BaseRunner):
                 bytes=len(payload),
             )
         elif proc.stdin is not None:
-            await proc.stdin.aclose()
+            if not self.keep_stdin_open():
+                await proc.stdin.aclose()
+
+    async def _after_send_payload(self, proc: Any, *, state: Any) -> None:
+        pass
+
+    async def handle_interactive(
+        self,
+        request: Any,
+        *,
+        state: Any,
+        send_to_stdin: Callable[[bytes], Awaitable[None]],
+    ) -> None:
+        pass
 
     def _decode_jsonl_events(
         self,
@@ -635,6 +652,7 @@ class JsonlSubprocessRunner(BaseRunner):
             )
 
             await self._send_payload(proc, payload, logger=logger, resume=resume)
+            await self._after_send_payload(proc, state=state)
 
             rc: int | None = None
             stream = JsonlStreamState(expected_session=resume)

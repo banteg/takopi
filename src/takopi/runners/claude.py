@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,8 +13,8 @@ import msgspec
 from ..backends import EngineBackend, EngineConfig
 from ..events import EventFactory
 from ..logging import get_logger
-from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
-from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from ..model import Action, ActionKind, EngineId, InteractiveOption, InteractiveRequest, ResumeToken, TakopiEvent
+from ..runner import JsonlSubprocessRunner, JsonlStreamState, ResumeTokenMixin, Runner
 from .run_options import get_run_options
 from ..schemas import claude as claude_schema
 from .tool_actions import tool_input_path, tool_kind_and_title
@@ -34,6 +35,7 @@ class ClaudeStreamState:
     pending_actions: dict[str, Action] = field(default_factory=dict)
     last_assistant_text: str | None = None
     note_seq: int = 0
+    stdin: Any = None
 
 
 def _normalize_tool_result(content: Any) -> str:
@@ -296,6 +298,12 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             raise RuntimeError(f"resume token is for engine {token.engine!r}")
         return f"`claude --resume {token.value}`"
 
+    def keep_stdin_open(self) -> bool:
+        return not self.dangerously_skip_permissions
+
+    async def _after_send_payload(self, proc: Any, *, state: ClaudeStreamState) -> None:
+        state.stdin = proc.stdin
+
     def _build_args(self, prompt: str, resume: ResumeToken | None) -> list[str]:
         run_options = get_run_options()
         args: list[str] = ["-p", "--output-format", "stream-json", "--verbose"]
@@ -334,6 +342,10 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: Any,
     ) -> bytes | None:
+        # When using the control protocol (stdin stays open), send a newline
+        # immediately so claude doesn't block waiting for stdin at startup.
+        if self.keep_stdin_open():
+            return b"\n"
         return None
 
     def env(self, *, state: Any) -> dict[str, str] | None:
@@ -354,6 +366,135 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         state: ClaudeStreamState,
     ) -> None:
         pass
+
+    def _to_interactive_request(
+        self, ctrl_req: claude_schema.StreamControlRequest
+    ) -> InteractiveRequest | None:
+        req = ctrl_req.request
+        if not isinstance(req, claude_schema.ControlCanUseToolRequest):
+            return None
+        tool_name = req.tool_name or "tool"
+        description: str | None = None
+        if req.input:
+            cmd = req.input.get("command")
+            if isinstance(cmd, str):
+                description = cmd
+            else:
+                path = req.input.get("file_path") or req.input.get("path")
+                if isinstance(path, str):
+                    description = path
+        return InteractiveRequest(
+            request_id=ctrl_req.request_id,
+            kind="permission",
+            title=f"Allow {tool_name}?",
+            description=description,
+            options=[
+                InteractiveOption(id="allow", label="Allow"),
+                InteractiveOption(id="deny", label="Deny"),
+            ],
+        )
+
+    async def _send_control_response(
+        self,
+        request_id: str,
+        *,
+        ok: bool,
+        error: str | None = None,
+        send_to_stdin: Callable[[bytes], Awaitable[None]],
+    ) -> None:
+        if ok:
+            inner: claude_schema.ControlResponse = claude_schema.ControlSuccessResponse(
+                request_id=request_id
+            )
+        else:
+            inner = claude_schema.ControlErrorResponse(
+                request_id=request_id, error=error or "denied"
+            )
+        response = claude_schema.StreamControlResponse(response=inner)
+        encoded = msgspec.json.encode(response) + b"\n"
+        await send_to_stdin(encoded)
+
+    async def handle_interactive(
+        self,
+        request: InteractiveRequest,
+        *,
+        state: ClaudeStreamState,
+        send_to_stdin: Callable[[bytes], Awaitable[None]],
+    ) -> None:
+        run_opts = get_run_options()
+        handler = run_opts.interactive_handler if run_opts is not None else None
+        if handler is None:
+            await self._send_control_response(
+                request.request_id,
+                ok=False,
+                error="denied",
+                send_to_stdin=send_to_stdin,
+            )
+            return
+        try:
+            option_id = await handler(request)
+        except Exception:  # noqa: BLE001
+            option_id = "deny"
+        if option_id == "allow":
+            await self._send_control_response(
+                request.request_id, ok=True, send_to_stdin=send_to_stdin
+            )
+        else:
+            await self._send_control_response(
+                request.request_id,
+                ok=False,
+                error="denied",
+                send_to_stdin=send_to_stdin,
+            )
+
+    async def _process_control_request(
+        self,
+        ctrl_req: claude_schema.StreamControlRequest,
+        *,
+        state: ClaudeStreamState,
+    ) -> None:
+        assert state.stdin is not None
+
+        async def send_to_stdin(data: bytes) -> None:
+            await state.stdin.send(data)
+
+        ireq = self._to_interactive_request(ctrl_req)
+        if ireq is None:
+            await self._send_control_response(
+                ctrl_req.request_id, ok=True, send_to_stdin=send_to_stdin
+            )
+        else:
+            await self.handle_interactive(ireq, state=state, send_to_stdin=send_to_stdin)
+
+    async def _iter_jsonl_events(
+        self,
+        *,
+        stdout: Any,
+        stream: JsonlStreamState,
+        state: ClaudeStreamState,
+        resume: ResumeToken | None,
+        logger: Any,
+        pid: int,
+    ) -> AsyncIterator[TakopiEvent]:
+        async for raw_line in self.iter_json_lines(stdout):
+            line = raw_line.strip()
+            if line and state.stdin is not None:
+                try:
+                    decoded = self.decode_jsonl(line=line)
+                except Exception:  # noqa: BLE001
+                    decoded = None
+                if isinstance(decoded, claude_schema.StreamControlRequest):
+                    await self._process_control_request(decoded, state=state)
+                    continue
+            for evt in self._handle_jsonl_line(
+                raw_line=raw_line,
+                stream=stream,
+                state=state,
+                resume=resume,
+                logger=logger,
+                pid=pid,
+            ):
+                yield evt
 
     def decode_jsonl(
         self,

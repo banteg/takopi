@@ -144,6 +144,15 @@ class TransportRuntime:
     def missing_engine_ids(self) -> tuple[EngineId, ...]:
         return self.engine_ids_with_status("missing_cli")
 
+    def runner_for_engine(self, engine_id: EngineId) -> Runner | None:
+        from .router import RunnerUnavailableError
+
+        try:
+            entry = self._router.entry_for_engine(engine_id)
+            return entry.runner if entry.available else None
+        except RunnerUnavailableError:
+            return None
+
     def project_aliases(self) -> tuple[str, ...]:
         return tuple(project.alias for project in self._projects.projects.values())
 

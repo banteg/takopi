@@ -380,6 +380,17 @@ class _TelegramCommandExecutor(CommandExecutor):
         run_options = None
         if self._engine_overrides_resolver is not None:
             run_options = await self._engine_overrides_resolver(engine)
+        from ..interactive import TelegramInteractiveHandler
+
+        interactive_handler = TelegramInteractiveHandler(
+            transport=self._exec_cfg.transport,
+            chat_id=self._chat_id,
+        )
+        run_options = EngineRunOptions(
+            model=run_options.model if run_options is not None else None,
+            reasoning=run_options.reasoning if run_options is not None else None,
+            interactive_handler=interactive_handler,
+        )
         on_thread_known = (
             self._scheduler.note_thread_known
             if self._on_thread_known is None

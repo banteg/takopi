@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import anyio
 
@@ -10,6 +11,7 @@ from .context import RunContext
 from .logging import bind_run_context, get_logger
 from .model import CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
 from .presenter import Presenter
+from .runners.run_options import get_run_options
 from .markdown import render_event_cli
 from .runner import Runner
 from .progress import ProgressTracker
@@ -94,6 +96,7 @@ class RunningTask:
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
     done: anyio.Event = field(default_factory=anyio.Event)
     context: RunContext | None = None
+    interactive_handler: Any | None = None
 
 
 RunningTasks = dict[MessageRef, RunningTask]
@@ -446,6 +449,12 @@ async def handle_message(
     if running_tasks is not None and progress_ref is not None:
         running_task = RunningTask(context=context)
         running_tasks[progress_ref] = running_task
+        run_opts = get_run_options()
+        if run_opts is not None and run_opts.interactive_handler is not None:
+            ih = run_opts.interactive_handler
+            if hasattr(ih, "_on_running_task_created"):
+                ih._on_running_task_created(running_task, progress_ref)
+            running_task.interactive_handler = ih
 
     cancel_exc_type = anyio.get_cancelled_exc_class()
     edits_scope = anyio.CancelScope()

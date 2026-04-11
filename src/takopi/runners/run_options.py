@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..model import InteractiveRequest
 
 
 @dataclass(frozen=True, slots=True)
 class EngineRunOptions:
     model: str | None = None
     reasoning: str | None = None
+    interactive_handler: Callable[[InteractiveRequest], Awaitable[str]] | None = None
 
 
 _RUN_OPTIONS: ContextVar[EngineRunOptions | None] = ContextVar(

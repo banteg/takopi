@@ -75,3 +75,18 @@ class CompletedEvent:
 
 
 type TakopiEvent = StartedEvent | ActionEvent | CompletedEvent
+
+
+@dataclass(frozen=True, slots=True)
+class InteractiveOption:
+    id: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class InteractiveRequest:
+    request_id: str
+    kind: str
+    title: str
+    description: str | None
+    options: list[InteractiveOption]

@@ -9,6 +9,12 @@ OpenCode outputs JSON events in a streaming format with types:
 - step_finish: Marks the end of a step (with reason: "stop" or "tool-calls")
 
 Session IDs use the format: ses_XXXX (e.g., ses_494719016ffe85dkDMj0FPRbHK)
+
+Interactive permission support (future):
+When OpenCode emits approval events in JSON mode, add:
+1. Override keep_stdin_open() → True
+2. Override _iter_jsonl_events to detect approval events
+3. Override handle_interactive to map option → OpenCode's response format
 """
 
 from __future__ import annotations
