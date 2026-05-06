@@ -14,6 +14,7 @@ from ..events import EventFactory
 from ..logging import get_logger
 from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from .hcom_wrap import HCOM_DISABLED, HcomWrap, parse_hcom_config
 from .run_options import get_run_options
 from ..schemas import claude as claude_schema
 from .tool_actions import tool_input_path, tool_kind_and_title
@@ -289,6 +290,7 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     dangerously_skip_permissions: bool = False
     use_api_billing: bool = False
     session_title: str = "claude"
+    hcom: HcomWrap = HCOM_DISABLED
     logger = logger
 
     def format_resume(self, token: ResumeToken) -> str:
@@ -316,7 +318,7 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         return args
 
     def command(self) -> str:
-        return self.claude_cmd
+        return self.hcom.wrap_command(self.claude_cmd)
 
     def build_args(
         self,
@@ -325,7 +327,7 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: Any,
     ) -> list[str]:
-        return self._build_args(prompt, resume)
+        return self.hcom.wrap_args(self.claude_cmd, self._build_args(prompt, resume))
 
     def stdin_payload(
         self,
@@ -454,7 +456,7 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         ]
 
 
-def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
+def build_runner(config: EngineConfig, config_path: Path) -> Runner:
     claude_cmd = shutil.which("claude") or "claude"
 
     model = config.get("model")
@@ -466,6 +468,8 @@ def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
     use_api_billing = config.get("use_api_billing") is True
     title = str(model) if model is not None else "claude"
 
+    hcom = parse_hcom_config(config, config_path=config_path, section="claude")
+
     return ClaudeRunner(
         claude_cmd=claude_cmd,
         model=model,
@@ -473,6 +477,7 @@ def build_runner(config: EngineConfig, _config_path: Path) -> Runner:
         dangerously_skip_permissions=dangerously_skip_permissions,
         use_api_billing=use_api_billing,
         session_title=title,
+        hcom=hcom,
     )
 
 

@@ -150,12 +150,16 @@ here; plugin engines should document their own keys.
 |-----|------|---------|-------|
 | `extra_args` | string[] | `["-c", "notify=[]"]` | Extra CLI args for `codex` (exec-only flags are rejected). |
 | `profile` | string | (unset) | Passed as `--profile <name>` and used as the session title. |
+| `hcom` | bool | `false` | Wrap invocations with [hcom](https://github.com/aannoo/hcom): spawns `hcom codex ...` instead of `codex ...`. |
+| `hcom_cmd` | string | `"hcom"` | Path or name of the hcom binary. |
+| `hcom_args` | string[] | `[]` | Args inserted between `hcom` and `codex` (e.g. `["--tag", "takopi"]`). |
 
 === "takopi config"
 
     ```sh
     takopi config set codex.extra_args '["-c", "notify=[]"]'
     takopi config set codex.profile "work"
+    takopi config set codex.hcom true
     ```
 
 === "toml"
@@ -164,7 +168,14 @@ here; plugin engines should document their own keys.
     [codex]
     extra_args = ["-c", "notify=[]"]
     profile = "work"
+    hcom = true
     ```
+
+!!! note "hcom and codex"
+    At the time of writing, `hcom codex` rejects codex's `exec` subcommand,
+    which Takopi uses for streaming runs. Until hcom supports `codex exec`, the
+    wrapper option is exposed for parity but Takopi will surface hcom's error
+    when the codex backend tries to start. See [Switch engines](../how-to/switch-engines.md#hcom-wrapper).
 
 ### `claude`
 
@@ -174,6 +185,9 @@ here; plugin engines should document their own keys.
 | `allowed_tools` | string[] | `["Bash", "Read", "Edit", "Write"]` | Auto-approve tool rules. |
 | `dangerously_skip_permissions` | bool | `false` | Skip Claude permissions prompts. |
 | `use_api_billing` | bool | `false` | Keep `ANTHROPIC_API_KEY` for API billing. |
+| `hcom` | bool | `false` | Wrap invocations with [hcom](https://github.com/aannoo/hcom): spawns `hcom claude ...` instead of `claude ...`. |
+| `hcom_cmd` | string | `"hcom"` | Path or name of the hcom binary. |
+| `hcom_args` | string[] | `[]` | Args inserted between `hcom` and `claude` (e.g. `["--tag", "takopi"]`). |
 
 === "takopi config"
 
@@ -182,6 +196,8 @@ here; plugin engines should document their own keys.
     takopi config set claude.allowed_tools '["Bash", "Read", "Edit", "Write"]'
     takopi config set claude.dangerously_skip_permissions false
     takopi config set claude.use_api_billing false
+    takopi config set claude.hcom true
+    takopi config set claude.hcom_args '["--tag", "takopi"]'
     ```
 
 === "toml"
@@ -192,7 +208,15 @@ here; plugin engines should document their own keys.
     allowed_tools = ["Bash", "Read", "Edit", "Write"]
     dangerously_skip_permissions = false
     use_api_billing = false
+    hcom = true
+    hcom_args = ["--tag", "takopi"]
     ```
+
+When `hcom = true`, takopi spawns `hcom [hcom_args] claude ...` instead of
+`claude ...`. The trailing arguments (`-p --output-format stream-json --verbose`,
+`--resume`, `--model`, `--allowedTools`, the prompt, etc.) are forwarded
+unchanged so Claude still streams JSON the way Takopi expects. See
+[Switch engines](../how-to/switch-engines.md#hcom-wrapper).
 
 ### `pi`
 

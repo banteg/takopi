@@ -13,6 +13,7 @@ from ..events import EventFactory
 from ..logging import get_logger
 from ..model import ActionPhase, EngineId, ResumeToken, TakopiEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
+from .hcom_wrap import HCOM_DISABLED, HcomWrap, parse_hcom_config
 from .run_options import get_run_options
 from ..schemas import codex as codex_schema
 from ..utils.paths import relativize_command
@@ -456,13 +457,15 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         codex_cmd: str,
         extra_args: list[str],
         title: str = "Codex",
+        hcom: HcomWrap = HCOM_DISABLED,
     ) -> None:
         self.codex_cmd = codex_cmd
         self.extra_args = extra_args
         self.session_title = title
+        self.hcom = hcom
 
     def command(self) -> str:
-        return self.codex_cmd
+        return self.hcom.wrap_command(self.codex_cmd)
 
     def build_args(
         self,
@@ -495,7 +498,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             args.extend(["resume", resume.value, "-"])
         else:
             args.append("-")
-        return args
+        return self.hcom.wrap_args(self.codex_cmd, args)
 
     def new_state(self, prompt: str, resume: ResumeToken | None) -> CodexRunState:
         return CodexRunState(factory=EventFactory(ENGINE))
@@ -695,7 +698,14 @@ def build_runner(config: EngineConfig, config_path: Path) -> Runner:
         extra_args.extend(["--profile", profile_value])
         title = profile_value
 
-    return CodexRunner(codex_cmd=codex_cmd, extra_args=extra_args, title=title)
+    hcom = parse_hcom_config(config, config_path=config_path, section="codex")
+
+    return CodexRunner(
+        codex_cmd=codex_cmd,
+        extra_args=extra_args,
+        title=title,
+        hcom=hcom,
+    )
 
 
 BACKEND = EngineBackend(

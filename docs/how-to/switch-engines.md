@@ -36,6 +36,43 @@ Selection precedence (highest to lowest): resume token → `/<engine-id>` direct
 Takopi shells out to engine CLIs. Install them and make sure they’re on your `PATH`
 (`codex`, `claude`, `opencode`, `pi`). Authentication is handled by each CLI.
 
+## hcom wrapper
+
+[hcom](https://github.com/aannoo/hcom) is an inter-agent messaging layer that
+launches Claude/Codex with hooks for cross-terminal coordination. Takopi can
+spawn engines through `hcom` instead of running them directly.
+
+Enable per-engine in `takopi.toml`:
+
+```toml
+[claude]
+hcom = true
+hcom_args = ["--tag", "takopi"]   # optional: passed to hcom before "claude"
+
+[codex]
+hcom = true
+```
+
+Equivalent CLI form:
+
+```sh
+takopi config set claude.hcom true
+takopi config set claude.hcom_args '["--tag", "takopi"]'
+```
+
+When enabled, takopi runs `hcom [hcom_args] claude ...` (or `... codex ...`)
+in place of the bare CLI. Existing flags (`-p`, `--output-format stream-json`,
+`--resume`, `--model`, prompt, etc.) are forwarded unchanged.
+
+Default behavior is preserved — set `hcom = false` (or omit it) to keep
+takopi's existing direct-spawn invocation.
+
+!!! warning "Codex caveat"
+    Current hcom releases reject `codex exec`, which Takopi uses for streaming
+    runs. The `[codex] hcom` knob exists for parity, but until hcom supports
+    `exec` mode you'll see hcom's error when starting a codex run with the
+    wrapper enabled. Use Claude with hcom in the meantime.
+
 ## Related
 
 - [Commands & directives](../reference/commands-and-directives.md)
