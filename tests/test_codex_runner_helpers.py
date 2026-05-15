@@ -12,6 +12,7 @@ from takopi.model import ActionEvent, CompletedEvent, StartedEvent
 from takopi.runners.codex import (
     _AgentMessageSummary,
     _AppServerClient,
+    _AppServerRunState,
     AppServerCodexRunner,
     CodexRunner,
     _format_change_summary,
@@ -22,6 +23,7 @@ from takopi.runners.codex import (
     _summarize_todo_list,
     _summarize_tool_result,
     _todo_title,
+    _translate_app_item_event,
     build_runner,
     find_exec_only_flag,
     translate_codex_event,
@@ -179,6 +181,25 @@ def test_translate_codex_events_for_items() -> None:
     assert isinstance(out[0], ActionEvent)
     assert out[0].action.kind == "warning"
     assert out[0].ok is False
+
+
+def test_translate_app_server_context_compaction_item() -> None:
+    state = _AppServerRunState(factory=EventFactory("codex"))
+    item = {"id": "cc1", "type": "contextCompaction"}
+
+    out = _translate_app_item_event("item/started", item, state=state)
+    assert len(out) == 1
+    assert isinstance(out[0], ActionEvent)
+    assert out[0].phase == "started"
+    assert out[0].action.kind == "note"
+    assert out[0].action.title == "compacting context"
+
+    out = _translate_app_item_event("item/completed", item, state=state)
+    assert len(out) == 1
+    assert isinstance(out[0], ActionEvent)
+    assert out[0].phase == "completed"
+    assert out[0].ok is True
+    assert out[0].action.title == "compacting context"
 
 
 def test_translate_codex_thread_started() -> None:

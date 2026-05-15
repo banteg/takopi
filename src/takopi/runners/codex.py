@@ -984,6 +984,8 @@ def _app_item_title(item: dict[str, Any]) -> str:
         return str(item.get("query") or "web search")
     if item_type == "plan":
         return str(item.get("text") or "plan")
+    if item_type == "contextCompaction":
+        return "compacting context"
     if item_type == "reasoning":
         summary = item.get("summary")
         if isinstance(summary, list) and summary:
