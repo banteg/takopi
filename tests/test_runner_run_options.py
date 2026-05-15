@@ -29,23 +29,40 @@ def test_codex_run_options_override_model_and_reasoning() -> None:
 
 def test_claude_run_options_override_model() -> None:
     runner = ClaudeRunner(claude_cmd="claude", model="claude-sonnet")
-    with apply_run_options(EngineRunOptions(model="claude-opus")):
+    with apply_run_options(EngineRunOptions(model="claude-opus", mode="plan")):
         args = runner.build_args("hi", None, state=None)
 
     assert "--model" in args
     model_idx = args.index("--model") + 1
     assert args[model_idx] == "claude-opus"
+    assert "--agent" in args
+    mode_idx = args.index("--agent") + 1
+    assert args[mode_idx] == "plan"
 
 
 def test_opencode_run_options_override_model() -> None:
     runner = OpenCodeRunner(opencode_cmd="opencode", model="claude-sonnet")
     state = OpenCodeStreamState()
-    with apply_run_options(EngineRunOptions(model="gpt-4o-mini")):
+    with apply_run_options(EngineRunOptions(model="gpt-4o-mini", mode="build")):
         args = runner.build_args("hi", None, state=state)
 
     assert "--model" in args
     model_idx = args.index("--model") + 1
     assert args[model_idx] == "gpt-4o-mini"
+    assert "--agent" in args
+    mode_idx = args.index("--agent") + 1
+    assert args[mode_idx] == "build"
+
+
+def test_codex_run_options_override_mode() -> None:
+    runner = CodexRunner(codex_cmd="codex", extra_args=[])
+    state = runner.new_state("hi", None)
+    with apply_run_options(EngineRunOptions(mode="plan")):
+        args = runner.build_args("hi", None, state=state)
+
+    assert "--agent" in args
+    mode_idx = args.index("--agent") + 1
+    assert args[mode_idx] == "plan"
 
 
 def test_pi_run_options_override_model() -> None:

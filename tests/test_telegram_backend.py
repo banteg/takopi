@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from takopi.agent_modes import ModeDiscoveryResult
 from takopi.config import ProjectsConfig
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
@@ -51,6 +52,7 @@ def test_build_startup_message_includes_missing_engines(tmp_path: Path) -> None:
 
     assert "takopi is ready" in message
     assert "engines: `codex (not installed: pi)`" in message
+    assert "agent modes: `codex: not supported; pi: unavailable`" in message
     assert "projects: `none`" in message
 
 
@@ -93,6 +95,10 @@ def test_build_startup_message_surfaces_unavailable_engine_reasons(
     )
 
     assert "engines: `codex" in message
+    assert (
+        "agent modes: `codex: not supported; pi: not supported; claude: unavailable`"
+        in message
+    )
     assert "misconfigured: pi" in message
     assert "failed to load: claude" in message
 
@@ -136,6 +142,18 @@ def test_telegram_backend_build_and_run_wires_config(
 
     monkeypatch.setattr(telegram_backend, "run_main_loop", fake_run_main_loop)
     monkeypatch.setattr(telegram_backend, "TelegramClient", _FakeClient)
+    discovery_timeout: dict[str, float] = {}
+
+    def fake_discover(self, *, timeout_s: float) -> ModeDiscoveryResult:
+        _ = self
+        discovery_timeout["value"] = timeout_s
+        return ModeDiscoveryResult(
+            supports_agent=frozenset({"codex"}),
+            known_modes={"codex": ("plan", "build")},
+            shortcut_modes=("plan", "build"),
+        )
+
+    monkeypatch.setattr(TransportRuntime, "discover_agent_modes", fake_discover)
 
     transport_config = TelegramTransportSettings(
         bot_token="token",
@@ -146,6 +164,7 @@ def test_telegram_backend_build_and_run_wires_config(
         voice_transcription_model="whisper-1",
         voice_transcription_base_url="http://localhost:8000/v1",
         voice_transcription_api_key="local",
+        mode_discovery_timeout_s=9.5,
         files=TelegramFilesSettings(enabled=True, allowed_user_ids=[1, 2]),
         topics=TelegramTopicsSettings(enabled=True, scope="main"),
     )
@@ -170,6 +189,11 @@ def test_telegram_backend_build_and_run_wires_config(
     assert cfg.files.enabled is True
     assert cfg.files.allowed_user_ids == [1, 2]
     assert cfg.topics.enabled is True
+    assert cfg.mode_supported_engines == frozenset({"codex"})
+    assert cfg.mode_known_modes == {"codex": ("plan", "build")}
+    assert cfg.mode_shortcuts == ("plan", "build")
+    assert cfg.mode_discovery_timeout_s == 9.5
+    assert discovery_timeout["value"] == 9.5
     assert cfg.bot.token == "token"
     assert kwargs["watch_config"] is True
     assert kwargs["transport_id"] == "telegram"
@@ -183,3 +207,9 @@ def test_telegram_files_settings_defaults() -> None:
     assert cfg.auto_put_mode == "upload"
     assert cfg.uploads_dir == "incoming"
     assert cfg.allowed_user_ids == []
+
+
+def test_telegram_transport_settings_mode_discovery_timeout_default() -> None:
+    cfg = TelegramTransportSettings(bot_token="token", chat_id=123)
+
+    assert cfg.mode_discovery_timeout_s == 8.0

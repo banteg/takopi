@@ -137,7 +137,26 @@ def test_build_bot_commands_includes_cancel_and_engine() -> None:
     assert {"command": "new", "description": "start a new thread"} in commands
     assert {"command": "ctx", "description": "show or update context"} in commands
     assert {"command": "agent", "description": "set default engine"} in commands
+    assert {"command": "mode", "description": "set agent mode"} in commands
     assert any(cmd["command"] == "codex" for cmd in commands)
+
+
+def test_build_bot_commands_includes_mode_shortcuts() -> None:
+    runner = ScriptRunner(
+        [Return(answer="ok")], engine=CODEX_ENGINE, resume_value="sid"
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+    )
+    commands = build_bot_commands(runtime, mode_shortcuts=("agent", "plan", "build"))
+
+    assert not any(
+        cmd["command"] == "agent" and "set mode" in cmd["description"]
+        for cmd in commands
+    )
+    assert {"command": "plan", "description": "set mode: plan"} in commands
+    assert {"command": "build", "description": "set mode: build"} in commands
 
 
 def test_build_bot_commands_includes_projects() -> None:

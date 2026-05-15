@@ -32,6 +32,9 @@ Add to your `takopi.toml`:
 takopi opencode
 ```
 
+When using Telegram, `/mode <name>` stores an OpenCode agent mode override for
+the current scope and Takopi runs OpenCode with `--agent <name>`.
+
 ## Resume Format
 
 Resume line format: `` `opencode --session ses_XXX` ``

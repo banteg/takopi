@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any
 from collections.abc import Iterable, Mapping
 
-from .backends import EngineBackend
+from .agent_modes import probe_agent_support_via_help
+from .backends import AgentModeProbe, EngineBackend
 from .config import ConfigError, ProjectsConfig
 from .engines import get_backend, list_backend_ids
 from .ids import RESERVED_CHAT_COMMANDS
@@ -24,6 +26,7 @@ class RuntimeSpec:
     projects: ProjectsConfig
     allowlist: list[str] | None
     plugin_configs: Mapping[str, Any] | None
+    engine_mode_probers: Mapping[str, AgentModeProbe] | None = None
     watch_config: bool = False
 
     def to_runtime(self, *, config_path: Path | None) -> TransportRuntime:
@@ -33,6 +36,7 @@ class RuntimeSpec:
             allowlist=self.allowlist,
             config_path=config_path,
             plugin_configs=self.plugin_configs,
+            engine_mode_probers=self.engine_mode_probers,
             watch_config=self.watch_config,
         )
 
@@ -43,8 +47,22 @@ class RuntimeSpec:
             allowlist=self.allowlist,
             config_path=config_path,
             plugin_configs=self.plugin_configs,
+            engine_mode_probers=self.engine_mode_probers,
             watch_config=self.watch_config,
         )
+
+
+def _build_engine_mode_probers(
+    backends: Iterable[EngineBackend],
+) -> dict[str, AgentModeProbe]:
+    probers: dict[str, AgentModeProbe] = {}
+    for backend in backends:
+        probe = backend.discover_agent_modes
+        if probe is None:
+            cmd = backend.cli_cmd or backend.id
+            probe = partial(probe_agent_support_via_help, cmd)
+        probers[backend.id] = probe
+    return probers
 
 
 def resolve_plugins_allowlist(
@@ -192,6 +210,7 @@ def build_runtime_spec(
         allowlist=allowlist,
         default_engine=default_engine,
     )
+    engine_mode_probers = _build_engine_mode_probers(backends)
     router = build_router(
         settings=settings,
         config_path=config_path,
@@ -203,5 +222,6 @@ def build_runtime_spec(
         projects=projects,
         allowlist=allowlist,
         plugin_configs=settings.plugins.model_extra,
+        engine_mode_probers=engine_mode_probers,
         watch_config=settings.watch_config,
     )

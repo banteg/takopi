@@ -7,7 +7,18 @@ _ID_RE = re.compile(ID_PATTERN)
 
 RESERVED_CLI_COMMANDS = frozenset({"config", "doctor", "init", "plugins"})
 RESERVED_CHAT_COMMANDS = frozenset(
-    {"cancel", "file", "new", "agent", "model", "reasoning", "trigger", "topic", "ctx"}
+    {
+        "cancel",
+        "file",
+        "new",
+        "agent",
+        "mode",
+        "model",
+        "reasoning",
+        "trigger",
+        "topic",
+        "ctx",
+    }
 )
 RESERVED_ENGINE_IDS = RESERVED_CLI_COMMANDS | RESERVED_CHAT_COMMANDS
 RESERVED_COMMAND_IDS = RESERVED_CLI_COMMANDS | RESERVED_CHAT_COMMANDS
