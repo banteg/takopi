@@ -311,6 +311,9 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             args.extend(["--allowedTools", allowed_tools])
         if self.dangerously_skip_permissions is True:
             args.append("--dangerously-skip-permissions")
+        if run_options is not None and run_options.reasoning:
+            args.extend(["--effort", str(run_options.reasoning)])
+            args.extend(["--settings", '{"alwaysThinkingEnabled":true}'])
         args.append("--")
         args.append(prompt)
         return args

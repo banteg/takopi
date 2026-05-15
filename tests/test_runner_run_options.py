@@ -37,6 +37,17 @@ def test_claude_run_options_override_model() -> None:
     assert args[model_idx] == "claude-opus"
 
 
+def test_claude_run_options_override_reasoning() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    with apply_run_options(EngineRunOptions(reasoning="xhigh")):
+        args = runner.build_args("hi", None, state=None)
+
+    assert "--effort" in args
+    assert args[args.index("--effort") + 1] == "xhigh"
+    assert "--settings" in args
+    assert args[args.index("--settings") + 1] == '{"alwaysThinkingEnabled":true}'
+
+
 def test_opencode_run_options_override_model() -> None:
     runner = OpenCodeRunner(opencode_cmd="opencode", model="claude-sonnet")
     state = OpenCodeStreamState()

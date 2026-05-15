@@ -1686,6 +1686,93 @@ async def test_reasoning_command_show_reports_overrides(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_reasoning_command_show_reports_claude_levels() -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport, engine_id="claude")
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=None,
+    )
+
+    text = transport.send_calls[-1]["message"].text
+    assert "engine: claude (global default)" in text
+    assert "available levels: low, medium, high, xhigh, max" in text
+
+
+@pytest.mark.anyio
+async def test_reasoning_command_set_max_for_claude(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport, engine_id="claude")
+    chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning set max",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+        chat_type="private",
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "set max",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+    )
+
+    override = await chat_prefs.get_engine_override(123, "claude")
+    assert override is not None
+    assert override.reasoning == "max"
+
+
+@pytest.mark.anyio
+async def test_reasoning_command_rejects_unsupported_engine(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport, engine_id="opencode")
+    chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning set high",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+        chat_type="private",
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "set high",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+    )
+
+    assert "not supported" in transport.send_calls[-1]["message"].text
+    assert await chat_prefs.get_engine_override(123, "opencode") is None
+
+
+@pytest.mark.anyio
 async def test_send_with_resume_waits_for_token() -> None:
     transport = FakeTransport()
     cfg = make_cfg(transport)
