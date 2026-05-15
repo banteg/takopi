@@ -11,6 +11,7 @@ REASONING_LEVELS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh"
 REASONING_LEVELS_BY_ENGINE: dict[str, tuple[str, ...]] = {
     "claude": ("low", "medium", "high", "xhigh", "max"),
     "codex": REASONING_LEVELS,
+    "pi": REASONING_LEVELS,
 }
 REASONING_SUPPORTED_ENGINES = frozenset(REASONING_LEVELS_BY_ENGINE)
 

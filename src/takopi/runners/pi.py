@@ -332,6 +332,8 @@ class PiRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             model = run_options.model
         if model:
             args.extend(["--model", model])
+        if run_options is not None and run_options.reasoning:
+            args.extend(["--thinking", str(run_options.reasoning)])
         args.extend(["--session", state.resume.value])
         args.append(self._sanitize_prompt(prompt))
         return args

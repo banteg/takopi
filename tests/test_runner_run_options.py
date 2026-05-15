@@ -68,3 +68,14 @@ def test_pi_run_options_override_model() -> None:
     assert "--model" in args
     model_idx = args.index("--model") + 1
     assert args[model_idx] == "pi-override"
+
+
+def test_pi_run_options_override_reasoning() -> None:
+    runner = PiRunner(extra_args=[], model=None, provider=None)
+    state = PiStreamState(resume=ResumeToken(engine=PI_ENGINE, value="sess.jsonl"))
+    with apply_run_options(EngineRunOptions(reasoning="high")):
+        args = runner.build_args("hi", None, state=state)
+
+    assert "--thinking" in args
+    thinking_idx = args.index("--thinking") + 1
+    assert args[thinking_idx] == "high"

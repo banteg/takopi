@@ -26,12 +26,20 @@ def test_reasoning_levels_are_engine_specific() -> None:
         "high",
         "xhigh",
     )
+    assert allowed_reasoning_levels("pi") == (
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    )
     assert allowed_reasoning_levels("opencode") == ()
 
 
 def test_supports_reasoning_known_engines() -> None:
     assert supports_reasoning("claude") is True
     assert supports_reasoning("codex") is True
+    assert supports_reasoning("pi") is True
     assert supports_reasoning("opencode") is False
 
 
