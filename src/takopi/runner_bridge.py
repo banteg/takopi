@@ -228,7 +228,7 @@ class ProgressEdits:
             self.signal_send.send_nowait(None)
         except anyio.WouldBlock:
             pass
-        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+        except anyio.BrokenResourceError, anyio.ClosedResourceError:
             pass
 
 

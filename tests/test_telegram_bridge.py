@@ -1005,7 +1005,10 @@ async def test_handle_callback_steer_sends_queued_text_to_active_turn() -> None:
     assert transport.edit_calls
     steered_text = transport.edit_calls[0]["message"].text.lower()
     assert "steered" in steered_text
-    assert transport.edit_calls[0]["message"].extra["reply_markup"]["inline_keyboard"] == []
+    assert (
+        transport.edit_calls[0]["message"].extra["reply_markup"]["inline_keyboard"]
+        == []
+    )
     assert await scheduler.cancel_queued(123, progress_ref.message_id) is None
     bot = cast(FakeBot, cfg.bot)
     assert bot.callback_calls

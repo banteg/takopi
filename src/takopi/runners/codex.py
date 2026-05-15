@@ -74,7 +74,7 @@ def _parse_reconnect_message(message: str) -> tuple[int, int] | None:
     try:
         attempt = int(match.group("attempt"))
         max_attempts = int(match.group("max"))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return (attempt, max_attempts)
 
@@ -786,7 +786,9 @@ class _AppServerClient:
         async with self._state_lock:
             self._loaded_threads.add(thread_id)
 
-    async def turn_start(self, thread_id: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def turn_start(
+        self, thread_id: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
         payload = {"threadId": thread_id, **params}
         result = await self.request("turn/start", payload)
         if not isinstance(result, dict):
@@ -846,7 +848,9 @@ class _AppServerClient:
                 try:
                     message = json.loads(line.decode("utf-8"))
                 except json.JSONDecodeError as exc:
-                    raise RuntimeError(f"invalid JSON-RPC from codex app-server: {line!r}") from exc
+                    raise RuntimeError(
+                        f"invalid JSON-RPC from codex app-server: {line!r}"
+                    ) from exc
                 if not isinstance(message, dict):
                     continue
                 if "method" in message and "id" in message:
@@ -969,7 +973,11 @@ def _app_item_title(item: dict[str, Any]) -> str:
     if item_type == "fileChange":
         changes = item.get("changes")
         if isinstance(changes, list):
-            paths = [str(change.get("path")) for change in changes if isinstance(change, dict) and change.get("path")]
+            paths = [
+                str(change.get("path"))
+                for change in changes
+                if isinstance(change, dict) and change.get("path")
+            ]
             return ", ".join(paths) if paths else f"{len(changes)} files"
         return "files"
     if item_type == "webSearch":
@@ -1055,7 +1063,11 @@ def _translate_app_item_event(
         }
         title = _app_item_title(item)
         if phase == "started":
-            return [factory.action_started(action_id=item_id, kind="command", title=title, detail=detail)]
+            return [
+                factory.action_started(
+                    action_id=item_id, kind="command", title=title, detail=detail
+                )
+            ]
         ok = status == "completed"
         exit_code = item.get("exitCode")
         if isinstance(exit_code, int):
@@ -1083,7 +1095,11 @@ def _translate_app_item_event(
             detail["error_message"] = str(error.get("message") or error)
         title = _app_item_title(item)
         if phase == "started":
-            return [factory.action_started(action_id=item_id, kind="tool", title=title, detail=detail)]
+            return [
+                factory.action_started(
+                    action_id=item_id, kind="tool", title=title, detail=detail
+                )
+            ]
         return [
             factory.action_completed(
                 action_id=item_id,
@@ -1098,7 +1114,9 @@ def _translate_app_item_event(
         if phase != "completed":
             return []
         changes = item.get("changes")
-        normalized_changes = _normalize_change_list(changes if isinstance(changes, list) else [])
+        normalized_changes = _normalize_change_list(
+            changes if isinstance(changes, list) else []
+        )
         status = item.get("status")
         return [
             factory.action_completed(
@@ -1114,7 +1132,11 @@ def _translate_app_item_event(
         detail = {"query": item.get("query"), "action": item.get("action")}
         title = _app_item_title(item)
         if phase == "started":
-            return [factory.action_started(action_id=item_id, kind="web_search", title=title, detail=detail)]
+            return [
+                factory.action_started(
+                    action_id=item_id, kind="web_search", title=title, detail=detail
+                )
+            ]
         return [
             factory.action_completed(
                 action_id=item_id,
@@ -1304,7 +1326,9 @@ class AppServerCodexRunner(ResumeTokenMixin, BaseRunner):
         if not isinstance(turn, dict) or not isinstance(turn.get("id"), str):
             raise RuntimeError("turn/start returned no turn id")
         turn_id = turn["id"]
-        control = _AppServerTurnControl(client=client, thread_id=thread_id, turn_id=turn_id)
+        control = _AppServerTurnControl(
+            client=client, thread_id=thread_id, turn_id=turn_id
+        )
         yield EventFactory(ENGINE).started(
             token,
             title=self.session_title,

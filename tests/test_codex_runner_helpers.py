@@ -238,11 +238,7 @@ def test_codex_runner_process_and_stream_end_events() -> None:
 async def test_app_server_client_fails_waiters_on_clean_eof(tmp_path: Path) -> None:
     codex_path = tmp_path / "codex"
     codex_path.write_text(
-        "#!/usr/bin/env python3\n"
-        "import sys\n"
-        "\n"
-        "for _line in sys.stdin:\n"
-        "    break\n",
+        "#!/usr/bin/env python3\nimport sys\n\nfor _line in sys.stdin:\n    break\n",
         encoding="utf-8",
     )
     codex_path.chmod(0o755)

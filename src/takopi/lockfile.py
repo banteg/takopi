@@ -154,5 +154,5 @@ def _display_lock_path(path: Path) -> str:
         resolved = path.expanduser().resolve()
         rel = resolved.relative_to(home)
         return f"~/{rel}"
-    except (ValueError, OSError):
+    except ValueError, OSError:
         return str(path)

@@ -30,7 +30,11 @@ from .bridge import (
     TelegramBridgeConfig,
     send_plain,
 )
-from .commands.cancel import handle_callback_cancel, handle_callback_steer, handle_cancel
+from .commands.cancel import (
+    handle_callback_cancel,
+    handle_callback_steer,
+    handle_cancel,
+)
 from .commands.file_transfer import FILE_PUT_USAGE
 from .commands.handlers import (
     dispatch_command,
