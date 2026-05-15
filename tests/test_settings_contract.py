@@ -28,3 +28,13 @@ def test_settings_rejects_bool_chat_id(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="chat_id"):
         validate_settings_data(data, config_path=tmp_path / "takopi.toml")
+
+
+def test_settings_rejects_float_chat_id(tmp_path: Path) -> None:
+    data = {
+        "transport": "telegram",
+        "transports": {"telegram": {"bot_token": "token", "chat_id": 123.0}},
+    }
+
+    with pytest.raises(ConfigError, match="chat_id"):
+        validate_settings_data(data, config_path=tmp_path / "takopi.toml")

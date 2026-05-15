@@ -176,3 +176,38 @@ def test_run_auto_router_missing_config_noninteractive(
 
     assert exc.value.exit_code == 1
     assert not transport.build_calls
+
+
+def test_run_auto_router_rejects_missing_telegram_config(
+    monkeypatch, tmp_path: Path
+) -> None:
+    setup = SetupResult(issues=[], config_path=tmp_path / "takopi.toml")
+    transport = _FakeTransport(setup)
+    config_path = tmp_path / "takopi.toml"
+    settings = TakopiSettings.model_validate(
+        {"transport": "telegram", "transports": {}}
+    )
+
+    monkeypatch.setattr(
+        cli,
+        "_resolve_setup_engine",
+        lambda _override: (None, None, None, "codex", _engine_backend()),
+    )
+    monkeypatch.setattr(cli, "_resolve_transport_id", lambda _override: "telegram")
+    monkeypatch.setattr(cli, "get_transport", lambda _id, allowlist=None: transport)
+    monkeypatch.setattr(cli, "load_settings", lambda: (settings, config_path))
+    monkeypatch.setattr(cli, "setup_logging", lambda **_kwargs: None)
+    monkeypatch.setattr(cli, "build_runtime_spec", lambda **_kwargs: object())
+
+    with pytest.raises(cli.typer.Exit) as exc:
+        cli._run_auto_router(
+            default_engine_override=None,
+            transport_override=None,
+            final_notify=True,
+            debug=False,
+            onboard=False,
+        )
+
+    assert exc.value.exit_code == 1
+    assert not transport.lock_calls
+    assert not transport.build_calls

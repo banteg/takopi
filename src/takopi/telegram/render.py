@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 from markdown_it import MarkdownIt
 from sulguk import transform_html
@@ -14,6 +15,8 @@ MAX_BODY_CHARS = 3500
 _MD_RENDERER = MarkdownIt("commonmark", {"html": False})
 _BULLET_RE = re.compile(r"(?m)^(\s*)•")
 _FENCE_RE = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>[`~]{3,})(?P<info>.*)$")
+_ORDERED_ITEM_RE = re.compile(r"^(?P<indent>[ \t]{0,3})(?P<marker>\d+[.)])\s+")
+_UNORDERED_ITEM_RE = re.compile(r"^(?P<indent>[ \t]{0,3})[-+*]\s+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,14 +26,80 @@ class _FenceState:
     header: str
 
 
+def _normalize_nested_list_markers(md: str) -> str:
+    if not md:
+        return md
+
+    lines: list[str] = []
+    ordered_indent: str | None = None
+    fence_state: _FenceState | None = None
+
+    for raw_line in md.splitlines(keepends=True):
+        line, ending = _split_line_ending(raw_line)
+        fence_state = _update_fence_state(line, fence_state)
+        if fence_state is not None:
+            ordered_indent = None
+            lines.append(raw_line)
+            continue
+
+        if not line.strip():
+            ordered_indent = None
+            lines.append(raw_line)
+            continue
+
+        ordered_match = _ORDERED_ITEM_RE.match(line)
+        if ordered_match is not None:
+            ordered_indent = ordered_match.group("indent")
+            lines.append(raw_line)
+            continue
+
+        if ordered_indent is not None:
+            unordered_match = _UNORDERED_ITEM_RE.match(line)
+            if (
+                unordered_match is not None
+                and unordered_match.group("indent") == ordered_indent
+            ):
+                lines.append(f"{ordered_indent}   {line}{ending}")
+                continue
+
+            if line.startswith(ordered_indent) and len(line) > len(ordered_indent):
+                lines.append(raw_line)
+                continue
+
+            ordered_indent = None
+
+        lines.append(raw_line)
+
+    return "".join(lines)
+
+
 def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
-    html = _MD_RENDERER.render(md or "")
+    html = _MD_RENDERER.render(_normalize_nested_list_markers(md or ""))
     rendered = transform_html(html)
 
     text = _BULLET_RE.sub(r"\1-", rendered.text)
 
-    entities = [dict(e) for e in rendered.entities]
+    entities = _sanitize_entities(rendered.entities)
     return text, entities
+
+
+def _sanitize_entities(entities: list[Any]) -> list[dict[str, Any]]:
+    sanitized: list[dict[str, Any]] = []
+    for raw in entities:
+        entity = dict(raw)
+        if entity.get("type") == "text_link":
+            url = entity.get("url")
+            if not isinstance(url, str) or not _is_supported_text_link_url(url):
+                continue
+        sanitized.append(entity)
+    return sanitized
+
+
+def _is_supported_text_link_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme in {"http", "https"} and bool(parsed.netloc):
+        return True
+    return parsed.scheme == "tg" and (bool(parsed.netloc) or bool(parsed.path))
 
 
 def _split_line_ending(line: str) -> tuple[str, str]:

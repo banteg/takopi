@@ -68,3 +68,29 @@ def test_chat_id_command_uses_config_token(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert "chat_id = 321" in result.output
+
+
+def test_chat_id_command_without_telegram_config(monkeypatch) -> None:
+    settings = TakopiSettings.model_validate(
+        {"transport": "my-transport", "transports": {}}
+    )
+    monkeypatch.setattr(cli, "_load_settings_optional", lambda: (settings, Path("x")))
+
+    async def _capture(*, token: str | None = None):
+        assert token is None
+        return onboarding.ChatInfo(
+            chat_id=321,
+            username=None,
+            title="takopi",
+            first_name=None,
+            last_name=None,
+            chat_type="supergroup",
+        )
+
+    monkeypatch.setattr(cli.onboarding, "capture_chat_id", _capture)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.create_app(), ["chat-id"])
+
+    assert result.exit_code == 0
+    assert "chat_id = 321" in result.output

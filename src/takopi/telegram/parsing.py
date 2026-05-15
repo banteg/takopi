@@ -36,12 +36,14 @@ def parse_incoming_update(
     if update.message is not None:
         return _parse_incoming_message(
             update.message,
+            update_id=update.update_id,
             chat_id=chat_id,
             chat_ids=chat_ids,
         )
     if update.callback_query is not None:
         return _parse_callback_query(
             update.callback_query,
+            update_id=update.update_id,
             chat_id=chat_id,
             chat_ids=chat_ids,
         )
@@ -51,6 +53,7 @@ def parse_incoming_update(
 def _parse_incoming_message(
     msg: Message,
     *,
+    update_id: int | None = None,
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
 ) -> TelegramIncomingMessage | None:
@@ -133,12 +136,14 @@ def _parse_incoming_message(
         voice=voice_payload,
         document=document_payload,
         raw=msgspec.to_builtins(msg),
+        update_id=update_id,
     )
 
 
 def _parse_callback_query(
     query: CallbackQuery,
     *,
+    update_id: int | None = None,
     chat_id: int | None = None,
     chat_ids: set[int] | None = None,
 ) -> TelegramCallbackQuery | None:
@@ -162,6 +167,7 @@ def _parse_callback_query(
         data=data,
         sender_id=sender_id,
         raw=msgspec.to_builtins(query),
+        update_id=update_id,
     )
 
 

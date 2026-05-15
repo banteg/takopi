@@ -5,7 +5,7 @@ import pytest
 from takopi import cli
 from takopi.config import ConfigError
 from takopi.lockfile import LockError
-from takopi.settings import TakopiSettings
+from takopi.settings import TakopiSettings, TelegramTransportSettings
 
 
 def _settings(overrides: dict | None = None) -> TakopiSettings:
@@ -16,6 +16,12 @@ def _settings(overrides: dict | None = None) -> TakopiSettings:
     if overrides:
         payload.update(overrides)
     return TakopiSettings.model_validate(payload)
+
+
+def _telegram_settings(settings: TakopiSettings) -> TelegramTransportSettings:
+    tg = settings.transports.telegram
+    assert tg is not None
+    return tg
 
 
 def test_parse_key_path_valid() -> None:
@@ -98,7 +104,7 @@ def test_resolve_transport_id_override(monkeypatch) -> None:
 
 def test_doctor_file_checks() -> None:
     settings = _settings()
-    checks = cli._doctor_file_checks(settings)
+    checks = cli._doctor_file_checks(_telegram_settings(settings))
     assert checks[0].detail == "disabled"
 
     settings = _settings(
@@ -112,13 +118,13 @@ def test_doctor_file_checks() -> None:
             }
         }
     )
-    checks = cli._doctor_file_checks(settings)
+    checks = cli._doctor_file_checks(_telegram_settings(settings))
     assert checks[0].status == "warning"
 
 
 def test_doctor_voice_checks(monkeypatch) -> None:
     settings = _settings()
-    checks = cli._doctor_voice_checks(settings)
+    checks = cli._doctor_voice_checks(_telegram_settings(settings))
     assert checks[0].detail == "disabled"
 
     settings = _settings(
@@ -133,7 +139,7 @@ def test_doctor_voice_checks(monkeypatch) -> None:
         }
     )
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    checks = cli._doctor_voice_checks(settings)
+    checks = cli._doctor_voice_checks(_telegram_settings(settings))
     assert checks[0].status == "error"
     assert checks[0].detail == "API key not set"
 
@@ -149,12 +155,12 @@ def test_doctor_voice_checks(monkeypatch) -> None:
             }
         }
     )
-    checks = cli._doctor_voice_checks(settings_with_key)
+    checks = cli._doctor_voice_checks(_telegram_settings(settings_with_key))
     assert checks[0].status == "ok"
     assert checks[0].detail == "voice_transcription_api_key set"
 
     monkeypatch.setenv("OPENAI_API_KEY", "key")
-    checks = cli._doctor_voice_checks(settings)
+    checks = cli._doctor_voice_checks(_telegram_settings(settings))
     assert checks[0].status == "ok"
 
 

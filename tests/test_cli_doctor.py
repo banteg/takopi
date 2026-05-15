@@ -56,6 +56,19 @@ def test_doctor_errors_exit_nonzero(monkeypatch) -> None:
     assert "telegram token: error" in result.output
 
 
+def test_doctor_missing_telegram_config_exits(monkeypatch) -> None:
+    settings = TakopiSettings.model_validate(
+        {"transport": "telegram", "transports": {}}
+    )
+    monkeypatch.setattr(cli, "load_settings", lambda: (settings, Path("x")))
+
+    runner = CliRunner()
+    result = runner.invoke(cli.create_app(), ["doctor"])
+
+    assert result.exit_code == 1
+    assert "Missing [transports.telegram]" in result.output
+
+
 class _FakeBot:
     def __init__(self, me: User | None, chat: Chat | None) -> None:
         self._me = me

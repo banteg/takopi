@@ -92,8 +92,8 @@ def test_require_telegram_rejects_empty_token(tmp_path) -> None:
         require_telegram(settings, config_path)
 
 
-def test_load_settings_rejects_string_chat_id(tmp_path) -> None:
-    from takopi.config import ConfigError
+def test_load_settings_accepts_string_chat_id(tmp_path) -> None:
+    from takopi.settings import require_telegram
 
     config_path = tmp_path / "takopi.toml"
     config_path.write_text(
@@ -102,8 +102,9 @@ def test_load_settings_rejects_string_chat_id(tmp_path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigError, match="chat_id"):
-        load_settings(config_path)
+    settings, _ = load_settings(config_path)
+    _, chat_id = require_telegram(settings, config_path)
+    assert chat_id == 123
 
 
 def test_codex_extract_resume_finds_command() -> None:

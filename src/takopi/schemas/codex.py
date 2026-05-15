@@ -27,6 +27,11 @@ type McpToolCallStatus = Literal[
     "completed",
     "failed",
 ]
+type CollabToolCallStatus = Literal[
+    "in_progress",
+    "completed",
+    "failed",
+]
 
 
 class Usage(msgspec.Struct, kw_only=True):
@@ -62,6 +67,7 @@ class StreamError(msgspec.Struct, tag="error", kw_only=True):
 class AgentMessageItem(msgspec.Struct, tag="agent_message", kw_only=True):
     id: str
     text: str
+    phase: str | None = None
 
 
 class ReasoningItem(msgspec.Struct, tag="reasoning", kw_only=True):
@@ -107,6 +113,21 @@ class McpToolCallItem(msgspec.Struct, tag="mcp_tool_call", kw_only=True):
     status: McpToolCallStatus
 
 
+class CollabAgentState(msgspec.Struct, kw_only=True):
+    status: str
+    message: str | None = None
+
+
+class CollabToolCallItem(msgspec.Struct, tag="collab_tool_call", kw_only=True):
+    id: str
+    tool: str | None = None
+    sender_thread_id: str | None = None
+    receiver_thread_ids: list[str] = msgspec.field(default_factory=list)
+    prompt: str | None = None
+    agents_states: dict[str, CollabAgentState] = msgspec.field(default_factory=dict)
+    status: CollabToolCallStatus = "in_progress"
+
+
 class WebSearchItem(msgspec.Struct, tag="web_search", kw_only=True):
     id: str
     query: str
@@ -127,15 +148,23 @@ class TodoListItem(msgspec.Struct, tag="todo_list", kw_only=True):
     items: list[TodoItem]
 
 
+class UnknownItem(msgspec.Struct, tag="unknown_item", kw_only=True):
+    id: str
+    item_type: str
+    payload: dict[str, Any] = msgspec.field(default_factory=dict)
+
+
 type ThreadItem = (
     AgentMessageItem
     | ReasoningItem
     | CommandExecutionItem
     | FileChangeItem
     | McpToolCallItem
+    | CollabToolCallItem
     | WebSearchItem
     | TodoListItem
     | ErrorItem
+    | UnknownItem
 )
 
 
@@ -151,6 +180,9 @@ class ItemCompleted(msgspec.Struct, tag="item.completed", kw_only=True):
     item: ThreadItem
 
 
+type ItemEvent = ItemStarted | ItemUpdated | ItemCompleted
+
+
 type ThreadEvent = (
     ThreadStarted
     | TurnStarted
@@ -163,7 +195,57 @@ type ThreadEvent = (
 )
 
 _DECODER = msgspec.json.Decoder(ThreadEvent)
+_RAW_OBJECT_DECODER = msgspec.json.Decoder(dict[str, Any])
+_KNOWN_ITEM_TYPES = {
+    "agent_message",
+    "reasoning",
+    "command_execution",
+    "file_change",
+    "mcp_tool_call",
+    "collab_tool_call",
+    "web_search",
+    "todo_list",
+    "error",
+}
+
+
+def _decode_unknown_item_fallback(data: bytes | str) -> ItemEvent | None:
+    payload = _RAW_OBJECT_DECODER.decode(data)
+    event_type = payload.get("type")
+    if event_type not in {"item.started", "item.updated", "item.completed"}:
+        return None
+
+    item = payload.get("item")
+    if not isinstance(item, dict):
+        return None
+
+    item_type = item.get("type")
+    if not isinstance(item_type, str) or item_type in _KNOWN_ITEM_TYPES:
+        return None
+
+    item_id = item.get("id")
+    if not isinstance(item_id, str):
+        return None
+
+    unknown_item = UnknownItem(
+        id=item_id,
+        item_type=item_type,
+        payload={
+            str(key): value for key, value in item.items() if key not in {"id", "type"}
+        },
+    )
+    if event_type == "item.started":
+        return ItemStarted(item=unknown_item)
+    if event_type == "item.updated":
+        return ItemUpdated(item=unknown_item)
+    return ItemCompleted(item=unknown_item)
 
 
 def decode_event(data: bytes | str) -> ThreadEvent:
-    return _DECODER.decode(data)
+    try:
+        return _DECODER.decode(data)
+    except msgspec.DecodeError:
+        fallback = _decode_unknown_item_fallback(data)
+        if fallback is not None:
+            return fallback
+        raise

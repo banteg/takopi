@@ -1470,7 +1470,9 @@ async def test_send_with_resume_waits_for_token() -> None:
     )
     assert sent[0][7] == transport.send_calls[0]["ref"]
     assert transport.send_calls
-    assert "queued" in transport.send_calls[0]["message"].text.lower()
+    queued_text = transport.send_calls[0]["message"].text.lower()
+    assert "queued" in queued_text
+    assert "codex resume abc123" in queued_text
 
 
 @pytest.mark.anyio
@@ -1647,6 +1649,115 @@ async def test_run_main_loop_routes_reply_to_running_resume() -> None:
             hold.set()
             stop_polling.set()
             tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_ignores_duplicate_message_id_for_replies() -> None:
+    transport = FakeTransport()
+    bot = FakeBot()
+    codex_runner = ScriptRunner([Return(answer="codex")], engine=CODEX_ENGINE)
+    claude_runner = ScriptRunner([Return(answer="claude")], engine="claude")
+    router = AutoRouter(
+        entries=[
+            RunnerEntry(engine=codex_runner.engine, runner=codex_runner),
+            RunnerEntry(engine=claude_runner.engine, runner=claude_runner),
+        ],
+        default_engine=claude_runner.engine,
+    )
+    runtime = TransportRuntime(router=router, projects=_empty_projects())
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=MarkdownPresenter(),
+            final_notify=True,
+        ),
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=42,
+            text="turn on logging in my lemon config for me",
+            reply_to_message_id=900,
+            reply_to_text="done\n`codex resume c-123`",
+            sender_id=123,
+            chat_type="private",
+        )
+        # Telegram can occasionally redeliver the same message id with less reply metadata.
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=42,
+            text="turn on logging in my lemon config for me",
+            reply_to_message_id=900,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert len(codex_runner.calls) == 1
+    assert codex_runner.calls[0][1] == ResumeToken(engine=CODEX_ENGINE, value="c-123")
+    assert claude_runner.calls == []
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_ignores_duplicate_update_id() -> None:
+    transport = FakeTransport()
+    bot = FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    runtime = TransportRuntime(router=_make_router(runner), projects=_empty_projects())
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=MarkdownPresenter(),
+            final_notify=True,
+        ),
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=1,
+            text="first",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            update_id=9001,
+        )
+        # Same Telegram update id redelivered.
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=2,
+            text="second",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            update_id=9001,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert len(runner.calls) == 1
+    assert runner.calls[0][0] == "first"
 
 
 @pytest.mark.anyio

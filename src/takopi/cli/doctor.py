@@ -14,7 +14,7 @@ from ..config import ConfigError
 from ..engines import list_backend_ids
 from ..ids import RESERVED_CHAT_COMMANDS
 from ..runtime_loader import resolve_plugins_allowlist
-from ..settings import TakopiSettings, TelegramTopicsSettings
+from ..settings import TakopiSettings, TelegramTopicsSettings, TelegramTransportSettings
 from ..telegram.client import TelegramClient
 from ..telegram.topics import _validate_topics_setup_for
 
@@ -33,8 +33,8 @@ class DoctorCheck:
         return f"- {self.label}: {self.status}"
 
 
-def _doctor_file_checks(settings: TakopiSettings) -> list[DoctorCheck]:
-    files = settings.transports.telegram.files
+def _doctor_file_checks(settings: TelegramTransportSettings) -> list[DoctorCheck]:
+    files = settings.files
     if not files.enabled:
         return [DoctorCheck("file transfer", "ok", "disabled")]
     if files.allowed_user_ids:
@@ -44,10 +44,10 @@ def _doctor_file_checks(settings: TakopiSettings) -> list[DoctorCheck]:
     return [DoctorCheck("file transfer", "warning", "enabled for all users")]
 
 
-def _doctor_voice_checks(settings: TakopiSettings) -> list[DoctorCheck]:
-    if not settings.transports.telegram.voice_transcription:
+def _doctor_voice_checks(settings: TelegramTransportSettings) -> list[DoctorCheck]:
+    if not settings.voice_transcription:
         return [DoctorCheck("voice transcription", "ok", "disabled")]
-    api_key = settings.transports.telegram.voice_transcription_api_key
+    api_key = settings.voice_transcription_api_key
     if api_key:
         return [
             DoctorCheck("voice transcription", "ok", "voice_transcription_api_key set")
@@ -115,8 +115,8 @@ def run_doctor(
         [str, int, TelegramTopicsSettings, tuple[int, ...]],
         Awaitable[list[DoctorCheck]],
     ],
-    file_checks: Callable[[TakopiSettings], list[DoctorCheck]],
-    voice_checks: Callable[[TakopiSettings], list[DoctorCheck]],
+    file_checks: Callable[[TelegramTransportSettings], list[DoctorCheck]],
+    voice_checks: Callable[[TelegramTransportSettings], list[DoctorCheck]],
 ) -> None:
     try:
         settings, config_path = load_settings_fn()
@@ -127,6 +127,13 @@ def run_doctor(
     if settings.transport != "telegram":
         typer.echo(
             "error: takopi doctor currently supports the telegram transport only.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    tg = settings.transports.telegram
+    if tg is None:
+        typer.echo(
+            f"error: Missing [transports.telegram] in {config_path}.",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -143,7 +150,6 @@ def run_doctor(
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
-    tg = settings.transports.telegram
     project_chat_ids = projects_cfg.project_chat_ids()
     telegram_checks_result = anyio.run(
         telegram_checks,
@@ -156,8 +162,8 @@ def run_doctor(
         telegram_checks_result = []
     checks = [
         *telegram_checks_result,
-        *file_checks(settings),
-        *voice_checks(settings),
+        *file_checks(tg),
+        *voice_checks(tg),
     ]
     typer.echo("takopi doctor")
     for check in checks:
