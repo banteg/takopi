@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from sulguk import transform_html
 
 from ..markdown import MarkdownParts, assemble_markdown_parts
@@ -24,6 +25,13 @@ class _FenceState:
     fence: str
     indent: str
     header: str
+
+
+@dataclass(slots=True)
+class _ListItemState:
+    level: int
+    saw_direct_child: bool = False
+    hidden_paragraph_level: int | None = None
 
 
 def _normalize_nested_list_markers(md: str) -> str:
@@ -73,8 +81,47 @@ def _normalize_nested_list_markers(md: str) -> str:
     return "".join(lines)
 
 
+def _tighten_first_list_item_paragraphs(tokens: list[Token]) -> None:
+    item_stack: list[_ListItemState] = []
+
+    for token in tokens:
+        if token.type == "list_item_open":
+            item_stack.append(_ListItemState(level=token.level))
+            continue
+
+        if token.type == "list_item_close":
+            if item_stack:
+                item_stack.pop()
+            continue
+
+        if not item_stack:
+            continue
+
+        current = item_stack[-1]
+        if (
+            token.type == "paragraph_close"
+            and current.hidden_paragraph_level == token.level
+        ):
+            token.hidden = True
+            current.hidden_paragraph_level = None
+            continue
+
+        if token.level != current.level + 1:
+            continue
+
+        if token.type == "paragraph_open":
+            if not current.saw_direct_child:
+                token.hidden = True
+                current.hidden_paragraph_level = token.level
+            current.saw_direct_child = True
+        elif token.nesting >= 0:
+            current.saw_direct_child = True
+
+
 def render_markdown(md: str) -> tuple[str, list[dict[str, Any]]]:
-    html = _MD_RENDERER.render(_normalize_nested_list_markers(md or ""))
+    tokens = _MD_RENDERER.parse(_normalize_nested_list_markers(md or ""))
+    _tighten_first_list_item_paragraphs(tokens)
+    html = _MD_RENDERER.renderer.render(tokens, _MD_RENDERER.options, {})
     rendered = transform_html(html)
 
     text = _BULLET_RE.sub(r"\1-", rendered.text)
