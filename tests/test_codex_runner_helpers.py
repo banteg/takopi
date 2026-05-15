@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import anyio
 import pytest
 
 from takopi.backends import EngineConfig
@@ -10,6 +11,7 @@ from takopi.events import EventFactory
 from takopi.model import ActionEvent, CompletedEvent, StartedEvent
 from takopi.runners.codex import (
     _AgentMessageSummary,
+    AppServerCodexRunner,
     CodexRunner,
     _format_change_summary,
     _normalize_change_list,
@@ -231,17 +233,111 @@ def test_codex_runner_process_and_stream_end_events() -> None:
     assert end_event.ok is True
 
 
+@pytest.mark.anyio
+async def test_app_server_codex_runner_translates_turn_notifications(
+    tmp_path: Path,
+) -> None:
+    codex_path = tmp_path / "codex"
+    codex_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "\n"
+        "def send(payload):\n"
+        "    print(json.dumps(payload), flush=True)\n"
+        "\n"
+        "for line in sys.stdin:\n"
+        "    msg = json.loads(line)\n"
+        "    method = msg.get('method')\n"
+        "    req_id = msg.get('id')\n"
+        "    if method == 'initialize':\n"
+        "        assert msg['params']['clientInfo']['version']\n"
+        "        send({'id': req_id, 'result': {'serverInfo': {'name': 'fake'}}})\n"
+        "    elif method == 'initialized':\n"
+        "        pass\n"
+        "    elif method == 'thread/start':\n"
+        "        send({'id': req_id, 'result': {'thread': {'id': 'thread-1'}}})\n"
+        "    elif method == 'turn/start':\n"
+        "        turn = {'id': 'turn-1', 'status': 'running', 'items': []}\n"
+        "        send({'id': req_id, 'result': {'turn': turn}})\n"
+        "        send({'method': 'turn/started', 'params': {'threadId': 'thread-1', 'turn': turn}})\n"
+        "        send({'method': 'item/started', 'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'item': {'id': 'r1', 'type': 'reasoning', 'summary': []}}})\n"
+        "        send({'method': 'item/completed', 'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'item': {'id': 'r1', 'type': 'reasoning', 'summary': []}}})\n"
+        "        send({'method': 'item/started', 'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'item': {'id': 'c1', 'type': 'agentMessage', 'phase': 'commentary', 'text': ''}}})\n"
+        "        send({'method': 'item/agentMessage/delta', 'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'itemId': 'c1', 'delta': 'work'}})\n"
+        "        send({'method': 'item/agentMessage/delta', 'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'itemId': 'c1', 'delta': 'ing'}})\n"
+        "        send({'method': 'item/completed', 'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'item': {'id': 'c1', 'type': 'agentMessage', 'phase': 'commentary', 'text': 'working'}}})\n"
+        "        send({'method': 'item/completed', 'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'item': {'id': 'a1', 'type': 'agentMessage', 'phase': 'final_answer', 'text': 'done'}}})\n"
+        "        send({'method': 'turn/completed', 'params': {'threadId': 'thread-1', 'turn': {'id': 'turn-1', 'status': 'completed', 'items': []}}})\n"
+        "        break\n",
+        encoding="utf-8",
+    )
+    codex_path.chmod(0o755)
+    runner = AppServerCodexRunner(codex_cmd=str(codex_path), extra_args=[])
+
+    with anyio.fail_after(2):
+        events = [event async for event in runner.run("hello", None)]
+
+    assert isinstance(events[0], StartedEvent)
+    assert events[0].resume.value == "thread-1"
+    assert events[0].meta is not None
+    assert events[0].meta["turn_id"] == "turn-1"
+    event_summary = [
+        (
+            event.type,
+            getattr(event, "phase", None),
+            getattr(getattr(event, "action", None), "kind", None),
+            getattr(getattr(event, "action", None), "title", None),
+        )
+        for event in events
+    ]
+    assert any(
+        isinstance(event, ActionEvent)
+        and event.phase == "started"
+        and event.action.kind == "note"
+        and event.action.title == "work"
+        and event.action.detail == {"phase": "commentary"}
+        for event in events
+    ), event_summary
+    assert any(
+        isinstance(event, ActionEvent)
+        and event.phase == "updated"
+        and event.action.kind == "note"
+        and event.action.title == "working"
+        and event.action.detail == {"phase": "commentary"}
+        for event in events
+    ), event_summary
+    assert not any(
+        isinstance(event, ActionEvent) and event.action.title == "commentary"
+        for event in events
+    ), event_summary
+    assert not any(
+        isinstance(event, ActionEvent) and event.action.title == "reasoning"
+        for event in events
+    ), event_summary
+    completed = events[-1]
+    assert isinstance(completed, CompletedEvent)
+    assert completed.ok is True
+    assert completed.answer == "done"
+
+
 def test_codex_build_runner_configs(tmp_path: Path) -> None:
     cfg: EngineConfig = {}
     runner = build_runner(cfg, tmp_path)
-    assert isinstance(runner, CodexRunner)
+    assert isinstance(runner, AppServerCodexRunner)
     assert runner.extra_args == ["-c", "notify=[]"]
 
     cfg = {"extra_args": ["--foo"], "profile": "Demo"}
     runner = build_runner(cfg, tmp_path)
-    assert isinstance(runner, CodexRunner)
+    assert isinstance(runner, AppServerCodexRunner)
     assert runner.extra_args[-2:] == ["--profile", "Demo"]
     assert runner.session_title == "Demo"
+
+    runner = build_runner({"mode": "exec"}, tmp_path)
+    assert isinstance(runner, CodexRunner)
+
+    with pytest.raises(ConfigError):
+        build_runner({"mode": "unknown"}, tmp_path)
 
     with pytest.raises(ConfigError):
         build_runner({"extra_args": ["--json"]}, tmp_path)

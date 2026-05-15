@@ -36,6 +36,7 @@ from takopi.telegram.engine_overrides import EngineOverrides
 from takopi.context import RunContext
 from takopi.config import ProjectConfig, ProjectsConfig
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
+from takopi.runner import RunnerTurnControl
 from takopi.markdown import MarkdownPresenter
 from takopi.model import ResumeToken
 from takopi.progress import ProgressTracker
@@ -70,6 +71,42 @@ class _NoopTaskGroup:
     def start_soon(self, func, *args: Any) -> None:
         _ = func, args
         return None
+
+
+@pytest.mark.anyio
+async def test_scheduler_keeps_busy_queued_job_addressable_by_progress() -> None:
+    resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+    active_done = anyio.Event()
+    ran = anyio.Event()
+    progress_ref = MessageRef(channel_id=123, message_id=55)
+
+    async def _run_job(_) -> None:
+        ran.set()
+
+    async with anyio.create_task_group() as tg:
+        scheduler = ThreadScheduler(task_group=tg, run_job=_run_job)
+        await scheduler.note_thread_known(resume, active_done)
+        await scheduler.enqueue_resume(
+            chat_id=123,
+            user_msg_id=10,
+            text="queued prompt",
+            resume_token=resume,
+            progress_ref=progress_ref,
+        )
+
+        await anyio.sleep(0)
+
+        queued = await scheduler.get_queued(123, progress_ref.message_id)
+        assert queued is not None
+        assert queued.text == "queued prompt"
+        assert ran.is_set() is False
+
+        active_done.set()
+        with anyio.fail_after(1):
+            await ran.wait()
+        assert await scheduler.get_queued(123, progress_ref.message_id) is None
+
+        tg.cancel_scope.cancel()
 
 
 def test_parse_directives_inline_engine() -> None:
@@ -252,9 +289,31 @@ def test_telegram_presenter_clears_button_on_cancelled() -> None:
     presenter = TelegramPresenter()
     state = ProgressTracker(engine="codex").snapshot()
 
-    rendered = presenter.render_progress(state, elapsed_s=0.0, label="`cancelled`")
+    rendered = presenter.render_progress(state, elapsed_s=0.0, label="cancelled")
 
     assert rendered.extra["reply_markup"]["inline_keyboard"] == []
+
+
+def test_telegram_presenter_clears_button_on_steered() -> None:
+    presenter = TelegramPresenter()
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_progress(state, elapsed_s=0.0, label="steered")
+
+    assert rendered.extra["reply_markup"]["inline_keyboard"] == []
+
+
+def test_telegram_presenter_progress_shows_steer_button_for_queued() -> None:
+    presenter = TelegramPresenter()
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_progress(state, elapsed_s=0.0, label="queued")
+
+    row = rendered.extra["reply_markup"]["inline_keyboard"][0]
+    assert row == [
+        {"text": "steer", "callback_data": "takopi:steer"},
+        {"text": "cancel", "callback_data": "takopi:cancel"},
+    ]
 
 
 def test_telegram_presenter_final_clears_button() -> None:
@@ -514,7 +573,14 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
 @pytest.mark.anyio
 async def test_handle_cancel_without_reply_prompts_user() -> None:
     transport = FakeTransport()
-    cfg = make_cfg(transport)
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
     msg = TelegramIncomingMessage(
         transport="telegram",
         chat_id=123,
@@ -853,6 +919,67 @@ async def test_handle_callback_cancel_cancels_queued_job() -> None:
     bot = cast(FakeBot, cfg.bot)
     assert bot.callback_calls
     assert bot.callback_calls[-1]["text"] == "dropped from queue."
+
+
+@pytest.mark.anyio
+async def test_handle_callback_steer_sends_queued_text_to_active_turn() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
+
+    async def _noop_run_job(_) -> None:
+        return None
+
+    class _Control(RunnerTurnControl):
+        def __init__(self) -> None:
+            self.steered: list[str] = []
+
+        async def steer(self, text: str) -> None:
+            self.steered.append(text)
+
+        async def interrupt(self) -> bool:
+            return True
+
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=_noop_run_job)
+    progress_id = 88
+    progress_ref = MessageRef(channel_id=123, message_id=progress_id)
+    resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+    await scheduler.enqueue_resume(
+        chat_id=123,
+        user_msg_id=10,
+        text="queued prompt",
+        resume_token=resume,
+        progress_ref=progress_ref,
+    )
+    control = _Control()
+    running_task = RunningTask(resume=resume, control=control)
+    running_tasks = {MessageRef(channel_id=123, message_id=7): running_task}
+    query = TelegramCallbackQuery(
+        transport="telegram",
+        chat_id=123,
+        message_id=progress_id,
+        callback_query_id="cbq-steer",
+        data="takopi:steer",
+        sender_id=123,
+    )
+
+    await telegram_loop.handle_callback_steer(cfg, query, running_tasks, scheduler)
+
+    assert control.steered == ["queued prompt"]
+    assert transport.edit_calls
+    steered_text = transport.edit_calls[0]["message"].text.lower()
+    assert "steered" in steered_text
+    assert transport.edit_calls[0]["message"].extra["reply_markup"]["inline_keyboard"] == []
+    assert await scheduler.cancel_queued(123, progress_ref.message_id) is None
+    bot = cast(FakeBot, cfg.bot)
+    assert bot.callback_calls
+    assert bot.callback_calls[-1]["text"] == "steered active turn."
 
 
 @pytest.mark.anyio

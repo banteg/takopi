@@ -30,6 +30,7 @@ __all__ = [
     "TelegramTransport",
     "build_bot_commands",
     "handle_callback_cancel",
+    "handle_callback_steer",
     "handle_cancel",
     "is_cancel_command",
     "run_main_loop",
@@ -37,8 +38,17 @@ __all__ = [
 ]
 
 CANCEL_CALLBACK_DATA = "takopi:cancel"
+STEER_CALLBACK_DATA = "takopi:steer"
 CANCEL_MARKUP = {
     "inline_keyboard": [[{"text": "cancel", "callback_data": CANCEL_CALLBACK_DATA}]]
+}
+STEER_CANCEL_MARKUP = {
+    "inline_keyboard": [
+        [
+            {"text": "steer", "callback_data": STEER_CALLBACK_DATA},
+            {"text": "cancel", "callback_data": CANCEL_CALLBACK_DATA},
+        ]
+    ]
 }
 CLEAR_MARKUP = {"inline_keyboard": []}
 
@@ -64,7 +74,12 @@ class TelegramPresenter:
             state, elapsed_s=elapsed_s, label=label
         )
         text, entities = prepare_telegram(parts)
-        reply_markup = CLEAR_MARKUP if _is_cancelled_label(label) else CANCEL_MARKUP
+        if _is_terminal_progress_label(label):
+            reply_markup = CLEAR_MARKUP
+        elif label.strip().lower() == "queued":
+            reply_markup = STEER_CANCEL_MARKUP
+        else:
+            reply_markup = CANCEL_MARKUP
         return RenderedMessage(
             text=text,
             extra={"entities": entities, "reply_markup": reply_markup},
@@ -105,11 +120,15 @@ class TelegramPresenter:
         )
 
 
-def _is_cancelled_label(label: str) -> bool:
+def _normalized_progress_label(label: str) -> str:
     stripped = label.strip()
     if stripped.startswith("`") and stripped.endswith("`") and len(stripped) >= 2:
         stripped = stripped[1:-1]
-    return stripped.lower() == "cancelled"
+    return stripped.lower()
+
+
+def _is_terminal_progress_label(label: str) -> bool:
+    return _normalized_progress_label(label) in {"cancelled", "steered"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +376,17 @@ async def handle_callback_cancel(
     from .commands import handle_callback_cancel as _handle_callback_cancel
 
     await _handle_callback_cancel(cfg, query, running_tasks, scheduler)
+
+
+async def handle_callback_steer(
+    cfg: TelegramBridgeConfig,
+    query: TelegramCallbackQuery,
+    running_tasks: RunningTasks,
+    scheduler: ThreadScheduler | None = None,
+) -> None:
+    from .commands import handle_callback_steer as _handle_callback_steer
+
+    await _handle_callback_steer(cfg, query, running_tasks, scheduler)
 
 
 async def send_with_resume(

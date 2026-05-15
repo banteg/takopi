@@ -24,8 +24,13 @@ from ..transport import MessageRef, SendOptions
 from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
 from ..ids import RESERVED_CHAT_COMMANDS
-from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
-from .commands.cancel import handle_callback_cancel, handle_cancel
+from .bridge import (
+    CANCEL_CALLBACK_DATA,
+    STEER_CALLBACK_DATA,
+    TelegramBridgeConfig,
+    send_plain,
+)
+from .commands.cancel import handle_callback_cancel, handle_callback_steer, handle_cancel
 from .commands.file_transfer import FILE_PUT_USAGE
 from .commands.handlers import (
     dispatch_command,
@@ -1847,6 +1852,14 @@ async def run_main_loop(
                     if update.data == CANCEL_CALLBACK_DATA:
                         tg.start_soon(
                             handle_callback_cancel,
+                            cfg,
+                            update,
+                            state.running_tasks,
+                            scheduler,
+                        )
+                    elif update.data == STEER_CALLBACK_DATA:
+                        tg.start_soon(
+                            handle_callback_steer,
                             cfg,
                             update,
                             state.running_tasks,

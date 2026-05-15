@@ -118,6 +118,13 @@ class ThreadScheduler:
                 self._pending_by_thread.pop(thread_key, None)
             return job
 
+    async def get_queued(
+        self, chat_id: ChannelId, progress_msg_id: MessageId
+    ) -> ThreadJob | None:
+        progress_key = (chat_id, progress_msg_id)
+        async with self._lock:
+            return self._queued_by_progress.get(progress_key)
+
     async def _clear_busy(self, key: str, done: anyio.Event) -> None:
         await done.wait()
         async with self._lock:
@@ -134,13 +141,19 @@ class ThreadScheduler:
                         self._pending_by_thread.pop(key, None)
                         self._active_threads.discard(key)
                         return
+
+                if done is not None and not done.is_set():
+                    await done.wait()
+                    continue
+
+                async with self._lock:
+                    queue = self._pending_by_thread.get(key)
+                    if not queue:
+                        continue
                     job = queue.popleft()
                     if job.progress_ref is not None:
                         progress_key = (job.chat_id, job.progress_ref.message_id)
                         self._queued_by_progress.pop(progress_key, None)
-
-                if done is not None and not done.is_set():
-                    await done.wait()
 
                 try:
                     await self._run_job(job)

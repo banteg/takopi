@@ -148,12 +148,14 @@ here; plugin engines should document their own keys.
 
 | Key | Type | Default | Notes |
 |-----|------|---------|-------|
+| `mode` | `"app_server"`\|`"exec"` | `"app_server"` | Use `codex app-server` by default. Set `"exec"` for the legacy `codex exec --json` runner. |
 | `extra_args` | string[] | `["-c", "notify=[]"]` | Extra CLI args for `codex` (exec-only flags are rejected). |
 | `profile` | string | (unset) | Passed as `--profile <name>` and used as the session title. |
 
 === "takopi config"
 
     ```sh
+    takopi config set codex.mode "app_server"
     takopi config set codex.extra_args '["-c", "notify=[]"]'
     takopi config set codex.profile "work"
     ```
@@ -162,9 +164,15 @@ here; plugin engines should document their own keys.
 
     ```toml
     [codex]
+    mode = "app_server"
     extra_args = ["-c", "notify=[]"]
     profile = "work"
     ```
+
+`app_server` keeps one app-server child process per Takopi runner instance and
+uses `turn/interrupt` for cancel plus `turn/steer` for queued prompts on the
+same Codex thread. `exec` remains available for compatibility, but it cannot
+steer a running turn.
 
 ### `claude`
 
