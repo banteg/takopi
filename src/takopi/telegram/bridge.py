@@ -25,13 +25,17 @@ from .types import TelegramCallbackQuery, TelegramIncomingMessage
 logger = get_logger(__name__)
 
 __all__ = [
+    "PROMPT_CALLBACK_PREFIX",
     "TelegramBridgeConfig",
     "TelegramPresenter",
     "TelegramTransport",
     "build_bot_commands",
+    "format_prompt_text",
     "handle_callback_cancel",
+    "handle_callback_prompt",
     "handle_cancel",
     "is_cancel_command",
+    "prompt_markup",
     "run_main_loop",
     "send_with_resume",
 ]
@@ -41,6 +45,52 @@ CANCEL_MARKUP = {
     "inline_keyboard": [[{"text": "cancel", "callback_data": CANCEL_CALLBACK_DATA}]]
 }
 CLEAR_MARKUP = {"inline_keyboard": []}
+
+PROMPT_CALLBACK_PREFIX = "takopi:prompt:"
+
+# v1: only allow/deny. allow_always omitted until Claude's ControlSuccessResponse
+# shape for "always allow" is verified against the wire protocol.
+_KNOWN_ACTIONS: dict[str, str] = {
+    "allow": "Allow",
+    "deny": "Deny",
+}
+
+
+def prompt_markup(
+    local_id: str,
+    permission_suggestions: list[object] | None,
+    *,
+    progress_msg_id: object,
+) -> dict:
+    suggestions = ["allow", "deny"]
+    if permission_suggestions:
+        filtered = [str(s) for s in permission_suggestions if str(s) in _KNOWN_ACTIONS]
+        if filtered:
+            suggestions = filtered
+
+    buttons = []
+    for suggestion in suggestions:
+        label = _KNOWN_ACTIONS[suggestion]
+        cb = f"{PROMPT_CALLBACK_PREFIX}{progress_msg_id}:{local_id}:{suggestion}"
+        buttons.append({"text": label, "callback_data": cb})
+
+    return {"inline_keyboard": [buttons]}
+
+
+def format_prompt_text(tool_name: str, tool_input: dict) -> str:
+    parts = [f"Permission: {tool_name}"]
+    if tool_name == "Bash" and "command" in tool_input:
+        cmd = str(tool_input["command"])
+        if len(cmd) > 200:
+            cmd = cmd[:200] + "…"
+        parts.append(cmd)
+    elif tool_name in ("Read", "Write", "Edit"):
+        path = tool_input.get("file_path") or tool_input.get("path")
+        if path:
+            parts.append(str(path))
+    elif tool_name == "Glob" and "pattern" in tool_input:
+        parts.append(str(tool_input["pattern"]))
+    return "\n".join(parts)
 
 
 class TelegramPresenter:
@@ -357,6 +407,67 @@ async def handle_callback_cancel(
     from .commands import handle_callback_cancel as _handle_callback_cancel
 
     await _handle_callback_cancel(cfg, query, running_tasks, scheduler)
+
+
+async def handle_callback_prompt(
+    cfg: TelegramBridgeConfig,
+    query: TelegramCallbackQuery,
+    running_tasks: RunningTasks,
+) -> None:
+    data = query.data or ""
+    # Format: takopi:prompt:{progress_msg_id}:{local_id}:{action}
+    parts = data[len(PROMPT_CALLBACK_PREFIX) :].split(":", 2)
+    if len(parts) != 3:
+        await cfg.bot.answer_callback_query(query.callback_query_id, text="invalid")
+        return
+
+    progress_msg_id_str, local_id, action = parts
+    try:
+        progress_msg_id = int(progress_msg_id_str)
+    except ValueError:
+        await cfg.bot.answer_callback_query(query.callback_query_id, text="invalid")
+        return
+
+    ref = MessageRef(channel_id=query.chat_id, message_id=progress_msg_id)
+    running_task = running_tasks.get(ref)
+    if running_task is None:
+        await cfg.bot.answer_callback_query(
+            query.callback_query_id, text="session ended"
+        )
+        return
+
+    if local_id not in running_task.pending_prompts:
+        await cfg.bot.answer_callback_query(
+            query.callback_query_id, text="expired"
+        )
+        return
+
+    if action not in {"allow", "deny"}:
+        await cfg.bot.answer_callback_query(query.callback_query_id, text="invalid")
+        return
+
+    response: dict[str, object] = {}
+    if action == "allow":
+        response["allowed"] = True
+        feedback = "Allowed"
+    else:
+        response["allowed"] = False
+        feedback = "Denied"
+
+    prompt_msg_ref = running_task.prompt_messages.get(local_id)
+
+    running_task.prompt_responses[local_id] = response
+    running_task.pending_prompts[local_id].set()
+
+    await cfg.bot.answer_callback_query(query.callback_query_id, text=feedback)
+    if prompt_msg_ref is not None:
+        icon = "✓" if action == "allow" else "✗"
+        await cfg.bot.edit_message_text(
+            chat_id=cast(int, prompt_msg_ref.channel_id),
+            message_id=cast(int, prompt_msg_ref.message_id),
+            text=f"{icon} {feedback}",
+            reply_markup=CLEAR_MARKUP,
+        )
 
 
 async def send_with_resume(

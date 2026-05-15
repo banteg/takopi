@@ -16,7 +16,7 @@ Provide the **`claude`** engine backend so Takopi can:
 
 * Interactive Q&A inside a single run (e.g., answering `AskUserQuestion` prompts mid-flight).
 * Full “slash commands” integration (Claude Code docs note many slash commands are interactive-only). ([Claude Code][1])
-* MCP prompt-handling for permissions (use allow rules instead).
+* MCP prompt-handling (use allow rules instead).
 
 ---
 
@@ -50,13 +50,20 @@ Takopi should parse either:
 
 **Note:** Claude session IDs should be treated as **opaque strings**. Do not assume UUID format.
 
-### Permissions / non-interactive runs
+### Permissions / interactive tool approvals
 
-In `-p` mode, Claude Code can require tool approvals. Takopi cannot click/answer interactive prompts, so **users must preconfigure permissions** (via Claude Code settings or `--allowedTools`). Claude’s settings system supports allow/deny tool rules. ([Claude Code][2])
+Claude Code emits `StreamControlRequest` events when a tool requires permission. Takopi handles these interactively via Telegram:
+
+* **Tool approval prompts** (`ControlCanUseToolRequest`): Takopi sends a separate Telegram message with inline keyboard buttons (Allow / Deny). The user taps a button and the response is written back to Claude’s stdin as a `StreamControlResponse`.
+* **Auto-acknowledged requests** (`ControlInitializeRequest`, `ControlSetPermissionModeRequest`): Takopi sends a success response automatically.
+* **Unsupported requests** (`ControlInterruptRequest`, `ControlHookCallbackRequest`, `ControlMcpMessageRequest`, `ControlRewindFilesRequest`): Takopi sends an error response ("not supported").
+* **Timeout**: If the user does not respond within 5 minutes, Takopi sends a `{"error": "timed out"}` response to Claude and edits the Telegram prompt message to "timed out".
+
+This requires `--input-format stream-json` to keep stdin open for bidirectional communication.
+
+Users can still preconfigure permissions (via Claude Code settings or `--allowedTools`) to reduce prompt frequency. Claude’s settings system supports allow/deny tool rules. ([Claude Code][2])
 
 **Safety note:** `-p/--print` skips the workspace trust dialog; only use this flag in trusted directories.
-
-Takopi should document this clearly: if permissions aren’t configured and Claude tries to use a gated tool, the run may block or fail.
 
 ---
 
@@ -142,7 +149,7 @@ Use Agent SDK CLI non-interactively:
 
 Core invocation:
 
-* `claude -p --output-format stream-json --verbose` ([Claude Code][1])
+* `claude -p --input-format stream-json --output-format stream-json --verbose` ([Claude Code][1])
   * `--verbose` overrides config and is required for full stream-json output.
 
 Resume:
@@ -160,7 +167,7 @@ Permissions:
 
 Prompt passing:
 
-* Pass the prompt as the final positional argument after `--` (CLI expects `prompt` as an argument). This also protects prompts that begin with `-`. ([Claude Code][1])
+* Use `--input-format stream-json` and send the prompt as a stream-json user message on stdin. This keeps stdin open for bidirectional communication (tool approval responses). The prompt is encoded as `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"..."}]}}`. ([Claude Code][1])
 
 Other flags:
 

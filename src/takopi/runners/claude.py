@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+import anyio
 import msgspec
 
 from ..backends import EngineBackend, EngineConfig
@@ -34,6 +37,9 @@ class ClaudeStreamState:
     pending_actions: dict[str, Action] = field(default_factory=dict)
     last_assistant_text: str | None = None
     note_seq: int = 0
+    stdin_stream: anyio.abc.ByteStream | None = None
+    stdin_lock: anyio.Lock = field(default_factory=anyio.Lock)
+    pending_stdin_writes: list[bytes] = field(default_factory=list)
 
 
 def _normalize_tool_result(content: Any) -> str:
@@ -274,7 +280,95 @@ def translate_claude_event(
                     usage=usage or None,
                 )
             ]
+        case claude_schema.StreamControlRequest(
+            request_id=request_id, request=request
+        ):
+            return _handle_control_request(
+                request_id, request, state=state, factory=factory
+            )
         case _:
+            return []
+
+
+def _make_respond_callable(
+    state: ClaudeStreamState,
+    request_id: str,
+) -> Callable[[dict[str, Any]], Awaitable[None]]:
+    """Return a closure that accepts a simple dict and writes the
+    Claude-encoded control response to stdin.
+
+    The bridge layer passes either ``{"allowed": True}``,
+    ``{"error": "denied by user"}``, or ``{"error": "timed out"}``.
+    Encoding is handled here so the bridge stays engine-agnostic.
+    """
+
+    async def _respond(payload: dict[str, Any]) -> None:
+        error = payload.get("error")
+        if error is not None:
+            data = claude_schema.encode_control_response(
+                request_id, error=error
+            )
+        else:
+            data = claude_schema.encode_control_response(
+                request_id, response=payload
+            )
+        async with state.stdin_lock:
+            stream = state.stdin_stream
+            if stream is not None:
+                await stream.send(data)
+
+    return _respond
+
+
+def _handle_control_request(
+    request_id: str,
+    request: claude_schema.ControlRequest,
+    *,
+    state: ClaudeStreamState,
+    factory: EventFactory,
+) -> list[TakopiEvent]:
+    match request:
+        case claude_schema.ControlCanUseToolRequest(
+            tool_name=tool_name,
+            input=tool_input,
+            permission_suggestions=permission_suggestions,
+        ):
+            state.note_seq += 1
+            action_id = f"claude.prompt.{state.note_seq}"
+            input_preview = json.dumps(tool_input, ensure_ascii=False)
+            if len(input_preview) > 200:
+                input_preview = input_preview[:200] + "…"
+            detail: dict[str, Any] = {
+                "request_id": request_id,
+                "request_type": "can_use_tool",
+                "tool_name": tool_name,
+                "input": tool_input,
+                "input_preview": input_preview,
+                "permission_suggestions": permission_suggestions,
+                "_respond": _make_respond_callable(state, request_id),
+            }
+            return [
+                factory.action(
+                    phase="started",
+                    action_id=action_id,
+                    kind="prompt",
+                    title=f"Permission: {tool_name}",
+                    detail=detail,
+                )
+            ]
+        case claude_schema.ControlInitializeRequest():
+            resp = claude_schema.encode_control_response(request_id, response={})
+            state.pending_stdin_writes.append(resp)
+            return []
+        case claude_schema.ControlSetPermissionModeRequest():
+            resp = claude_schema.encode_control_response(request_id, response={})
+            state.pending_stdin_writes.append(resp)
+            return []
+        case _:
+            resp = claude_schema.encode_control_response(
+                request_id, error="not supported"
+            )
+            state.pending_stdin_writes.append(resp)
             return []
 
 
@@ -298,7 +392,14 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
     def _build_args(self, prompt: str, resume: ResumeToken | None) -> list[str]:
         run_options = get_run_options()
-        args: list[str] = ["-p", "--output-format", "stream-json", "--verbose"]
+        args: list[str] = [
+            "-p",
+            "--output-format",
+            "stream-json",
+            "--input-format",
+            "stream-json",
+            "--verbose",
+        ]
         if resume is not None:
             args.extend(["--resume", resume.value])
         model = self.model
@@ -311,8 +412,6 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             args.extend(["--allowedTools", allowed_tools])
         if self.dangerously_skip_permissions is True:
             args.append("--dangerously-skip-permissions")
-        args.append("--")
-        args.append(prompt)
         return args
 
     def command(self) -> str:
@@ -334,7 +433,38 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         *,
         state: Any,
     ) -> bytes | None:
-        return None
+        message = {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": prompt}],
+            },
+        }
+        return json.dumps(message).encode() + b"\n"
+
+    def keep_stdin_open(self, *, state: Any) -> bool:
+        return True
+
+    def set_stdin_stream(self, state: Any, stream: Any) -> None:
+        if isinstance(state, ClaudeStreamState):
+            state.stdin_stream = stream
+
+    async def flush_stdin_writes(self, *, state: Any) -> None:
+        if not isinstance(state, ClaudeStreamState):
+            return
+        if not state.pending_stdin_writes:
+            return
+        async with state.stdin_lock:
+            stream = state.stdin_stream
+            if stream is None:
+                state.pending_stdin_writes.clear()
+                return
+            for data in state.pending_stdin_writes:
+                try:
+                    await stream.send(data)
+                except Exception:  # noqa: BLE001
+                    break
+            state.pending_stdin_writes.clear()
 
     def env(self, *, state: Any) -> dict[str, str] | None:
         if self.use_api_billing is not True:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import subprocess
@@ -349,6 +350,15 @@ class JsonlSubprocessRunner(BaseRunner):
             raise RuntimeError(message)
         return found_session, False
 
+    def keep_stdin_open(self, *, state: Any) -> bool:
+        return False
+
+    def set_stdin_stream(self, state: Any, stream: Any) -> None:
+        pass
+
+    async def flush_stdin_writes(self, *, state: Any) -> None:
+        pass
+
     async def _send_payload(
         self,
         proc: Any,
@@ -356,11 +366,15 @@ class JsonlSubprocessRunner(BaseRunner):
         *,
         logger: Any,
         resume: ResumeToken | None,
+        state: Any,
     ) -> None:
         if payload is not None:
             assert proc.stdin is not None
             await proc.stdin.send(payload)
-            await proc.stdin.aclose()
+            if not self.keep_stdin_open(state=state):
+                await proc.stdin.aclose()
+            else:
+                self.set_stdin_stream(state, proc.stdin)
             logger.info(
                 "subprocess.stdin.send",
                 pid=proc.pid,
@@ -368,7 +382,10 @@ class JsonlSubprocessRunner(BaseRunner):
                 bytes=len(payload),
             )
         elif proc.stdin is not None:
-            await proc.stdin.aclose()
+            if not self.keep_stdin_open(state=state):
+                await proc.stdin.aclose()
+            else:
+                self.set_stdin_stream(state, proc.stdin)
 
     def _decode_jsonl_events(
         self,
@@ -592,6 +609,9 @@ class JsonlSubprocessRunner(BaseRunner):
                 pid=pid,
             ):
                 yield evt
+            await self.flush_stdin_writes(state=state)
+            if stream.did_emit_completed:
+                break
 
     async def run_impl(
         self, prompt: str, resume: ResumeToken | None
@@ -634,29 +654,39 @@ class JsonlSubprocessRunner(BaseRunner):
                 pid=proc.pid,
             )
 
-            await self._send_payload(proc, payload, logger=logger, resume=resume)
+            stdin_kept_open = self.keep_stdin_open(state=state)
+            await self._send_payload(
+                proc, payload, logger=logger, resume=resume, state=state
+            )
 
             rc: int | None = None
             stream = JsonlStreamState(expected_session=resume)
 
-            async with anyio.create_task_group() as tg:
-                tg.start_soon(
-                    drain_stderr,
-                    proc.stderr,
-                    logger,
-                    tag,
-                )
-                async for evt in self._iter_jsonl_events(
-                    stdout=proc.stdout,
-                    stream=stream,
-                    state=state,
-                    resume=resume,
-                    logger=logger,
-                    pid=proc.pid,
-                ):
-                    yield evt
+            try:
+                async with anyio.create_task_group() as tg:
+                    tg.start_soon(
+                        drain_stderr,
+                        proc.stderr,
+                        logger,
+                        tag,
+                    )
+                    async for evt in self._iter_jsonl_events(
+                        stdout=proc.stdout,
+                        stream=stream,
+                        state=state,
+                        resume=resume,
+                        logger=logger,
+                        pid=proc.pid,
+                    ):
+                        yield evt
 
-                rc = await proc.wait()
+                    if stdin_kept_open and proc.stdin is not None:
+                        await proc.stdin.aclose()
+                    rc = await proc.wait()
+            finally:
+                if stdin_kept_open and proc.stdin is not None:
+                    with contextlib.suppress(Exception):
+                        await proc.stdin.aclose()
 
             logger.info("subprocess.exit", pid=proc.pid, rc=rc)
             if stream.did_emit_completed:

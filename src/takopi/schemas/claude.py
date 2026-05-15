@@ -233,6 +233,22 @@ STREAM_JSON_SCHEMA = msgspec.json.schema(StreamJsonMessage)
 
 _DECODER = msgspec.json.Decoder(StreamJsonMessage)
 
+_RESPONSE_ENCODER = msgspec.json.Encoder()
+
 
 def decode_stream_json_line(line: str | bytes) -> StreamJsonMessage:
     return _DECODER.decode(line)
+
+
+def encode_control_response(
+    request_id: str,
+    *,
+    response: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> bytes:
+    if error is not None:
+        inner = ControlErrorResponse(request_id=request_id, error=error)
+    else:
+        inner = ControlSuccessResponse(request_id=request_id, response=response)
+    msg = StreamControlResponse(response=inner)
+    return _RESPONSE_ENCODER.encode(msg) + b"\n"

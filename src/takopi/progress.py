@@ -41,7 +41,7 @@ class ProgressTracker:
                 self.resume = resume
                 return True
             case ActionEvent(action=action, phase=phase, ok=ok):
-                if action.kind == "turn":
+                if action.kind in ("turn", "prompt"):
                     return False
                 action_id = str(action.id or "")
                 if not action_id:

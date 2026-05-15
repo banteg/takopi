@@ -6,7 +6,8 @@ import anyio
 import pytest
 
 import takopi.runners.claude as claude_runner
-from takopi.model import ActionEvent, CompletedEvent, ResumeToken, StartedEvent
+from takopi.model import Action, ActionEvent, CompletedEvent, ResumeToken, StartedEvent
+from takopi.progress import ProgressTracker
 from takopi.runners.claude import (
     ClaudeRunner,
     ClaudeStreamState,
@@ -423,3 +424,315 @@ async def test_run_strips_anthropic_api_key_by_default(tmp_path, monkeypatch) ->
         if isinstance(event, CompletedEvent):
             answer = event.answer
     assert answer == "api=set"
+
+
+@pytest.mark.anyio
+async def test_run_closes_stdin_after_completed_event(tmp_path) -> None:
+    claude_path = tmp_path / "claude"
+    claude_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "\n"
+        "session_id = 'session_01'\n"
+        "payload = sys.stdin.readline()\n"
+        "assert payload\n"
+        "init = {\n"
+        "    'type': 'system',\n"
+        "    'subtype': 'init',\n"
+        "    'uuid': 'uuid',\n"
+        "    'session_id': session_id,\n"
+        "    'apiKeySource': 'env',\n"
+        "    'cwd': '.',\n"
+        "    'tools': [],\n"
+        "    'mcp_servers': [],\n"
+        "    'model': 'claude',\n"
+        "    'permissionMode': 'default',\n"
+        "    'slash_commands': [],\n"
+        "    'output_style': 'default',\n"
+        "}\n"
+        "print(json.dumps(init), flush=True)\n"
+        "result = {\n"
+        "    'type': 'result',\n"
+        "    'subtype': 'success',\n"
+        "    'uuid': 'uuid-result',\n"
+        "    'session_id': session_id,\n"
+        "    'duration_ms': 0,\n"
+        "    'duration_api_ms': 0,\n"
+        "    'is_error': False,\n"
+        "    'num_turns': 1,\n"
+        "    'result': 'done',\n"
+        "    'total_cost_usd': 0.0,\n"
+        "    'usage': {'input_tokens': 0, 'output_tokens': 0},\n"
+        "}\n"
+        "print(json.dumps(result), flush=True)\n"
+        "sys.stdin.read()\n",
+        encoding="utf-8",
+    )
+    claude_path.chmod(0o755)
+
+    runner = ClaudeRunner(claude_cmd=str(claude_path))
+    answer: str | None = None
+
+    with anyio.fail_after(2):
+        async for event in runner.run("hello", None):
+            if isinstance(event, CompletedEvent):
+                answer = event.answer
+
+    assert answer == "done"
+
+
+def _make_control_request(
+    subtype: str,
+    request_id: str = "req-1",
+    **extra: object,
+) -> claude_schema.StreamControlRequest:
+    payload: dict = {
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {"subtype": subtype, **extra},
+    }
+    data = json.dumps(payload).encode()
+    return cast(
+        claude_schema.StreamControlRequest,
+        claude_schema.decode_stream_json_line(data),
+    )
+
+
+def test_translate_control_can_use_tool() -> None:
+    state = ClaudeStreamState()
+    event = _make_control_request(
+        "can_use_tool",
+        request_id="req-42",
+        tool_name="Bash",
+        input={"command": "echo hello"},
+        permission_suggestions=["allow", "deny"],
+    )
+    events = translate_claude_event(
+        event, title="claude", state=state, factory=state.factory
+    )
+
+    assert len(events) == 1
+    evt = events[0]
+    assert isinstance(evt, ActionEvent)
+    assert evt.action.kind == "prompt"
+    assert evt.phase == "started"
+    assert evt.action.title == "Permission: Bash"
+    detail = evt.action.detail
+    assert detail["request_id"] == "req-42"
+    assert detail["request_type"] == "can_use_tool"
+    assert detail["tool_name"] == "Bash"
+    assert detail["input"] == {"command": "echo hello"}
+    assert detail["permission_suggestions"] == ["allow", "deny"]
+    assert callable(detail["_respond"])
+    assert not state.pending_stdin_writes
+
+
+@pytest.mark.anyio
+async def test_respond_callable_writes_to_stdin() -> None:
+    """Exercise the _respond closure end-to-end: translate a ControlCanUseToolRequest,
+    extract _respond, call it, and verify the correct bytes land on stdin_stream."""
+    state = ClaudeStreamState()
+
+    class RecordingStream:
+        def __init__(self) -> None:
+            self.written: list[bytes] = []
+
+        async def send(self, data: bytes) -> None:
+            self.written.append(data)
+
+    stream = RecordingStream()
+    state.stdin_stream = stream  # type: ignore[assignment]
+
+    event = _make_control_request(
+        "can_use_tool",
+        request_id="req-99",
+        tool_name="Bash",
+        input={"command": "rm -rf /"},
+        permission_suggestions=["allow", "deny"],
+    )
+    events = translate_claude_event(
+        event, title="claude", state=state, factory=state.factory
+    )
+    assert len(events) == 1
+    respond = events[0].action.detail["_respond"]
+
+    # Call with an "allowed" payload
+    await respond({"allowed": True})
+
+    assert len(stream.written) == 1
+    parsed = json.loads(stream.written[0])
+    assert parsed["type"] == "control_response"
+    assert parsed["response"]["subtype"] == "success"
+    assert parsed["response"]["request_id"] == "req-99"
+    assert parsed["response"]["response"] == {"allowed": True}
+
+    # Call with an error payload
+    await respond({"error": "denied by user"})
+
+    assert len(stream.written) == 2
+    parsed_err = json.loads(stream.written[1])
+    assert parsed_err["type"] == "control_response"
+    assert parsed_err["response"]["subtype"] == "error"
+    assert parsed_err["response"]["request_id"] == "req-99"
+    assert parsed_err["response"]["error"] == "denied by user"
+
+
+@pytest.mark.anyio
+async def test_respond_callable_noop_when_stream_is_none() -> None:
+    """If stdin_stream is None (process exited), _respond must not raise."""
+    state = ClaudeStreamState()
+    state.stdin_stream = None
+
+    event = _make_control_request(
+        "can_use_tool",
+        request_id="req-gone",
+        tool_name="Read",
+        input={"file_path": "/etc/passwd"},
+        permission_suggestions=[],
+    )
+    events = translate_claude_event(
+        event, title="claude", state=state, factory=state.factory
+    )
+    respond = events[0].action.detail["_respond"]
+
+    # Should complete without error even though there is no stream
+    await respond({"allowed": True})
+
+
+def test_translate_control_initialize_queues_auto_response() -> None:
+    state = ClaudeStreamState()
+    event = _make_control_request("initialize", request_id="req-init")
+    events = translate_claude_event(
+        event, title="claude", state=state, factory=state.factory
+    )
+
+    assert events == []
+    assert len(state.pending_stdin_writes) == 1
+    resp = json.loads(state.pending_stdin_writes[0])
+    assert resp["type"] == "control_response"
+    assert resp["response"]["subtype"] == "success"
+    assert resp["response"]["request_id"] == "req-init"
+
+
+def test_translate_control_set_permission_mode_queues_auto_response() -> None:
+    state = ClaudeStreamState()
+    event = _make_control_request(
+        "set_permission_mode", request_id="req-perm", mode="default"
+    )
+    events = translate_claude_event(
+        event, title="claude", state=state, factory=state.factory
+    )
+
+    assert events == []
+    assert len(state.pending_stdin_writes) == 1
+    resp = json.loads(state.pending_stdin_writes[0])
+    assert resp["response"]["subtype"] == "success"
+    assert resp["response"]["request_id"] == "req-perm"
+
+
+def test_translate_control_unsupported_queues_error_response() -> None:
+    state = ClaudeStreamState()
+    event = _make_control_request("interrupt", request_id="req-int")
+    events = translate_claude_event(
+        event, title="claude", state=state, factory=state.factory
+    )
+
+    assert events == []
+    assert len(state.pending_stdin_writes) == 1
+    resp = json.loads(state.pending_stdin_writes[0])
+    assert resp["response"]["subtype"] == "error"
+    assert resp["response"]["request_id"] == "req-int"
+    assert resp["response"]["error"] == "not supported"
+
+
+def test_encode_control_response_success() -> None:
+    data = claude_schema.encode_control_response("r1", response={"allowed": True})
+    parsed = json.loads(data)
+    assert parsed["type"] == "control_response"
+    assert parsed["response"]["subtype"] == "success"
+    assert parsed["response"]["request_id"] == "r1"
+    assert parsed["response"]["response"] == {"allowed": True}
+    assert data.endswith(b"\n")
+
+
+def test_encode_control_response_error() -> None:
+    data = claude_schema.encode_control_response("r2", error="not supported")
+    parsed = json.loads(data)
+    assert parsed["type"] == "control_response"
+    assert parsed["response"]["subtype"] == "error"
+    assert parsed["response"]["request_id"] == "r2"
+    assert parsed["response"]["error"] == "not supported"
+
+
+def test_stdin_payload_shape() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    state = runner.new_state("hello world", None)
+    payload = runner.stdin_payload("hello world", None, state=state)
+    assert payload is not None
+    parsed = json.loads(payload)
+    assert parsed["type"] == "user"
+    assert parsed["message"]["role"] == "user"
+    assert parsed["message"]["content"] == [{"type": "text", "text": "hello world"}]
+    assert payload.endswith(b"\n")
+
+
+def test_build_args_uses_stream_json_input() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    args = runner._build_args("test", None)
+    assert "--input-format" in args
+    idx = args.index("--input-format")
+    assert args[idx + 1] == "stream-json"
+    assert "--" not in args
+
+
+def test_keep_stdin_open() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    state = runner.new_state("test", None)
+    assert runner.keep_stdin_open(state=state) is True
+
+
+@pytest.mark.anyio
+async def test_flush_stdin_writes() -> None:
+    state = ClaudeStreamState()
+
+    class FakeStream:
+        def __init__(self) -> None:
+            self.written: list[bytes] = []
+
+        async def send(self, data: bytes) -> None:
+            self.written.append(data)
+
+    stream = FakeStream()
+    state.stdin_stream = stream  # type: ignore[assignment]
+    state.pending_stdin_writes = [b"line1\n", b"line2\n"]
+
+    runner = ClaudeRunner(claude_cmd="claude")
+    await runner.flush_stdin_writes(state=state)
+
+    assert stream.written == [b"line1\n", b"line2\n"]
+    assert state.pending_stdin_writes == []
+
+
+@pytest.mark.anyio
+async def test_flush_stdin_writes_clears_on_no_stream() -> None:
+    state = ClaudeStreamState()
+    state.stdin_stream = None
+    state.pending_stdin_writes = [b"orphan\n"]
+
+    runner = ClaudeRunner(claude_cmd="claude")
+    await runner.flush_stdin_writes(state=state)
+
+    assert state.pending_stdin_writes == []
+
+
+def test_progress_tracker_filters_prompt_kind() -> None:
+    tracker = ProgressTracker(engine="claude")
+    evt = ActionEvent(
+        engine="claude",
+        action=Action(id="prompt.1", kind="prompt", title="Permission: Bash"),
+        phase="started",
+    )
+    result = tracker.note_event(evt)
+    assert result is False
+    assert tracker.action_count == 0
