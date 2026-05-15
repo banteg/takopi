@@ -3518,6 +3518,93 @@ async def test_run_main_loop_handles_command_plugins(monkeypatch) -> None:
     assert transport.send_calls[-1]["message"].text == "echo:hello"
 
 
+def test_parse_callback_data() -> None:
+    assert telegram_loop.parse_callback_data("echo_cmd:hello world") == (
+        "echo_cmd",
+        "hello world",
+    )
+    assert telegram_loop.parse_callback_data("Echo_Cmd") == ("echo_cmd", "")
+    assert telegram_loop.parse_callback_data("echo_cmd:a:b:c") == ("echo_cmd", "a:b:c")
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_routes_callback_to_command_plugins(monkeypatch) -> None:
+    seen: dict[str, Any] = {}
+
+    class _Command:
+        id = "callback_cmd"
+        description = "callback"
+
+        async def handle(self, ctx):
+            seen["text"] = ctx.text
+            seen["args"] = ctx.args
+            seen["message"] = ctx.message
+            return commands.CommandResult(text=f"callback:{ctx.args_text}")
+
+    entrypoints = [
+        FakeEntryPoint(
+            "callback_cmd",
+            "takopi.commands.callback:BACKEND",
+            plugins.COMMAND_GROUP,
+            loader=_Command,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    transport = FakeTransport()
+    bot = FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramCallbackQuery(
+            transport="telegram",
+            chat_id=123,
+            message_id=42,
+            callback_query_id="cbq-1",
+            data="callback_cmd:hello world",
+            sender_id=123,
+            raw={
+                "id": "cbq-1",
+                "message": {
+                    "message_id": 42,
+                    "message_thread_id": 77,
+                    "chat": {"id": 123, "type": "private"},
+                },
+            },
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert runner.calls == []
+    assert bot.callback_calls
+    assert bot.callback_calls[-1]["callback_query_id"] == "cbq-1"
+    assert transport.send_calls[-1]["message"].text == "callback:hello world"
+    assert seen["text"] == "callback_cmd:hello world"
+    assert seen["args"] == ("hello", "world")
+    message_ref = cast(MessageRef, seen["message"])
+    assert message_ref.message_id == 42
+    assert message_ref.thread_id == 77
+    assert message_ref.sender_id == 123
+
+
 @pytest.mark.anyio
 async def test_run_main_loop_command_uses_project_default_engine(
     monkeypatch,
