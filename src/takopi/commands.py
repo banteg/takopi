@@ -50,6 +50,28 @@ class CommandExecutor(Protocol):
         parallel: bool = False,
     ) -> list[RunResult]: ...
 
+    async def invoke_command(
+        self,
+        command: str,
+        args: str = "",
+        *,
+        context: RunContext | None = None,
+    ) -> CommandResult | None:
+        """Invoke a built-in or plugin command.
+
+        Allows plugins to call other commands like /topic, /trigger, etc.
+
+        Args:
+            command: The command to invoke (e.g., "topic", "/trigger").
+            args: Arguments to pass to the command.
+            context: Optional context override. If not provided, uses the
+                ambient context from the original message.
+
+        Returns the command result, or None if the command produced no result.
+        Raises NotImplementedError if command invocation is not available.
+        """
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class CommandContext:
