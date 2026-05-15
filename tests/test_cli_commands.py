@@ -238,7 +238,9 @@ def test_config_path_cmd_uses_global_config_path_option(tmp_path: Path) -> None:
     assert result.output.strip() == str(config_path)
 
 
-def test_global_config_path_option_sets_process_override(monkeypatch, tmp_path: Path) -> None:
+def test_global_config_path_option_sets_process_override(
+    monkeypatch, tmp_path: Path
+) -> None:
     config_path = tmp_path / "custom.toml"
     seen: dict[str, Path] = {}
 
