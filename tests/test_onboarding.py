@@ -34,8 +34,9 @@ def test_check_setup_marks_missing_codex(monkeypatch, tmp_path: Path) -> None:
 
 def test_check_setup_marks_missing_config(monkeypatch, tmp_path: Path) -> None:
     backend = engines.get_backend("codex")
+    config_path = tmp_path / "takopi.toml"
     monkeypatch.setattr(onboarding.shutil, "which", lambda _name: "/usr/bin/codex")
-    monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", tmp_path / "takopi.toml")
+    monkeypatch.setattr(onboarding, "resolve_config_path", lambda: config_path)
 
     def _raise() -> None:
         raise onboarding.ConfigError("Missing config file")
@@ -46,7 +47,7 @@ def test_check_setup_marks_missing_config(monkeypatch, tmp_path: Path) -> None:
 
     titles = {issue.title for issue in result.issues}
     assert "create a config" in titles
-    assert result.config_path == onboarding.HOME_CONFIG_PATH
+    assert result.config_path == config_path
 
 
 def test_check_setup_marks_invalid_bot_token(monkeypatch, tmp_path: Path) -> None:
@@ -103,8 +104,9 @@ def test_check_setup_external_transport_missing_config(
     monkeypatch, tmp_path: Path
 ) -> None:
     backend = engines.get_backend("codex")
+    config_path = tmp_path / "takopi.toml"
     monkeypatch.setattr(onboarding.shutil, "which", lambda _name: "/usr/bin/codex")
-    monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", tmp_path / "takopi.toml")
+    monkeypatch.setattr(onboarding, "resolve_config_path", lambda: config_path)
 
     def _raise() -> None:
         raise onboarding.ConfigError("Missing config file")

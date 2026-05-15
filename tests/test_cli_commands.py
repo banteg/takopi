@@ -6,7 +6,8 @@ import tomllib
 from typer.testing import CliRunner
 
 from takopi import cli
-from takopi.config import ConfigError
+from takopi import config as config_module
+from takopi.config import ConfigError, resolve_config_path
 from takopi.plugins import (
     COMMAND_GROUP,
     ENGINE_GROUP,
@@ -215,13 +216,43 @@ def test_config_path_cmd_outputs_override(tmp_path: Path) -> None:
 def test_config_path_cmd_defaults_to_home(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
     config_path = tmp_path / ".takopi" / "takopi.toml"
-    monkeypatch.setattr(cli, "HOME_CONFIG_PATH", config_path)
+    monkeypatch.setattr(config_module, "HOME_CONFIG_PATH", config_path)
 
     runner = CliRunner()
     result = runner.invoke(cli.create_app(), ["config", "path"])
 
     assert result.exit_code == 0
     assert result.output.strip() == "~/.takopi/takopi.toml"
+
+
+def test_config_path_cmd_uses_global_config_path_option(tmp_path: Path) -> None:
+    config_path = tmp_path / "custom.toml"
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli.create_app(),
+        ["--config-path", str(config_path), "config", "path"],
+    )
+
+    assert result.exit_code == 0
+    assert result.output.strip() == str(config_path)
+
+
+def test_global_config_path_option_sets_process_override(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "custom.toml"
+    seen: dict[str, Path] = {}
+
+    def _run_auto_router(**_kwargs) -> None:
+        seen["path"] = resolve_config_path()
+
+    monkeypatch.setattr(cli, "_run_auto_router", _run_auto_router)
+
+    runner = CliRunner()
+    result = runner.invoke(cli.create_app(), ["--config-path", str(config_path)])
+
+    assert result.exit_code == 0
+    assert seen["path"] == config_path
+    assert resolve_config_path() != config_path
 
 
 def test_doctor_rejects_non_telegram_transport(monkeypatch) -> None:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -11,9 +10,9 @@ from pydantic import BaseModel
 
 from ..config import (
     ConfigError,
-    HOME_CONFIG_PATH,
     dump_toml,
     read_config,
+    resolve_config_path,
     write_config,
 )
 from ..config_migrations import migrate_config
@@ -45,18 +44,7 @@ def _fail_missing_config(path: Path) -> None:
 
 
 def _resolve_config_path_override(value: Path | None) -> Path:
-    if value is None:
-        return _resolve_home_config_path()
-    return value.expanduser()
-
-
-def _resolve_home_config_path() -> Path:
-    cli_module = sys.modules.get("takopi.cli")
-    if cli_module is not None:
-        override = getattr(cli_module, "HOME_CONFIG_PATH", None)
-        if override is not None:
-            return Path(override)
-    return HOME_CONFIG_PATH
+    return resolve_config_path(value)
 
 
 def _exit_config_error(exc: ConfigError, *, code: int = 2) -> None:

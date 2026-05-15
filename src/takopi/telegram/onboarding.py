@@ -29,12 +29,12 @@ from ..config import (
     ConfigError,
     ensure_table,
     read_config,
+    resolve_config_path,
     write_config,
 )
 from ..engines import list_backends
 from ..logging import suppress_logs
 from ..settings import (
-    HOME_CONFIG_PATH,
     TelegramTopicsSettings,
     load_settings,
     require_telegram,
@@ -197,7 +197,7 @@ def check_setup(
     transport_override: str | None = None,
 ) -> SetupResult:
     issues: list[SetupIssue] = []
-    config_path = HOME_CONFIG_PATH
+    config_path = resolve_config_path()
     cmd = backend.cli_cmd or backend.id
     backend_issues: list[SetupIssue] = []
     if shutil.which(cmd) is None:
@@ -972,7 +972,7 @@ async def run_onboarding(ui: UI, svc: Services, state: OnboardingState) -> bool:
 async def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
     ui = InteractiveUI(Console())
     svc = LiveServices()
-    state = OnboardingState(config_path=HOME_CONFIG_PATH, force=False)
+    state = OnboardingState(config_path=resolve_config_path(), force=False)
     with suppress_logging():
         try:
             if token is not None:
@@ -1008,7 +1008,7 @@ async def capture_chat_id(*, token: str | None = None) -> ChatInfo | None:
 async def interactive_setup(*, force: bool) -> bool:
     ui = InteractiveUI(Console())
     svc = LiveServices()
-    state = OnboardingState(config_path=HOME_CONFIG_PATH, force=force)
+    state = OnboardingState(config_path=resolve_config_path(), force=force)
 
     if state.config_path.exists() and not force:
         ui.print(

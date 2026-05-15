@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from takopi.config import ConfigError, read_config
+from takopi.config import ConfigError, read_config, set_config_path_override
 from takopi.settings import (
     TakopiSettings,
     load_settings,
@@ -38,6 +38,29 @@ def test_load_settings_from_toml(tmp_path: Path) -> None:
     assert chat_id == 123
 
     assert settings.transports.telegram.bot_token == "token"
+
+
+def test_load_settings_uses_config_path_override(tmp_path: Path) -> None:
+    config_path = tmp_path / "custom.toml"
+    config_path.write_text(
+        'transport = "telegram"\n\n'
+        "[transports.telegram]\n"
+        'bot_token = "override-token"\n'
+        "chat_id = 456\n",
+        encoding="utf-8",
+    )
+
+    previous = set_config_path_override(config_path)
+    try:
+        settings, loaded_path = load_settings()
+    finally:
+        set_config_path_override(previous)
+
+    assert loaded_path == config_path
+    telegram = settings.transports.telegram
+    assert telegram is not None
+    assert telegram.chat_id == 456
+    assert telegram.bot_token == "override-token"
 
 
 def test_env_overrides_toml(tmp_path: Path, monkeypatch) -> None:
