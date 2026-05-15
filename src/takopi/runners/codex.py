@@ -1328,6 +1328,7 @@ class AppServerCodexRunner(ResumeTokenMixin, BaseRunner):
                             done = True
                     if done:
                         return
+            raise RuntimeError("codex app-server closed before turn completed")
         finally:
             await client.unsubscribe_turn(turn_id)
 

@@ -252,6 +252,71 @@ async def test_app_server_client_fails_waiters_on_clean_eof(tmp_path: Path) -> N
         await client.start()
 
 
+def test_app_server_client_handles_server_requests() -> None:
+    client = _AppServerClient(codex_cmd="codex", extra_args=[])
+
+    assert client._handle_server_request(
+        {"method": "item/commandExecution/requestApproval"}
+    ) == {"decision": "accept"}
+    assert client._handle_server_request(
+        {"method": "item/fileChange/requestApproval"}
+    ) == {"decision": "accept"}
+    assert client._handle_server_request(
+        {
+            "method": "item/permissions/requestApproval",
+            "params": {"permissions": {"sandbox": "workspace-write"}},
+        }
+    ) == {"scope": "turn", "permissions": {"sandbox": "workspace-write"}}
+    assert client._handle_server_request(
+        {"method": "mcpServer/elicitation/request"}
+    ) == {"action": "decline", "content": None}
+    assert client._handle_server_request({"method": "other"}) == {}
+
+
+@pytest.mark.anyio
+async def test_app_server_runner_raises_on_turn_stream_eof(
+    tmp_path: Path,
+) -> None:
+    codex_path = tmp_path / "codex"
+    codex_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "\n"
+        "def send(payload):\n"
+        "    print(json.dumps(payload), flush=True)\n"
+        "\n"
+        "for line in sys.stdin:\n"
+        "    msg = json.loads(line)\n"
+        "    method = msg.get('method')\n"
+        "    req_id = msg.get('id')\n"
+        "    if method == 'initialize':\n"
+        "        send({'id': req_id, 'result': {'serverInfo': {'name': 'fake'}}})\n"
+        "    elif method == 'initialized':\n"
+        "        pass\n"
+        "    elif method == 'thread/start':\n"
+        "        send({'id': req_id, 'result': {'thread': {'id': 'thread-1'}}})\n"
+        "    elif method == 'turn/start':\n"
+        "        turn = {'id': 'turn-1', 'status': 'running', 'items': []}\n"
+        "        send({'id': req_id, 'result': {'turn': turn}})\n"
+        "        send({'method': 'turn/started', 'params': {'threadId': 'thread-1', 'turn': turn}})\n"
+        "        break\n",
+        encoding="utf-8",
+    )
+    codex_path.chmod(0o755)
+    runner = AppServerCodexRunner(codex_cmd=str(codex_path), extra_args=[])
+
+    stream = runner.run("hello", None)
+    with anyio.fail_after(2):
+        started = await anext(stream)
+        with pytest.raises(RuntimeError, match="closed before turn completed"):
+            async for _event in stream:
+                pass
+
+    assert isinstance(started, StartedEvent)
+    assert started.resume.value == "thread-1"
+
+
 @pytest.mark.anyio
 async def test_app_server_codex_runner_translates_turn_notifications(
     tmp_path: Path,
