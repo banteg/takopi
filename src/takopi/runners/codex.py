@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import shutil
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -445,6 +447,22 @@ class CodexRunState:
     turn_index: int = 0
 
 
+def _resolve_codex_cmd(config_path: Path) -> str:
+    codex_cmd = shutil.which("codex")
+    if codex_cmd:
+        return codex_cmd
+
+    if sys.platform == "win32":
+        codex_cmd = shutil.which("codex.cmd")
+        if codex_cmd:
+            return codex_cmd
+
+    raise ConfigError(
+        f"Could not find the Codex executable on PATH while loading {config_path}. "
+        "Ensure `codex` is installed and available on PATH."
+    )
+
+
 class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     engine: EngineId = ENGINE
     resume_re = _RESUME_RE
@@ -664,7 +682,7 @@ class CodexRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
-    codex_cmd = "codex"
+    codex_cmd = _resolve_codex_cmd(config_path)
 
     extra_args_value = config.get("extra_args")
     if extra_args_value is None:
