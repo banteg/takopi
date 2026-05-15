@@ -657,7 +657,9 @@ async def test_handle_cancel_cancels_queued_job() -> None:
     await handle_cancel(cfg, msg, {}, scheduler)
 
     assert transport.edit_calls
-    assert "cancelled" in transport.edit_calls[0]["message"].text.lower()
+    cancelled_text = transport.edit_calls[0]["message"].text.lower()
+    assert "cancelled" in cancelled_text
+    assert "codex resume sid" in cancelled_text
     assert await scheduler.cancel_queued(123, progress_ref.message_id) is None
 
 
@@ -845,7 +847,9 @@ async def test_handle_callback_cancel_cancels_queued_job() -> None:
     await handle_callback_cancel(cfg, query, {}, scheduler)
 
     assert transport.edit_calls
-    assert "cancelled" in transport.edit_calls[0]["message"].text.lower()
+    cancelled_text = transport.edit_calls[0]["message"].text.lower()
+    assert "cancelled" in cancelled_text
+    assert "codex resume sid" in cancelled_text
     bot = cast(FakeBot, cfg.bot)
     assert bot.callback_calls
     assert bot.callback_calls[-1]["text"] == "dropped from queue."

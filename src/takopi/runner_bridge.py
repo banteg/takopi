@@ -411,6 +411,7 @@ async def handle_message(
     runner_text = _strip_resume_lines(incoming.text, is_resume_line=resume_strip)
 
     progress_tracker = ProgressTracker(engine=runner.engine)
+    progress_tracker.set_resume(resume_token)
 
     user_ref = MessageRef(
         channel_id=incoming.channel_id,

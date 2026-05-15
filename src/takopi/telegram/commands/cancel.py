@@ -107,7 +107,16 @@ async def _edit_cancelled_message(
     tracker = ProgressTracker(engine=job.resume_token.engine)
     tracker.set_resume(job.resume_token)
     context_line = cfg.runtime.format_context_line(job.context)
-    state = tracker.snapshot(context_line=context_line)
+    resume_formatter = None
+    if cfg.show_resume_line or cfg.session_mode != "chat":
+        resume_formatter = cfg.runtime.resolve_runner(
+            resume_token=job.resume_token,
+            engine_override=None,
+        ).runner.format_resume
+    state = tracker.snapshot(
+        resume_formatter=resume_formatter,
+        context_line=context_line,
+    )
     message = cfg.exec_cfg.presenter.render_progress(
         state,
         elapsed_s=0.0,
