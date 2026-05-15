@@ -133,6 +133,12 @@ class ThreadScheduler:
         async with self._lock:
             return self._queued_by_progress.get(progress_key)
 
+    async def is_busy(self, token: ResumeToken) -> bool:
+        key = self.thread_key(token)
+        async with self._lock:
+            done = self._busy_until.get(key)
+            return done is not None and not done.is_set()
+
     def _pop_queued_locked(
         self, chat_id: ChannelId, progress_msg_id: MessageId
     ) -> ThreadJob | None:

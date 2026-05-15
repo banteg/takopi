@@ -866,6 +866,7 @@ async def _send_queued_progress(
     thread_id: int | None,
     resume_token: ResumeToken,
     context: RunContext | None,
+    steerable: bool,
 ) -> MessageRef | None:
     tracker = ProgressTracker(engine=resume_token.engine)
     tracker.set_resume(resume_token)
@@ -887,7 +888,7 @@ async def _send_queued_progress(
     message = cfg.exec_cfg.presenter.render_progress(
         state,
         elapsed_s=0.0,
-        label="queued",
+        label="queued" if steerable else "starting",
     )
     reply_ref = MessageRef(
         channel_id=chat_id,
@@ -944,6 +945,7 @@ async def send_with_resume(
         thread_id=thread_id,
         resume_token=resume,
         context=running_task.context,
+        steerable=not running_task.done.is_set(),
     )
     await enqueue(
         chat_id,
@@ -1398,6 +1400,7 @@ async def run_main_loop(
                     thread_id=msg.thread_id,
                     resume_token=resume_token,
                     context=context,
+                    steerable=await scheduler.is_busy(resume_token),
                 )
                 await scheduler.enqueue_resume(
                     chat_id,

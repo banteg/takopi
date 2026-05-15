@@ -316,6 +316,36 @@ def test_telegram_presenter_progress_shows_steer_button_for_queued() -> None:
     ]
 
 
+@pytest.mark.anyio
+async def test_send_queued_progress_omits_steer_when_not_steerable() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
+
+    await telegram_loop._send_queued_progress(
+        cfg,
+        chat_id=123,
+        user_msg_id=10,
+        thread_id=None,
+        resume_token=ResumeToken(engine=CODEX_ENGINE, value="sid"),
+        context=None,
+        steerable=False,
+    )
+
+    assert transport.send_calls
+    message = transport.send_calls[0]["message"]
+    assert message.text.lower().startswith("starting")
+    assert message.extra["reply_markup"]["inline_keyboard"] == [
+        [{"text": "cancel", "callback_data": "takopi:cancel"}]
+    ]
+
+
 def test_telegram_presenter_final_clears_button() -> None:
     presenter = TelegramPresenter()
     state = ProgressTracker(engine="codex").snapshot()
