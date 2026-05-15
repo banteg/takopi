@@ -85,6 +85,7 @@ class ExecBridgeConfig:
     transport: Transport
     presenter: Presenter
     final_notify: bool
+    show_runner_version: bool = False
 
 
 @dataclass(slots=True)
@@ -410,7 +411,10 @@ async def handle_message(
     resume_strip = strip_resume_line or is_resume_line
     runner_text = _strip_resume_lines(incoming.text, is_resume_line=resume_strip)
 
-    progress_tracker = ProgressTracker(engine=runner.engine)
+    runner_version = getattr(runner, "cli_version", None) if cfg.show_runner_version else None
+    progress_tracker = ProgressTracker(
+        engine=runner.engine, runner_version=runner_version
+    )
 
     user_ref = MessageRef(
         channel_id=incoming.channel_id,
