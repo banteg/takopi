@@ -101,22 +101,30 @@ class ThreadScheduler:
     async def cancel_queued(
         self, chat_id: ChannelId, progress_msg_id: MessageId
     ) -> ThreadJob | None:
-        progress_key = (chat_id, progress_msg_id)
         async with self._lock:
-            job = self._queued_by_progress.pop(progress_key, None)
-            if job is None:
-                return None
-            thread_key = self.thread_key(job.resume_token)
-            queue = self._pending_by_thread.get(thread_key)
+            return self._pop_queued_locked(chat_id, progress_msg_id)
+
+    async def claim_queued(
+        self, chat_id: ChannelId, progress_msg_id: MessageId
+    ) -> ThreadJob | None:
+        async with self._lock:
+            return self._pop_queued_locked(chat_id, progress_msg_id)
+
+    async def requeue_front(self, job: ThreadJob) -> None:
+        key = self.thread_key(job.resume_token)
+        async with self._lock:
+            queue = self._pending_by_thread.get(key)
             if queue is None:
-                return None
-            try:
-                queue.remove(job)
-            except ValueError:
-                return None
-            if not queue:
-                self._pending_by_thread.pop(thread_key, None)
-            return job
+                queue = deque()
+                self._pending_by_thread[key] = queue
+            queue.appendleft(job)
+            if job.progress_ref is not None:
+                progress_key = (job.chat_id, job.progress_ref.message_id)
+                self._queued_by_progress[progress_key] = job
+            if key in self._active_threads:
+                return
+            self._active_threads.add(key)
+        self._task_group.start_soon(self._thread_worker, key)
 
     async def get_queued(
         self, chat_id: ChannelId, progress_msg_id: MessageId
@@ -124,6 +132,26 @@ class ThreadScheduler:
         progress_key = (chat_id, progress_msg_id)
         async with self._lock:
             return self._queued_by_progress.get(progress_key)
+
+    def _pop_queued_locked(
+        self, chat_id: ChannelId, progress_msg_id: MessageId
+    ) -> ThreadJob | None:
+        progress_key = (chat_id, progress_msg_id)
+        job = self._queued_by_progress.get(progress_key)
+        if job is None:
+            return None
+        thread_key = self.thread_key(job.resume_token)
+        queue = self._pending_by_thread.get(thread_key)
+        if queue is None:
+            return None
+        try:
+            queue.remove(job)
+        except ValueError:
+            return None
+        self._queued_by_progress.pop(progress_key, None)
+        if not queue:
+            self._pending_by_thread.pop(thread_key, None)
+        return job
 
     async def _clear_busy(self, key: str, done: anyio.Event) -> None:
         await done.wait()

@@ -11,6 +11,7 @@ from takopi.events import EventFactory
 from takopi.model import ActionEvent, CompletedEvent, StartedEvent
 from takopi.runners.codex import (
     _AgentMessageSummary,
+    _AppServerClient,
     AppServerCodexRunner,
     CodexRunner,
     _format_change_summary,
@@ -231,6 +232,24 @@ def test_codex_runner_process_and_stream_end_events() -> None:
     end_event = end[0]
     assert isinstance(end_event, CompletedEvent)
     assert end_event.ok is True
+
+
+@pytest.mark.anyio
+async def test_app_server_client_fails_waiters_on_clean_eof(tmp_path: Path) -> None:
+    codex_path = tmp_path / "codex"
+    codex_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "\n"
+        "for _line in sys.stdin:\n"
+        "    break\n",
+        encoding="utf-8",
+    )
+    codex_path.chmod(0o755)
+    client = _AppServerClient(codex_cmd=str(codex_path), extra_args=[])
+
+    with anyio.fail_after(2), pytest.raises(RuntimeError, match="closed stdout"):
+        await client.start()
 
 
 @pytest.mark.anyio

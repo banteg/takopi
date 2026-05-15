@@ -834,10 +834,12 @@ class _AppServerClient:
             await self._proc.stdin.send(data)
 
     async def _reader_loop(self) -> None:
-        assert self._proc is not None
-        assert self._proc.stdout is not None
+        proc = self._proc
+        assert proc is not None
+        assert proc.stdout is not None
+        failure: BaseException | None = None
         try:
-            async for raw_line in iter_bytes_lines(self._proc.stdout):
+            async for raw_line in iter_bytes_lines(proc.stdout):
                 line = raw_line.strip()
                 if not line:
                     continue
@@ -856,7 +858,14 @@ class _AppServerClient:
                     continue
                 await self._route_response(message)
         except Exception as exc:  # noqa: BLE001
-            await self._fail_all(exc)
+            failure = exc
+        if failure is None:
+            failure = RuntimeError("codex app-server closed stdout")
+        async with self._state_lock:
+            if self._proc is proc:
+                self._proc = None
+                self._loaded_threads.clear()
+        await self._fail_all(failure)
 
     def _handle_server_request(self, message: dict[str, Any]) -> dict[str, Any]:
         method = message.get("method")
@@ -907,6 +916,7 @@ class _AppServerClient:
             self._waiters.clear()
             senders = list(self._turn_senders.values())
             self._turn_senders.clear()
+            self._pending_by_turn.clear()
         for waiter in waiters:
             waiter.error = RuntimeError(f"codex app-server closed: {exc}")
             waiter.event.set()

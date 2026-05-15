@@ -983,6 +983,129 @@ async def test_handle_callback_steer_sends_queued_text_to_active_turn() -> None:
 
 
 @pytest.mark.anyio
+async def test_handle_callback_steer_claims_job_before_awaiting_steer() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
+    active_done = anyio.Event()
+    ran_jobs: list[str] = []
+
+    async def _run_job(job) -> None:
+        ran_jobs.append(job.text)
+
+    class _Control(RunnerTurnControl):
+        def __init__(self) -> None:
+            self.steered: list[str] = []
+
+        async def steer(self, text: str) -> None:
+            self.steered.append(text)
+            active_done.set()
+            await anyio.sleep(0)
+
+        async def interrupt(self) -> bool:
+            return True
+
+    async with anyio.create_task_group() as tg:
+        scheduler = ThreadScheduler(task_group=tg, run_job=_run_job)
+        progress_id = 89
+        progress_ref = MessageRef(channel_id=123, message_id=progress_id)
+        resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+        await scheduler.note_thread_known(resume, active_done)
+        await scheduler.enqueue_resume(
+            chat_id=123,
+            user_msg_id=10,
+            text="queued prompt",
+            resume_token=resume,
+            progress_ref=progress_ref,
+        )
+        await anyio.sleep(0)
+
+        control = _Control()
+        running_task = RunningTask(resume=resume, control=control)
+        running_tasks = {MessageRef(channel_id=123, message_id=7): running_task}
+        query = TelegramCallbackQuery(
+            transport="telegram",
+            chat_id=123,
+            message_id=progress_id,
+            callback_query_id="cbq-steer-race",
+            data="takopi:steer",
+            sender_id=123,
+        )
+
+        await telegram_loop.handle_callback_steer(cfg, query, running_tasks, scheduler)
+        await anyio.sleep(0)
+
+        assert control.steered == ["queued prompt"]
+        assert ran_jobs == []
+        assert await scheduler.get_queued(123, progress_ref.message_id) is None
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_handle_callback_steer_requeues_when_steer_fails() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
+
+    async def _noop_run_job(_) -> None:
+        return None
+
+    class _Control(RunnerTurnControl):
+        async def steer(self, text: str) -> None:
+            _ = text
+            raise RuntimeError("nope")
+
+        async def interrupt(self) -> bool:
+            return True
+
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=_noop_run_job)
+    progress_id = 90
+    progress_ref = MessageRef(channel_id=123, message_id=progress_id)
+    resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+    await scheduler.enqueue_resume(
+        chat_id=123,
+        user_msg_id=10,
+        text="queued prompt",
+        resume_token=resume,
+        progress_ref=progress_ref,
+    )
+    running_task = RunningTask(resume=resume, control=_Control())
+    query = TelegramCallbackQuery(
+        transport="telegram",
+        chat_id=123,
+        message_id=progress_id,
+        callback_query_id="cbq-steer-fails",
+        data="takopi:steer",
+        sender_id=123,
+    )
+
+    await telegram_loop.handle_callback_steer(
+        cfg,
+        query,
+        {MessageRef(channel_id=123, message_id=7): running_task},
+        scheduler,
+    )
+
+    queued = await scheduler.get_queued(123, progress_ref.message_id)
+    assert queued is not None
+    assert queued.text == "queued prompt"
+    bot = cast(FakeBot, cfg.bot)
+    assert bot.callback_calls[-1]["text"] == "could not steer; still queued."
+
+
+@pytest.mark.anyio
 async def test_handle_callback_cancel_without_task_acknowledges() -> None:
     transport = FakeTransport()
     cfg = make_cfg(transport)
