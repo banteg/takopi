@@ -1470,7 +1470,9 @@ async def test_send_with_resume_waits_for_token() -> None:
     )
     assert sent[0][7] == transport.send_calls[0]["ref"]
     assert transport.send_calls
-    assert "queued" in transport.send_calls[0]["message"].text.lower()
+    queued_text = transport.send_calls[0]["message"].text.lower()
+    assert "queued" in queued_text
+    assert "codex resume abc123" in queued_text
 
 
 @pytest.mark.anyio

@@ -865,7 +865,20 @@ async def _send_queued_progress(
     tracker = ProgressTracker(engine=resume_token.engine)
     tracker.set_resume(resume_token)
     context_line = cfg.runtime.format_context_line(context)
-    state = tracker.snapshot(context_line=context_line)
+    resume_formatter = None
+    if should_show_resume_line(
+        show_resume_line=cfg.show_resume_line,
+        stateful_mode=cfg.session_mode == "chat",
+        context=context,
+    ):
+        resume_formatter = cfg.runtime.resolve_runner(
+            resume_token=resume_token,
+            engine_override=None,
+        ).runner.format_resume
+    state = tracker.snapshot(
+        resume_formatter=resume_formatter,
+        context_line=context_line,
+    )
     message = cfg.exec_cfg.presenter.render_progress(
         state,
         elapsed_s=0.0,
