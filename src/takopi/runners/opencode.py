@@ -36,7 +36,7 @@ from ..model import (
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from .run_options import get_run_options
 from ..schemas import opencode as opencode_schema
-from ..utils.paths import relativize_path
+from ..utils.paths import get_run_base_dir, relativize_path
 from .tool_actions import tool_input_path, tool_kind_and_title
 
 logger = get_logger(__name__)
@@ -329,6 +329,9 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     ) -> list[str]:
         run_options = get_run_options()
         args = ["run", "--format", "json"]
+        run_dir = get_run_base_dir()
+        if run_dir is not None:
+            args.extend(["--dir", str(run_dir)])
         if resume is not None:
             args.extend(["--session", resume.value])
         model = self.model
@@ -444,7 +447,11 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         found_session: ResumeToken | None,
         state: OpenCodeStreamState,
     ) -> list[TakopiEvent]:
-        if not found_session:
+        effective_session = found_session
+        if effective_session is None and state.session_id:
+            effective_session = ResumeToken(engine=ENGINE, value=state.session_id)
+
+        if not effective_session:
             message = "opencode finished but no session_id was captured"
             resume_for_completed = resume
             return [
@@ -463,7 +470,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                     engine=ENGINE,
                     ok=True,
                     answer=state.last_text or "",
-                    resume=found_session,
+                    resume=effective_session,
                 )
             ]
 
@@ -473,7 +480,7 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
                 engine=ENGINE,
                 ok=False,
                 answer=state.last_text or "",
-                resume=found_session,
+                resume=effective_session,
                 error=message,
             )
         ]
