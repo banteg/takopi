@@ -51,6 +51,13 @@ STEER_CANCEL_MARKUP = {
     ]
 }
 CLEAR_MARKUP = {"inline_keyboard": []}
+TelegramProgressControls = Literal[
+    "auto",
+    "run-cancel",
+    "queue-cancel",
+    "queue-steer-cancel",
+    "none",
+]
 
 
 class TelegramPresenter:
@@ -69,17 +76,13 @@ class TelegramPresenter:
         *,
         elapsed_s: float,
         label: str = "working",
+        controls: TelegramProgressControls = "auto",
     ) -> RenderedMessage:
         parts = self._formatter.render_progress_parts(
             state, elapsed_s=elapsed_s, label=label
         )
         text, entities = prepare_telegram(parts)
-        if _is_terminal_progress_label(label):
-            reply_markup = CLEAR_MARKUP
-        elif label.strip().lower() == "queued":
-            reply_markup = STEER_CANCEL_MARKUP
-        else:
-            reply_markup = CANCEL_MARKUP
+        reply_markup = _progress_reply_markup(label=label, controls=controls)
         return RenderedMessage(
             text=text,
             extra={"entities": entities, "reply_markup": reply_markup},
@@ -120,6 +123,22 @@ class TelegramPresenter:
         )
 
 
+def _progress_reply_markup(
+    *,
+    label: str,
+    controls: TelegramProgressControls,
+) -> dict[str, list[list[dict[str, str]]]]:
+    if controls == "none" or _is_terminal_progress_label(label):
+        return CLEAR_MARKUP
+    if controls == "queue-steer-cancel":
+        return STEER_CANCEL_MARKUP
+    if controls in {"run-cancel", "queue-cancel"}:
+        return CANCEL_MARKUP
+    if _normalized_progress_label(label) == "queued":
+        return STEER_CANCEL_MARKUP
+    return CANCEL_MARKUP
+
+
 def _normalized_progress_label(label: str) -> str:
     stripped = label.strip()
     if stripped.startswith("`") and stripped.endswith("`") and len(stripped) >= 2:
@@ -128,7 +147,7 @@ def _normalized_progress_label(label: str) -> str:
 
 
 def _is_terminal_progress_label(label: str) -> bool:
-    return _normalized_progress_label(label) in {"cancelled", "steered"}
+    return _normalized_progress_label(label) in {"cancelled", "dropped", "steered"}
 
 
 @dataclass(frozen=True, slots=True)

@@ -329,6 +329,10 @@ The final output MUST include:
   stop consuming the runner. Runners without turn control MUST still be aborted
   best-effort by stopping iteration and releasing held resources.
 * After cancellation, the bridge MUST stop further progress edits and publish a “cancelled” status message.
+* If `/cancel` targets a queued progress message, the bridge MUST remove that
+  queued job without interrupting the active run for the same thread.
+* A queued cancellation MUST render a terminal queued status such as `dropped`,
+  so users can distinguish it from live-run cancellation.
 * The bridge SHOULD include the ResumeLine if known.
 * Any additional text after `/cancel` is ignored.
 

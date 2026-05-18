@@ -45,7 +45,7 @@ async def handle_cancel(
                     progress_message_id=reply_id,
                     resume=job.resume_token.value,
                 )
-                await _edit_cancelled_message(cfg, progress_ref, job)
+                await _edit_dropped_message(cfg, progress_ref, job)
                 return
         await reply(text="nothing is currently running for that message.")
         return
@@ -76,10 +76,10 @@ async def handle_callback_cancel(
                     progress_message_id=query.message_id,
                     resume=job.resume_token.value,
                 )
-                await _edit_cancelled_message(cfg, progress_ref, job)
+                await _edit_dropped_message(cfg, progress_ref, job)
                 await cfg.bot.answer_callback_query(
                     callback_query_id=query.callback_query_id,
-                    text="dropped from queue.",
+                    text="dropped queued follow-up.",
                 )
                 return
         await cfg.bot.answer_callback_query(
@@ -166,12 +166,12 @@ async def handle_callback_steer(
     )
 
 
-async def _edit_cancelled_message(
+async def _edit_dropped_message(
     cfg: TelegramBridgeConfig,
     progress_ref: MessageRef,
     job: ThreadJob,
 ) -> None:
-    await _edit_labelled_message(cfg, progress_ref, job, label="cancelled")
+    await _edit_labelled_message(cfg, progress_ref, job, label="dropped")
 
 
 async def _edit_labelled_message(

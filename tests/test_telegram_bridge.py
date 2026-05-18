@@ -316,6 +316,33 @@ def test_telegram_presenter_progress_shows_steer_button_for_queued() -> None:
     ]
 
 
+def test_telegram_presenter_progress_shows_cancel_only_for_queue_cancel() -> None:
+    presenter = TelegramPresenter()
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_progress(
+        state,
+        elapsed_s=0.0,
+        label="queued",
+        controls="queue-cancel",
+    )
+
+    assert rendered.text.lower().startswith("queued")
+    assert rendered.extra["reply_markup"]["inline_keyboard"] == [
+        [{"text": "cancel", "callback_data": "takopi:cancel"}]
+    ]
+
+
+def test_telegram_presenter_dropped_clears_buttons() -> None:
+    presenter = TelegramPresenter()
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_progress(state, elapsed_s=0.0, label="dropped")
+
+    assert rendered.text.lower().startswith("dropped")
+    assert rendered.extra["reply_markup"]["inline_keyboard"] == []
+
+
 @pytest.mark.anyio
 async def test_send_queued_progress_omits_steer_when_not_steerable() -> None:
     transport = FakeTransport()
@@ -340,9 +367,42 @@ async def test_send_queued_progress_omits_steer_when_not_steerable() -> None:
 
     assert transport.send_calls
     message = transport.send_calls[0]["message"]
-    assert message.text.lower().startswith("starting")
+    assert message.text.lower().startswith("queued")
     assert message.extra["reply_markup"]["inline_keyboard"] == [
         [{"text": "cancel", "callback_data": "takopi:cancel"}]
+    ]
+
+
+@pytest.mark.anyio
+async def test_send_queued_progress_shows_steer_when_steerable() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
+
+    await telegram_loop._send_queued_progress(
+        cfg,
+        chat_id=123,
+        user_msg_id=10,
+        thread_id=None,
+        resume_token=ResumeToken(engine=CODEX_ENGINE, value="sid"),
+        context=None,
+        steerable=True,
+    )
+
+    assert transport.send_calls
+    message = transport.send_calls[0]["message"]
+    assert message.text.lower().startswith("queued")
+    assert message.extra["reply_markup"]["inline_keyboard"] == [
+        [
+            {"text": "steer", "callback_data": "takopi:steer"},
+            {"text": "cancel", "callback_data": "takopi:cancel"},
+        ]
     ]
 
 
@@ -754,7 +814,7 @@ async def test_handle_cancel_cancels_queued_job() -> None:
 
     assert transport.edit_calls
     cancelled_text = transport.edit_calls[0]["message"].text.lower()
-    assert "cancelled" in cancelled_text
+    assert cancelled_text.startswith("dropped")
     assert "codex resume sid" in cancelled_text
     assert await scheduler.cancel_queued(123, progress_ref.message_id) is None
 
@@ -944,11 +1004,11 @@ async def test_handle_callback_cancel_cancels_queued_job() -> None:
 
     assert transport.edit_calls
     cancelled_text = transport.edit_calls[0]["message"].text.lower()
-    assert "cancelled" in cancelled_text
+    assert cancelled_text.startswith("dropped")
     assert "codex resume sid" in cancelled_text
     bot = cast(FakeBot, cfg.bot)
     assert bot.callback_calls
-    assert bot.callback_calls[-1]["text"] == "dropped from queue."
+    assert bot.callback_calls[-1]["text"] == "dropped queued follow-up."
 
 
 @pytest.mark.anyio

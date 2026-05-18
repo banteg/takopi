@@ -28,6 +28,7 @@ from .bridge import (
     CANCEL_CALLBACK_DATA,
     STEER_CALLBACK_DATA,
     TelegramBridgeConfig,
+    TelegramPresenter,
     send_plain,
 )
 from .commands.cancel import (
@@ -929,11 +930,19 @@ async def _send_queued_progress(
         resume_formatter=resume_formatter,
         context_line=context_line,
     )
-    message = cfg.exec_cfg.presenter.render_progress(
-        state,
-        elapsed_s=0.0,
-        label="queued" if steerable else "starting",
-    )
+    if isinstance(cfg.exec_cfg.presenter, TelegramPresenter):
+        message = cfg.exec_cfg.presenter.render_progress(
+            state,
+            elapsed_s=0.0,
+            label="queued",
+            controls="queue-steer-cancel" if steerable else "queue-cancel",
+        )
+    else:
+        message = cfg.exec_cfg.presenter.render_progress(
+            state,
+            elapsed_s=0.0,
+            label="queued",
+        )
     reply_ref = MessageRef(
         channel_id=chat_id,
         message_id=user_msg_id,

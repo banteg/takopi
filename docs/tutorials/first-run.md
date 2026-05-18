@@ -117,7 +117,7 @@ While the progress message is showing, tap the **cancel** button or reply to it 
     !!! user "You"
         /cancel
 
-Takopi sends `SIGTERM` to the agent process and posts a cancelled status:
+Takopi asks the active run to stop and posts a cancelled status:
 
 !!! failure ""
     cancelled · codex · 12s
@@ -126,8 +126,10 @@ Takopi sends `SIGTERM` to the agent process and posts a cancelled status:
 
 If a resume token was already issued (and resume lines are enabled), it will still be included so you can continue from where it stopped.
 
-!!! note "Cancel only works on progress messages"
-    If the run already finished, there's nothing to cancel. Just send a new message or reply to continue.
+!!! note "Cancel follows the progress message you target"
+    Replying to a live progress message cancels the active run. Replying to a
+    queued progress message drops only that queued follow-up; the active run for
+    the same conversation keeps going.
 
 ## 7. Try a different engine
 

@@ -1,5 +1,11 @@
 # changelog
 
+## unreleased
+
+### fixes
+
+- make Telegram queued follow-up cancellation render as `dropped` so it is not confused with cancelling a live run [#228](https://github.com/banteg/takopi/issues/228)
+
 ## v0.23.3 (2026-05-16)
 
 ### fixes
