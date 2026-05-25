@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import anyio
 import pytest
@@ -264,7 +265,7 @@ async def test_app_server_client_fails_waiters_on_clean_eof(tmp_path: Path) -> N
         encoding="utf-8",
     )
     codex_path.chmod(0o755)
-    client = _AppServerClient(codex_cmd=str(codex_path), extra_args=[])
+    client = _AppServerClient(codex_cmd=sys.executable, extra_args=[str(codex_path)])
 
     with anyio.fail_after(2), pytest.raises(RuntimeError, match="closed stdout"):
         await client.start()
@@ -322,7 +323,10 @@ async def test_app_server_runner_raises_on_turn_stream_eof(
         encoding="utf-8",
     )
     codex_path.chmod(0o755)
-    runner = AppServerCodexRunner(codex_cmd=str(codex_path), extra_args=[])
+    runner = AppServerCodexRunner(
+        codex_cmd=sys.executable,
+        extra_args=[str(codex_path)],
+    )
 
     stream = runner.run("hello", None)
     with anyio.fail_after(2):
@@ -375,7 +379,10 @@ async def test_app_server_codex_runner_translates_turn_notifications(
         encoding="utf-8",
     )
     codex_path.chmod(0o755)
-    runner = AppServerCodexRunner(codex_cmd=str(codex_path), extra_args=[])
+    runner = AppServerCodexRunner(
+        codex_cmd=sys.executable,
+        extra_args=[str(codex_path)],
+    )
 
     with anyio.fail_after(2):
         events = [event async for event in runner.run("hello", None)]
@@ -463,5 +470,5 @@ def test_codex_build_runner_uses_shutil_which(monkeypatch) -> None:
     runner = build_runner({}, Path("takopi.toml"))
 
     assert called["name"] == "codex"
-    assert isinstance(runner, CodexRunner)
+    assert isinstance(runner, AppServerCodexRunner)
     assert runner.codex_cmd == expected
