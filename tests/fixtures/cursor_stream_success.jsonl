@@ -1,0 +1,9 @@
+{"type":"system","subtype":"init","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","model":"Claude 4.6 Opus (Thinking)","cwd":"/home/user/project","apiKeySource":"ANTHROPIC_API_KEY","permissionMode":"default"}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"List the files in the current directory."}]},"session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890"}
+{"type":"thinking","subtype":"delta","text":"Let me list the directory contents.","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","timestamp_ms":1700000000000}
+{"type":"thinking","subtype":"delta","text":" I will use the ls tool.","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","timestamp_ms":1700000000100}
+{"type":"thinking","subtype":"completed","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","timestamp_ms":1700000000200}
+{"type":"tool_call","subtype":"started","call_id":"call_read_001","tool_call":{"readToolCall":{"args":{"path":"/home/user/project/README.md"}}},"session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","timestamp_ms":1700000000300}
+{"type":"tool_call","subtype":"completed","call_id":"call_read_001","tool_call":{"readToolCall":{"result":{"content":"Project README"}}},"session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","timestamp_ms":1700000000400}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I found README.md. Here is the content: Project README"}]},"session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890"}
+{"type":"result","subtype":"success","result":"I found README.md. Here is the content: Project README","session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","duration_ms":2500,"duration_api_ms":2200,"is_error":false}
