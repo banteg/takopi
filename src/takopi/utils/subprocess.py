@@ -73,6 +73,8 @@ async def manage_subprocess(
     """Ensure subprocesses receive SIGTERM, then SIGKILL after a 2s timeout."""
     if os.name == "posix":
         kwargs.setdefault("start_new_session", True)
+    elif os.name == "nt":
+        cmd = ["cmd", "/c", *cmd]
     proc = await anyio.open_process(cmd, **kwargs)
     try:
         yield proc
