@@ -12,7 +12,7 @@ import typer
 
 from .. import __version__
 from ..backends import EngineBackend
-from ..config import ConfigError, load_or_init_config
+from ..config import ConfigError, load_or_init_config, set_config_path_override
 from ..engines import get_backend
 from ..ids import RESERVED_CHAT_COMMANDS
 from ..lockfile import LockError, LockHandle, acquire_lock, token_fingerprint
@@ -20,7 +20,7 @@ from ..logging import get_logger, setup_logging
 from ..runtime_loader import build_runtime_spec, resolve_plugins_allowlist
 from ..settings import TakopiSettings, load_settings, load_settings_if_exists
 from ..transports import SetupResult, get_transport
-from .config import _config_path_display, _fail_missing_config
+from .config import _CONFIG_PATH_OPTION, _config_path_display, _fail_missing_config
 
 logger = get_logger(__name__)
 
@@ -331,6 +331,7 @@ def _version_callback(value: bool) -> None:
 
 def app_main(
     ctx: typer.Context,
+    config_path: Path | None = _CONFIG_PATH_OPTION,
     version: bool = typer.Option(
         False,
         "--version",
@@ -360,6 +361,9 @@ def app_main(
     ),
 ) -> None:
     """Takopi CLI."""
+    if config_path is not None:
+        previous = set_config_path_override(config_path)
+        ctx.call_on_close(lambda: set_config_path_override(previous))
     if ctx.invoked_subcommand is None:
         run_auto_router = cast(
             Callable[..., None],

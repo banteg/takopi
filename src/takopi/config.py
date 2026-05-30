@@ -10,6 +10,23 @@ from typing import Any
 import tomli_w
 
 HOME_CONFIG_PATH = Path.home() / ".takopi" / "takopi.toml"
+_CONFIG_PATH_OVERRIDE: Path | None = None
+
+
+def set_config_path_override(path: str | Path | None) -> Path | None:
+    """Override the default config path for the current process."""
+    global _CONFIG_PATH_OVERRIDE
+    previous = _CONFIG_PATH_OVERRIDE
+    _CONFIG_PATH_OVERRIDE = None if path is None else Path(path).expanduser()
+    return previous
+
+
+def resolve_config_path(path: str | Path | None = None) -> Path:
+    if path is not None:
+        return Path(path).expanduser()
+    if _CONFIG_PATH_OVERRIDE is not None:
+        return _CONFIG_PATH_OVERRIDE
+    return HOME_CONFIG_PATH
 
 
 class ConfigError(RuntimeError):
@@ -50,7 +67,7 @@ def read_config(cfg_path: Path) -> dict:
 
 
 def load_or_init_config(path: str | Path | None = None) -> tuple[dict, Path]:
-    cfg_path = Path(path).expanduser() if path else HOME_CONFIG_PATH
+    cfg_path = resolve_config_path(path)
     if cfg_path.exists() and not cfg_path.is_file():
         raise ConfigError(f"Config path {cfg_path} exists but is not a file.") from None
     if not cfg_path.exists():

@@ -99,13 +99,13 @@ def test_interactive_setup_skips_when_config_exists(monkeypatch, tmp_path) -> No
         'bot_token = "token"\nchat_id = 123\n',
         encoding="utf-8",
     )
-    monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", config_path)
+    monkeypatch.setattr(onboarding, "resolve_config_path", lambda: config_path)
     assert anyio.run(partial(onboarding.interactive_setup, force=False)) is True
 
 
 def test_interactive_setup_writes_config(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "takopi.toml"
-    monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", config_path)
+    monkeypatch.setattr(onboarding, "resolve_config_path", lambda: config_path)
 
     backend = EngineBackend(id="codex", build_runner=lambda _cfg, _path: None)
     monkeypatch.setattr(onboarding, "list_backends", lambda: [backend])
@@ -152,7 +152,7 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
         'default_project = "z80"\n\n[projects.z80]\npath = "/tmp/repo"\n',
         encoding="utf-8",
     )
-    monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", config_path)
+    monkeypatch.setattr(onboarding, "resolve_config_path", lambda: config_path)
 
     backend = EngineBackend(id="codex", build_runner=lambda _cfg, _path: None)
     monkeypatch.setattr(onboarding, "list_backends", lambda: [backend])
@@ -188,7 +188,7 @@ def test_interactive_setup_preserves_projects(monkeypatch, tmp_path) -> None:
 
 def test_interactive_setup_no_agents_aborts(monkeypatch, tmp_path) -> None:
     config_path = tmp_path / "takopi.toml"
-    monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", config_path)
+    monkeypatch.setattr(onboarding, "resolve_config_path", lambda: config_path)
 
     backend = EngineBackend(id="codex", build_runner=lambda _cfg, _path: None)
     monkeypatch.setattr(onboarding, "list_backends", lambda: [backend])
@@ -224,7 +224,7 @@ def test_interactive_setup_recovers_from_malformed_toml(monkeypatch, tmp_path) -
     config_path = tmp_path / "takopi.toml"
     bad_toml = 'transport = "telegram"\n[transports\n'
     config_path.write_text(bad_toml, encoding="utf-8")
-    monkeypatch.setattr(onboarding, "HOME_CONFIG_PATH", config_path)
+    monkeypatch.setattr(onboarding, "resolve_config_path", lambda: config_path)
 
     backend = EngineBackend(id="codex", build_runner=lambda _cfg, _path: None)
     monkeypatch.setattr(onboarding, "list_backends", lambda: [backend])
