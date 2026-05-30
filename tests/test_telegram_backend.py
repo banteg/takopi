@@ -142,6 +142,7 @@ def test_telegram_backend_build_and_run_wires_config(
         chat_id=321,
         allowed_user_ids=[7, 8],
         voice_transcription=True,
+        voice_transcription_echo=True,
         voice_max_bytes=1234,
         voice_transcription_model="whisper-1",
         voice_transcription_base_url="http://localhost:8000/v1",
@@ -162,6 +163,7 @@ def test_telegram_backend_build_and_run_wires_config(
     kwargs = captured["kwargs"]
     assert cfg.chat_id == 321
     assert cfg.voice_transcription is True
+    assert cfg.voice_transcription_echo is True
     assert cfg.voice_max_bytes == 1234
     assert cfg.voice_transcription_model == "whisper-1"
     assert cfg.voice_transcription_base_url == "http://localhost:8000/v1"
