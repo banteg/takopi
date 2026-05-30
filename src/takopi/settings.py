@@ -139,6 +139,7 @@ class ProjectSettings(BaseModel):
     default_engine: NonEmptyStr | None = None
     worktree_base: NonEmptyStr | None = None
     chat_id: ChatId | None = None
+    worktree_setup_script: NonEmptyStr | None = None
 
 
 class TakopiSettings(BaseSettings):
@@ -281,6 +282,7 @@ class TakopiSettings(BaseSettings):
                 default_engine=default_engine,
                 worktree_base=worktree_base,
                 chat_id=chat_id,
+                worktree_setup_script=entry.worktree_setup_script,
             )
 
         if default_project is not None:

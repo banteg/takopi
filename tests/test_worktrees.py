@@ -5,7 +5,7 @@ import pytest
 
 from takopi.config import ProjectConfig, ProjectsConfig
 from takopi.context import RunContext
-from takopi.worktrees import WorktreeError, ensure_worktree, resolve_run_cwd
+from takopi.worktrees import WorktreeError, _run_setup_script, ensure_worktree, resolve_run_cwd
 
 
 def _projects_config(path: Path) -> ProjectsConfig:
@@ -77,6 +77,82 @@ def test_ensure_worktree_creates_from_base(monkeypatch, tmp_path: Path) -> None:
     worktree_path = ensure_worktree(project, "feat/name")
     assert worktree_path == tmp_path / ".worktrees" / "feat" / "name"
     assert calls == [["worktree", "add", "-b", "feat/name", str(worktree_path), "main"]]
+
+
+def test_ensure_worktree_runs_setup_script_on_creation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    script_env: dict = {}
+    project = ProjectConfig(
+        alias="z80",
+        path=tmp_path,
+        worktrees_dir=Path(".worktrees"),
+        worktree_setup_script="echo hello",
+    )
+
+    monkeypatch.setattr("takopi.worktrees.git_ok", lambda *args, **kwargs: False)
+    monkeypatch.setattr("takopi.worktrees.resolve_default_base", lambda *_: "main")
+    monkeypatch.setattr(
+        "takopi.worktrees.git_run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    def _fake_run_setup_script(script, *, project_path, worktree_path, branch):
+        script_env["script"] = script
+        script_env["project_path"] = project_path
+        script_env["worktree_path"] = worktree_path
+        script_env["branch"] = branch
+
+    monkeypatch.setattr("takopi.worktrees._run_setup_script", _fake_run_setup_script)
+
+    worktree_path = ensure_worktree(project, "feat/x")
+    assert script_env["script"] == "echo hello"
+    assert script_env["project_path"] == tmp_path
+    assert script_env["worktree_path"] == worktree_path
+    assert script_env["branch"] == "feat/x"
+
+
+def test_ensure_worktree_skips_setup_script_for_existing(
+    monkeypatch, tmp_path: Path
+) -> None:
+    project = ProjectConfig(
+        alias="z80",
+        path=tmp_path,
+        worktrees_dir=Path(".worktrees"),
+        worktree_setup_script="echo hello",
+    )
+    worktree_path = tmp_path / ".worktrees" / "foo"
+    worktree_path.mkdir(parents=True)
+
+    monkeypatch.setattr("takopi.worktrees.git_is_worktree", lambda _: True)
+
+    script_called = []
+    monkeypatch.setattr(
+        "takopi.worktrees._run_setup_script",
+        lambda *args, **kwargs: script_called.append(True),
+    )
+
+    ensure_worktree(project, "foo")
+    assert script_called == []
+
+
+def test_run_setup_script_raises_on_nonzero(tmp_path: Path) -> None:
+    with pytest.raises(WorktreeError, match="worktree setup script failed"):
+        _run_setup_script(
+            "exit 1",
+            project_path=tmp_path,
+            worktree_path=tmp_path / "wt",
+            branch="feat/x",
+        )
+
+
+def test_run_setup_script_passes_env_vars(tmp_path: Path) -> None:
+    out_file = tmp_path / "env.txt"
+    script = f'echo "$TAKOPI_BRANCH:$TAKOPI_PROJECT_PATH:$TAKOPI_WORKTREE_PATH" > {out_file}'
+    worktree_path = tmp_path / "wt"
+    _run_setup_script(script, project_path=tmp_path, worktree_path=worktree_path, branch="my-branch")
+    content = out_file.read_text().strip()
+    assert content == f"my-branch:{tmp_path}:{worktree_path}"
 
 
 def test_ensure_worktree_rejects_existing_non_worktree(
