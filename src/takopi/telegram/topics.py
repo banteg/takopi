@@ -28,7 +28,7 @@ __all__ = [
     "_validate_topics_setup",
 ]
 
-_TOPICS_COMMANDS = {"ctx", "new", "topic"}
+_TOPICS_COMMANDS = {"ctx", "new", "topic", "issues"}
 
 
 def _resolve_topics_scope_raw(

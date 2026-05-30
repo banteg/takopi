@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from .config import ConfigError, ProjectsConfig
+from .config import ConfigError, ProjectConfig, ProjectsConfig
 from .context import RunContext
 from .directives import (
     ParsedDirectives,
@@ -278,6 +278,9 @@ class TransportRuntime:
     def project_alias_for_key(self, key: str) -> str:
         project = self._projects.projects.get(key)
         return project.alias if project is not None else key
+
+    def project_config_for_key(self, key: str) -> ProjectConfig | None:
+        return self._projects.projects.get(key)
 
     def default_context_for_chat(self, chat_id: int | None) -> RunContext | None:
         project_key = self._projects.project_for_chat(chat_id)
