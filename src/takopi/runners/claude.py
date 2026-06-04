@@ -12,7 +12,7 @@ import msgspec
 from ..backends import EngineBackend, EngineConfig
 from ..events import EventFactory
 from ..logging import get_logger
-from ..model import Action, ActionKind, EngineId, ResumeToken, TakopiEvent
+from ..model import Action, ActionKind, EngineId, ResumeToken, StartedEvent, TakopiEvent
 from ..runner import JsonlSubprocessRunner, ResumeTokenMixin, Runner
 from .run_options import get_run_options
 from ..schemas import claude as claude_schema
@@ -27,6 +27,39 @@ _RESUME_RE = re.compile(
     r"(?im)^\s*`?claude\s+(?:--resume|-r)\s+(?P<token>[^`\s]+)`?\s*$"
 )
 
+# Sessions larger than this will be dropped and restarted before the run so
+# that Claude's per-message process model doesn't load a context that already
+# exceeds the window.  2 MB is a conservative proxy; adjust via the
+# TAKOPI_CLAUDE_SESSION_RESET_MB environment variable.
+_DEFAULT_SESSION_RESET_MB = 2.0
+_SESSION_RESET_BYTES = int(
+    float(os.environ.get("TAKOPI_CLAUDE_SESSION_RESET_MB", _DEFAULT_SESSION_RESET_MB))
+    * 1024
+    * 1024
+)
+
+_CONTEXT_OVERFLOW_PHRASES = (
+    "Usage credits required for 1M context",
+    "Prompt is too long",
+)
+
+
+def _find_session_file(session_id: str) -> Path | None:
+    """Search ~/.claude/projects recursively for a session JSONL by ID."""
+    projects = Path.home() / ".claude" / "projects"
+    if not projects.exists():
+        return None
+    for path in projects.rglob(f"{session_id}.jsonl"):
+        return path
+    return None
+
+
+def _session_over_limit(resume: ResumeToken | None) -> bool:
+    if resume is None or _SESSION_RESET_BYTES <= 0:
+        return False
+    path = _find_session_file(resume.value)
+    return path is not None and path.stat().st_size > _SESSION_RESET_BYTES
+
 
 @dataclass(slots=True)
 class ClaudeStreamState:
@@ -34,6 +67,7 @@ class ClaudeStreamState:
     pending_actions: dict[str, Action] = field(default_factory=dict)
     last_assistant_text: str | None = None
     note_seq: int = 0
+    session_was_reset: bool = False
 
 
 def _normalize_tool_result(content: Any) -> str:
@@ -326,8 +360,19 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         prompt: str,
         resume: ResumeToken | None,
         *,
-        state: Any,
+        state: ClaudeStreamState,
     ) -> list[str]:
+        if _session_over_limit(resume):
+            assert resume is not None
+            size_mb = (_find_session_file(resume.value) or Path()).stat().st_size / (1024 * 1024)
+            logger.info(
+                "claude.session_reset",
+                session_id=resume.value,
+                size_mb=round(size_mb, 1),
+                threshold_mb=_SESSION_RESET_BYTES / (1024 * 1024),
+            )
+            state.session_was_reset = True
+            resume = None
         return self._build_args(prompt, resume)
 
     def stdin_payload(
@@ -405,12 +450,24 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         resume: ResumeToken | None,
         found_session: ResumeToken | None,
     ) -> list[TakopiEvent]:
-        return translate_claude_event(
+        events = translate_claude_event(
             data,
             title=self.session_title,
             state=state,
             factory=state.factory,
         )
+        if state.session_was_reset and any(isinstance(e, StartedEvent) for e in events):
+            state.session_was_reset = False
+            state.note_seq += 1
+            reset_note = state.factory.action_completed(
+                action_id=f"claude.session_reset.{state.note_seq}",
+                kind="note",
+                title="session was too large and has been reset",
+                ok=True,
+                detail={},
+            )
+            return [reset_note, *events]
+        return events
 
     def process_error_events(
         self,
