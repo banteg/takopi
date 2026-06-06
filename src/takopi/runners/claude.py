@@ -5,6 +5,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import AsyncIterator
 from typing import Any
 
 import msgspec
@@ -324,6 +325,9 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     use_api_billing: bool = False
     session_title: str = "claude"
     logger = logger
+    # Internal flag: set when a session reset is pending so new_state can
+    # mark the resulting ClaudeStreamState and inject a user-facing note.
+    _pending_session_reset: bool = field(default=False, init=False)
 
     def format_resume(self, token: ResumeToken) -> str:
         if token.engine != ENGINE:
@@ -355,24 +359,34 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
     def command(self) -> str:
         return self.claude_cmd
 
-    def build_args(
-        self,
-        prompt: str,
-        resume: ResumeToken | None,
-        *,
-        state: ClaudeStreamState,
-    ) -> list[str]:
+    async def run_impl(
+        self, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
         if _session_over_limit(resume):
             assert resume is not None
-            size_mb = (_find_session_file(resume.value) or Path()).stat().st_size / (1024 * 1024)
+            path = _find_session_file(resume.value)
+            size_mb = path.stat().st_size / (1024 * 1024) if path else 0.0
             logger.info(
                 "claude.session_reset",
                 session_id=resume.value,
                 size_mb=round(size_mb, 1),
                 threshold_mb=_SESSION_RESET_BYTES / (1024 * 1024),
             )
-            state.session_was_reset = True
+            # Clear resume before super() sets JsonlStreamState.expected_session;
+            # otherwise the new session ID emitted by Claude triggers a mismatch
+            # error ("emitted session id X but expected Y").
+            self._pending_session_reset = True
             resume = None
+        async for evt in super().run_impl(prompt, resume):
+            yield evt
+
+    def build_args(
+        self,
+        prompt: str,
+        resume: ResumeToken | None,
+        *,
+        state: Any,
+    ) -> list[str]:
         return self._build_args(prompt, resume)
 
     def stdin_payload(
@@ -392,7 +406,11 @@ class ClaudeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
         return None
 
     def new_state(self, prompt: str, resume: ResumeToken | None) -> ClaudeStreamState:
-        return ClaudeStreamState()
+        state = ClaudeStreamState()
+        if self._pending_session_reset:
+            state.session_was_reset = True
+            self._pending_session_reset = False
+        return state
 
     def start_run(
         self,
