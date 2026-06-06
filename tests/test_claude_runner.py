@@ -11,6 +11,8 @@ from takopi.runners.claude import (
     ClaudeRunner,
     ClaudeStreamState,
     ENGINE,
+    _SESSION_RESET_BYTES,
+    _session_over_limit,
     translate_claude_event,
 )
 from takopi.schemas import claude as claude_schema
@@ -423,3 +425,147 @@ async def test_run_strips_anthropic_api_key_by_default(tmp_path, monkeypatch) ->
         if isinstance(event, CompletedEvent):
             answer = event.answer
     assert answer == "api=set"
+
+
+# ── session reset tests ────────────────────────────────────────────────────────
+
+
+def test_session_over_limit_none_resume() -> None:
+    assert _session_over_limit(None) is False
+
+
+def test_session_over_limit_missing_file() -> None:
+    token = ResumeToken(engine=ENGINE, value="nonexistent-session-id")
+    assert _session_over_limit(token) is False
+
+
+def test_session_over_limit_small_file(tmp_path, monkeypatch) -> None:
+    session_id = "small-session-id"
+    projects = tmp_path / ".claude" / "projects" / "test"
+    projects.mkdir(parents=True)
+    (projects / f"{session_id}.jsonl").write_bytes(b"x" * 100)
+
+    monkeypatch.setattr(claude_runner, "_find_session_file", lambda sid: (projects / f"{sid}.jsonl") if (projects / f"{sid}.jsonl").exists() else None)
+
+    token = ResumeToken(engine=ENGINE, value=session_id)
+    assert _session_over_limit(token) is False
+
+
+def test_session_over_limit_large_file(tmp_path, monkeypatch) -> None:
+    session_id = "large-session-id"
+    projects = tmp_path / ".claude" / "projects" / "test"
+    projects.mkdir(parents=True)
+    (projects / f"{session_id}.jsonl").write_bytes(b"x" * (_SESSION_RESET_BYTES + 1))
+
+    monkeypatch.setattr(claude_runner, "_find_session_file", lambda sid: (projects / f"{sid}.jsonl") if (projects / f"{sid}.jsonl").exists() else None)
+
+    token = ResumeToken(engine=ENGINE, value=session_id)
+    assert _session_over_limit(token) is True
+
+
+def test_new_state_transfers_pending_reset_flag() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    runner._pending_session_reset = True
+    state = runner.new_state("hello", None)
+    assert state.session_was_reset is True
+    assert runner._pending_session_reset is False
+
+
+def test_new_state_no_reset_flag_by_default() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    state = runner.new_state("hello", None)
+    assert state.session_was_reset is False
+
+
+def test_translate_injects_reset_note_on_started_event() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    state = ClaudeStreamState()
+    state.session_was_reset = True
+
+    init_event = _decode_event({
+        "type": "system",
+        "subtype": "init",
+        "session_id": "new-session-id",
+        "apiKeySource": "env",
+        "cwd": ".",
+        "tools": [],
+        "mcp_servers": [],
+        "model": "claude",
+        "permissionMode": "default",
+        "slash_commands": [],
+        "output_style": "default",
+    })
+
+    events = runner.translate(
+        init_event,
+        state=state,
+        resume=None,
+        found_session=None,
+    )
+
+    assert len(events) == 2
+    note, started = events
+    assert isinstance(note, ActionEvent)
+    assert note.action.kind == "note"
+    assert "reset" in note.action.title
+    assert isinstance(started, StartedEvent)
+    assert state.session_was_reset is False
+
+
+@pytest.mark.anyio
+async def test_run_impl_resets_oversized_session(tmp_path, monkeypatch) -> None:
+    """run_impl must drop --resume and avoid expected_session mismatch when the
+    session file exceeds the size threshold."""
+    old_session_id = "old-session-aabbccdd"
+    new_session_id = "new-session-11223344"
+
+    projects = tmp_path / ".claude" / "projects" / "test"
+    projects.mkdir(parents=True)
+    session_file = projects / f"{old_session_id}.jsonl"
+    session_file.write_bytes(b"x" * (_SESSION_RESET_BYTES + 1))
+
+    monkeypatch.setattr(
+        claude_runner,
+        "_find_session_file",
+        lambda sid: session_file if sid == old_session_id else None,
+    )
+
+    claude_path = tmp_path / "claude"
+    claude_path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        f"session_id = '{new_session_id}'\n"
+        "# Verify --resume was NOT passed (session was reset)\n"
+        "assert '--resume' not in sys.argv, f'unexpected --resume in {sys.argv}'\n"
+        "init = {'type': 'system', 'subtype': 'init', 'uuid': 'u',\n"
+        "        'session_id': session_id, 'apiKeySource': 'env', 'cwd': '.',\n"
+        "        'tools': [], 'mcp_servers': [], 'model': 'claude',\n"
+        "        'permissionMode': 'default', 'slash_commands': [],\n"
+        "        'output_style': 'default'}\n"
+        "result = {'type': 'result', 'subtype': 'success', 'uuid': 'u',\n"
+        "          'session_id': session_id, 'duration_ms': 0,\n"
+        "          'duration_api_ms': 0, 'is_error': False, 'num_turns': 1,\n"
+        "          'result': 'ok', 'total_cost_usd': 0.0,\n"
+        "          'usage': {'input_tokens': 0, 'output_tokens': 0},\n"
+        "          'modelUsage': {}, 'permission_denials': []}\n"
+        "print(json.dumps(init), flush=True)\n"
+        "print(json.dumps(result), flush=True)\n",
+        encoding="utf-8",
+    )
+    claude_path.chmod(0o755)
+
+    runner = ClaudeRunner(claude_cmd=str(claude_path))
+    resume = ResumeToken(engine=ENGINE, value=old_session_id)
+
+    events: list = []
+    async for evt in runner.run("hello", resume):
+        events.append(evt)
+
+    # Should complete without raising "emitted session id X but expected Y"
+    completed = next(e for e in events if isinstance(e, CompletedEvent))
+    assert completed.ok is True
+    assert completed.resume == ResumeToken(engine=ENGINE, value=new_session_id)
+
+    # Reset note should have been injected
+    notes = [e for e in events if isinstance(e, ActionEvent) and e.action.kind == "note" and "reset" in e.action.title]
+    assert len(notes) == 1
