@@ -22,7 +22,7 @@ def test_zip_directory_skips_symlinks(tmp_path: Path) -> None:
     link_path = target / "leak.txt"
     try:
         link_path.symlink_to(outside)
-    except (OSError, NotImplementedError):
+    except OSError, NotImplementedError:
         pytest.skip("symlinks not supported")
 
     payload = zip_directory(root, Path("dir"), deny_globs=())

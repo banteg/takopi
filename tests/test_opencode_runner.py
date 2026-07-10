@@ -325,6 +325,20 @@ def test_build_args_with_resume() -> None:
     ]
 
 
+def test_build_args_normalizes_numeric_prompt() -> None:
+    runner = OpenCodeRunner(opencode_cmd="opencode")
+    args = runner.build_args("2", None, state=OpenCodeStreamState())
+
+    assert args[-2:] == ["--", "2."]
+
+
+def test_build_args_preserves_non_numeric_prompt() -> None:
+    runner = OpenCodeRunner(opencode_cmd="opencode")
+    args = runner.build_args("2a", None, state=OpenCodeStreamState())
+
+    assert args[-2:] == ["--", "2a"]
+
+
 def test_stdin_payload_returns_none() -> None:
     runner = OpenCodeRunner(opencode_cmd="opencode")
     payload = runner.stdin_payload("prompt", None, state=OpenCodeStreamState())

@@ -50,6 +50,7 @@ def _msg(
     *,
     message_id: int = 1,
     chat_id: int = 123,
+    thread_id: int | None = None,
     sender_id: int | None = 1,
     chat_type: str | None = None,
     document: TelegramDocument | None = None,
@@ -62,6 +63,7 @@ def _msg(
         reply_to_message_id=None,
         reply_to_text=None,
         sender_id=sender_id,
+        thread_id=thread_id,
         chat_type=chat_type,
         document=document,
     )
@@ -731,6 +733,31 @@ async def test_handle_file_get_sends_file(tmp_path: Path) -> None:
     call = bot.document_calls[-1]
     assert call["filename"] == "notes.txt"
     assert call["content"] == b"hello"
+
+
+@pytest.mark.anyio
+async def test_handle_file_get_routes_forum_topic_documents_by_thread(
+    tmp_path: Path,
+) -> None:
+    transport = FakeTransport()
+    bot = FakeBot()
+    cfg = replace(make_cfg(transport), runtime=_runtime(tmp_path), bot=bot)
+    target = tmp_path / "notes.txt"
+    target.write_bytes(b"hello")
+    msg = _msg("/file get", message_id=10, chat_id=-100, thread_id=77)
+
+    await transfer._handle_file_get(
+        cfg,
+        msg,
+        "notes.txt",
+        ambient_context=None,
+        topic_store=None,
+    )
+
+    assert bot.document_calls
+    call = bot.document_calls[-1]
+    assert call["reply_to_message_id"] is None
+    assert call["message_thread_id"] == 77
 
 
 @pytest.mark.anyio

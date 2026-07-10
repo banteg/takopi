@@ -36,6 +36,7 @@ from takopi.telegram.engine_overrides import EngineOverrides
 from takopi.context import RunContext
 from takopi.config import ProjectConfig, ProjectsConfig
 from takopi.runner_bridge import ExecBridgeConfig, RunningTask
+from takopi.runner import RunnerTurnControl
 from takopi.markdown import MarkdownPresenter
 from takopi.model import ResumeToken
 from takopi.progress import ProgressTracker
@@ -70,6 +71,42 @@ class _NoopTaskGroup:
     def start_soon(self, func, *args: Any) -> None:
         _ = func, args
         return None
+
+
+@pytest.mark.anyio
+async def test_scheduler_keeps_busy_queued_job_addressable_by_progress() -> None:
+    resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+    active_done = anyio.Event()
+    ran = anyio.Event()
+    progress_ref = MessageRef(channel_id=123, message_id=55)
+
+    async def _run_job(_) -> None:
+        ran.set()
+
+    async with anyio.create_task_group() as tg:
+        scheduler = ThreadScheduler(task_group=tg, run_job=_run_job)
+        await scheduler.note_thread_known(resume, active_done)
+        await scheduler.enqueue_resume(
+            chat_id=123,
+            user_msg_id=10,
+            text="queued prompt",
+            resume_token=resume,
+            progress_ref=progress_ref,
+        )
+
+        await anyio.sleep(0)
+
+        queued = await scheduler.get_queued(123, progress_ref.message_id)
+        assert queued is not None
+        assert queued.text == "queued prompt"
+        assert ran.is_set() is False
+
+        active_done.set()
+        with anyio.fail_after(1):
+            await ran.wait()
+        assert await scheduler.get_queued(123, progress_ref.message_id) is None
+
+        tg.cancel_scope.cancel()
 
 
 def test_parse_directives_inline_engine() -> None:
@@ -252,9 +289,61 @@ def test_telegram_presenter_clears_button_on_cancelled() -> None:
     presenter = TelegramPresenter()
     state = ProgressTracker(engine="codex").snapshot()
 
-    rendered = presenter.render_progress(state, elapsed_s=0.0, label="`cancelled`")
+    rendered = presenter.render_progress(state, elapsed_s=0.0, label="cancelled")
 
     assert rendered.extra["reply_markup"]["inline_keyboard"] == []
+
+
+def test_telegram_presenter_clears_button_on_steered() -> None:
+    presenter = TelegramPresenter()
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_progress(state, elapsed_s=0.0, label="steered")
+
+    assert rendered.extra["reply_markup"]["inline_keyboard"] == []
+
+
+def test_telegram_presenter_progress_shows_steer_button_for_queued() -> None:
+    presenter = TelegramPresenter()
+    state = ProgressTracker(engine="codex").snapshot()
+
+    rendered = presenter.render_progress(state, elapsed_s=0.0, label="queued")
+
+    row = rendered.extra["reply_markup"]["inline_keyboard"][0]
+    assert row == [
+        {"text": "steer", "callback_data": "takopi:steer"},
+        {"text": "cancel", "callback_data": "takopi:cancel"},
+    ]
+
+
+@pytest.mark.anyio
+async def test_send_queued_progress_omits_steer_when_not_steerable() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
+
+    await telegram_loop._send_queued_progress(
+        cfg,
+        chat_id=123,
+        user_msg_id=10,
+        thread_id=None,
+        resume_token=ResumeToken(engine=CODEX_ENGINE, value="sid"),
+        context=None,
+        steerable=False,
+    )
+
+    assert transport.send_calls
+    message = transport.send_calls[0]["message"]
+    assert message.text.lower().startswith("starting")
+    assert message.extra["reply_markup"]["inline_keyboard"] == [
+        [{"text": "cancel", "callback_data": "takopi:cancel"}]
+    ]
 
 
 def test_telegram_presenter_final_clears_button() -> None:
@@ -514,7 +603,14 @@ async def test_telegram_transport_edit_wait_false_returns_ref() -> None:
 @pytest.mark.anyio
 async def test_handle_cancel_without_reply_prompts_user() -> None:
     transport = FakeTransport()
-    cfg = make_cfg(transport)
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
     msg = TelegramIncomingMessage(
         transport="telegram",
         chat_id=123,
@@ -657,7 +753,9 @@ async def test_handle_cancel_cancels_queued_job() -> None:
     await handle_cancel(cfg, msg, {}, scheduler)
 
     assert transport.edit_calls
-    assert "cancelled" in transport.edit_calls[0]["message"].text.lower()
+    cancelled_text = transport.edit_calls[0]["message"].text.lower()
+    assert "cancelled" in cancelled_text
+    assert "codex resume sid" in cancelled_text
     assert await scheduler.cancel_queued(123, progress_ref.message_id) is None
 
 
@@ -845,10 +943,199 @@ async def test_handle_callback_cancel_cancels_queued_job() -> None:
     await handle_callback_cancel(cfg, query, {}, scheduler)
 
     assert transport.edit_calls
-    assert "cancelled" in transport.edit_calls[0]["message"].text.lower()
+    cancelled_text = transport.edit_calls[0]["message"].text.lower()
+    assert "cancelled" in cancelled_text
+    assert "codex resume sid" in cancelled_text
     bot = cast(FakeBot, cfg.bot)
     assert bot.callback_calls
     assert bot.callback_calls[-1]["text"] == "dropped from queue."
+
+
+@pytest.mark.anyio
+async def test_handle_callback_steer_sends_queued_text_to_active_turn() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
+
+    async def _noop_run_job(_) -> None:
+        return None
+
+    class _Control(RunnerTurnControl):
+        def __init__(self) -> None:
+            self.steered: list[str] = []
+
+        async def steer(self, text: str) -> None:
+            self.steered.append(text)
+
+        async def interrupt(self) -> bool:
+            return True
+
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=_noop_run_job)
+    progress_id = 88
+    progress_ref = MessageRef(channel_id=123, message_id=progress_id)
+    resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+    await scheduler.enqueue_resume(
+        chat_id=123,
+        user_msg_id=10,
+        text="queued prompt",
+        resume_token=resume,
+        progress_ref=progress_ref,
+    )
+    control = _Control()
+    running_task = RunningTask(resume=resume, control=control)
+    running_tasks = {MessageRef(channel_id=123, message_id=7): running_task}
+    query = TelegramCallbackQuery(
+        transport="telegram",
+        chat_id=123,
+        message_id=progress_id,
+        callback_query_id="cbq-steer",
+        data="takopi:steer",
+        sender_id=123,
+    )
+
+    await telegram_loop.handle_callback_steer(cfg, query, running_tasks, scheduler)
+
+    assert control.steered == ["queued prompt"]
+    assert transport.edit_calls
+    steered_text = transport.edit_calls[0]["message"].text.lower()
+    assert "steered" in steered_text
+    assert (
+        transport.edit_calls[0]["message"].extra["reply_markup"]["inline_keyboard"]
+        == []
+    )
+    assert await scheduler.cancel_queued(123, progress_ref.message_id) is None
+    bot = cast(FakeBot, cfg.bot)
+    assert bot.callback_calls
+    assert bot.callback_calls[-1]["text"] == "steered active turn."
+
+
+@pytest.mark.anyio
+async def test_handle_callback_steer_claims_job_before_awaiting_steer() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
+    active_done = anyio.Event()
+    ran_jobs: list[str] = []
+
+    async def _run_job(job) -> None:
+        ran_jobs.append(job.text)
+
+    class _Control(RunnerTurnControl):
+        def __init__(self) -> None:
+            self.steered: list[str] = []
+
+        async def steer(self, text: str) -> None:
+            self.steered.append(text)
+            active_done.set()
+            await anyio.sleep(0)
+
+        async def interrupt(self) -> bool:
+            return True
+
+    async with anyio.create_task_group() as tg:
+        scheduler = ThreadScheduler(task_group=tg, run_job=_run_job)
+        progress_id = 89
+        progress_ref = MessageRef(channel_id=123, message_id=progress_id)
+        resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+        await scheduler.note_thread_known(resume, active_done)
+        await scheduler.enqueue_resume(
+            chat_id=123,
+            user_msg_id=10,
+            text="queued prompt",
+            resume_token=resume,
+            progress_ref=progress_ref,
+        )
+        await anyio.sleep(0)
+
+        control = _Control()
+        running_task = RunningTask(resume=resume, control=control)
+        running_tasks = {MessageRef(channel_id=123, message_id=7): running_task}
+        query = TelegramCallbackQuery(
+            transport="telegram",
+            chat_id=123,
+            message_id=progress_id,
+            callback_query_id="cbq-steer-race",
+            data="takopi:steer",
+            sender_id=123,
+        )
+
+        await telegram_loop.handle_callback_steer(cfg, query, running_tasks, scheduler)
+        await anyio.sleep(0)
+
+        assert control.steered == ["queued prompt"]
+        assert ran_jobs == []
+        assert await scheduler.get_queued(123, progress_ref.message_id) is None
+        tg.cancel_scope.cancel()
+
+
+@pytest.mark.anyio
+async def test_handle_callback_steer_requeues_when_steer_fails() -> None:
+    transport = FakeTransport()
+    cfg = replace(
+        make_cfg(transport),
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=TelegramPresenter(),
+            final_notify=True,
+        ),
+    )
+
+    async def _noop_run_job(_) -> None:
+        return None
+
+    class _Control(RunnerTurnControl):
+        async def steer(self, text: str) -> None:
+            _ = text
+            raise RuntimeError("nope")
+
+        async def interrupt(self) -> bool:
+            return True
+
+    scheduler = ThreadScheduler(task_group=_NoopTaskGroup(), run_job=_noop_run_job)
+    progress_id = 90
+    progress_ref = MessageRef(channel_id=123, message_id=progress_id)
+    resume = ResumeToken(engine=CODEX_ENGINE, value="sid")
+    await scheduler.enqueue_resume(
+        chat_id=123,
+        user_msg_id=10,
+        text="queued prompt",
+        resume_token=resume,
+        progress_ref=progress_ref,
+    )
+    running_task = RunningTask(resume=resume, control=_Control())
+    query = TelegramCallbackQuery(
+        transport="telegram",
+        chat_id=123,
+        message_id=progress_id,
+        callback_query_id="cbq-steer-fails",
+        data="takopi:steer",
+        sender_id=123,
+    )
+
+    await telegram_loop.handle_callback_steer(
+        cfg,
+        query,
+        {MessageRef(channel_id=123, message_id=7): running_task},
+        scheduler,
+    )
+
+    queued = await scheduler.get_queued(123, progress_ref.message_id)
+    assert queued is not None
+    assert queued.text == "queued prompt"
+    bot = cast(FakeBot, cfg.bot)
+    assert bot.callback_calls[-1]["text"] == "could not steer; still queued."
 
 
 @pytest.mark.anyio
@@ -1399,6 +1686,93 @@ async def test_reasoning_command_show_reports_overrides(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_reasoning_command_show_reports_claude_levels() -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport, engine_id="claude")
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=None,
+    )
+
+    text = transport.send_calls[-1]["message"].text
+    assert "engine: claude (global default)" in text
+    assert "available levels: low, medium, high, xhigh, max" in text
+
+
+@pytest.mark.anyio
+async def test_reasoning_command_set_max_for_claude(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport, engine_id="claude")
+    chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning set max",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+        chat_type="private",
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "set max",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+    )
+
+    override = await chat_prefs.get_engine_override(123, "claude")
+    assert override is not None
+    assert override.reasoning == "max"
+
+
+@pytest.mark.anyio
+async def test_reasoning_command_rejects_unsupported_engine(tmp_path: Path) -> None:
+    transport = FakeTransport()
+    cfg = make_cfg(transport, engine_id="opencode")
+    chat_prefs = ChatPrefsStore(tmp_path / "telegram_chat_prefs_state.json")
+    msg = TelegramIncomingMessage(
+        transport="telegram",
+        chat_id=123,
+        message_id=10,
+        text="/reasoning set high",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=123,
+        chat_type="private",
+    )
+
+    await _handle_reasoning_command(
+        cfg,
+        msg,
+        "set high",
+        ambient_context=None,
+        topic_store=None,
+        chat_prefs=chat_prefs,
+    )
+
+    assert "not supported" in transport.send_calls[-1]["message"].text
+    assert await chat_prefs.get_engine_override(123, "opencode") is None
+
+
+@pytest.mark.anyio
 async def test_send_with_resume_waits_for_token() -> None:
     transport = FakeTransport()
     cfg = make_cfg(transport)
@@ -1470,7 +1844,9 @@ async def test_send_with_resume_waits_for_token() -> None:
     )
     assert sent[0][7] == transport.send_calls[0]["ref"]
     assert transport.send_calls
-    assert "queued" in transport.send_calls[0]["message"].text.lower()
+    queued_text = transport.send_calls[0]["message"].text.lower()
+    assert "queued" in queued_text
+    assert "codex resume abc123" in queued_text
 
 
 @pytest.mark.anyio
@@ -3227,6 +3603,93 @@ async def test_run_main_loop_handles_command_plugins(monkeypatch) -> None:
     assert runner.calls == []
     assert transport.send_calls
     assert transport.send_calls[-1]["message"].text == "echo:hello"
+
+
+def test_parse_callback_data() -> None:
+    assert telegram_loop.parse_callback_data("echo_cmd:hello world") == (
+        "echo_cmd",
+        "hello world",
+    )
+    assert telegram_loop.parse_callback_data("Echo_Cmd") == ("echo_cmd", "")
+    assert telegram_loop.parse_callback_data("echo_cmd:a:b:c") == ("echo_cmd", "a:b:c")
+
+
+@pytest.mark.anyio
+async def test_run_main_loop_routes_callback_to_command_plugins(monkeypatch) -> None:
+    seen: dict[str, Any] = {}
+
+    class _Command:
+        id = "callback_cmd"
+        description = "callback"
+
+        async def handle(self, ctx):
+            seen["text"] = ctx.text
+            seen["args"] = ctx.args
+            seen["message"] = ctx.message
+            return commands.CommandResult(text=f"callback:{ctx.args_text}")
+
+    entrypoints = [
+        FakeEntryPoint(
+            "callback_cmd",
+            "takopi.commands.callback:BACKEND",
+            plugins.COMMAND_GROUP,
+            loader=_Command,
+        )
+    ]
+    install_entrypoints(monkeypatch, entrypoints)
+
+    transport = FakeTransport()
+    bot = FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    exec_cfg = ExecBridgeConfig(
+        transport=transport,
+        presenter=MarkdownPresenter(),
+        final_notify=True,
+    )
+    runtime = TransportRuntime(
+        router=_make_router(runner),
+        projects=_empty_projects(),
+    )
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=exec_cfg,
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramCallbackQuery(
+            transport="telegram",
+            chat_id=123,
+            message_id=42,
+            callback_query_id="cbq-1",
+            data="callback_cmd:hello world",
+            sender_id=123,
+            raw={
+                "id": "cbq-1",
+                "message": {
+                    "message_id": 42,
+                    "message_thread_id": 77,
+                    "chat": {"id": 123, "type": "private"},
+                },
+            },
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert runner.calls == []
+    assert bot.callback_calls
+    assert bot.callback_calls[-1]["callback_query_id"] == "cbq-1"
+    assert transport.send_calls[-1]["message"].text == "callback:hello world"
+    assert seen["text"] == "callback_cmd:hello world"
+    assert seen["args"] == ("hello", "world")
+    message_ref = cast(MessageRef, seen["message"])
+    assert message_ref.message_id == 42
+    assert message_ref.thread_id == 77
+    assert message_ref.sender_id == 123
 
 
 @pytest.mark.anyio

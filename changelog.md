@@ -1,5 +1,55 @@
 # changelog
 
+## v0.23.4 (2026-05-25)
+
+### changes
+
+- require Sulguk 0.12.0 for loose list item rendering and remove the local first-paragraph list shim
+
+## v0.23.3 (2026-05-16)
+
+### fixes
+
+- keep loose ordered and unordered list item text on the marker line in Telegram messages [#243](https://github.com/banteg/takopi/pull/243)
+
+## v0.23.2 (2026-05-15)
+
+### changes
+
+- support Telegram `/reasoning` overrides for Claude and PI with engine-specific allowed levels [#241](https://github.com/banteg/takopi/pull/241)
+
+### fixes
+
+- send Telegram file downloads back to the correct forum topic [#181](https://github.com/banteg/takopi/pull/181)
+- render Codex context compaction events as progress actions [#240](https://github.com/banteg/takopi/pull/240)
+
+## v0.23.1 (2026-05-15)
+
+### fixes
+
+- retry transient Telegram network errors instead of dropping requests or downloads [#239](https://github.com/banteg/takopi/pull/239)
+- guard OpenCode against pure numeric prompts that crash the CLI parser [#237](https://github.com/banteg/takopi/pull/237)
+- route Telegram callback data to matching command backends [#238](https://github.com/banteg/takopi/pull/238)
+
+## v0.23.0 (2026-05-15)
+
+### changes
+
+- use `codex app-server` by default, enabling app-server commentary rendering and turn controls while keeping `codex.mode = "exec"` for the legacy `codex exec --json` runner [#236](https://github.com/banteg/takopi/pull/236)
+- add Telegram `steer` / `cancel` buttons for queued Codex continuations when an active turn can accept steering [#236](https://github.com/banteg/takopi/pull/236)
+
+### fixes
+
+- keep busy queued jobs addressable until they actually start, so steer/cancel callbacks still work while a thread is occupied [#236](https://github.com/banteg/takopi/pull/236)
+- prevent steered queued prompts from also running later as duplicate turns [#236](https://github.com/banteg/takopi/pull/236)
+- surface Codex app-server shutdown during active turns as a rendered runner error instead of a silent missing-completion failure [#236](https://github.com/banteg/takopi/pull/236)
+
+## v0.22.4 (2026-05-15)
+
+### fixes
+
+- show resume lines on queued Telegram continuation messages [#234](https://github.com/banteg/takopi/pull/234)
+
 ## v0.22.3 (2026-03-02)
 
 ### changes

@@ -1,7 +1,7 @@
 [project]
 name = "takopi"
 authors = [{name = "banteg"}]
-version = "0.22.3"
+version = "0.23.4"
 description = "Telegram bridge for Codex, Claude Code, and other agent CLIs."
 readme = "readme.md"
 license = { file = "LICENSE" }
@@ -17,7 +17,7 @@ dependencies = [
   "questionary>=2.1.1",
   "rich>=14.2.0",
   "structlog>=25.5.0",
-  "sulguk>=0.11.1",
+  "sulguk>=0.12.0",
   "tomli-w>=1.2.0",
   "typer>=0.21.0",
   "watchfiles>=0.21.0",

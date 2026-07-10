@@ -1,10 +1,10 @@
-# Takopi Specification v0.22.3 [2026-03-02]
+# Takopi Specification v0.23.4 [2026-05-25]
 
 This document is **normative**. The words **MUST**, **SHOULD**, and **MAY** express requirements.
 
 ## 1. Scope
 
-Takopi v0.22.3 specifies:
+Takopi v0.23.4 specifies:
 
 - A **Telegram** bot bridge that runs an agent **Runner** and posts:
   - a throttled, edited **progress message**
@@ -12,10 +12,11 @@ Takopi v0.22.3 specifies:
 - **Thread continuation** via a **resume command** embedded in chat messages
 - **Parallel runs across different threads**
 - **Serialization within a thread** (no concurrent runs on the same thread)
+- **Optional turn controls** for runners that can interrupt active turns or steer queued prompts into an active turn
 - **Automatic runner selection** among multiple engines based on ResumeLine (with a configurable default for new threads)
 - A Takopi-owned **normalized event model** produced by runners and consumed by renderers/bridge
 
-Out of scope for v0.22.3:
+Out of scope for v0.23.4:
 
 - Non-Telegram clients (Slack/Discord/etc.)
 - Token-by-token streaming of the assistant’s final answer
@@ -118,6 +119,8 @@ Optional:
 * `title: str`
 * `meta: dict`
 
+If `meta["control"]` is present, it SHOULD implement `RunnerTurnControl` (§5.2).
+
 #### 4.3.2 `action`
 
 Required:
@@ -198,7 +201,27 @@ class Runner(Protocol):
     ) -> AsyncIterator[TakopiEvent]: ...
 ```
 
-### 5.2 Per-thread serialization (MUST; core invariant)
+### 5.2 Runner turn control (MAY)
+
+Runners that support live turn control MAY attach a `RunnerTurnControl` object to
+the `started.meta["control"]` value:
+
+```python
+class RunnerTurnControl(Protocol):
+    async def steer(self, text: str) -> None: ...
+    async def interrupt(self) -> bool: ...
+```
+
+Semantics:
+
+* `steer(text)` asks the active turn to incorporate an additional user prompt.
+* `interrupt()` asks the active turn to stop.
+* If a control method returns without raising, the bridge MAY treat the request
+  as accepted by the runner.
+* If a control method raises, the bridge MUST leave the affected queued job or
+  run in a consistent state.
+
+### 5.3 Per-thread serialization (MUST; core invariant)
 
 Define:
 
@@ -221,17 +244,17 @@ New thread rule (`resume is None`):
   * acquire the per-thread lock for that token
   * do so **before emitting** `started(resume=token)`
 
-### 5.3 `started` emission and ordering
+### 5.4 `started` emission and ordering
 
 * If the runner obtains a ResumeToken for the run, it MUST emit exactly one `started` event containing that token.
 * The runner MAY emit `action` events before `started` (e.g., pre-init warnings). Consumers MUST NOT assume `started` is the first event.
 
-### 5.4 Completion
+### 5.5 Completion
 
 * If the run reaches `started`, and then terminates under the runner’s control (success or detected failure), the runner MUST emit exactly one `completed` event and it MUST be the last event.
 * If the runner never obtains a ResumeToken (e.g., fatal failure before session init), it MAY emit no `started` and no `completed`.
 
-### 5.5 Event delivery semantics (MUST)
+### 5.6 Event delivery semantics (MUST)
 
 * Events MUST be yielded in the order produced by the runner.
 * The runner MUST NOT spawn unbounded background tasks per event.
@@ -272,6 +295,10 @@ Required behavior:
 * For each ThreadKey, exactly one worker (or equivalent mechanism) MUST drain the queue sequentially.
 * A worker MUST exit when its queue is empty; the bridge SHOULD avoid retaining state for inactive threads.
 * The implementation MUST avoid spawning one long-lived task per queued job (bounded concurrency).
+* A queued job that is visible to user callbacks MUST remain addressable until
+  it either starts, is cancelled, or is claimed for steering.
+* If a queued job is steered into the active turn, the bridge MUST remove or
+  claim it atomically so it cannot also run later as a duplicate turn.
 
 Runs that start as new threads:
 
@@ -283,6 +310,9 @@ Runs that start as new threads:
 * The bridge SHOULD avoid excessive edits and respect transport constraints (implementation-defined).
 * The bridge SHOULD skip edits when rendered content is unchanged.
 * Once `started` is observed, the progress view SHOULD include the canonical ResumeLine.
+* A queued progress message SHOULD expose a `steer` affordance only when another
+  run is actively occupying the same thread and the active runner provided a
+  `RunnerTurnControl`.
 
 ### 6.4 Final message requirements (MUST)
 
@@ -295,7 +325,9 @@ The final output MUST include:
 ### 6.5 Cancellation `/cancel` (MUST)
 
 * The bridge MUST allow users to cancel a run in progress by sending `/cancel` in reply to the progress message (or by an equivalent mapping defined by the bridge).
-* Cancellation MUST terminate the runner process via **SIGTERM**.
+* Cancellation MUST call `RunnerTurnControl.interrupt()` when available, then
+  stop consuming the runner. Runners without turn control MUST still be aborted
+  best-effort by stopping iteration and releasing held resources.
 * After cancellation, the bridge MUST stop further progress edits and publish a “cancelled” status message.
 * The bridge SHOULD include the ResumeLine if known.
 * Any additional text after `/cancel` is ignored.
@@ -403,8 +435,10 @@ Tests MUST cover:
    * truncation preserves ResumeLine
 5. **Cancellation**
 
-   * `/cancel` terminates run and produces “cancelled”
+   * `/cancel` interrupts or aborts the run and produces “cancelled”
    * ResumeLine included if known
+   * queued steering claims a job atomically and does not run it again
+   * queued steering controls are shown only for actually busy threads
 6. **Renderer formatting**
 
    * completed-only actions render correctly
@@ -443,6 +477,31 @@ The lock file MUST contain JSON with:
 The lock file SHOULD be removed on clean shutdown. Stale locks from crashed processes are handled by the acquisition rules above.
 
 ## 11. Changelog
+
+### v0.23.4 (2026-05-25)
+
+- No normative changes; align spec version with the v0.23.4 release.
+
+### v0.23.3 (2026-05-16)
+
+- No normative changes; align spec version with the v0.23.3 release.
+
+### v0.23.2 (2026-05-15)
+
+- No normative changes; align spec version with the v0.23.2 release.
+
+### v0.23.1 (2026-05-15)
+
+- No normative changes; align spec version with the v0.23.1 release.
+
+### v0.23.0 (2026-05-15)
+
+- Add optional `RunnerTurnControl` semantics and queued steering requirements.
+- Clarify cancellation through runner turn control when available.
+
+### v0.22.4 (2026-05-15)
+
+- No normative changes; align spec version with the v0.22.4 release.
 
 ### v0.22.3 (2026-03-02)
 

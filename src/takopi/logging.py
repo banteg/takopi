@@ -169,7 +169,7 @@ class SafeWriter(io.TextIOBase):
             return 0
         try:
             return self._stream.write(message)
-        except (BrokenPipeError, ValueError):
+        except BrokenPipeError, ValueError:
             self._close()
             return 0
         except OSError as exc:
@@ -183,7 +183,7 @@ class SafeWriter(io.TextIOBase):
             return
         try:
             self._stream.flush()
-        except (BrokenPipeError, ValueError):
+        except BrokenPipeError, ValueError:
             self._close()
         except OSError as exc:
             if exc.errno == errno.EPIPE:

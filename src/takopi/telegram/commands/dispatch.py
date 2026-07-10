@@ -23,6 +23,11 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _parse_callback_data(data: str) -> tuple[str, str]:
+    command_id, _, args_text = data.partition(":")
+    return command_id.lower(), args_text
+
+
 async def _dispatch_command(
     cfg: TelegramBridgeConfig,
     msg: TelegramIncomingMessage,

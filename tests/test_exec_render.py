@@ -180,6 +180,37 @@ def test_progress_renderer_renders_progress_and_final() -> None:
     )
 
 
+def test_progress_renderer_renders_codex_commentary() -> None:
+    tracker = ProgressTracker(engine="codex")
+    tracker.note_event(
+        action_started(
+            "msg-1",
+            "note",
+            "Reading the app-server stream.",
+            detail={"phase": "commentary"},
+        )
+    )
+    tracker.note_event(
+        ActionEvent(
+            engine="codex",
+            action=Action(
+                id="msg-1",
+                kind="note",
+                title="Reading the app-server stream and checking Telegram output.",
+                detail={"phase": "commentary"},
+            ),
+            phase="updated",
+        )
+    )
+
+    parts = MarkdownFormatter(max_actions=5).render_progress_parts(
+        tracker.snapshot(), elapsed_s=1.0
+    )
+    progress = assemble_markdown_parts(parts)
+
+    assert "↻ Reading the app-server stream and checking Telegram output." in progress
+
+
 def test_progress_renderer_footer_includes_ctx_before_resume() -> None:
     tracker = ProgressTracker(engine="codex")
     for evt in SAMPLE_EVENTS:

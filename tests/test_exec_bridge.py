@@ -225,6 +225,7 @@ async def test_handle_message_strips_resume_line_from_prompt() -> None:
     prompt, passed_resume = runner.calls[0]
     assert prompt == "do this\nand that"
     assert passed_resume == resume
+    assert "codex resume sid" in transport.send_calls[0]["message"].text
 
 
 @pytest.mark.anyio

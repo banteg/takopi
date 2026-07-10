@@ -46,6 +46,7 @@ ENGINE: EngineId = "opencode"
 _RESUME_RE = re.compile(
     r"(?im)^\s*`?opencode(?:\s+run)?\s+(?:--session|-s)\s+(?P<token>ses_[A-Za-z0-9]+)`?\s*$"
 )
+_NUMERIC_PROMPT_RE = re.compile(r"^[0-9]+$")
 
 
 @dataclass(slots=True)
@@ -335,6 +336,8 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             model = run_options.model
         if model is not None:
             args.extend(["--model", str(model)])
+        if _NUMERIC_PROMPT_RE.fullmatch(prompt):
+            prompt = f"{prompt}."
         args.extend(["--", prompt])
         return args
 

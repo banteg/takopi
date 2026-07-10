@@ -37,6 +37,17 @@ def test_claude_run_options_override_model() -> None:
     assert args[model_idx] == "claude-opus"
 
 
+def test_claude_run_options_override_reasoning() -> None:
+    runner = ClaudeRunner(claude_cmd="claude")
+    with apply_run_options(EngineRunOptions(reasoning="xhigh")):
+        args = runner.build_args("hi", None, state=None)
+
+    assert "--effort" in args
+    assert args[args.index("--effort") + 1] == "xhigh"
+    assert "--settings" in args
+    assert args[args.index("--settings") + 1] == '{"alwaysThinkingEnabled":true}'
+
+
 def test_opencode_run_options_override_model() -> None:
     runner = OpenCodeRunner(opencode_cmd="opencode", model="claude-sonnet")
     state = OpenCodeStreamState()
@@ -57,3 +68,14 @@ def test_pi_run_options_override_model() -> None:
     assert "--model" in args
     model_idx = args.index("--model") + 1
     assert args[model_idx] == "pi-override"
+
+
+def test_pi_run_options_override_reasoning() -> None:
+    runner = PiRunner(extra_args=[], model=None, provider=None)
+    state = PiStreamState(resume=ResumeToken(engine=PI_ENGINE, value="sess.jsonl"))
+    with apply_run_options(EngineRunOptions(reasoning="high")):
+        args = runner.build_args("hi", None, state=state)
+
+    assert "--thinking" in args
+    thinking_idx = args.index("--thinking") + 1
+    assert args[thinking_idx] == "high"

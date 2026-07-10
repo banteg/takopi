@@ -912,20 +912,20 @@ wheels = [
 
 [[package]]
 name = "sulguk"
-version = "0.11.1"
+version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "html5lib" },
     { name = "lxml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c1/41/6a67c883104945ea7c5712270bce84402efc8668c1136e37ff3d5ec62322/sulguk-0.11.1.tar.gz", hash = "sha256:2d87ac482968eaf3fe662bcff64e1f94ed84fc1edb05a872b7e4343d36e486fe", size = 29906, upload-time = "2025-12-29T16:54:05.486Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/34/77fbb1fde50a5af4a51189d29567acfd90391333b676eb95d77a156a6ae5/sulguk-0.12.0.tar.gz", hash = "sha256:826b3cbc1ac3e9df215dc4d8a4c564569e0c1777e4f1f459e6829798dad4a93c", size = 30970, upload-time = "2026-05-25T17:33:43.627Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1a/75/d80c2127940bc9ba8e130ff46b0e311286764a1d3a2ea28dddeb5976bf5a/sulguk-0.11.1-py3-none-any.whl", hash = "sha256:6db842d7f5f184c0f9deb4fc53db4e6b28a891411bdbd302bee98c407d57b851", size = 31415, upload-time = "2025-12-29T16:54:02.434Z" },
+    { url = "https://files.pythonhosted.org/packages/ca/65/4ee61d3d4856230d2abda454e7511e0675a01024dc19101bb90d397ebd59/sulguk-0.12.0-py3-none-any.whl", hash = "sha256:22981ac9a9083d498882e200efcf9527c3c6def24f6b8677b7b0ed7a7cfbbd68", size = 31872, upload-time = "2026-05-25T17:33:41.979Z" },
 ]
 
 [[package]]
 name = "takopi"
-version = "0.22.3"
+version = "0.23.4"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -970,7 +970,7 @@ requires-dist = [
     { name = "questionary", specifier = ">=2.1.1" },
     { name = "rich", specifier = ">=14.2.0" },
     { name = "structlog", specifier = ">=25.5.0" },
-    { name = "sulguk", specifier = ">=0.11.1" },
+    { name = "sulguk", specifier = ">=0.12.0" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.21.0" },
     { name = "watchfiles", specifier = ">=0.21.0" },

@@ -99,18 +99,104 @@ async def handle_callback_cancel(
     )
 
 
+async def handle_callback_steer(
+    cfg: TelegramBridgeConfig,
+    query: TelegramCallbackQuery,
+    running_tasks: RunningTasks,
+    scheduler: ThreadScheduler | None = None,
+) -> None:
+    if scheduler is None:
+        await cfg.bot.answer_callback_query(
+            callback_query_id=query.callback_query_id,
+            text="no queue is available.",
+        )
+        return
+
+    progress_ref = MessageRef(channel_id=query.chat_id, message_id=query.message_id)
+    job = await scheduler.get_queued(query.chat_id, query.message_id)
+    if job is None:
+        await cfg.bot.answer_callback_query(
+            callback_query_id=query.callback_query_id,
+            text="this message is not queued.",
+        )
+        return
+
+    control = None
+    for running_task in running_tasks.values():
+        if running_task.resume == job.resume_token:
+            control = running_task.control
+            break
+    if control is None:
+        await cfg.bot.answer_callback_query(
+            callback_query_id=query.callback_query_id,
+            text="active turn is not steerable; still queued.",
+        )
+        return
+
+    claimed = await scheduler.claim_queued(query.chat_id, query.message_id)
+    if claimed is None:
+        await cfg.bot.answer_callback_query(
+            callback_query_id=query.callback_query_id,
+            text="already left the queue.",
+        )
+        return
+
+    try:
+        await control.steer(claimed.text)
+    except Exception as exc:  # noqa: BLE001
+        await scheduler.requeue_front(claimed)
+        logger.warning(
+            "steer.failed",
+            chat_id=query.chat_id,
+            progress_message_id=query.message_id,
+            resume=claimed.resume_token.value,
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+        await cfg.bot.answer_callback_query(
+            callback_query_id=query.callback_query_id,
+            text="could not steer; still queued.",
+        )
+        return
+
+    await _edit_labelled_message(cfg, progress_ref, claimed, label="steered")
+    await cfg.bot.answer_callback_query(
+        callback_query_id=query.callback_query_id,
+        text="steered active turn.",
+    )
+
+
 async def _edit_cancelled_message(
     cfg: TelegramBridgeConfig,
     progress_ref: MessageRef,
     job: ThreadJob,
 ) -> None:
+    await _edit_labelled_message(cfg, progress_ref, job, label="cancelled")
+
+
+async def _edit_labelled_message(
+    cfg: TelegramBridgeConfig,
+    progress_ref: MessageRef,
+    job: ThreadJob,
+    *,
+    label: str,
+) -> None:
     tracker = ProgressTracker(engine=job.resume_token.engine)
     tracker.set_resume(job.resume_token)
     context_line = cfg.runtime.format_context_line(job.context)
-    state = tracker.snapshot(context_line=context_line)
+    resume_formatter = None
+    if cfg.show_resume_line or cfg.session_mode != "chat":
+        resume_formatter = cfg.runtime.resolve_runner(
+            resume_token=job.resume_token,
+            engine_override=None,
+        ).runner.format_resume
+    state = tracker.snapshot(
+        resume_formatter=resume_formatter,
+        context_line=context_line,
+    )
     message = cfg.exec_cfg.presenter.render_progress(
         state,
         elapsed_s=0.0,
-        label="`cancelled`",
+        label=label,
     )
     await cfg.exec_cfg.transport.edit(ref=progress_ref, message=message)

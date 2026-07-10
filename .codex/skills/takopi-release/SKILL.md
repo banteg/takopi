@@ -7,7 +7,7 @@ description: Prepare and ship a Takopi release. Use when asked to cut a release,
 
 ## Overview
 
-Prepare a tagged release that matches the GitHub Actions release workflow. The workflow requires the tag version to match both `pyproject.toml` and `src/takopi/__init__.py`.
+Prepare a tagged release that matches the GitHub Actions release workflow. The workflow requires the tag version to match `pyproject.toml`. If `src/takopi/__init__.py` contains a literal `__version__ = "..."`, that literal must also match; current Takopi reads `__version__` from package metadata instead.
 
 ## Workflow
 
@@ -29,7 +29,7 @@ Update `changelog.md` by adding a new top section. Before writing it, study the 
 Update version strings to match the release tag:
 
 - `pyproject.toml`: `project.version = "<major.minor.patch>"`
-- `src/takopi/__init__.py`: `__version__ = "<major.minor.patch>"`
+- `src/takopi/__init__.py`: only update this if it contains a literal `__version__ = "<major.minor.patch>"`; no change is needed when it uses `importlib.metadata.version("takopi")`
 - `uv.lock`: refresh so the root package version matches (run `uv lock` or `uv sync`).
 
 ### 4) Update spec + docs
@@ -63,5 +63,5 @@ If you keep a dev version between releases, bump the minor version (reset patch 
 
 ## Notes
 
-- The release workflow checks that the tag matches `pyproject.toml` and `src/takopi/__init__.py`.
+- The release workflow checks that the tag matches `pyproject.toml`, and also checks `src/takopi/__init__.py` only when it contains a literal `__version__` string.
 - Keep dates consistent across `changelog.md` and `docs/specification.md`.

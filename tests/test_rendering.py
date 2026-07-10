@@ -38,6 +38,47 @@ def test_render_markdown_keeps_https_text_links() -> None:
     )
 
 
+def test_render_markdown_tightens_loose_ordered_list_first_paragraph() -> None:
+    text, entities = render_markdown(
+        "1. **First item** body\n\n"
+        "2. **Second item** body with `code`\n\n"
+        "3. **Third item** body\n"
+    )
+
+    assert text == (
+        "1. First item body\n2. Second item body with code\n3. Third item body\n"
+    )
+    assert entities == [
+        {"type": "bold", "offset": 3, "length": 10},
+        {"type": "bold", "offset": 22, "length": 11},
+        {"type": "code", "offset": 44, "length": 4},
+        {"type": "bold", "offset": 52, "length": 10},
+    ]
+
+
+def test_render_markdown_tightens_loose_unordered_list_first_paragraph() -> None:
+    text, entities = render_markdown(
+        "- **First item** body\n\n- **Second item** body\n"
+    )
+
+    assert text == "- First item body\n- Second item body\n"
+    assert entities == [
+        {"type": "bold", "offset": 2, "length": 10},
+        {"type": "bold", "offset": 20, "length": 11},
+    ]
+
+
+def test_render_markdown_keeps_later_loose_list_paragraphs() -> None:
+    text, _ = render_markdown(
+        "1. **First item** body\n\n   additional paragraph\n\n2. **Second item** body\n"
+    )
+
+    assert text.startswith("1. First item body\n\n")
+    assert "1.\n\n" not in text
+    assert "2.\n\n" not in text
+    assert "\xa0additional paragraph" in text
+
+
 def test_render_markdown_keeps_ordered_numbering_with_unindented_sub_bullets() -> None:
     md = (
         "1. Tune maker\n"

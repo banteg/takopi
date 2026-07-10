@@ -12,7 +12,7 @@ from .logging import bind_run_context, get_logger
 from .model import CompletedEvent, ResumeToken, StartedEvent, TakopiEvent
 from .presenter import Presenter
 from .markdown import render_event_cli
-from .runner import Runner
+from .runner import Runner, RunnerTurnControl
 from .progress import ProgressTracker
 from .transport import (
     ChannelId,
@@ -97,6 +97,7 @@ class RunningTask:
     cancel_requested: anyio.Event = field(default_factory=anyio.Event)
     done: anyio.Event = field(default_factory=anyio.Event)
     context: RunContext | None = None
+    control: RunnerTurnControl | None = None
 
 
 RunningTasks = dict[MessageRef, RunningTask]
@@ -253,7 +254,7 @@ class ProgressEdits:
             self.signal_send.send_nowait(None)
         except anyio.WouldBlock:
             pass
-        except (anyio.BrokenResourceError, anyio.ClosedResourceError):
+        except anyio.BrokenResourceError, anyio.ClosedResourceError:
             pass
 
 
@@ -338,6 +339,10 @@ async def run_runner_with_cancel(
                         bind_run_context(resume=evt.resume.value)
                         if running_task is not None and running_task.resume is None:
                             running_task.resume = evt.resume
+                            if evt.meta is not None:
+                                control = evt.meta.get("control")
+                                if control is not None:
+                                    running_task.control = control
                             try:
                                 if on_thread_known is not None:
                                     await on_thread_known(evt.resume, running_task.done)
@@ -352,6 +357,15 @@ async def run_runner_with_cancel(
 
         async def wait_cancel(task: RunningTask) -> None:
             await task.cancel_requested.wait()
+            if task.control is not None:
+                try:
+                    await task.control.interrupt()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "runner.control_interrupt_failed",
+                        error=str(exc),
+                        error_type=exc.__class__.__name__,
+                    )
             outcome.cancelled = True
             tg.cancel_scope.cancel()
 
@@ -437,6 +451,7 @@ async def handle_message(
     runner_text = _strip_resume_lines(incoming.text, is_resume_line=resume_strip)
 
     progress_tracker = ProgressTracker(engine=runner.engine)
+    progress_tracker.set_resume(resume_token)
 
     user_ref = MessageRef(
         channel_id=incoming.channel_id,

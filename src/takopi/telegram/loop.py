@@ -24,8 +24,17 @@ from ..transport import MessageRef, SendOptions
 from ..transport_runtime import ResolvedMessage
 from ..context import RunContext
 from ..ids import RESERVED_CHAT_COMMANDS
-from .bridge import CANCEL_CALLBACK_DATA, TelegramBridgeConfig, send_plain
-from .commands.cancel import handle_callback_cancel, handle_cancel
+from .bridge import (
+    CANCEL_CALLBACK_DATA,
+    STEER_CALLBACK_DATA,
+    TelegramBridgeConfig,
+    send_plain,
+)
+from .commands.cancel import (
+    handle_callback_cancel,
+    handle_callback_steer,
+    handle_cancel,
+)
 from .commands.file_transfer import FILE_PUT_USAGE
 from .commands.handlers import (
     dispatch_command,
@@ -41,6 +50,7 @@ from .commands.handlers import (
     handle_reasoning_command,
     handle_topic_command,
     handle_trigger_command,
+    parse_callback_data,
     parse_slash_command,
     get_reserved_commands,
     run_engine,
@@ -95,6 +105,45 @@ def _chat_session_key(
     if msg.sender_id is None:
         return None
     return (msg.chat_id, msg.sender_id)
+
+
+def _callback_message_thread_id(update: TelegramCallbackQuery) -> int | None:
+    if update.raw is None:
+        return None
+    message = update.raw.get("message")
+    if not isinstance(message, dict):
+        return None
+    thread_id = message.get("message_thread_id")
+    return thread_id if isinstance(thread_id, int) else None
+
+
+def _callback_chat_type(update: TelegramCallbackQuery) -> str | None:
+    if update.raw is None:
+        return None
+    message = update.raw.get("message")
+    if not isinstance(message, dict):
+        return None
+    chat = message.get("chat")
+    if not isinstance(chat, dict):
+        return None
+    chat_type = chat.get("type")
+    return chat_type if isinstance(chat_type, str) else None
+
+
+def _callback_message(update: TelegramCallbackQuery) -> TelegramIncomingMessage:
+    return TelegramIncomingMessage(
+        transport=update.transport,
+        chat_id=update.chat_id,
+        message_id=update.message_id,
+        text=update.data or "",
+        reply_to_message_id=None,
+        reply_to_text=None,
+        sender_id=update.sender_id,
+        thread_id=_callback_message_thread_id(update),
+        chat_type=_callback_chat_type(update),
+        raw=update.raw,
+        update_id=update.update_id,
+    )
 
 
 async def _resolve_engine_run_options(
@@ -861,17 +910,31 @@ async def _send_queued_progress(
     thread_id: int | None,
     resume_token: ResumeToken,
     context: RunContext | None,
+    steerable: bool,
 ) -> MessageRef | None:
     if cfg.exec_cfg.progress_updates == "none":
         return None
     tracker = ProgressTracker(engine=resume_token.engine)
     tracker.set_resume(resume_token)
     context_line = cfg.runtime.format_context_line(context)
-    state = tracker.snapshot(context_line=context_line)
+    resume_formatter = None
+    if should_show_resume_line(
+        show_resume_line=cfg.show_resume_line,
+        stateful_mode=cfg.session_mode == "chat",
+        context=context,
+    ):
+        resume_formatter = cfg.runtime.resolve_runner(
+            resume_token=resume_token,
+            engine_override=None,
+        ).runner.format_resume
+    state = tracker.snapshot(
+        resume_formatter=resume_formatter,
+        context_line=context_line,
+    )
     message = cfg.exec_cfg.presenter.render_progress(
         state,
         elapsed_s=0.0,
-        label="queued",
+        label="queued" if steerable else "starting",
     )
     reply_ref = MessageRef(
         channel_id=chat_id,
@@ -928,6 +991,7 @@ async def send_with_resume(
         thread_id=thread_id,
         resume_token=resume,
         context=running_task.context,
+        steerable=not running_task.done.is_set(),
     )
     await enqueue(
         chat_id,
@@ -1382,6 +1446,7 @@ async def run_main_loop(
                     thread_id=msg.thread_id,
                     resume_token=resume_token,
                     context=context,
+                    steerable=await scheduler.is_busy(resume_token),
                 )
                 await scheduler.enqueue_resume(
                     chat_id,
@@ -1841,6 +1906,72 @@ async def run_main_loop(
                             state.running_tasks,
                             scheduler,
                         )
+                    elif update.data == STEER_CALLBACK_DATA:
+                        tg.start_soon(
+                            handle_callback_steer,
+                            cfg,
+                            update,
+                            state.running_tasks,
+                            scheduler,
+                        )
+                    elif update.data:
+                        command_id, args_text = parse_callback_data(update.data)
+                        if command_id not in state.command_ids:
+                            refresh_commands()
+                        if command_id in state.command_ids:
+                            callback_msg = _callback_message(update)
+                            ctx = await build_message_context(callback_msg)
+                            engine_resolution = await resolve_engine_defaults(
+                                explicit_engine=None,
+                                context=ctx.ambient_context,
+                                chat_id=ctx.chat_id,
+                                topic_key=ctx.topic_key,
+                            )
+                            default_engine_override = (
+                                engine_resolution.engine
+                                if engine_resolution.source
+                                in {"directive", "topic_default", "chat_default"}
+                                else None
+                            )
+                            overrides_thread_id = (
+                                ctx.topic_key[1]
+                                if ctx.topic_key is not None
+                                else callback_msg.thread_id
+                            )
+                            engine_overrides_resolver = partial(
+                                _resolve_engine_run_options,
+                                ctx.chat_id,
+                                overrides_thread_id,
+                                chat_prefs=state.chat_prefs,
+                                topic_store=state.topic_store,
+                            )
+                            tg.start_soon(
+                                cfg.bot.answer_callback_query,
+                                update.callback_query_id,
+                            )
+                            tg.start_soon(
+                                dispatch_command,
+                                cfg,
+                                callback_msg,
+                                update.data,
+                                command_id,
+                                args_text,
+                                state.running_tasks,
+                                scheduler,
+                                wrap_on_thread_known(
+                                    scheduler.note_thread_known,
+                                    ctx.topic_key,
+                                    ctx.chat_session_key,
+                                ),
+                                ctx.stateful_mode,
+                                default_engine_override,
+                                engine_overrides_resolver,
+                            )
+                        else:
+                            tg.start_soon(
+                                cfg.bot.answer_callback_query,
+                                update.callback_query_id,
+                            )
                     else:
                         tg.start_soon(
                             cfg.bot.answer_callback_query,

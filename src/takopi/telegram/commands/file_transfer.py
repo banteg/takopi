@@ -578,7 +578,6 @@ async def _handle_file_get(
         chat_id=msg.chat_id,
         filename=filename,
         content=payload,
-        reply_to_message_id=msg.message_id,
         message_thread_id=msg.thread_id,
     )
     if sent is None:

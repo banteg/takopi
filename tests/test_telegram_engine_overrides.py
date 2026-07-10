@@ -3,10 +3,44 @@ import pytest
 from takopi.telegram.chat_prefs import ChatPrefsStore
 from takopi.telegram.engine_overrides import (
     EngineOverrides,
+    allowed_reasoning_levels,
     merge_overrides,
     resolve_override_value,
+    supports_reasoning,
 )
 from takopi.telegram.topic_state import TopicStateStore
+
+
+def test_reasoning_levels_are_engine_specific() -> None:
+    assert allowed_reasoning_levels("claude") == (
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    )
+    assert allowed_reasoning_levels("codex") == (
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    )
+    assert allowed_reasoning_levels("pi") == (
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    )
+    assert allowed_reasoning_levels("opencode") == ()
+
+
+def test_supports_reasoning_known_engines() -> None:
+    assert supports_reasoning("claude") is True
+    assert supports_reasoning("codex") is True
+    assert supports_reasoning("pi") is True
+    assert supports_reasoning("opencode") is False
 
 
 def test_merge_overrides_prefers_topic_values() -> None:

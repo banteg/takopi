@@ -9,7 +9,7 @@ telegram bridge for codex, claude code, opencode, pi. manage multiple projects a
 - projects and worktrees: work on multiple repos/branches simultaneously, branches are git worktrees
 - stateless resume: continue in chat or copy the resume line to pick up in terminal
 - progress streaming: commands, tools, file changes, elapsed time
-- parallel runs across agent sessions, per-agent-session queue
+- parallel runs across agent sessions, per-agent-session queue with Codex steering/cancel controls
 - works with telegram features like voice notes and scheduled messages
 - file transfer: send files to the repo or fetch files/dirs back
 - group chats and topics: map group topics to repo/branch contexts
@@ -70,4 +70,3 @@ see [`docs/how-to/write-a-plugin.md`](docs/how-to/write-a-plugin.md) and [`docs/
 ## development
 
 see [`docs/reference/specification.md`](docs/reference/specification.md) and [`docs/developing.md`](docs/developing.md).
-
