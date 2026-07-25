@@ -8,13 +8,19 @@ from typing import Any, Literal
 RichMessagesMode = Literal["off", "auto", "always"]
 
 # GFM table: header row + separator |---|
-_GFM_TABLE_RE = re.compile(
-    r"(?m)^\|[ \t]*[^\n|]+\|[ \t]*\n[ \t]*\|[ \t]*:?-{3,}:?[ \t]*(\|[ \t]*:?-{3,}:?[ \t]*)+\|"
-)
+_GFM_TABLE_SEP_RE = re.compile(r"^\|[\s:\-|]+\|$")
 
 
 def markdown_has_gfm_table(text: str) -> bool:
-    return bool(_GFM_TABLE_RE.search(text))
+    lines = text.splitlines()
+    for i in range(len(lines) - 1):
+        header = lines[i].strip()
+        sep = lines[i + 1].strip()
+        if not (header.startswith("|") and header.endswith("|")):
+            continue
+        if "---" in sep and _GFM_TABLE_SEP_RE.match(sep):
+            return True
+    return False
 
 
 def should_use_rich_message(text: str, mode: RichMessagesMode) -> bool:
