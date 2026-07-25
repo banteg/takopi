@@ -62,6 +62,18 @@ class BotClient(Protocol):
         replace_message_id: int | None = None,
     ) -> Message | None: ...
 
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        rich_message: dict[str, Any],
+        reply_to_message_id: int | None = None,
+        disable_notification: bool | None = False,
+        message_thread_id: int | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        *,
+        replace_message_id: int | None = None,
+    ) -> Message | None: ...
+
     async def send_document(
         self,
         chat_id: int,
@@ -235,6 +247,16 @@ class HttpBotClient:
                 )
                 raise TelegramRetryAfter(retry_after) from exc
             body = resp.text
+            if resp.status_code == 400 and method == "editMessageText":
+                try:
+                    err_payload = resp.json()
+                except Exception:  # noqa: BLE001
+                    err_payload = None
+                if isinstance(err_payload, dict) and "message is not modified" in str(
+                    err_payload.get("description", "")
+                ):
+                    logger.debug("telegram.edit_unchanged", method=method)
+                    return {"__takopi_unchanged__": True}
             logger.error(
                 "telegram.http_error",
                 method=method,
@@ -401,6 +423,38 @@ class HttpBotClient:
         result = await self._post("sendMessage", params)
         return self._decode_result(method="sendMessage", payload=result, model=Message)
 
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        rich_message: dict[str, Any],
+        reply_to_message_id: int | None = None,
+        disable_notification: bool | None = False,
+        message_thread_id: int | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        *,
+        replace_message_id: int | None = None,
+    ) -> Message | None:
+        del replace_message_id  # handled by TelegramClient outbox wrapper
+        params: dict[str, Any] = {
+            "chat_id": chat_id,
+            "rich_message": rich_message,
+        }
+        if disable_notification is not None:
+            params["disable_notification"] = disable_notification
+        if message_thread_id is not None:
+            params["message_thread_id"] = message_thread_id
+        if reply_to_message_id is not None:
+            params["reply_parameters"] = {
+                "message_id": reply_to_message_id,
+                "allow_sending_without_reply": True,
+            }
+        if reply_markup is not None:
+            params["reply_markup"] = reply_markup
+        result = await self._post("sendRichMessage", params)
+        return self._decode_result(
+            method="sendRichMessage", payload=result, model=Message
+        )
+
     async def send_document(
         self,
         chat_id: int,
@@ -451,6 +505,8 @@ class HttpBotClient:
         if reply_markup is not None:
             params["reply_markup"] = reply_markup
         result = await self._post("editMessageText", params)
+        if isinstance(result, dict) and result.get("__takopi_unchanged__"):
+            return None
         return self._decode_result(
             method="editMessageText",
             payload=result,

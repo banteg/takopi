@@ -207,6 +207,45 @@ class TelegramClient:
             await self.delete_message(chat_id=chat_id, message_id=replace_message_id)
         return result
 
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        rich_message: dict[str, Any],
+        reply_to_message_id: int | None = None,
+        disable_notification: bool | None = False,
+        message_thread_id: int | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        *,
+        replace_message_id: int | None = None,
+    ) -> Message | None:
+        async def execute() -> Message | None:
+            return await self._client.send_rich_message(
+                chat_id=chat_id,
+                rich_message=rich_message,
+                reply_to_message_id=reply_to_message_id,
+                disable_notification=disable_notification,
+                message_thread_id=message_thread_id,
+                reply_markup=reply_markup,
+                replace_message_id=replace_message_id,
+            )
+
+        if replace_message_id is not None:
+            await self._outbox.drop_pending(key=("edit", chat_id, replace_message_id))
+        result = await self.enqueue_op(
+            key=(
+                ("send_rich", chat_id, replace_message_id)
+                if replace_message_id is not None
+                else self.unique_key("send_rich")
+            ),
+            label="send_rich_message",
+            execute=execute,
+            priority=SEND_PRIORITY,
+            chat_id=chat_id,
+        )
+        if replace_message_id is not None and result is not None:
+            await self.delete_message(chat_id=chat_id, message_id=replace_message_id)
+        return result
+
     async def send_document(
         self,
         chat_id: int,

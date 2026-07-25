@@ -5,7 +5,12 @@ from dataclasses import dataclass, field
 from typing import Literal, cast
 
 from ..logging import get_logger
-from ..markdown import MarkdownFormatter, MarkdownParts
+from ..markdown import MarkdownFormatter, MarkdownParts, assemble_markdown_parts
+from .rich_message import (
+    RichMessagesMode,
+    build_input_rich_message,
+    should_use_rich_message,
+)
 from ..progress import ProgressState
 from ..runner_bridge import ExecBridgeConfig, RunningTask, RunningTasks
 from ..transport import MessageRef, RenderedMessage, SendOptions, Transport
@@ -59,9 +64,11 @@ class TelegramPresenter:
         *,
         formatter: MarkdownFormatter | None = None,
         message_overflow: str = "trim",
+        rich_messages: RichMessagesMode = "auto",
     ) -> None:
         self._formatter = formatter or MarkdownFormatter()
         self._message_overflow = message_overflow
+        self._rich_messages = rich_messages
 
     def render_progress(
         self,
@@ -96,6 +103,15 @@ class TelegramPresenter:
         parts = self._formatter.render_final_parts(
             state, elapsed_s=elapsed_s, status=status, answer=answer
         )
+        raw_md = assemble_markdown_parts(parts)
+        if should_use_rich_message(raw_md, self._rich_messages):
+            return RenderedMessage(
+                text=raw_md,
+                extra={
+                    "rich_message": build_input_rich_message(raw_md),
+                    "reply_markup": CLEAR_MARKUP,
+                },
+            )
         if self._message_overflow == "split":
             payloads = prepare_telegram_multi(parts, max_body_chars=MAX_BODY_CHARS)
             text, entities = payloads[0]
@@ -228,17 +244,29 @@ class TelegramTransport:
             )
             notify = bool(message.extra.get("followup_notify", True))
         followups = self._extract_followups(message)
-        sent = await self._bot.send_message(
-            chat_id=chat_id,
-            text=message.text,
-            entities=message.extra.get("entities"),
-            parse_mode=message.extra.get("parse_mode"),
-            reply_markup=message.extra.get("reply_markup"),
-            reply_to_message_id=reply_to_message_id,
-            message_thread_id=message_thread_id,
-            replace_message_id=replace_message_id,
-            disable_notification=not notify,
-        )
+        rich_payload = message.extra.get("rich_message")
+        if isinstance(rich_payload, dict):
+            sent = await self._bot.send_rich_message(
+                chat_id=chat_id,
+                rich_message=rich_payload,
+                reply_to_message_id=reply_to_message_id,
+                message_thread_id=message_thread_id,
+                reply_markup=message.extra.get("reply_markup"),
+                replace_message_id=replace_message_id,
+                disable_notification=not notify,
+            )
+        else:
+            sent = await self._bot.send_message(
+                chat_id=chat_id,
+                text=message.text,
+                entities=message.extra.get("entities"),
+                parse_mode=message.extra.get("parse_mode"),
+                reply_markup=message.extra.get("reply_markup"),
+                reply_to_message_id=reply_to_message_id,
+                message_thread_id=message_thread_id,
+                replace_message_id=replace_message_id,
+                disable_notification=not notify,
+            )
         if sent is None:
             return None
         if followups:
