@@ -27,7 +27,7 @@ from takopi.telegram.bridge import (
     run_main_loop,
     send_with_resume,
 )
-from takopi.telegram.client import BotClient
+from takopi.telegram.client import MESSAGE_UNCHANGED, BotClient
 from takopi.telegram.render import MAX_BODY_CHARS
 from takopi.telegram.topic_state import TopicStateStore, resolve_state_path
 from takopi.telegram.chat_sessions import ChatSessionStore, resolve_sessions_path
@@ -440,6 +440,21 @@ async def test_telegram_transport_sends_followups() -> None:
     assert bot.send_calls[1]["message_thread_id"] == 7
     assert bot.send_calls[1]["replace_message_id"] is None
     assert bot.send_calls[1]["disable_notification"] is True
+
+
+@pytest.mark.anyio
+async def test_telegram_transport_edit_unchanged_keeps_ref_without_resending() -> None:
+    bot = FakeBot()
+    bot.edit_result = MESSAGE_UNCHANGED
+    transport = TelegramTransport(bot)
+    ref = MessageRef(channel_id=123, message_id=42, thread_id=7)
+
+    edited = await transport.edit(ref=ref, message=RenderedMessage(text="same"))
+
+    # a duplicate post would be the alternative: _send_or_edit_message falls
+    # through to send whenever edit returns None
+    assert edited == ref
+    assert not bot.send_calls
 
 
 @pytest.mark.anyio

@@ -2,11 +2,12 @@ import httpx
 import pytest
 
 from takopi.telegram.client_api import (
+    MESSAGE_UNCHANGED,
     HttpBotClient,
     TelegramRetryAfter,
     retry_after_from_payload,
 )
-from takopi.telegram.api_models import User
+from takopi.telegram.api_models import Message, User
 
 
 def _response() -> httpx.Response:
@@ -96,7 +97,9 @@ async def test_client_methods_build_params_and_decode() -> None:
             json: dict | None = None,
             data: dict | None = None,
             files: dict | None = None,
+            benign_400: str | None = None,
         ) -> object | None:
+            _ = benign_400
             self.calls.append((method, json, data, files))
             return payloads.get(method)
 
@@ -138,7 +141,7 @@ async def test_client_methods_build_params_and_decode() -> None:
         parse_mode="Markdown",
         reply_markup={"inline_keyboard": []},
     )
-    assert edit and edit.message_id == 3
+    assert isinstance(edit, Message) and edit.message_id == 3
 
     assert await client.delete_message(1, 2) is True
     assert await client.set_my_commands(
@@ -176,3 +179,46 @@ async def test_decode_result_invalid_payload_returns_none() -> None:
     client = HttpBotClient("token", http_client=httpx.AsyncClient())
     assert client._decode_result(method="getMe", payload=["bad"], model=User) is None
     await client.close()
+
+
+def _mock_client(handler) -> HttpBotClient:
+    return HttpBotClient(
+        "token", http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+
+
+@pytest.mark.anyio
+async def test_edit_message_text_not_modified_is_a_no_op() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "ok": False,
+                "error_code": 400,
+                "description": (
+                    "Bad Request: message is not modified: specified new message "
+                    "content and reply markup are exactly the same"
+                ),
+            },
+        )
+
+    client = _mock_client(handler)
+
+    assert await client.edit_message_text(1, 2, "same") is MESSAGE_UNCHANGED
+
+
+@pytest.mark.anyio
+async def test_edit_message_text_other_400_still_fails() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "ok": False,
+                "error_code": 400,
+                "description": "Bad Request: message to edit not found",
+            },
+        )
+
+    client = _mock_client(handler)
+
+    assert await client.edit_message_text(1, 2, "text") is None
