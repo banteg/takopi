@@ -283,6 +283,7 @@ class TelegramClient:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict[str, Any] | None = None,
+        rich_message: dict[str, Any] | None = None,
         *,
         wait: bool = True,
     ) -> Message | None:
@@ -294,6 +295,7 @@ class TelegramClient:
                 entities=entities,
                 parse_mode=parse_mode,
                 reply_markup=reply_markup,
+                rich_message=rich_message,
                 wait=wait,
             )
 

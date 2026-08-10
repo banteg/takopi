@@ -106,7 +106,7 @@ class TelegramTransportSettings(BaseModel):
     chat_id: ChatId
     allowed_user_ids: list[StrictInt] = Field(default_factory=list)
     message_overflow: Literal["trim", "split"] = "trim"
-    rich_messages: Literal["off", "auto", "always"] = "auto"
+    rich_messages: Literal["off", "auto", "always"] = "off"
     voice_transcription: bool = False
     voice_max_bytes: StrictInt = 10 * 1024 * 1024
     voice_transcription_model: NonEmptyStr = "gpt-4o-mini-transcribe"

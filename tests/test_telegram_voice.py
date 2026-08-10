@@ -96,6 +96,7 @@ class _Bot(BotClient):
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict | None = None,
+        rich_message: dict | None = None,
         *,
         wait: bool = True,
     ) -> Message | None:
@@ -106,6 +107,7 @@ class _Bot(BotClient):
             entities,
             parse_mode,
             reply_markup,
+            rich_message,
             wait,
         )
         raise AssertionError("edit_message_text should not be called")

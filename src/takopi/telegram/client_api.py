@@ -93,6 +93,7 @@ class BotClient(Protocol):
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict[str, Any] | None = None,
+        rich_message: dict[str, Any] | None = None,
         *,
         wait: bool = True,
     ) -> Message | None: ...
@@ -247,16 +248,6 @@ class HttpBotClient:
                 )
                 raise TelegramRetryAfter(retry_after) from exc
             body = resp.text
-            if resp.status_code == 400 and method == "editMessageText":
-                try:
-                    err_payload = resp.json()
-                except Exception:  # noqa: BLE001
-                    err_payload = None
-                if isinstance(err_payload, dict) and "message is not modified" in str(
-                    err_payload.get("description", "")
-                ):
-                    logger.debug("telegram.edit_unchanged", method=method)
-                    return {"__takopi_unchanged__": True}
             logger.error(
                 "telegram.http_error",
                 method=method,
@@ -434,7 +425,6 @@ class HttpBotClient:
         *,
         replace_message_id: int | None = None,
     ) -> Message | None:
-        del replace_message_id  # handled by TelegramClient outbox wrapper
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "rich_message": rich_message,
@@ -489,24 +479,26 @@ class HttpBotClient:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict[str, Any] | None = None,
+        rich_message: dict[str, Any] | None = None,
         *,
         wait: bool = True,
     ) -> Message | None:
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
-            "text": text,
         }
-        if entities is not None:
-            params["entities"] = entities
-        if parse_mode is not None:
-            params["parse_mode"] = parse_mode
+        if rich_message is not None:
+            params["rich_message"] = rich_message
+        else:
+            params["text"] = text
+            if entities is not None:
+                params["entities"] = entities
+            if parse_mode is not None:
+                params["parse_mode"] = parse_mode
         params["link_preview_options"] = {"is_disabled": True}
         if reply_markup is not None:
             params["reply_markup"] = reply_markup
         result = await self._post("editMessageText", params)
-        if isinstance(result, dict) and result.get("__takopi_unchanged__"):
-            return None
         return self._decode_result(
             method="editMessageText",
             payload=result,
