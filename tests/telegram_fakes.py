@@ -17,7 +17,7 @@ from takopi.telegram.api_models import (
     User,
 )
 from takopi.telegram.bridge import TelegramBridgeConfig
-from takopi.telegram.client import BotClient
+from takopi.telegram.client import BotClient, EditResult
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from takopi.transport_runtime import TransportRuntime
 
@@ -93,6 +93,8 @@ class FakeBot(BotClient):
         self.send_calls: list[dict] = []
         self.document_calls: list[dict] = []
         self.edit_calls: list[dict] = []
+        # set to MESSAGE_UNCHANGED to simulate a "message is not modified" 400
+        self.edit_result: EditResult | None = None
         self.edit_topic_calls: list[dict[str, Any]] = []
         self.delete_calls: list[dict] = []
 
@@ -176,7 +178,7 @@ class FakeBot(BotClient):
         reply_markup: dict | None = None,
         *,
         wait: bool = True,
-    ) -> Message:
+    ) -> EditResult:
         self.edit_calls.append(
             {
                 "chat_id": chat_id,
@@ -188,6 +190,8 @@ class FakeBot(BotClient):
                 "wait": wait,
             }
         )
+        if self.edit_result is not None:
+            return self.edit_result
         return Message(message_id=message_id, chat=Chat(id=chat_id, type="private"))
 
     async def delete_message(self, chat_id: int, message_id: int) -> bool:

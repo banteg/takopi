@@ -432,7 +432,7 @@ async def test_retry_after_retries_once() -> None:
         text="retry",
     )
 
-    assert result is not None
+    assert isinstance(result, Message)
     assert result.message_id == 1
     assert bot._edit_attempts == 2
 

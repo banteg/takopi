@@ -25,6 +25,22 @@ class TelegramRetryAfter(RetryAfter):
     pass
 
 
+class MessageUnchanged:
+    """An edit that Telegram rejected because nothing about the message changed.
+
+    Distinct from `None` (a real failure): the message is already in the
+    requested state, so callers should treat it as a successful no-op rather
+    than retrying or falling back to sending a new message.
+    """
+
+
+MESSAGE_UNCHANGED = MessageUnchanged()
+
+EditResult = Message | MessageUnchanged | None
+
+_NOT_MODIFIED = "message is not modified"
+
+
 def retry_after_from_payload(payload: dict[str, Any]) -> float | None:
     params = payload.get("parameters")
     if isinstance(params, dict):
@@ -83,7 +99,7 @@ class BotClient(Protocol):
         reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
-    ) -> Message | None: ...
+    ) -> EditResult: ...
 
     async def delete_message(
         self,
@@ -192,6 +208,7 @@ class HttpBotClient:
         json: dict[str, Any] | None = None,
         data: dict[str, Any] | None = None,
         files: dict[str, Any] | None = None,
+        benign_400: str | None = None,
     ) -> Any | None:
         request_payload = json if json is not None else data
         logger.debug("telegram.request", method=method, payload=request_payload)
@@ -235,6 +252,13 @@ class HttpBotClient:
                 )
                 raise TelegramRetryAfter(retry_after) from exc
             body = resp.text
+            if (
+                benign_400 is not None
+                and resp.status_code == 400
+                and benign_400 in body
+            ):
+                logger.debug("telegram.benign_400", method=method, body=body)
+                return MESSAGE_UNCHANGED
             logger.error(
                 "telegram.http_error",
                 method=method,
@@ -286,8 +310,14 @@ class HttpBotClient:
             )
             return None
 
-    async def _post(self, method: str, json_data: dict[str, Any]) -> Any | None:
-        return await self._request(method, json=json_data)
+    async def _post(
+        self,
+        method: str,
+        json_data: dict[str, Any],
+        *,
+        benign_400: str | None = None,
+    ) -> Any | None:
+        return await self._request(method, json=json_data, benign_400=benign_400)
 
     async def _post_form(
         self,
@@ -437,7 +467,7 @@ class HttpBotClient:
         reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
-    ) -> Message | None:
+    ) -> EditResult:
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
@@ -450,7 +480,9 @@ class HttpBotClient:
         params["link_preview_options"] = {"is_disabled": True}
         if reply_markup is not None:
             params["reply_markup"] = reply_markup
-        result = await self._post("editMessageText", params)
+        result = await self._post("editMessageText", params, benign_400=_NOT_MODIFIED)
+        if result is MESSAGE_UNCHANGED:
+            return MESSAGE_UNCHANGED
         return self._decode_result(
             method="editMessageText",
             payload=result,

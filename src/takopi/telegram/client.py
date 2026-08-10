@@ -10,7 +10,14 @@ import httpx
 
 from ..logging import get_logger
 from .api_models import Chat, ChatMember, File, ForumTopic, Message, Update, User
-from .client_api import BotClient, HttpBotClient, TelegramRetryAfter
+from .client_api import (
+    MESSAGE_UNCHANGED,
+    BotClient,
+    EditResult,
+    HttpBotClient,
+    MessageUnchanged,
+    TelegramRetryAfter,
+)
 from .outbox import (
     DELETE_PRIORITY,
     EDIT_PRIORITY,
@@ -23,7 +30,10 @@ from .parsing import parse_incoming_update, poll_incoming
 logger = get_logger(__name__)
 
 __all__ = [
+    "MESSAGE_UNCHANGED",
     "BotClient",
+    "EditResult",
+    "MessageUnchanged",
     "TelegramClient",
     "TelegramRetryAfter",
     "is_group_chat_id",
@@ -246,8 +256,8 @@ class TelegramClient:
         reply_markup: dict[str, Any] | None = None,
         *,
         wait: bool = True,
-    ) -> Message | None:
-        async def execute() -> Message | None:
+    ) -> EditResult:
+        async def execute() -> EditResult:
             return await self._client.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,

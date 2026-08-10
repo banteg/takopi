@@ -18,7 +18,7 @@ from ..settings import (
     TelegramTopicsSettings,
     TelegramTransportSettings,
 )
-from .client import BotClient
+from .client import BotClient, MessageUnchanged
 from .render import MAX_BODY_CHARS, prepare_telegram, prepare_telegram_multi
 from .types import TelegramCallbackQuery, TelegramIncomingMessage
 
@@ -282,6 +282,10 @@ class TelegramTransport:
         )
         if edited is None:
             return ref if not wait else None
+        if isinstance(edited, MessageUnchanged):
+            # the message already reads the way we wanted; sending a fresh one
+            # instead would just duplicate it
+            return ref
         if followups:
             reply_to_message_id = cast(
                 int | None, message.extra.get("followup_reply_to_message_id")
