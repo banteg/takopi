@@ -178,6 +178,42 @@ instead:
 Split mode sends multiple messages. Each chunk includes the footer; follow-up
 chunks add a "continued (N/M)" header.
 
+## Rich messages (optional)
+
+Regular bot messages are CommonMark rendered to entities by sulguk, which
+flattens GFM pipe tables. Bot API 10.1 added
+[`sendRichMessage`](https://core.telegram.org/bots/api#sendrichmessage), whose
+Rich Markdown renders tables natively. It is off by default:
+
+=== "takopi config"
+
+    ```sh
+    takopi config set transports.telegram.rich_messages "auto"
+    ```
+
+=== "toml"
+
+    ```toml
+    [transports.telegram]
+    rich_messages = "auto" # off | auto | always
+    ```
+
+- **`off`** (default): regular messages only.
+- **`auto`**: rich markdown when the final answer contains a GFM table
+  (`| col |` + `|---|`) or a level-2+ heading in a long answer. Fenced code
+  blocks are not scanned, so a `## ` inside a shell snippet does not count.
+- **`always`**: every final answer goes out as rich markdown.
+
+Only final answers are affected; progress updates stay on regular messages.
+
+Every rich call carries the regular rendering alongside it. If the payload is
+rejected — an older Bot API server, or the documented limits (32768 characters,
+500 blocks, 20 table columns) — takopi retries with the regular message, so
+enabling this cannot drop an answer. Answers that need `message_overflow =
+"split"` also stay on the regular path.
+
+Requires a Telegram client recent enough to render rich messages.
+
 ## Forum topics (optional)
 
 If you chose the **workspace** workflow during onboarding, topics are already enabled.

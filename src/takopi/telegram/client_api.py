@@ -62,6 +62,18 @@ class BotClient(Protocol):
         replace_message_id: int | None = None,
     ) -> Message | None: ...
 
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        rich_message: dict[str, Any],
+        reply_to_message_id: int | None = None,
+        disable_notification: bool | None = False,
+        message_thread_id: int | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        *,
+        replace_message_id: int | None = None,
+    ) -> Message | None: ...
+
     async def send_document(
         self,
         chat_id: int,
@@ -81,6 +93,7 @@ class BotClient(Protocol):
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict[str, Any] | None = None,
+        rich_message: dict[str, Any] | None = None,
         *,
         wait: bool = True,
     ) -> Message | None: ...
@@ -401,6 +414,37 @@ class HttpBotClient:
         result = await self._post("sendMessage", params)
         return self._decode_result(method="sendMessage", payload=result, model=Message)
 
+    async def send_rich_message(
+        self,
+        chat_id: int,
+        rich_message: dict[str, Any],
+        reply_to_message_id: int | None = None,
+        disable_notification: bool | None = False,
+        message_thread_id: int | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        *,
+        replace_message_id: int | None = None,
+    ) -> Message | None:
+        params: dict[str, Any] = {
+            "chat_id": chat_id,
+            "rich_message": rich_message,
+        }
+        if disable_notification is not None:
+            params["disable_notification"] = disable_notification
+        if message_thread_id is not None:
+            params["message_thread_id"] = message_thread_id
+        if reply_to_message_id is not None:
+            params["reply_parameters"] = {
+                "message_id": reply_to_message_id,
+                "allow_sending_without_reply": True,
+            }
+        if reply_markup is not None:
+            params["reply_markup"] = reply_markup
+        result = await self._post("sendRichMessage", params)
+        return self._decode_result(
+            method="sendRichMessage", payload=result, model=Message
+        )
+
     async def send_document(
         self,
         chat_id: int,
@@ -435,18 +479,22 @@ class HttpBotClient:
         entities: list[dict] | None = None,
         parse_mode: str | None = None,
         reply_markup: dict[str, Any] | None = None,
+        rich_message: dict[str, Any] | None = None,
         *,
         wait: bool = True,
     ) -> Message | None:
         params: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
-            "text": text,
         }
-        if entities is not None:
-            params["entities"] = entities
-        if parse_mode is not None:
-            params["parse_mode"] = parse_mode
+        if rich_message is not None:
+            params["rich_message"] = rich_message
+        else:
+            params["text"] = text
+            if entities is not None:
+                params["entities"] = entities
+            if parse_mode is not None:
+                params["parse_mode"] = parse_mode
         params["link_preview_options"] = {"is_disabled": True}
         if reply_markup is not None:
             params["reply_markup"] = reply_markup
