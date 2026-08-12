@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Protocol, TypeVar
 
 import httpx
@@ -12,6 +13,63 @@ logger = get_logger(__name__)
 
 T = TypeVar("T")
 _NETWORK_RETRY_AFTER_S = 2.0
+
+# ── Startup getUpdates conflict (LOCAL PATCH) ────────────────────────────────
+#
+# Restarting the bridge races Telegram: the previous process's long-poll stays
+# open server-side for the remainder of its timeout (up to 50 s) even after that
+# process has exited and released the config lock. The new instance polls, sees
+# two consumers and gets
+#
+#   409 Conflict: terminated by other getUpdates request; make sure that only
+#   one bot instance is running
+#
+# which is self-limiting — it clears as soon as the old connection drains.
+# Untreated it reached the generic error path: logged at ERROR as
+# telegram.http_error and returned None, which made _drain_backlog give up
+# ("startup.backlog.failed") so pre-restart messages were replayed as new
+# instead of discarded.
+#
+# Inside the startup window it now raises TelegramRetryAfter, which
+# BotClient._call_with_retry_after already retries transparently — no update is
+# lost, because the offset is never advanced past an update that was not
+# received, and Telegram holds undelivered updates for 24 h.
+#
+# The window is deliberately bounded: past it, a persistent 409 means a SECOND
+# bridge really is running on this token, and that must stay a visible error
+# rather than an infinite silent retry.
+_STARTUP_CONFLICT_WINDOW_S = 60.0
+_STARTUP_CONFLICT_BASE_BACKOFF_S = 1.0
+_STARTUP_CONFLICT_MAX_BACKOFF_S = 8.0
+_STARTUP_CONFLICT_MARKER = "terminated by other getupdates"
+
+_process_start = time.monotonic()
+_startup_conflict_attempts = 0
+
+
+def _startup_conflict_backoff(description: str | None) -> float | None:
+    """Backoff for a getUpdates conflict during startup, else None.
+
+    None means "not this case" — the caller must fall through to its normal
+    error handling.
+    """
+    global _startup_conflict_attempts
+    if not description or _STARTUP_CONFLICT_MARKER not in description.lower():
+        return None
+    if time.monotonic() - _process_start > _STARTUP_CONFLICT_WINDOW_S:
+        return None
+    backoff = min(
+        _STARTUP_CONFLICT_BASE_BACKOFF_S * (2**_startup_conflict_attempts),
+        _STARTUP_CONFLICT_MAX_BACKOFF_S,
+    )
+    _startup_conflict_attempts += 1
+    return backoff
+
+
+def _clear_startup_conflicts() -> None:
+    """Reset the backoff ladder once a poll succeeds."""
+    global _startup_conflict_attempts
+    _startup_conflict_attempts = 0
 
 
 class RetryAfter(Exception):
@@ -174,6 +232,24 @@ class HttpBotClient:
                     retry_after=retry_after,
                 )
                 raise TelegramRetryAfter(retry_after)
+            # LOCAL PATCH: expected, self-clearing restart race — retry quietly
+            # instead of reporting it as a failure. See the note at the top.
+            if payload.get("error_code") == 409:
+                description = payload.get("description")
+                backoff = _startup_conflict_backoff(
+                    description if isinstance(description, str) else None
+                )
+                if backoff is not None:
+                    logger.warning(
+                        "telegram.startup_conflict",
+                        method=method,
+                        url=str(resp.request.url),
+                        retry_after=backoff,
+                        description=description,
+                    )
+                    raise TelegramRetryAfter(
+                        backoff, description if isinstance(description, str) else None
+                    )
             logger.error(
                 "telegram.api_error",
                 method=method,
@@ -182,6 +258,7 @@ class HttpBotClient:
             )
             return None
 
+        _clear_startup_conflicts()
         logger.debug("telegram.response", method=method, payload=payload)
         return payload.get("result")
 
@@ -235,6 +312,19 @@ class HttpBotClient:
                 )
                 raise TelegramRetryAfter(retry_after) from exc
             body = resp.text
+            # LOCAL PATCH: Telegram answers the restart race with HTTP 409, so the
+            # conflict arrives here rather than through the ok:false envelope.
+            if resp.status_code == 409:
+                backoff = _startup_conflict_backoff(body)
+                if backoff is not None:
+                    logger.warning(
+                        "telegram.startup_conflict",
+                        method=method,
+                        status=resp.status_code,
+                        url=str(resp.request.url),
+                        retry_after=backoff,
+                    )
+                    raise TelegramRetryAfter(backoff, body) from exc
             logger.error(
                 "telegram.http_error",
                 method=method,
