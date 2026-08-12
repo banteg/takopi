@@ -1,12 +1,15 @@
+import time
+
 import httpx
 import pytest
 
+from takopi.telegram import client_api
+from takopi.telegram.api_models import User
 from takopi.telegram.client_api import (
     HttpBotClient,
     TelegramRetryAfter,
     retry_after_from_payload,
 )
-from takopi.telegram.api_models import User
 
 
 def _response() -> httpx.Response:
@@ -176,3 +179,97 @@ async def test_decode_result_invalid_payload_returns_none() -> None:
     client = HttpBotClient("token", http_client=httpx.AsyncClient())
     assert client._decode_result(method="getMe", payload=["bad"], model=User) is None
     await client.close()
+
+
+def _conflict_description() -> str:
+    return (
+        "Conflict: terminated by other getUpdates request; "
+        "make sure that only one bot instance is running"
+    )
+
+
+@pytest.fixture
+def fresh_startup_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put the module back into its just-started state."""
+    monkeypatch.setattr(client_api, "_process_start", time.monotonic())
+    monkeypatch.setattr(client_api, "_startup_conflict_attempts", 0)
+
+
+def test_startup_conflict_backoff_is_exponential_and_capped(
+    fresh_startup_window: None,
+) -> None:
+    description = _conflict_description()
+    ladder = [client_api._startup_conflict_backoff(description) for _ in range(6)]
+    assert ladder == [1.0, 2.0, 4.0, 8.0, 8.0, 8.0]
+
+
+def test_startup_conflict_backoff_resets_after_success(
+    fresh_startup_window: None,
+) -> None:
+    description = _conflict_description()
+    client_api._startup_conflict_backoff(description)
+    client_api._startup_conflict_backoff(description)
+    client_api._clear_startup_conflicts()
+    assert client_api._startup_conflict_backoff(description) == 1.0
+
+
+def test_startup_conflict_ignores_other_conflicts(fresh_startup_window: None) -> None:
+    # The webhook variant of 409 is not self-clearing: retrying would hide a real
+    # misconfiguration, so it must fall through to normal error handling.
+    webhook = "Conflict: can't use getUpdates method while webhook is active"
+    assert client_api._startup_conflict_backoff(webhook) is None
+    assert client_api._startup_conflict_backoff(None) is None
+
+
+def test_startup_conflict_expires_after_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Past the window a lingering 409 means a second bridge really is polling
+    # this token, which has to stay visible instead of retrying forever.
+    monkeypatch.setattr(
+        client_api,
+        "_process_start",
+        time.monotonic() - client_api._STARTUP_CONFLICT_WINDOW_S - 1,
+    )
+    monkeypatch.setattr(client_api, "_startup_conflict_attempts", 0)
+    assert client_api._startup_conflict_backoff(_conflict_description()) is None
+
+
+def test_parse_envelope_startup_conflict(fresh_startup_window: None) -> None:
+    client = HttpBotClient("token", http_client=httpx.AsyncClient())
+    payload = {
+        "ok": False,
+        "error_code": 409,
+        "description": _conflict_description(),
+    }
+    with pytest.raises(TelegramRetryAfter) as exc:
+        client._parse_telegram_envelope(
+            method="getUpdates",
+            resp=_response(),
+            payload=payload,
+        )
+    assert exc.value.retry_after == 1.0
+
+
+def test_parse_envelope_conflict_outside_window_is_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        client_api,
+        "_process_start",
+        time.monotonic() - client_api._STARTUP_CONFLICT_WINDOW_S - 1,
+    )
+    client = HttpBotClient("token", http_client=httpx.AsyncClient())
+    payload = {
+        "ok": False,
+        "error_code": 409,
+        "description": _conflict_description(),
+    }
+    assert (
+        client._parse_telegram_envelope(
+            method="getUpdates",
+            resp=_response(),
+            payload=payload,
+        )
+        is None
+    )
