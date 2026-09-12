@@ -1,5 +1,7 @@
+import pytest
+
 from takopi.model import ResumeToken
-from takopi.router import AutoRouter, RunnerEntry
+from takopi.router import AutoRouter, RunnerEntry, aclose_runners
 from takopi.runners.claude import ClaudeRunner
 from takopi.runners.codex import CodexRunner
 
@@ -46,3 +48,55 @@ def test_router_is_resume_line_union() -> None:
 
     assert router.is_resume_line("`codex resume abc`")
     assert router.is_resume_line("claude --resume def")
+
+
+class _FakeRunner:
+    """Minimal structural Runner; deliberately has no aclose hook."""
+
+    engine = "fake"
+
+    def is_resume_line(self, line: str) -> bool:
+        return False
+
+    def format_resume(self, token: ResumeToken) -> str:
+        return ""
+
+    def extract_resume(self, text: str | None) -> ResumeToken | None:
+        return None
+
+    async def run(self, prompt: str, resume: ResumeToken | None):
+        if False:  # pragma: no cover
+            yield
+
+
+class _Closable(_FakeRunner):
+    def __init__(self) -> None:
+        self.calls: list[bool] = []
+
+    async def aclose(self, *, force: bool = False) -> None:
+        self.calls.append(force)
+
+
+class _Boom(_FakeRunner):
+    async def aclose(self, *, force: bool = False) -> None:
+        raise RuntimeError("boom")
+
+
+@pytest.mark.anyio
+async def test_aclose_runners_skips_absent_hooks_and_isolates_errors() -> None:
+    closable = _Closable()
+    no_hook = _FakeRunner()
+    boom = _Boom()
+    router = AutoRouter(
+        entries=[
+            RunnerEntry(engine="a", runner=closable),
+            RunnerEntry(engine="b", runner=no_hook),
+            RunnerEntry(engine="c", runner=boom),
+        ],
+        default_engine="a",
+    )
+
+    await aclose_runners(router, force=True)
+
+    # closable runner received force=True; the failing one did not abort others
+    assert closable.calls == [True]
