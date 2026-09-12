@@ -448,3 +448,107 @@ def test_codex_build_runner_configs(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError):
         build_runner({"profile": 123}, tmp_path)
+
+
+def _write_idle_app_server(path: Path) -> None:
+    """A fake `codex app-server` that completes init handshake, then idles."""
+    path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "\n"
+        "def send(payload):\n"
+        "    print(json.dumps(payload), flush=True)\n"
+        "\n"
+        "for line in sys.stdin:\n"
+        "    msg = json.loads(line)\n"
+        "    method = msg.get('method')\n"
+        "    req_id = msg.get('id')\n"
+        "    if method == 'initialize':\n"
+        "        send({'id': req_id, 'result': {'serverInfo': {'name': 'fake'}}})\n"
+        "    # initialized and everything else: stay alive reading stdin until killed\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
+@pytest.mark.anyio
+async def test_app_server_force_aclose_reaps_process(tmp_path: Path) -> None:
+    codex_path = tmp_path / "codex"
+    _write_idle_app_server(codex_path)
+    client = _AppServerClient(codex_cmd=str(codex_path), extra_args=[])
+
+    await client.start()
+    proc = client._proc
+    assert proc is not None and proc.returncode is None
+
+    await client.aclose(force=True)
+    assert client._proc is None
+    with anyio.fail_after(2):
+        await proc.wait()
+    assert proc.returncode is not None
+
+    # idempotent: a second close is a no-op and does not raise
+    await client.aclose(force=True)
+    await client.aclose(force=False)
+
+
+@pytest.mark.anyio
+async def test_app_server_retire_while_idle_reaps_process(tmp_path: Path) -> None:
+    codex_path = tmp_path / "codex"
+    _write_idle_app_server(codex_path)
+    client = _AppServerClient(codex_cmd=str(codex_path), extra_args=[])
+
+    await client.start()
+    proc = client._proc
+    assert proc is not None and proc.returncode is None
+
+    # graceful retire with no turn in flight reaps immediately
+    await client.retire()
+    with anyio.fail_after(2):
+        await proc.wait()
+    assert proc.returncode is not None
+
+    # a retired client must not spawn a new process
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await client.start()
+
+
+@pytest.mark.anyio
+async def test_app_server_retire_during_busy_turn_waits(tmp_path: Path) -> None:
+    codex_path = tmp_path / "codex"
+    _write_idle_app_server(codex_path)
+    client = _AppServerClient(codex_cmd=str(codex_path), extra_args=[])
+
+    await client.start()
+    proc = client._proc
+    assert proc is not None
+
+    await client.begin_turn()
+    await client.retire()  # hot-reload while a turn is in flight
+    assert proc.returncode is None  # busy runner is left alone
+
+    # retired client refuses new turns instead of restarting the process
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await client.begin_turn()
+
+    await client.end_turn()  # turn finishes -> self-reap
+    with anyio.fail_after(2):
+        await proc.wait()
+    assert proc.returncode is not None
+
+
+@pytest.mark.anyio
+async def test_app_server_runner_forwards_aclose(tmp_path: Path) -> None:
+    codex_path = tmp_path / "codex"
+    _write_idle_app_server(codex_path)
+    runner = AppServerCodexRunner(codex_cmd=str(codex_path), extra_args=[])
+
+    await runner._client.start()
+    proc = runner._client._proc
+    assert proc is not None and proc.returncode is None
+
+    await runner.aclose(force=True)
+    with anyio.fail_after(2):
+        await proc.wait()
+    assert proc.returncode is not None

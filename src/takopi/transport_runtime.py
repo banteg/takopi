@@ -111,6 +111,10 @@ class TransportRuntime:
         self._watch_config = watch_config
 
     @property
+    def router(self) -> AutoRouter:
+        return self._router
+
+    @property
     def default_engine(self) -> EngineId:
         return self._router.default_engine
 

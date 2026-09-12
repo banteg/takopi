@@ -4,8 +4,11 @@ from dataclasses import dataclass
 from typing import Literal
 from collections.abc import Iterable
 
+from .logging import get_logger
 from .model import EngineId, ResumeToken
 from .runner import Runner
+
+logger = get_logger(__name__)
 
 
 class RunnerUnavailableError(RuntimeError):
@@ -111,3 +114,24 @@ class AutoRouter:
 
     def is_resume_line(self, line: str) -> bool:
         return any(entry.runner.is_resume_line(line) for entry in self._entries)
+
+
+async def aclose_runners(router: AutoRouter, *, force: bool) -> None:
+    """Close optional runner resources (persistent processes, etc.).
+
+    Runners without an async ``aclose`` hook (third-party plugins, stateless
+    runners) are skipped. Failures in one runner must not block the others.
+    """
+    for entry in router.entries:
+        aclose = getattr(entry.runner, "aclose", None)
+        if aclose is None:
+            continue
+        try:
+            await aclose(force=force)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "runner.aclose.failed",
+                engine=entry.engine,
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )

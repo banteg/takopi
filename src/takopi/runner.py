@@ -97,6 +97,15 @@ class BaseRunner(SessionLockMixin):
     ) -> AsyncIterator[TakopiEvent]:
         return self.run_locked(prompt, resume)
 
+    async def aclose(self, *, force: bool = False) -> None:
+        """Release any resources held between runs (e.g. persistent processes).
+
+        Optional lifecycle hook; stateless runners inherit this no-op.
+        ``force=True`` is used at shutdown and may stop in-flight work, while
+        a hot reload passes ``force=False`` so busy runners can finish first.
+        """
+        return None
+
     async def run_locked(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:

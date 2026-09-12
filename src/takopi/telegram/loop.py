@@ -19,6 +19,7 @@ from ..model import EngineId, ResumeToken
 from ..runners.run_options import EngineRunOptions
 from ..scheduler import ThreadJob, ThreadScheduler
 from ..progress import ProgressTracker
+from ..router import aclose_runners
 from ..settings import TelegramTransportSettings
 from ..transport import MessageRef, SendOptions
 from ..transport_runtime import ResolvedMessage
@@ -1981,4 +1982,7 @@ async def run_main_loop(
             async for update in poller_fn(cfg):
                 await route_update(update)
     finally:
+        # Reap persistent agent processes (e.g. codex app-server) so they are
+        # not orphaned when the bridge exits; then close the transport.
+        await aclose_runners(cfg.runtime.router, force=True)
         await cfg.exec_cfg.transport.close()

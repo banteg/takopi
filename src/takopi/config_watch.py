@@ -10,6 +10,7 @@ from watchfiles import awatch
 from .config import ConfigError
 from .ids import RESERVED_CHAT_COMMANDS
 from .logging import get_logger
+from .router import aclose_runners
 from .runtime_loader import RuntimeSpec, build_runtime_spec
 from .settings import TakopiSettings, load_settings
 from .transport_runtime import TransportRuntime
@@ -129,8 +130,12 @@ async def watch_config(
             signature = current
             continue
 
+        old_router = runtime.router
         reload.runtime_spec.apply(runtime, config_path=reload.config_path)
         logger.info("config.reload.applied", path=str(reload.config_path))
+        # Reap persistent resources (e.g. codex app-server) held by the old
+        # router. force=False: busy runners finish their in-flight turn first.
+        await aclose_runners(old_router, force=False)
         if on_reload is not None:
             try:
                 await on_reload(reload)

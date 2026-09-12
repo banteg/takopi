@@ -24,6 +24,7 @@ from .run_options import get_run_options
 from ..schemas import codex as codex_schema
 from ..utils.paths import get_run_base_dir, relativize_command
 from ..utils.streams import drain_stderr, iter_bytes_lines
+from ..utils.subprocess import kill_process, terminate_process, wait_for_process
 
 logger = get_logger(__name__)
 
@@ -693,11 +694,20 @@ class _AppServerClient:
         self._turn_senders: dict[str, Any] = {}
         self._pending_by_turn: dict[str, list[dict[str, Any]]] = {}
         self._loaded_threads: set[str] = set()
+        # Lifecycle: the persistent app-server process must be reaped on
+        # shutdown and when a hot-reload swaps this runner out.
+        self._lifecycle_lock = anyio.Lock()
+        self._use_count = 0
+        self._retired = False
+        self._closed = False
+        self._torn_down = False
 
     async def start(self) -> None:
         async with self._start_lock:
             if self._proc is not None:
                 return
+            if self._closed or self._retired or self._torn_down:
+                raise RuntimeError("codex app-server is shutting down")
 
             cmd = [
                 self.codex_cmd,
@@ -926,6 +936,82 @@ class _AppServerClient:
             waiter.event.set()
         for sender in senders:
             await sender.aclose()
+
+    async def begin_turn(self) -> None:
+        """Register an active turn; refuses once the client is retired."""
+        async with self._lifecycle_lock:
+            if self._closed or self._retired:
+                raise RuntimeError("codex app-server is shutting down")
+            self._use_count += 1
+
+    async def end_turn(self) -> None:
+        close_now = False
+        async with self._lifecycle_lock:
+            self._use_count = max(0, self._use_count - 1)
+            if self._use_count == 0 and self._retired and not self._closed:
+                close_now = True
+        if close_now:
+            await self._teardown()
+
+    async def retire(self) -> None:
+        """Drop this runner after the current turn ends.
+
+        A hot reload calls this: an idle app-server is reaped immediately,
+        while a busy one keeps serving its in-flight turn and tears itself
+        down the moment it finishes, so no running task is interrupted.
+        """
+        close_now = False
+        async with self._lifecycle_lock:
+            if self._closed:
+                return
+            self._retired = True
+            close_now = self._use_count == 0
+        if close_now:
+            await self._teardown()
+
+    async def aclose(self, *, force: bool = False) -> None:
+        """Stop the persistent app-server.
+
+        ``force=True`` (shutdown) reaps the process group immediately even if
+        a turn is in flight; ``force=False`` (hot reload) retires gracefully.
+        """
+        if force:
+            async with self._lifecycle_lock:
+                if self._closed:
+                    return
+                self._closed = True
+                self._retired = True
+            await self._teardown()
+            return
+        await self.retire()
+
+    async def _teardown(self) -> None:
+        async with self._lifecycle_lock:
+            if self._torn_down:
+                return
+            self._torn_down = True
+            proc = self._proc
+            self._proc = None
+            self._loaded_threads.clear()
+            reader_task = self._reader_task
+            stderr_task = self._stderr_task
+
+        if proc is not None and proc.returncode is None:
+            with anyio.CancelScope(shield=True):
+                terminate_process(proc)
+                timed_out = await wait_for_process(proc, timeout=2.0)
+                if timed_out:
+                    kill_process(proc)
+                    await proc.wait()
+
+        for task in (reader_task, stderr_task):
+            if task is None or task.done():
+                continue
+            with anyio.CancelScope(shield=True), anyio.move_on_after(2.0):
+                await task
+
+        await self._fail_all(RuntimeError("codex app-server shut down"))
+        logger.info("codex.app_server.stopped", pid=getattr(proc, "pid", None))
 
 
 def _app_notification_turn_id(message: dict[str, Any]) -> str | None:
@@ -1297,12 +1383,24 @@ class AppServerCodexRunner(ResumeTokenMixin, BaseRunner):
         self.session_title = title
         self._client = _AppServerClient(codex_cmd=codex_cmd, extra_args=extra_args)
 
+    async def aclose(self, *, force: bool = False) -> None:
+        await self._client.aclose(force=force)
+
     async def run_impl(
         self, prompt: str, resume: ResumeToken | None
     ) -> AsyncIterator[TakopiEvent]:
         client = self._client
-        await client.start()
+        await client.begin_turn()
+        try:
+            await client.start()
+            async for event in self._run_turn(client, prompt, resume):
+                yield event
+        finally:
+            await client.end_turn()
 
+    async def _run_turn(
+        self, client: _AppServerClient, prompt: str, resume: ResumeToken | None
+    ) -> AsyncIterator[TakopiEvent]:
         run_options = get_run_options()
         if resume is not None:
             thread_id = resume.value
