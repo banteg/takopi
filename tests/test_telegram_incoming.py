@@ -1,8 +1,12 @@
+import json
+
 from takopi.telegram import (
     TelegramCallbackQuery,
     TelegramIncomingMessage,
     parse_incoming_update,
 )
+from takopi.telegram.api_schemas import decode_updates
+from takopi.telegram.loop import _is_forwarded
 from takopi.telegram.api_models import (
     CallbackQuery,
     CallbackQueryMessage,
@@ -318,3 +322,74 @@ def test_parse_incoming_update_topic_fields() -> None:
     assert msg.is_topic_message is True
     assert msg.chat_type == "supergroup"
     assert msg.is_forum is True
+
+
+def _forward_update(origin: object) -> object:
+    return [
+        {
+            "update_id": 1,
+            "message": {
+                "message_id": 9,
+                "date": 1700000000,
+                "chat": {"id": 42, "type": "private"},
+                "from": {"id": 42, "is_bot": False, "first_name": "u"},
+                "forward_origin": origin,
+                "text": "forwarded body",
+            },
+        }
+    ]
+
+
+def test_forward_origin_survives_real_decode() -> None:
+    # Bot API 7.0+ sends forward_origin instead of the removed forward_from*
+    # fields. It must survive JSON decoding + to_builtins so forwarded text is
+    # coalesced instead of each piece triggering its own agent run.
+    origins = (
+        {
+            "type": "user",
+            "date": 1690000000,
+            "sender_user": {"id": 7, "is_bot": False, "first_name": "orig"},
+        },
+        {"type": "hidden_user", "date": 1690000000, "sender_user_name": "Anonymous"},
+        {
+            "type": "chat",
+            "date": 1690000000,
+            "sender_chat": {"id": -100, "type": "channel", "title": "chan"},
+        },
+        {
+            "type": "channel",
+            "date": 1690000000,
+            "message_id": 3,
+            "chat": {"id": -100, "type": "channel", "title": "chan"},
+        },
+        # forward-compatible: an unknown/future origin variant must not break decode
+        {"type": "some_future_origin", "date": 1690000000},
+    )
+    for origin in origins:
+        [update] = decode_updates(json.dumps(_forward_update(origin)))
+        msg = parse_incoming_update(update, chat_id=42)
+        assert isinstance(msg, TelegramIncomingMessage)
+        assert msg.raw is not None
+        assert msg.raw.get("forward_origin") is not None
+        assert _is_forwarded(msg.raw)
+
+
+def test_non_forwarded_message_not_flagged_after_decode() -> None:
+    update_json = json.dumps(
+        [
+            {
+                "update_id": 1,
+                "message": {
+                    "message_id": 9,
+                    "date": 1700000000,
+                    "chat": {"id": 42, "type": "private"},
+                    "from": {"id": 42, "is_bot": False, "first_name": "u"},
+                    "text": "just a normal message",
+                },
+            }
+        ]
+    )
+    [update] = decode_updates(update_json)
+    msg = parse_incoming_update(update, chat_id=42)
+    assert isinstance(msg, TelegramIncomingMessage)
+    assert not _is_forwarded(msg.raw)
