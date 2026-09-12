@@ -142,6 +142,19 @@ def _extract_tool_action(part: dict[str, Any]) -> Action | None:
     return Action(id=call_id, kind=kind, title=title, detail=detail)
 
 
+def _tool_exit_code(metadata: dict[str, Any]) -> int | None:
+    """Return a shell command's exit code from tool metadata.
+
+    OpenCode emits it as ``exitCode``; older builds (and some captured
+    fixtures) used ``exit``. Accept either, preferring the current key.
+    """
+    for key in ("exitCode", "exit"):
+        value = metadata.get(key)
+        if isinstance(value, int):
+            return value
+    return None
+
+
 def translate_opencode_event(
     event: opencode_schema.OpenCodeEvent,
     *,
@@ -179,10 +192,10 @@ def translate_opencode_event(
             if status == "completed":
                 output = tool_state.get("output")
                 metadata = tool_state.get("metadata") or {}
-                exit_code = metadata.get("exit")
+                exit_code = _tool_exit_code(metadata)
 
                 is_error = False
-                if isinstance(exit_code, int) and exit_code != 0:
+                if exit_code is not None and exit_code != 0:
                     is_error = True
 
                 detail = dict(action.detail)
@@ -209,7 +222,7 @@ def translate_opencode_event(
             if status == "error":
                 error = tool_state.get("error")
                 metadata = tool_state.get("metadata") or {}
-                exit_code = metadata.get("exit")
+                exit_code = _tool_exit_code(metadata)
 
                 detail = dict(action.detail)
                 if error is not None:

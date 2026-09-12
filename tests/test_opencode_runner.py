@@ -9,6 +9,7 @@ from takopi.runners.opencode import (
     OpenCodeRunner,
     OpenCodeStreamState,
     ENGINE,
+    _tool_exit_code,
     translate_opencode_event,
 )
 from takopi.schemas import opencode as opencode_schema
@@ -220,6 +221,60 @@ def test_translate_tool_use_with_error() -> None:
     assert isinstance(action_event, ActionEvent)
     assert action_event.phase == "completed"
     assert action_event.ok is False
+
+
+def test_tool_exit_code_supports_both_keys() -> None:
+    # current OpenCode CLI emits exitCode; older builds emitted exit.
+    assert _tool_exit_code({"exitCode": 0}) == 0
+    assert _tool_exit_code({"exitCode": 1}) == 1
+    assert _tool_exit_code({"exit": 2}) == 2
+    assert _tool_exit_code({"exitCode": 1, "exit": 0}) == 1
+    assert _tool_exit_code({}) is None
+    assert _tool_exit_code({"exitCode": "1"}) is None
+
+
+def _completed_tool_event(metadata: dict) -> ActionEvent:
+    state = OpenCodeStreamState()
+    state.session_id = "ses_test123"
+    state.emitted_started = True
+    events = translate_opencode_event(
+        _decode_event(
+            {
+                "type": "tool_use",
+                "sessionID": "ses_test123",
+                "part": {
+                    "id": "prt_123",
+                    "callID": "call_abc",
+                    "tool": "bash",
+                    "state": {
+                        "status": "completed",
+                        "input": {"command": "exit 1"},
+                        "output": "error",
+                        "title": "Run failing command",
+                        "metadata": metadata,
+                    },
+                },
+            }
+        ),
+        title="opencode",
+        state=state,
+    )
+    assert len(events) == 1
+    assert isinstance(events[0], ActionEvent)
+    return events[0]
+
+
+def test_completed_tool_with_exitcode_failure_is_not_ok() -> None:
+    # Regression: real OpenCode emits exitCode; a nonzero code must render
+    # as a failed action instead of a green success.
+    event = _completed_tool_event({"exitCode": 1})
+    assert event.ok is False
+    assert event.action.detail["exit_code"] == 1
+
+
+def test_completed_tool_with_legacy_exit_key_still_detected() -> None:
+    assert _completed_tool_event({"exit": 1}).ok is False
+    assert _completed_tool_event({"exit": 0}).ok is True
 
 
 def test_translate_tool_use_read_title_wraps_path() -> None:
