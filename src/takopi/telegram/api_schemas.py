@@ -5,6 +5,8 @@ Derived from telegram-api.html in the repository.
 
 from __future__ import annotations
 
+from typing import Any
+
 import msgspec
 
 __all__ = [
@@ -93,6 +95,10 @@ class Message(msgspec.Struct, forbid_unknown_fields=False):
     text: str | None = None
     caption: str | None = None
     reply_to_message: MessageReply | None = None
+    # Bot API 7.0 replaced the forward_from* fields with this tagged object.
+    # Kept as a raw dict so every MessageOrigin variant (and future ones) round
+    # -trips through to_builtins for forward detection without decode failures.
+    forward_origin: dict[str, Any] | None = None
     forward_from: User | None = None
     forward_from_chat: Chat | None = None
     forward_from_message_id: int | None = None
