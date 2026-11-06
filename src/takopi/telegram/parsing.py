@@ -137,7 +137,31 @@ def _parse_incoming_message(
         document=document_payload,
         raw=msgspec.to_builtins(msg),
         update_id=update_id,
+        mentioned_usernames=_mentioned_usernames(
+            msg, raw_text if raw_text is not None else caption
+        ),
     )
+
+
+def _mentioned_usernames(msg: Message, entity_text: str | None) -> tuple[str, ...]:
+    """Usernames addressed by Telegram mention entities in a message.
+
+    Offsets in Telegram entities are UTF-16 code units, so the `mention`
+    slice is taken over the UTF-16 view of the text.
+    """
+    names: list[str] = []
+    for entity in msg.entities or ():
+        if entity.type == "text_mention":
+            if entity.user is not None and entity.user.username:
+                names.append(entity.user.username)
+        elif entity.type == "mention" and entity_text is not None:
+            units = entity_text.encode("utf-16-le")
+            start = entity.offset * 2
+            end = start + entity.length * 2
+            mention = units[start:end].decode("utf-16-le", errors="ignore")
+            if mention.startswith("@") and len(mention) > 1:
+                names.append(mention[1:])
+    return tuple(names)
 
 
 def _parse_callback_query(

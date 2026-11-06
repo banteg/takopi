@@ -9,6 +9,7 @@ from takopi.telegram.api_models import (
     Chat,
     Document,
     Message,
+    MessageEntity,
     MessageReply,
     PhotoSize,
     Sticker,
@@ -56,6 +57,48 @@ def test_parse_incoming_update_maps_fields() -> None:
     assert msg.raw
     assert msg.raw["message_id"] == 10
     assert msg.update_id == 1
+
+
+def test_parse_incoming_update_extracts_mention_entities() -> None:
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            text="🎉 @BotOne names @bottwo; ghost",
+            chat=Chat(id=123, type="supergroup", is_forum=True),
+            # Offsets/lengths are UTF-16 code units: the leading emoji is a
+            # surrogate pair, so every offset is one unit past its code point.
+            entities=[
+                MessageEntity(type="mention", offset=3, length=7),
+                MessageEntity(type="mention", offset=17, length=7),
+                MessageEntity(
+                    type="text_mention",
+                    offset=26,
+                    length=5,
+                    user=User(id=55, username="GhostUser"),
+                ),
+            ],
+        ),
+    )
+
+    msg = parse_incoming_update(update, chat_id=123)
+    assert msg is not None
+    assert msg.mentioned_usernames == ("BotOne", "bottwo", "GhostUser")
+
+
+def test_parse_incoming_update_no_entities_empty_mentions() -> None:
+    update = Update(
+        update_id=1,
+        message=Message(
+            message_id=10,
+            text="hello @bot",
+            chat=Chat(id=123, type="supergroup", is_forum=True),
+        ),
+    )
+
+    msg = parse_incoming_update(update, chat_id=123)
+    assert msg is not None
+    assert msg.mentioned_usernames == ()
 
 
 def test_parse_incoming_update_ignores_implicit_topic_reply() -> None:
