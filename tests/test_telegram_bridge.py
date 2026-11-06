@@ -2135,6 +2135,58 @@ async def test_run_main_loop_ignores_duplicate_update_id() -> None:
 
 
 @pytest.mark.anyio
+async def test_run_main_loop_ignores_duplicate_message_id_across_update_ids() -> None:
+    transport = FakeTransport()
+    bot = FakeBot()
+    runner = ScriptRunner([Return(answer="ok")], engine=CODEX_ENGINE)
+    runtime = TransportRuntime(router=_make_router(runner), projects=_empty_projects())
+    cfg = TelegramBridgeConfig(
+        bot=bot,
+        runtime=runtime,
+        chat_id=123,
+        startup_msg="",
+        exec_cfg=ExecBridgeConfig(
+            transport=transport,
+            presenter=MarkdownPresenter(),
+            final_notify=True,
+        ),
+        forward_coalesce_s=FAST_FORWARD_COALESCE_S,
+        media_group_debounce_s=FAST_MEDIA_GROUP_DEBOUNCE_S,
+    )
+
+    async def poller(_cfg: TelegramBridgeConfig):
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=77,
+            text="first",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            update_id=9001,
+        )
+        # Long-poll redelivery: same (chat_id, message_id) under a fresh update id.
+        # The update_id guard alone cannot catch this; the message-key dedup must.
+        yield TelegramIncomingMessage(
+            transport="telegram",
+            chat_id=123,
+            message_id=77,
+            text="first",
+            reply_to_message_id=None,
+            reply_to_text=None,
+            sender_id=123,
+            chat_type="private",
+            update_id=9002,
+        )
+
+    await run_main_loop(cfg, poller)
+
+    assert len(runner.calls) == 1
+    assert runner.calls[0][0] == "first"
+
+
+@pytest.mark.anyio
 async def test_run_main_loop_persists_topic_sessions_in_project_scope(
     tmp_path: Path,
 ) -> None:
