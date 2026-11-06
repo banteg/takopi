@@ -17,6 +17,7 @@ Add to your `takopi.toml`:
 
     ```sh
     takopi config set opencode.model "claude-sonnet"
+    takopi config set opencode.cmd "opencode"
     ```
 
 === "toml"
@@ -24,6 +25,7 @@ Add to your `takopi.toml`:
     ```toml
     [opencode]
     model = "claude-sonnet"  # optional
+    cmd = "opencode"         # optional; executable used to run prompts (a wrapper script is allowed)
     ```
 
 ## Usage
