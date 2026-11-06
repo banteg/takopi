@@ -338,7 +338,14 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
             args.extend(["--model", str(model)])
         if _NUMERIC_PROMPT_RE.fullmatch(prompt):
             prompt = f"{prompt}."
-        args.extend(["--", prompt])
+        if prompt.startswith("-"):
+            # `--` is only needed to keep option-like prompts positional. Emitting
+            # it unconditionally trips the CLI's post-`--` argument handling on
+            # Windows (prompt stored twice, with literal quotes; see
+            # anomalyco/opencode#62202), so keep it conditional.
+            args.extend(["--", prompt])
+        else:
+            args.append(prompt)
         return args
 
     def stdin_payload(
