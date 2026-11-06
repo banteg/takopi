@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from ..transport_runtime import TransportRuntime
@@ -40,9 +41,16 @@ def should_trigger_run(
     text = msg.text or ""
     lowered = text.lower()
     if bot_username:
-        needle = f"@{bot_username}"
-        if needle in lowered:
+        lowered_bot = bot_username.lower()
+        if any(name.lower() == lowered_bot for name in msg.mentioned_usernames):
             return True
+        if msg.raw is None:
+            # Messages synthesized internally carry no Telegram entity
+            # metadata; use a word-boundary match as the best available
+            # proxy. A bare substring would also fire for a prefix
+            # (`@bot` inside `@botname`).
+            if re.search(rf"@{re.escape(lowered_bot)}(?!\w)", lowered):
+                return True
     implicit_topic_reply = (
         msg.thread_id is not None and msg.reply_to_message_id == msg.thread_id
     )

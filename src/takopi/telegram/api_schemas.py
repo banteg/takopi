@@ -85,6 +85,14 @@ class MessageReply(msgspec.Struct, forbid_unknown_fields=False):
     from_: User | None = msgspec.field(default=None, name="from")
 
 
+class MessageEntity(msgspec.Struct, forbid_unknown_fields=False):
+    type: str
+    offset: int
+    length: int
+    url: str | None = None
+    user: User | None = None
+
+
 class Message(msgspec.Struct, forbid_unknown_fields=False):
     message_id: int
     chat: Chat
@@ -107,6 +115,7 @@ class Message(msgspec.Struct, forbid_unknown_fields=False):
     video: Video | None = None
     photo: list[PhotoSize] | None = None
     sticker: Sticker | None = None
+    entities: list[MessageEntity] | None = None
 
 
 class CallbackQueryMessage(msgspec.Struct, forbid_unknown_fields=False):

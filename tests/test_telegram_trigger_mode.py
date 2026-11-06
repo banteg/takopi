@@ -53,6 +53,50 @@ def test_should_trigger_run_mentions() -> None:
     )
 
 
+def test_should_trigger_run_mention_entity_exact_match() -> None:
+    runtime = _runtime()
+    msg = _msg(
+        "status: @peerbot is up; @Bot was asked",
+        raw={"message_id": 1, "entities": []},
+        mentioned_usernames=("peerbot", "Bot"),
+    )
+    assert should_trigger_run(
+        msg,
+        bot_username="bot",
+        runtime=runtime,
+        command_ids=set(),
+        reserved_chat_commands=set(RESERVED_CHAT_COMMANDS),
+    )
+
+
+def test_should_trigger_run_naming_without_entity_does_not_wake() -> None:
+    runtime = _runtime()
+    msg = _msg(
+        "a transcript line: @bot replied earlier",
+        raw={"message_id": 1, "entities": [{"type": "mention", "offset": 20, "length": 4}]},
+        mentioned_usernames=("peerbot",),
+    )
+    assert not should_trigger_run(
+        msg,
+        bot_username="bot",
+        runtime=runtime,
+        command_ids=set(),
+        reserved_chat_commands=set(RESERVED_CHAT_COMMANDS),
+    )
+
+
+def test_should_trigger_run_prefix_substring_does_not_wake() -> None:
+    runtime = _runtime()
+    msg = _msg("hello @botxyz")
+    assert not should_trigger_run(
+        msg,
+        bot_username="bot",
+        runtime=runtime,
+        command_ids=set(),
+        reserved_chat_commands=set(RESERVED_CHAT_COMMANDS),
+    )
+
+
 def test_should_trigger_run_engine_and_project() -> None:
     runtime = _runtime()
     assert should_trigger_run(

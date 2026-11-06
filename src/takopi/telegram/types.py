@@ -42,6 +42,7 @@ class TelegramIncomingMessage:
     document: TelegramDocument | None = None
     raw: dict[str, Any] | None = None
     update_id: int | None = None
+    mentioned_usernames: tuple[str, ...] = ()
 
     @property
     def is_private(self) -> bool:
