@@ -481,7 +481,12 @@ class OpenCodeRunner(ResumeTokenMixin, JsonlSubprocessRunner):
 
 def build_runner(config: EngineConfig, config_path: Path) -> Runner:
     """Build an OpenCodeRunner from configuration."""
-    opencode_cmd = "opencode"
+    cmd = config.get("cmd")
+    if cmd is not None and (not isinstance(cmd, str) or not cmd.strip()):
+        raise ConfigError(
+            f"Invalid `opencode.cmd` in {config_path}; expected a non-empty string."
+        )
+    opencode_cmd = cmd or "opencode"
 
     model = config.get("model")
     if model is not None and not isinstance(model, str):

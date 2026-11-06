@@ -5,10 +5,12 @@ import anyio
 import pytest
 
 from takopi.model import ActionEvent, CompletedEvent, ResumeToken, StartedEvent
+from takopi.config import ConfigError
 from takopi.runners.opencode import (
     OpenCodeRunner,
     OpenCodeStreamState,
     ENGINE,
+    build_runner,
     translate_opencode_event,
 )
 from takopi.schemas import opencode as opencode_schema
@@ -337,6 +339,31 @@ def test_build_args_preserves_non_numeric_prompt() -> None:
     args = runner.build_args("2a", None, state=OpenCodeStreamState())
 
     assert args[-2:] == ["--", "2a"]
+
+
+def test_build_runner_default_cmd(tmp_path: Path) -> None:
+    runner = build_runner({}, tmp_path)
+    assert isinstance(runner, OpenCodeRunner)
+    assert runner.command() == "opencode"
+
+
+def test_build_runner_cmd_from_config(tmp_path: Path) -> None:
+    runner = build_runner({"cmd": "opencode-wrapper"}, tmp_path)
+    assert isinstance(runner, OpenCodeRunner)
+    assert runner.command() == "opencode-wrapper"
+
+
+def test_build_runner_cmd_with_model(tmp_path: Path) -> None:
+    runner = build_runner({"cmd": "ocw", "model": "claude-sonnet"}, tmp_path)
+    assert isinstance(runner, OpenCodeRunner)
+    assert runner.command() == "ocw"
+    assert runner.model == "claude-sonnet"
+
+
+@pytest.mark.parametrize("bad_cmd", [123, ["opencode"], "   ", ""])
+def test_build_runner_rejects_invalid_cmd(bad_cmd: object, tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match="opencode.cmd"):
+        build_runner({"cmd": bad_cmd}, tmp_path)
 
 
 def test_stdin_payload_returns_none() -> None:
